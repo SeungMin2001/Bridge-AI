@@ -1,9 +1,13 @@
 import torch
 
-# 모델 없이도 디바이스 확인
+print("CUDA 사용 가능:", torch.cuda.is_available())
 if torch.cuda.is_available():
     print("CUDA 장치 이름:", torch.cuda.get_device_name(0))
-    print("CUDA 장치 지원 여부:", torch.cuda.is_available())
     print("현재 연산 디바이스:", torch.cuda.current_device())
-else:
-    print("GPU 사용 불가, CPU 사용 중")
+
+# 간단한 GPU 연산 테스트
+x = torch.rand(3, 3).to("cuda")
+y = torch.rand(3, 3).to("cuda")
+z = x + y
+print("GPU 연산 결과:", z)
+print("연산 디바이스:", z.device)
