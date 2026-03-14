@@ -4,7 +4,7 @@
 
 ## Setup
 ```bash
-git clone <repository_url>
+git clone https://github.com/SeungMin2001/Group-Chat-agent.git
 cd last_project
 
 python -m venv venv
