@@ -1,10 +1,13 @@
 from fastapi import FastAPI,WebSocket
 import numpy as np
-from faster_whisper import WhisperModel
+import whisper
 from starlette.websockets import WebSocketDisconnect
 from scipy.signal import resample
+import torch
 
-model=WhisperModel("tiny",device="cpu") #모델설정(transcript할 모델)
+device="mps" if torch.backends.mps.is_available() else "cuda"
+
+model=whisper.load_model("turbo",device=device) #모델설정(transcript할 모델)
 app=FastAPI()
 
 CHUNK_SIZE=144000 #1초
@@ -36,18 +39,25 @@ async def websocket_endpoint(ws:WebSocket):
                 rms=np.sqrt(np.mean(audio_float**2))
                 if rms<0.01:
                     continue
-                segments, info=model.transcribe( #모델 돌려서 전사하기.
+                res=model.transcribe( #모델 돌려서 전사하기.
                     audio_16k,
                     language="ko",
-                    vad_filter=True,
-                    condition_on_previous_text=False
+                    task="transcribe",
+                    fp16=False,
+                    temperature=0.0,
+                    condition_on_previous_text=False,
+                    verbose=False,
                     ) 
+                
+                text=res["text"].strip()
+                #segments=res["segments"]
+                #language=res["language"]
                 
                 is_transcribing=False
                 
-                text=""
-                for segment in segments: #세그먼트 단위의 텍스트 다 합쳐주기.
-                    text+=segment.text
+                # text=""
+                # for segment in segments: #세그먼트 단위의 텍스트 다 합쳐주기.
+                #     text+=segment.text
                 
                 await ws.send_text(text)
                 
