@@ -32,7 +32,7 @@ numba==0.64.0
 numpy==2.4.3
 onnxruntime==1.24.3
 openai-whisper==20250625
-packaging @ file:///opt/miniconda3/conda-bld/packaging_1761049079068/work
+#packaging @ file:///opt/miniconda3/conda-bld/packaging_1761049079068/work
 protobuf==7.34.0
 pycparser==3.0
 pydantic==2.12.5
