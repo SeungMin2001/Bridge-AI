@@ -1,7 +1,8 @@
 const btn = document.getElementById("start"); //버튼 만들어주기.
 
 btn.onclick = async () => { //버튼 눌렀을시
-  const ws=new WebSocket("ws://localhost:8000/ws") //웹소켓 생성. 이 주소에 음성INT16 보낼거임
+  //alert("THIS IS THE REAL MAIN JS");
+  const ws = new WebSocket("ws://100.104.164.84:8000/ws");
 
   ws.onmessage=async=(event)=>{
     console.log(event.data)
