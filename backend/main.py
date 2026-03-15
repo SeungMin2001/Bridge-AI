@@ -4,7 +4,7 @@ import whisper
 from starlette.websockets import WebSocketDisconnect
 from scipy.signal import resample
 import torch
-from corrector import correct_text
+#from corrector import correct_text
 
 device="mps" if torch.backends.mps.is_available() else "cuda"
 
@@ -51,13 +51,13 @@ async def websocket_endpoint(ws:WebSocket):
                     ) 
                 
                 text=res["text"].strip()
-                corrected=correct_text(text)
+                #corrected=correct_text(text)
                 #segments=res["segments"]
                 #language=res["language"]
                 
                 is_transcribing=False
 
-                await ws.send_text(corrected)
+                await ws.send_text(text)
                 
                 print(audio_float[:10])
     except WebSocketDisconnect:
