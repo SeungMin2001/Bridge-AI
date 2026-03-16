@@ -12,8 +12,14 @@ rows = []
 # 예시: 공개 데이터셋 한 부분을 불러온 뒤 일부만 사용
 # 실제 컬럼명은 데이터셋마다 다를 수 있으니 print(sample)로 먼저 확인
 
-ds = load_dataset("DragonLine/ksponspeech", split="train[:100]")
-print(ds[0])
+cache_path = r"C:\Users\user\Documents\ksponspeech_data"
+
+train_ds = load_dataset(
+    "DragonLine/ksponspeech",
+    split="train",
+    cache_dir=cache_path
+)
+print(train_ds[0])
 
 # for i, sample in enumerate(ds.select(range(100))):
 #     audio_path = sample["audio"]["path"]
