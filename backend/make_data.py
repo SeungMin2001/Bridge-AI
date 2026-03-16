@@ -9,13 +9,16 @@ name=["train","vaild","test"]
 cache_path = r"C:\Users\user\Documents\ksponspeech_data"
 
 for k in name:
-    train_ds = load_dataset(
+    data = load_dataset(
         "DragonLine/ksponspeech",
         split=k,
         cache_dir=cache_path
     )
 
     device="mps" if torch.backends.mps.is_available() else "cuda"
+
+    print("device: ",device)
+
     model = whisper.load_model("large-v3",device=device)
 
     def clean_transcript(text: str) -> str:
@@ -28,7 +31,7 @@ for k in name:
 
     rows = []
 
-    for i, sample in enumerate(train_ds):
+    for i, sample in enumerate(data):
         audio_array = sample["audio"]["array"].astype(np.float32)
         target_text = clean_transcript(sample["transcripts"])
 
@@ -49,7 +52,7 @@ for k in name:
             "target_text": target_text
         })
 
-        print(f"{i+1}/{len(train_ds)}")
+        print(f"{i+1}/{len(data)}")
         print("[INPUT ]", input_text)
         print("[TARGET]", target_text)
         print("-" * 50)
