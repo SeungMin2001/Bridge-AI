@@ -14,11 +14,9 @@ rows = []
 
 cache_path = r"C:\Users\user\Documents\ksponspeech_data"
 
-train_ds = load_dataset(
-    "DragonLine/ksponspeech",
-    split="train",
-    cache_dir=cache_path
-)
+train_ds = load_dataset("DragonLine/ksponspeech", split="train", cache_dir=cache_path)
+
+print(train_ds.column_names)
 print(train_ds[0])
 
 # for i, sample in enumerate(ds.select(range(100))):
