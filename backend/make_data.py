@@ -10,7 +10,11 @@ rows = []
 
 # 예시: 공개 데이터셋 한 부분을 불러온 뒤 일부만 사용
 # 실제 컬럼명은 데이터셋마다 다를 수 있으니 print(sample)로 먼저 확인
-ds = load_dataset("cheulyop/ksponspeech", split="validation")
+ds = load_dataset(
+    "cheulyop/ksponspeech",
+    split="validation",
+    trust_remote_code=True
+)
 
 for i, sample in enumerate(ds.select(range(100))):
     audio_path = sample["audio"]["path"]
