@@ -5,7 +5,9 @@ btn.onclick = async () => { //버튼 눌렀을시
   const ws = new WebSocket("ws://100.104.164.84:8000/ws");
 
   ws.onmessage=async=(event)=>{
-    console.log(event.data)
+    const data=JSON.perse(event.data)
+    console.log("[before]",data.raw_text)
+    console.log("[after]",data.text)
   }
 
   ws.onopen=async()=>{

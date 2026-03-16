@@ -1,98 +1,40 @@
-# corrector.py
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import PreTrainedTokenizerFast, BartForConditionalGeneration
 
-MODEL_NAME = "OpenLLM-Korea/kanana-1.5-2.1b-instruct-2505"
+# 주의:
+# 1) 아래 MODEL_NAME에는 "ASR 교정용으로 파인튜닝된 KoBART 체크포인트"를 넣는 것이 맞다.
+# 2) 처음 테스트용으로는 gogamza/kobart-base-v2 같은 base를 넣어 연결만 확인할 수는 있지만
+#    실제 교정 성능은 기대하면 안 된다.
 
-print("교정 모델 로드 중...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-corrector = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    torch_dtype=torch.bfloat16,
-    device_map="auto"
-)
-corrector.eval()
-print("교정 모델 로드 완료")
+MODEL_NAME = "gogamza/kobart-base-v2"  # 나중에 네가 파인튜닝한 체크포인트로 교체
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-SYSTEM_PROMPT = """
-너는 한국어 음성 전사 교정기다.
-역할은 오직 하나다:
-발음대로 잘못 적힌 단어를 문맥에 맞는 올바른 단어로 고쳐라.
-
-반드시 지켜야 할 규칙:
-- 발음 오류처럼 보이는 단어만 교정하라.
-- 원래 문장의 의미를 바꾸지 마라.
-- 없는 정보를 추가하지 마라.
-- 문장을 새로 꾸미지 마라.
-- 설명, 해설, 답변, 인사말을 쓰지 마라.
-- 교정된 최종 문장만 출력하라.
-- 교정할 부분이 없으면 원문 그대로 출력하라.
-""".strip()
-
+tokenizer = PreTrainedTokenizerFast.from_pretrained(MODEL_NAME)
+model = BartForConditionalGeneration.from_pretrained(MODEL_NAME).to(device)
+model.eval()
 
 @torch.inference_mode()
-def correct_text(text: str) -> str:
-    text = (text or "").strip()
+def correct_text(text: str, max_length: int = 128) -> str:
+    text = text.strip()
     if not text:
         return text
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": f"""다음 전사 문장을 교정하라.
+    inputs = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=max_length,
+    ).to(device)
 
-전사문:
-{text}
-
-교정문:"""
-        },
-    ]
-
-    prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True
-    )
-
-    inputs = tokenizer(prompt, return_tensors="pt")
-    model_device = next(corrector.parameters()).device
-    inputs = {k: v.to(model_device) for k, v in inputs.items()}
-
-    outputs = corrector.generate(
+    output_ids = model.generate(
         **inputs,
-        max_new_tokens=max(16, min(len(text) + 10, 80)),
+        max_length=max_length,
+        num_beams=4,
         do_sample=False,
-        temperature=0.0,
+        early_stopping=True,
         repetition_penalty=1.1,
-        no_repeat_ngram_size=3,
-        pad_token_id=tokenizer.eos_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-        use_cache=True,
     )
 
-    generated = outputs[0][inputs["input_ids"].shape[1]:]
-    result = tokenizer.decode(generated, skip_special_tokens=True).strip()
-
-    # 첫 줄만 사용
-    result = result.splitlines()[0].strip()
-
-    # 접두어 제거
-    for prefix in ["교정문:", "출력:", "정답:", "교정:", "수정문:"]:
-        if result.startswith(prefix):
-            result = result[len(prefix):].strip()
-
-    # 이상한 출력 방어
-    if not result:
-        return text
-
-    # 원문보다 지나치게 길면 교정이 아니라 생성으로 판단
-    if len(result) > max(len(text) + 12, int(len(text) * 1.4)):
-        return text
-
-    banned_starts = ["네", "알겠습니다", "이해했습니다", "저는", "설명", "답변"]
-    if any(result.startswith(x) for x in banned_starts):
-        return text
-
-    return result
+    corrected = tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+    return corrected if corrected else text
