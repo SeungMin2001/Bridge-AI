@@ -3,6 +3,7 @@ import pandas as pd
 import whisper
 from datasets import load_dataset
 import torch
+import numpy as np
 
 cache_path = r"C:\Users\user\Documents\ksponspeech_data"
 
@@ -26,7 +27,7 @@ def clean_transcript(text: str) -> str:
 rows = []
 
 for i, sample in enumerate(train_ds):
-    audio_array = sample["audio"]["array"]
+    audio_array = sample["audio"]["array"].astype(np.float32)
     target_text = clean_transcript(sample["transcripts"])
 
     result = model.transcribe(
