@@ -1,6 +1,7 @@
 import pandas as pd
 import whisper
 from datasets import load_dataset
+import torch
 
 device="mps" if torch.backends.mps.is_available() else "cuda"
 model=whisper.load_model("turbo",device=device) #모델설정(transcript할 모델)
