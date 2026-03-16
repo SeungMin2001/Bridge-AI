@@ -33,7 +33,9 @@ def correct_text(text: str, max_length: int = 128) -> str:
         num_beams=4,
         do_sample=False,
         early_stopping=True,
-        repetition_penalty=1.1,
+        repetition_penalty=2.0,
+        no_repeat_ngram_size=3,
+        length_penalty=1.0,
     )
 
     corrected = tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
