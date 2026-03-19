@@ -80,7 +80,7 @@ training_args = Seq2SeqTrainingArguments(
     learning_rate=5e-5,
     weight_decay=0.01,
 
-    evaluation_strategy="epoch",   # 또는 네 버전이면 eval_strategy="epoch"
+    eval_strategy="epoch",
     save_strategy="epoch",
     logging_strategy="steps",
     logging_steps=50,
@@ -94,14 +94,12 @@ training_args = Seq2SeqTrainingArguments(
     fp16=torch.cuda.is_available(),
     report_to="none",
 )
-
 trainer = Seq2SeqTrainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_datasets["train"],
     eval_dataset=tokenized_datasets["validation"],
     data_collator=data_collator,
-    processing_class=tokenizer,   # 네 버전에서 안 되면 이 줄 제거
 )
 
 train_result = trainer.train()
