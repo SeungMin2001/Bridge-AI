@@ -73,22 +73,22 @@ data_collator = DataCollatorForSeq2Seq(
 )
 
 training_args = Seq2SeqTrainingArguments(
-    output_dir=OUTPUT_DIR,
+    output_dir="./kobart_run1",
     num_train_epochs=5,
     per_device_train_batch_size=8,
     per_device_eval_batch_size=8,
     learning_rate=5e-5,
     weight_decay=0.01,
 
-    # 네 버전에 따라 evaluation_strategy / eval_strategy 중 맞는 쪽 사용
+    evaluation_strategy="epoch",   # 또는 네 버전이면 eval_strategy="epoch"
     save_strategy="epoch",
     logging_strategy="steps",
     logging_steps=50,
 
-    save_total_limit=2,
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
     greater_is_better=False,
+    save_total_limit=2,
 
     predict_with_generate=True,
     fp16=torch.cuda.is_available(),
