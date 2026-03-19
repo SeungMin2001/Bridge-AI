@@ -32,13 +32,13 @@ model = BartForConditionalGeneration.from_pretrained(MODEL_NAME)
 # 3. 전처리
 def preprocess_function(examples):
     model_inputs = tokenizer(
-        examples["source"],
+        examples["input_text"],
         max_length=MAX_SOURCE_LEN,
         truncation=True,
     )
 
     labels = tokenizer(
-        text_target=examples["target"],
+        text_target=examples["target_text"],
         max_length=MAX_TARGET_LEN,
         truncation=True,
     )
