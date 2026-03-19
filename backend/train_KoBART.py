@@ -54,7 +54,7 @@ data_collator = DataCollatorForSeq2Seq(
 # 5. 학습 설정
 training_args = Seq2SeqTrainingArguments(
     output_dir="./kobart-corrector",
-    overwrite_output_dir=True,
+    #overwrite_output_dir=True,
 
     # 학습 관련
     num_train_epochs=5,
