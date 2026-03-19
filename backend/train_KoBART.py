@@ -17,12 +17,13 @@ MAX_TARGET_LEN = 128
 # 예: train.jsonl, valid.jsonl
 # 각 줄은 {"source": "...", "target": "..."} 형태
 dataset = load_dataset(
-    "json",
+    "csv",
     data_files={
         "train": "C:/Users/user/Documents/ksponspeech_data/train_pairs.csv",
         "validation": "C:/Users/user/Documents/ksponspeech_data/valid_pairs.csv",
-    }
+    },
 )
+
 
 # 2. 토크나이저 / 모델 로드
 tokenizer = PreTrainedTokenizerFast.from_pretrained(MODEL_NAME)
