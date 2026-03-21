@@ -52,3 +52,5 @@ if __name__ == "__main__":
         print(f"\n파일: {file_name}")
         for chunk in chunks:
             print(chunk)
+            
+        break
