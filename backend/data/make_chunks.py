@@ -38,12 +38,17 @@ def make_chunks(items, group_size=3):
 
     return chunks
 
-
-
 if __name__ == "__main__":
-    file_path = "transcripts/네세션아이디.jsonl"
-    items = load_transcripts(file_path)
-    chunks = make_chunks(items, group_size=3)
+    transcripts_dir = "transcripts"
 
-    for chunk in chunks:
-        print(chunk)
+    for file_name in os.listdir(transcripts_dir):
+        if not file_name.endswith(".jsonl"):
+            continue
+
+        file_path = os.path.join(transcripts_dir, file_name)
+        items = load_transcripts(file_path)
+        chunks = make_chunks(items, group_size=3)
+
+        print(f"\n파일: {file_name}")
+        for chunk in chunks:
+            print(chunk)
