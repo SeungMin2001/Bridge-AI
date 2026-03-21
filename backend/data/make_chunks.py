@@ -1,6 +1,6 @@
 import json, os
-from data.save_chunk_to_db import save_chunk_to_db
-from data.embeded_test import get_embedding
+from save_chunk_to_db import save_chunk_to_db
+from embeded_test import get_embedding
 
 
 def load_transcripts(file_path):
