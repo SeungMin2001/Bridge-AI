@@ -3,7 +3,9 @@ import numpy as np
 import whisper
 from starlette.websockets import WebSocketDisconnect
 from scipy.signal import resample
+from data.save_transcript import save_transcript
 import torch
+import uuid
 #from corrector import correct_text
 
 device="mps" if torch.backends.mps.is_available() else "cuda"
@@ -17,13 +19,15 @@ CHUNK_SIZE=144000 #1초
 async def websocket_endpoint(ws:WebSocket):
     await ws.accept()
     audio_buffer=bytearray()
+    session_id=str(uuid.uuid4())
+    processed_seconds=0.0
 
     try:
         while True:
             data=await ws.receive_bytes()
             audio_buffer.extend(data)
             # 만약 버퍼가 충분히 쌓이면 전사시켜줘야함.
-            print("chunk:", len(data), "buffer:", len(audio_buffer)) # 계속 음성 INT16 data받아서 buffer에 쌓아놓기.
+            #print("chunk:", len(data), "buffer:", len(audio_buffer)) # 계속 음성 INT16 data받아서 buffer에 쌓아놓기.
             
             is_transcribing=False
             
@@ -32,6 +36,11 @@ async def websocket_endpoint(ws:WebSocket):
                 
                 pcm_chunk=bytes(audio_buffer[:CHUNK_SIZE])
                 del audio_buffer[:CHUNK_SIZE]
+                
+                chunk_duration=(len(pcm_chunk)/2)/CHUNK_SIZE
+                start_time=processed_seconds
+                end_time=processed_seconds+chunk_duration
+                
                 audio_np=np.frombuffer(pcm_chunk,dtype=np.int16) #꺼낸 청크 읽고(int)로
                 audio_float = audio_np.astype(np.float32) / 32768.0 #그걸 float로 다시 변환(모델이 float로 읽어야함)
                 
@@ -51,18 +60,24 @@ async def websocket_endpoint(ws:WebSocket):
                     ) 
                 
                 text=res["text"].strip()
-                #corrected=correct_text(text)
-                #segments=res["segments"]
-                #language=res["language"]
-                
                 is_transcribing=False
-
+                
+                transcript_data={
+                    "session_id":session_id,
+                    "start_time":start_time,
+                    "end_time":end_time,
+                    "raw_text":text,
+                    "text":text
+                }
+                print("before")
+                save_transcript(transcript_data)
+                print("after")
+                
                 await ws.send_json({
                     "raw_text": text,
                     "text": text,
                 })
-                
-                print(audio_float[:10])
+                processed_seconds=end_time
     except WebSocketDisconnect:
         print("error")
         
