@@ -4,6 +4,7 @@ import whisper
 from starlette.websockets import WebSocketDisconnect
 from scipy.signal import resample
 from data.save_transcript import save_transcript
+from data.embeded_test import get_embedding
 import torch
 import uuid
 

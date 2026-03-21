@@ -1,4 +1,7 @@
 import json, os
+from data.save_chunk_to_db import save_chunk_to_db
+from data.embeded_test import get_embedding
+
 
 def load_transcripts(file_path):
     items = []
@@ -51,6 +54,8 @@ if __name__ == "__main__":
 
         print(f"\n파일: {file_name}")
         for chunk in chunks:
-            print(chunk)
+            chunk["embedding"] = get_embedding(chunk["chunk_text"])
+            save_chunk_to_db(chunk)
+            print("저장 완료:", chunk["chunk_id"])
             
         break
