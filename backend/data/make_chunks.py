@@ -1,4 +1,4 @@
-import json
+import json, os
 
 def load_transcripts(file_path):
     items = []
