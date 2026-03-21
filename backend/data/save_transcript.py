@@ -1,7 +1,7 @@
 import os
 import json
 
-def save_transcript(transcript_data):
+async def save_transcript(transcript_data):
     try:
         print("save_transcript 호출됨")
         print("받은 데이터:", transcript_data)

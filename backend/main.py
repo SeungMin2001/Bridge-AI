@@ -69,9 +69,7 @@ async def websocket_endpoint(ws:WebSocket):
                     "raw_text":text,
                     "text":text
                 }
-                print("before")
-                save_transcript(transcript_data)
-                print("after")
+                await save_transcript(transcript_data)
                 
                 await ws.send_json({
                     "raw_text": text,
