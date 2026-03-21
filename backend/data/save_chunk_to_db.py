@@ -3,7 +3,7 @@ from pgvector.psycopg import register_vector
 
 def get_conn():
     conn = psycopg.connect(
-        "host=localhost port=5432 dbname=shin user=shinseungmin"
+        "host=100.93.71.4 port=5432 dbname=shin user=shinseungmin"
     )
     register_vector(conn)
     return conn
