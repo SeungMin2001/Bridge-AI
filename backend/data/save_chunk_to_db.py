@@ -3,7 +3,7 @@ from pgvector.psycopg import register_vector
 
 def get_conn():
     conn = psycopg.connect(
-        "host=100.93.71.4 port=5432 dbname=shin user=shinseungmin password=1234"
+        "host=100.104.164.84 port=5432 dbname=shin user=shinseungmin password=1234 connect_timeout=5"
     )
     register_vector(conn)
     return conn
@@ -14,7 +14,7 @@ def save_chunk_to_db(chunk):
 
     cur.execute(
         """
-        INSERT INTO chunks (
+        INSERT INTO rag (
             chunk_id,
             session_id,
             start_time,
