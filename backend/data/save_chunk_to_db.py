@@ -14,7 +14,7 @@ def save_chunk_to_db(chunk):
 
     cur.execute(
         """
-        INSERT INTO rag (
+        INSERT INTO chunks (
             chunk_id,
             session_id,
             start_time,
