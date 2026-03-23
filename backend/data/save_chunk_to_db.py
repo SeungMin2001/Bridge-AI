@@ -1,6 +1,7 @@
 import psycopg
 from pgvector.psycopg import register_vector
 
+
 def get_conn():
     conn = psycopg.connect(
         "host=100.104.164.84 port=5432 dbname=rag user=postgres password=1234 connect_timeout=5"
