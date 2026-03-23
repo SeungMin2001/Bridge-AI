@@ -1,7 +1,71 @@
 const btn = document.getElementById("start");
+const recordingTimer = document.getElementById("recording-timer");
+const recordingTimeText = document.getElementById("recording-time");
+
+let ws = null;
+let audioContext = null;
+let stream = null;
+let processor = null;
+let source = null;
+let timerInterval = null;
+let recordingSeconds = 0;
+
+function updateTimer() {
+  recordingSeconds++;
+  const minutes = Math.floor(recordingSeconds / 60);
+  const seconds = recordingSeconds % 60;
+  recordingTimeText.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function stopRecording() {
+  if (recordingTimer) {
+    recordingTimer.classList.add('hidden');
+    recordingTimer.classList.remove('flex');
+    btn.style.display = 'block';
+  }
+
+  clearInterval(timerInterval);
+
+  if (processor) {
+    processor.disconnect();
+    processor = null;
+  }
+  if (source) {
+    source.disconnect();
+    source = null;
+  }
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+}
+
+if (recordingTimer) {
+  recordingTimer.onclick = () => {
+    stopRecording();
+  };
+}
 
 btn.onclick = async () => {
-  const ws = new WebSocket("ws://100.104.164.84:8000/ws");
+  btn.style.display = 'none';
+  if (recordingTimer) {
+    recordingTimer.classList.remove('hidden');
+    recordingTimer.classList.add('flex');
+  }
+  
+  recordingSeconds = 0;
+  if (recordingTimeText) recordingTimeText.textContent = "0:00";
+  timerInterval = setInterval(updateTimer, 1000);
+
+  ws = new WebSocket("ws://100.104.164.84:8000/ws");
 
   ws.onmessage = (event) => {
     try {
@@ -14,24 +78,28 @@ btn.onclick = async () => {
     }
   };
 
-
   ws.onopen = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const audioContext = new AudioContext();
-    await audioContext.audioWorklet.addModule("pcm-worklet.js");
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new AudioContext();
+      await audioContext.audioWorklet.addModule("pcm-worklet.js");
 
-    const source = audioContext.createMediaStreamSource(stream);
-    const processor = new AudioWorkletNode(audioContext, "pcm-worklet");
+      source = audioContext.createMediaStreamSource(stream);
+      processor = new AudioWorkletNode(audioContext, "pcm-worklet");
 
-    source.connect(processor);
-    processor.connect(audioContext.destination);
+      source.connect(processor);
+      processor.connect(audioContext.destination);
 
-    processor.port.onmessage = (event) => {
-      const data = float32ToInt16(event.data);
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(data.buffer);
-      }
-    };
+      processor.port.onmessage = (event) => {
+        const data = float32ToInt16(event.data);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(data.buffer);
+        }
+      };
+    } catch (error) {
+      console.error("Error accessing microphone:", error);
+      stopRecording();
+    }
   };
 };
 

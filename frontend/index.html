@@ -221,92 +221,84 @@
   <!-- Left Sidebar -->
   <aside class="w-[280px] flex flex-col h-full shrink-0 overflow-hidden" id="sidebar">
     <div class="card flex-1 flex flex-col p-5 pb-5 overflow-hidden">
+
       <!-- Header -->
       <div class="flex items-center justify-between mb-5 sidebar-header-row">
         <div class="flex items-center gap-2 font-heavy-heading text-[18px]">
           <div class="w-[28px] h-[28px] bg-[#1d1d1f] rounded-[8px] flex items-center justify-center shrink-0">
-            <span class="material-symbols-outlined text-white text-[17px] scale-x-[-1]" style="">menu_book</span>
+            <span class="material-symbols-outlined text-white text-[17px] scale-x-[-1]">menu_book</span>
           </div>
-          <span class="collapsible-content" style="">LectoAI</span>
+          <span class="collapsible-content">LectoAI</span>
         </div>
         <div class="flex gap-1 sidebar-header-btns">
-          <button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93]" id="sidebarToggle" style="">
-            <span class="material-symbols-outlined text-[20px]" id="toggleIcon" style="">grid_view</span>
+          <button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93]" id="sidebarToggle">
+            <span class="material-symbols-outlined text-[20px]" id="toggleIcon">grid_view</span>
           </button>
-          <button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93] collapsible-content" style="">
-            <span class="material-symbols-outlined text-[20px]" style="">edit_note</span>
+          <button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93] collapsible-content" title="새 노트"
+            id="newNoteTopBtn">
+            <span class="material-symbols-outlined text-[20px]">edit_note</span>
           </button>
         </div>
       </div>
+
       <!-- Search -->
       <div class="sidebar-search-bg rounded-[12px] px-3.5 py-2 flex items-center gap-2 mb-5 collapsible-content">
-        <span class="material-symbols-outlined text-[#8e8e93] text-[18px]" style="">search</span>
-        <span class="text-[13px] text-[#aeaeb2]" style="">제목으로 검색</span>
+        <span class="material-symbols-outlined text-[#8e8e93] text-[18px]">search</span>
+        <input
+          class="bg-transparent border-none focus:ring-0 p-0 text-[13px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
+          placeholder="제목으로 검색" type="text" id="sidebarSearch" />
       </div>
-      <!-- Collapsed View Icon Placeholder for Search -->
-      <div class="sidebar-collapsed-only flex flex-col items-center gap-6 mb-5 hidden">
-        <button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93]" style="">
-          <span class="material-symbols-outlined text-[20px]" style="">search</span>
-        </button>
-      </div>
-      <!-- Notes Section -->
-      <div class="collapsible-content">
-        <div class="flex items-center justify-between px-1 mb-2.5">
-          <span class="text-[13px] font-bold text-[#3a3a3c]" style="">활성화한 파일</span>
-          <button class="text-[#aeaeb2] hover:text-[#1d1d1f]" style="">
-            <span class="material-symbols-outlined text-[18px]" style="">add</span>
-          </button>
-        </div>
-        <div class="flex flex-col gap-1 mb-6">
-          <div class="flex items-center gap-2.5 px-2 py-2 rounded-xl bg-[#f2f2f7] cursor-pointer">
-            <span class="material-symbols-outlined text-[18px] text-[#1d1d1f]" style="">description</span>
-            <span class="text-[13px] font-medium text-[#1d1d1f]" style="">새 노트</span>
+
+      <!-- Sections -->
+      <div class="collapsible-content flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6">
+
+        <!-- 활성화한 파일 -->
+        <section>
+          <div class="flex items-center justify-between px-1 mb-2">
+            <span class="text-[13px] font-bold text-[#3a3a3c]">활성화한 파일</span>
           </div>
-        </div>
-      </div>
-      <!-- Topics Section -->
-      <div class="collapsible-content">
-        <div class="flex items-center justify-between px-1 mb-2.5">
-          <span class="text-[13px] font-bold text-[#3a3a3c]" style="">주제</span>
-          <button class="text-[#aeaeb2] hover:text-[#1d1d1f]" style="">
-            <span class="material-symbols-outlined text-[18px]" style="">add</span>
-          </button>
-        </div>
-        <!-- Folder and File Hierarchy -->
-        <div class="flex flex-col gap-1">
-          <!-- New Topic Folder Item -->
-          <div
-            class="group flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-[#f2f2f7] cursor-pointer transition-colors">
-            <div class="flex items-center gap-2.5">
-              <div class="w-2.5 h-2.5 rounded-full bg-[#b00b4a] shrink-0"></div>
-              <span class="text-[13px] font-medium text-[#1d1d1f]" style="">새 주제</span>
+          <div id="active-file-display"></div>
+        </section>
+
+        <!-- 구조 -->
+        <section>
+          <div class="flex items-center justify-between px-1 mb-2">
+            <span class="text-[13px] font-bold text-[#3a3a3c]">구조</span>
+            <div class="flex gap-1">
+              <button class="btn-ghost-icon p-0.5 rounded-lg" title="새 폴더" id="newFolderBtn">
+                <span class="material-symbols-outlined text-[18px]" style="color:#8e8e93">create_new_folder</span>
+              </button>
+              <button class="btn-ghost-icon p-0.5 rounded-lg" title="새 파일" id="newFileBtn">
+                <span class="material-symbols-outlined text-[18px]" style="color:#8e8e93">note_add</span>
+              </button>
             </div>
-            <button class="opacity-0 group-hover:opacity-100 text-[#aeaeb2] hover:text-[#1d1d1f] transition-opacity"
-              style="">
-              <span class="material-symbols-outlined text-[18px]" style="">add</span>
-            </button>
           </div>
-          <!-- Nested New Note Item -->
-          <div class="ml-5 flex items-center gap-2.5 px-2 py-2 rounded-xl bg-[#f2f2f7] cursor-pointer">
-            <span class="material-symbols-outlined text-[18px] text-[#1d1d1f]" style="">description</span>
-            <span class="text-[13px] font-medium text-[#1d1d1f]" style="">새 노트</span>
+          <div id="file-tree"></div>
+        </section>
+
+        <!-- 즐겨찾기 -->
+        <section>
+          <div class="flex items-center justify-between px-1 mb-2">
+            <span class="text-[13px] font-bold text-[#3a3a3c]">즐겨찾기</span>
           </div>
-        </div>
+          <div id="favorites-list" class="flex flex-col gap-0.5"></div>
+        </section>
+
+        <!-- 리스트 -->
+        <section>
+          <div class="flex items-center justify-between px-1 mb-2">
+            <span class="text-[13px] font-bold text-[#3a3a3c]">리스트</span>
+          </div>
+          <div id="all-list" class="flex flex-col gap-0.5 pb-4"></div>
+        </section>
+
       </div>
-      <!-- Collapsed Section Icons -->
-      <div class="sidebar-collapsed-only flex flex-col items-center gap-4 flex-1 hidden">
-        <button class="btn-ghost-icon p-2.5 rounded-xl text-[#aeaeb2]" style="">
-          <span class="material-symbols-outlined text-[24px]" style="">description</span>
-        </button>
-        <button class="btn-ghost-icon p-2.5 rounded-xl text-[#aeaeb2]" style="">
-          <span class="material-symbols-outlined text-[24px]" style="">folder</span>
-        </button>
-      </div>
-      <!-- Footer Home Icon -->
-      <div class="mt-auto pt-5 flex flex-col items-center" style="padding-top: 1.25rem;">
+
+      <!-- Footer -->
+      <div class="mt-auto pt-4 flex items-center justify-center">
         <a class="btn-ghost-icon p-2.5 rounded-xl cursor-pointer flex items-center text-[#aeaeb2] justify-center"
-          href="#" style="">
-          <span class="material-symbols-outlined text-[24px]" style="">home</span>
+          href="home.html">
+          <span class="material-symbols-outlined text-[24px]" style='font-variation-settings:"FILL" 1'>home</span>
         </a>
       </div>
     </div>
@@ -329,6 +321,10 @@
         <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" id="start" style="">
           <span class="material-symbols-outlined text-[20px]" style="">mic</span>
         </button>
+        <div id="recording-timer" class="hidden items-center gap-2 bg-[#FFF0F3] hover:bg-[#FFE4E9] px-3 py-1.5 rounded-full cursor-pointer transition-colors border border-[#FFD1DA] shrink-0">
+          <div class="w-6 h-6 flex items-center justify-center shrink-0"><span class="live-dot"></span></div>
+          <span class="text-[13px] font-bold text-[#1d1d1f] tabular-nums" id="recording-time">0:00</span>
+        </div>
         <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" style="">
           <span class="material-symbols-outlined text-[20px]" style="">share</span>
         </button>
@@ -468,19 +464,19 @@
   <!-- Right Sidebar -->
   <aside class="w-[300px] h-full shrink-0" id="right-sidebar">
     <div class="card h-full flex flex-col p-4 pt-3.5 relative">
-      <!-- Search/Toggle Header -->
       <div class="flex items-center gap-2 mb-5">
         <div class="sidebar-search-bg flex-1 rounded-[12px] px-3 py-1.5 flex items-center gap-2">
-          <span class="material-symbols-outlined text-[#8e8e93] text-[16px]" style="">search</span>
-          <span class="text-[12px] text-[#aeaeb2]" style="">전사 내용 검색</span>
+          <span class="material-symbols-outlined text-[#8e8e93] text-[16px]">search</span>
+          <input
+            class="bg-transparent border-none focus:ring-0 p-0 text-[12px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
+            placeholder="전사 내용 검색" type="text" />
         </div>
-        <button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93]" style="">
-          <span class="material-symbols-outlined text-[20px]" style="">view_sidebar</span>
+        <button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93]">
+          <span class="material-symbols-outlined text-[20px]">view_sidebar</span>
         </button>
       </div>
-      <!-- Chat History / Transcription -->
+
       <div class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1" id="tsList">
-        <!-- Empty State for Transcription -->
         <div class="flex-1 flex flex-col items-center justify-center h-full text-center px-6 opacity-40" id="emptyState">
           <div class="w-16 h-16 rounded-full bg-[#f2f2f7] flex items-center justify-center mb-4">
             <span class="material-symbols-outlined text-[32px] text-[#8e8e93]">mic_none</span>
@@ -490,17 +486,18 @@
           </p>
         </div>
       </div>
-      <!-- Floating AI Assistant Button -->
+
+      <!-- AI FAB -->
       <button
         class="absolute bottom-4 right-4 w-12 h-12 bg-white rounded-full ai-btn-shadow flex items-center justify-center hover:bg-gray-50 transition-all active:scale-95 z-30"
         id="ai-assistant-btn">
         <span class="material-symbols-outlined text-[24px] ai-gradient-icon">auto_awesome</span>
       </button>
-      <!-- AI Chat Overlay Window -->
+
+      <!-- AI Chat Window -->
       <div
-        class="absolute bottom-[72px] right-4 w-[calc(100%-32px)] bg-[#ffffff] rounded-2xl border border-gray-100 flex flex-col overflow-hidden z-30 h-[260px]"
+        class="absolute bottom-[72px] right-4 w-[calc(100%-32px)] bg-[#ffffff] rounded-2xl border border-gray-100 flex flex-col overflow-hidden z-30 h-[380px]"
         id="ai-chat-window">
-        <!-- Chat Header -->
         <div class="px-4 py-3 flex items-center justify-between border-b border-[#f2f2f7]">
           <div class="flex items-center gap-2">
             <span class="material-symbols-outlined text-[18px] ai-gradient-icon">auto_awesome</span>
@@ -510,28 +507,28 @@
             <span class="material-symbols-outlined text-[18px]">close</span>
           </button>
         </div>
-        <!-- Chat Messages -->
-        <div class="flex-1 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-4 bg-[#fbfbfd]">
-          <!-- User Message -->
+        <div class="flex-1 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-4 bg-[#fbfbfd]"
+          id="sidebar-ai-messages">
           <div class="flex flex-col items-end">
             <div class="user-bubble px-3 py-2 text-[13px] max-w-[85%] leading-normal">
-              이 노트의 핵심 내용을 요약해줘.
+              '컴퓨터 네트워크' 수업 내용을 요약해줘.
             </div>
           </div>
-          <!-- AI Response -->
           <div class="flex flex-col items-start">
             <div class="ai-bubble px-3 py-2 text-[13px] max-w-[85%] leading-normal shadow-sm">
-              현재 작성 중인 '새 노트'는 아직 내용이 비어 있습니다. 텍스트를 입력하거나 파일을 업로드하시면 내용을 분석하여 핵심 요약을 도와드릴 수 있습니다. 어떤 주제에 대해 쓰고 싶으신가요?
+              네, '컴퓨터 네트워크' 폴더의 내용을 분석하여 요약해 드릴게요.<br /><br />
+              1. OSI 7계층 구조<br />
+              2. TCP/IP 모델 비교<br />
+              3. 데이터 캡슐화...
             </div>
           </div>
         </div>
-        <!-- Chat Input -->
         <div class="p-3 bg-white border-t border-[#f2f2f7]">
           <div class="sidebar-search-bg rounded-[12px] px-3 py-2 flex items-center gap-2">
             <input
               class="bg-transparent border-none focus:ring-0 p-0 text-[13px] flex-1 text-[#1d1d1f] placeholder-[#aeaeb2]"
-              placeholder="AI에게 질문하기..." type="text" />
-            <button class="text-[#3b82f6]">
+              placeholder="AI에게 질문하기..." type="text" id="sidebar-ai-input" />
+            <button class="text-[#3b82f6]" id="sidebar-ai-send">
               <span class="material-symbols-outlined text-[18px]">send</span>
             </button>
           </div>
