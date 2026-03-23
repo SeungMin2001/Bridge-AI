@@ -25,7 +25,7 @@ index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
 retriever = index.as_retriever(similarity_top_k=3)
 
 # 5) 검색
-nodes = retriever.retrieve("DBMS가 뭐야?")
+nodes = retriever.retrieve("초코 드링크")
 
 print("검색 결과 개수:", len(nodes))
 print()
