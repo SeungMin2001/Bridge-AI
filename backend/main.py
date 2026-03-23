@@ -8,10 +8,10 @@ import torch
 
 device="mps" if torch.backends.mps.is_available() else "cuda"
 
-model=whisper.load_model("turbo",device=device) #모델설정(transcript할 모델)
+model=whisper.load_model("turbo",device=device) #최고속도 보장 모델
 app=FastAPI()
 
-CHUNK_SIZE=144000 #1초
+CHUNK_SIZE=96000 #1초 분량 (48kHz 16-bit)
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws:WebSocket):
