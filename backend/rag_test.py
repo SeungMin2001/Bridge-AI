@@ -1,6 +1,13 @@
 import json
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.vector_stores.postgres import PGVectorStore
+from llama_index.core import Settings
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+
+Settings.embed_model = HuggingFaceEmbedding(
+    model_name="BAAI/bge-m3"
+)
 
 file_path="./data/transcripts/60db78d8-10fe-48f1-8f05-9d31a8f561a5.jsonl"
 documents=[]
