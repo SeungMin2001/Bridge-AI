@@ -14,7 +14,7 @@ vector_store = PGVectorStore.from_params(
     password="1234",
     port=5432,
     user="postgres",
-    table_name="data_test",   # 네가 저장할 때 쓴 논리 이름
+    table_name="test",   # 네가 저장할 때 쓴 논리 이름
     embed_dim=1024
 )
 
