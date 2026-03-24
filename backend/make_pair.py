@@ -19,7 +19,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # =========================
 # Whisper 설정
 # =========================
-WHISPER_SIZE = "small"      # 테스트 후 "large-v3"로 변경 가능
+WHISPER_SIZE = "large-v3"      # 테스트 후 "large-v3"로 변경 가능
 DEVICE = "cuda"             # GPU 없으면 "cpu"
 COMPUTE_TYPE = "float16"    # CPU면 보통 "int8"
 SAVE_INTERVAL = 100         # 중간 저장 주기
