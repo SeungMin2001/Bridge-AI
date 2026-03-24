@@ -2,6 +2,7 @@ from datasets import load_dataset
 from faster_whisper import WhisperModel
 import pandas as pd
 import re
+import soundfile as sf
 
 ds = load_dataset(
     "DragonLine/ksponspeech",
@@ -19,13 +20,16 @@ def clean_text(text):
 sample_ds = ds.select(range(20))
 model = WhisperModel("small", device="cuda", compute_type="float16")
 
+os.makedirs("temp_audio", exist_ok=True)
 rows = []
 
-for item in sample_ds:
-    audio_path = item["audio"]["path"]
+for i, item in enumerate(sample_ds):
     gold_text = clean_text(item["transcripts"])
 
-    segments, _ = model.transcribe(audio_path, language="ko")
+    wav_path = f"temp_audio/sample_{i}.wav"
+    sf.write(wav_path, item["audio"]["array"], item["audio"]["sampling_rate"])
+
+    segments, _ = model.transcribe(wav_path, language="ko")
     whisper_text = " ".join(seg.text.strip() for seg in segments).strip()
 
     rows.append({
