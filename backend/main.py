@@ -8,14 +8,16 @@ from data.embeded_test import get_embedding
 import torch
 import uuid
 
-#from corrector import correct_text ㅁㄴㅇㅁㄴㅇ
+
+#from corrector import correct_text asdasd
+
 
 device="mps" if torch.backends.mps.is_available() else "cuda"
 
 model=whisper.load_model("large-v3",device=device) #모델설정(transcript할 모델)
 app=FastAPI()
 
-CHUNK_SIZE=288000 #1초
+CHUNK_SIZE=360000 
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws:WebSocket):
