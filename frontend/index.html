@@ -21,7 +21,7 @@
       overflow: hidden;
     }
 
-    /* Polish Bold Typography for Headings */
+    /* Polish Bold Typography for Headings -- toyotest11 */
     .font-heavy-heading {
       font-weight: 800;
       letter-spacing: -0.02em;
@@ -185,6 +185,7 @@
     .ai-btn-shadow {
       box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.1);
     }
+
     .chat-input-container {
       border: 1px solid #e5e5ea;
       background-color: #ffffff;
@@ -193,23 +194,27 @@
     /* 새로 추가된 디자인 요소들 */
     .main-card-enhanced {
       background: linear-gradient(180deg, #ffffff 0%, #fbfbfd 100%);
-      border: 1px solid rgba(0,0,0,0.04);
-      box-shadow: 0 4px 24px rgba(0,0,0,0.02);
+      border: 1px solid rgba(0, 0, 0, 0.04);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.02);
     }
+
     .chat-input-glow {
       background-color: #ffffff;
-      border: 1px solid rgba(0,0,0,0.08);
-      box-shadow: 0 4px 20px -4px rgba(0,0,0,0.05);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.05);
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
+
     .chat-input-glow:focus-within {
       border-color: rgba(59, 130, 246, 0.4);
       box-shadow: 0 8px 32px -6px rgba(59, 130, 246, 0.15);
       transform: translateY(-2px);
     }
+
     .prompt-textarea::-webkit-scrollbar {
       display: none;
     }
+
     .prompt-textarea {
       -ms-overflow-style: none;
       scrollbar-width: none;
@@ -308,11 +313,20 @@
     <!-- Header Card -->
     <header class="card h-[56px] flex items-center px-5 shrink-0">
       <nav class="flex gap-1 overflow-x-auto no-scrollbar">
-        <button class="tab-btn active-tab px-4 py-1.5 rounded-[10px] text-[13px] font-bold whitespace-nowrap" data-tab="note">새 노트</button>
-        <button class="tab-btn text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap" data-tab="ai">AI</button>
-        <button class="tab-btn text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap" data-tab="material">자료</button>
-        <button class="tab-btn text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap" data-tab="summary">요약</button>
-        <button class="tab-btn text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap" data-tab="quiz">퀴즈</button>
+        <button class="tab-btn active-tab px-4 py-1.5 rounded-[10px] text-[13px] font-bold whitespace-nowrap"
+          data-tab="note">새 노트</button>
+        <button
+          class="tab-btn text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap"
+          data-tab="ai">AI</button>
+        <button
+          class="tab-btn text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap"
+          data-tab="material">자료</button>
+        <button
+          class="tab-btn text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap"
+          data-tab="summary">요약</button>
+        <button
+          class="tab-btn text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap"
+          data-tab="quiz">퀴즈</button>
       </nav>
       <div class="ml-auto flex items-center gap-1.5 shrink-0">
         <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" style="">
@@ -321,7 +335,8 @@
         <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" id="start" style="">
           <span class="material-symbols-outlined text-[20px]" style="">mic</span>
         </button>
-        <div id="recording-timer" class="hidden items-center gap-2 bg-[#FFF0F3] hover:bg-[#FFE4E9] px-3 py-1.5 rounded-full cursor-pointer transition-colors border border-[#FFD1DA] shrink-0">
+        <div id="recording-timer"
+          class="hidden items-center gap-2 bg-[#FFF0F3] hover:bg-[#FFE4E9] px-3 py-1.5 rounded-full cursor-pointer transition-colors border border-[#FFD1DA] shrink-0">
           <div class="w-6 h-6 flex items-center justify-center shrink-0"><span class="live-dot"></span></div>
           <span class="text-[13px] font-bold text-[#1d1d1f] tabular-nums" id="recording-time">0:00</span>
         </div>
@@ -332,7 +347,8 @@
     </header>
     <!-- Main Content Area: Active Note taking area -->
     <div id="tab-contents-container" class="flex-1 flex flex-col relative min-h-0 min-w-0">
-      <section id="content-note" class="tab-content card flex-1 flex flex-col relative overflow-hidden note-canvas p-10 pt-12">
+      <section id="content-note"
+        class="tab-content card flex-1 flex flex-col relative overflow-hidden note-canvas p-10 pt-12">
         <div class="max-w-4xl mx-auto w-full h-full">
           <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8" style="">새 노트</h1>
           <div class="text-[16px] text-[#aeaeb2] leading-relaxed" style="">
@@ -340,29 +356,41 @@
           </div>
         </div>
         <div class="floating-toolbar absolute bottom-8 left-1/2 -translate-x-1/2 flex p-1.5 gap-1 z-10 bg-white">
-          <button class="tool-btn-active w-[48px] h-[48px] flex items-center justify-center rounded-full" style=""><span class="material-symbols-outlined text-[24px]">near_me</span></button>
-          <button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span class="material-symbols-outlined text-[24px]">ink_pen</span></button>
-          <button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span class="material-symbols-outlined text-[24px]">history_edu</span></button>
-          <button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span class="material-symbols-outlined text-[24px]">add_circle</span></button>
+          <button class="tool-btn-active w-[48px] h-[48px] flex items-center justify-center rounded-full" style=""><span
+              class="material-symbols-outlined text-[24px]">near_me</span></button>
+          <button
+            class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span
+              class="material-symbols-outlined text-[24px]">ink_pen</span></button>
+          <button
+            class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span
+              class="material-symbols-outlined text-[24px]">history_edu</span></button>
+          <button
+            class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span
+              class="material-symbols-outlined text-[24px]">add_circle</span></button>
         </div>
       </section>
 
-      <section id="content-ai" class="tab-content card main-card-enhanced flex-1 flex flex-col relative overflow-hidden note-canvas hidden">
+      <section id="content-ai"
+        class="tab-content card main-card-enhanced flex-1 flex flex-col relative overflow-hidden note-canvas hidden">
         <div class="flex-1 flex flex-col items-center justify-center text-center px-10 gap-6">
-          <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#3b82f6] to-[#a855f7] flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform duration-300 cursor-pointer">
+          <div
+            class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#3b82f6] to-[#a855f7] flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform duration-300 cursor-pointer">
             <span class="material-symbols-outlined text-white text-[32px]">auto_awesome</span>
           </div>
           <h2 class="text-[24px] font-heavy-heading text-[#1d1d1f]">무엇을 도와드릴까요?</h2>
           <div class="flex flex-wrap items-center justify-center gap-3 mt-2 max-w-2xl">
-            <button class="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
+            <button
+              class="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
               <span class="material-symbols-outlined text-[18px]">edit_document</span>
               강의 노트 요약하기
             </button>
-            <button class="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
+            <button
+              class="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
               <span class="material-symbols-outlined text-[18px]">quiz</span>
               핵심 개념 퀴즈 생성
             </button>
-            <button class="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
+            <button
+              class="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
               <span class="material-symbols-outlined text-[18px]">translate</span>
               외국어 자료 번역
             </button>
@@ -371,22 +399,31 @@
         <div class="p-6 pt-0 w-full relative z-10">
           <div class="max-w-4xl mx-auto flex flex-col gap-3">
             <div class="chat-input-glow rounded-[24px] px-3 py-3 flex flex-col gap-2">
-              <textarea class="prompt-textarea w-full bg-transparent border-none focus:ring-0 text-[15px] text-[#1d1d1f] placeholder-[#aeaeb2] resize-none px-3 pt-2 pb-1 min-h-[44px] leading-relaxed" oninput="this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';" placeholder="여기에 프롬프트를 입력하거나 파일을 업로드하세요..." rows="1"></textarea>
+              <textarea
+                class="prompt-textarea w-full bg-transparent border-none focus:ring-0 text-[15px] text-[#1d1d1f] placeholder-[#aeaeb2] resize-none px-3 pt-2 pb-1 min-h-[44px] leading-relaxed"
+                oninput="this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';"
+                placeholder="여기에 프롬프트를 입력하거나 파일을 업로드하세요..." rows="1"></textarea>
               <div class="flex items-center justify-between px-1">
                 <div class="flex items-center gap-1">
-                  <button class="btn-ghost-icon w-9 h-9 rounded-full flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] transition-colors" title="파일 첨부">
+                  <button
+                    class="btn-ghost-icon w-9 h-9 rounded-full flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] transition-colors"
+                    title="파일 첨부">
                     <span class="material-symbols-outlined text-[20px]">attach_file</span>
                   </button>
-                  <button class="btn-ghost-icon w-9 h-9 rounded-full flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] transition-colors" title="음성 입력">
+                  <button
+                    class="btn-ghost-icon w-9 h-9 rounded-full flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] transition-colors"
+                    title="음성 입력">
                     <span class="material-symbols-outlined text-[20px]">mic</span>
                   </button>
                 </div>
                 <div class="flex items-center gap-3">
-                  <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f2f2f7] hover:bg-[#e5e5ea] transition-colors text-[12px] font-medium text-[#3a3a3c]">
+                  <button
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f2f2f7] hover:bg-[#e5e5ea] transition-colors text-[12px] font-medium text-[#3a3a3c]">
                     <span class="material-symbols-outlined text-[16px]">library_books</span>
                     소스 0개
                   </button>
-                  <button class="w-[36px] h-[36px] bg-[#1d1d1f] rounded-full flex items-center justify-center text-white hover:bg-[#3a3a3c] transition-all shadow-md transform active:scale-95">
+                  <button
+                    class="w-[36px] h-[36px] bg-[#1d1d1f] rounded-full flex items-center justify-center text-white hover:bg-[#3a3a3c] transition-all shadow-md transform active:scale-95">
                     <span class="material-symbols-outlined text-[18px]">arrow_upward</span>
                   </button>
                 </div>
@@ -399,7 +436,8 @@
         </div>
       </section>
 
-      <section id="content-material" class="tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12 hidden">
+      <section id="content-material"
+        class="tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12 hidden">
         <div class="max-w-4xl mx-auto w-full h-full">
           <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">자료</h1>
           <div class="text-[16px] text-[#aeaeb2] leading-relaxed">
@@ -408,18 +446,24 @@
         </div>
       </section>
 
-      <section id="content-summary" class="tab-content card flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar pt-[32px] hidden">
+      <section id="content-summary"
+        class="tab-content card flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar pt-[32px] hidden">
         <div class="max-w-4xl mx-auto w-full">
           <!-- Summary Sub-tabs & Actions -->
           <div class="flex items-center justify-between border-b border-[#e5e5ea] mb-8 pb-0">
             <nav class="flex gap-8">
               <div class="relative cursor-pointer summary-subtab-btn" data-subtab="ai-summary">
-                <button class="text-[#1d1d1f] text-[15px] font-bold py-3 pointer-events-none" style="">AI 요약&nbsp;&nbsp;</button>
+                <button class="text-[#1d1d1f] text-[15px] font-bold py-3 pointer-events-none" style="">AI
+                  요약&nbsp;&nbsp;</button>
                 <div class="summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] bg-[#1d1d1f]"></div>
               </div>
               <div class="relative cursor-pointer summary-subtab-btn group" data-subtab="history">
-                <button class="text-[#8e8e93] text-[15px] font-medium py-3 group-hover:text-[#1d1d1f] transition-colors pointer-events-none" style="">대화기록&nbsp;&nbsp;</button>
-                <div class="summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] bg-transparent group-hover:bg-[#1d1d1f] transition-colors hidden"></div>
+                <button
+                  class="text-[#8e8e93] text-[15px] font-medium py-3 group-hover:text-[#1d1d1f] transition-colors pointer-events-none"
+                  style="">대화기록&nbsp;&nbsp;</button>
+                <div
+                  class="summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] bg-transparent group-hover:bg-[#1d1d1f] transition-colors hidden">
+                </div>
               </div>
             </nav>
             <div class="flex items-center gap-6 pb-2">
@@ -433,7 +477,7 @@
               </button>
             </div>
           </div>
-          
+
           <!-- AI Summary Content -->
           <div id="subcontent-ai-summary" class="summary-subcontent space-y-10">
           </div>
@@ -446,7 +490,8 @@
 
       </section>
 
-      <section id="content-quiz" class="tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12 hidden">
+      <section id="content-quiz"
+        class="tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12 hidden">
         <div class="max-w-4xl mx-auto w-full h-full">
           <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">퀴즈</h1>
           <div class="text-[16px] text-[#aeaeb2] leading-relaxed">
@@ -477,7 +522,8 @@
       </div>
 
       <div class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1" id="tsList">
-        <div class="flex-1 flex flex-col items-center justify-center h-full text-center px-6 opacity-40" id="emptyState">
+        <div class="flex-1 flex flex-col items-center justify-center h-full text-center px-6 opacity-40"
+          id="emptyState">
           <div class="w-16 h-16 rounded-full bg-[#f2f2f7] flex items-center justify-center mb-4">
             <span class="material-symbols-outlined text-[32px] text-[#8e8e93]">mic_none</span>
           </div>
@@ -623,7 +669,7 @@
         summarySubtabBtns.forEach(b => {
           const buttonElement = b.querySelector('button');
           const indicatorElement = b.querySelector('.summary-subtab-indicator');
-          
+
           if (b === btn) {
             buttonElement.className = 'text-[#1d1d1f] text-[15px] font-bold py-3 pointer-events-none';
             indicatorElement.className = 'summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] bg-[#1d1d1f]';
