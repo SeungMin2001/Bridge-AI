@@ -1,7 +1,6 @@
 .env
-mcp.json
 .DS_Store
-__pycache__/
-*.pyc
-stt-test/
-frontend/test/
+mcp.json
+**/.DS_Store
+**/.env
+**/.env.local  
