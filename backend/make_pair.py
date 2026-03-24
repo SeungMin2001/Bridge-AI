@@ -6,4 +6,5 @@ ds = load_dataset(
     cache_dir=r"C:\Users\user\Documents\last_project\data"
 )
 
+print(ds.features)
 print(ds[0])
