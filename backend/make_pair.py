@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from faster_whisper import WhisperModel
 import pandas as pd
-import re
+import re, os
 import soundfile as sf
 
 ds = load_dataset(
