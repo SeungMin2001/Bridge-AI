@@ -9,14 +9,14 @@ export default function RightSidebar({ transcriptions = [] }) {
   const aiWinRef = useRef(null);
   const aiBtnRef = useRef(null);
 
-  // Auto-scroll transcriptions
+  // Auto-scroll transcriptions (전사 내용 자동 스크롤)
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [transcriptions]);
 
-  // Outside click for AI chat
+  // Outside click for AI chat (AI 채팅창 외부 클릭 시 닫기)
   useEffect(() => {
     const handleOutsideClick = (e) => {
       if (
@@ -30,7 +30,7 @@ export default function RightSidebar({ transcriptions = [] }) {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  // Resizer logic
+  // Resizer logic (사이즈 조절 로직)
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isResizingRef.current) return;
@@ -114,7 +114,7 @@ export default function RightSidebar({ transcriptions = [] }) {
             )}
           </div>
 
-          {/* AI FAB */}
+          {/* AI FAB (AI 플로팅 버튼) */}
           <button
             ref={aiBtnRef}
             className="absolute bottom-4 right-4 w-12 h-12 bg-white rounded-full ai-btn-shadow flex items-center justify-center hover:bg-gray-50 transition-all active:scale-95 z-30"
@@ -124,7 +124,7 @@ export default function RightSidebar({ transcriptions = [] }) {
             <span className="material-symbols-outlined text-[24px] ai-gradient-icon">auto_awesome</span>
           </button>
 
-          {/* AI Chat Window */}
+          {/* AI Chat Window (AI 채팅창) */}
           <div
             ref={aiWinRef}
             className={`absolute bottom-[72px] right-4 w-[calc(100%-32px)] bg-[#ffffff] rounded-2xl border border-gray-100 flex flex-col overflow-hidden z-30 h-[380px] ${isAiChatOpen ? 'open' : ''}`}

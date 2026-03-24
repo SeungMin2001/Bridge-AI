@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import LeftSidebar from './layout/LeftSidebar';
 import MainContent from './layout/MainContent';
 import RightSidebar from './layout/RightSidebar';
+import Home from './pages/Home';
 
 export default function App() {
+  const [currentView, setCurrentView] = useState('home');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [transcriptions, setTranscriptions] = useState([]);
-  
+
   const timerRef = useRef(null);
   const wsRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -28,7 +30,7 @@ export default function App() {
   const stopRecording = useCallback(() => {
     setIsRecording(false);
     clearInterval(timerRef.current);
-    
+
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
@@ -54,7 +56,7 @@ export default function App() {
   const addTranscriptionBubble = useCallback((text) => {
     const now = new Date();
     const timeSpan = now.getTime() - lastBubbleTimeRef.current;
-    
+
     setTranscriptions(prev => {
       const newItems = [...prev];
       if (newItems.length === 0 || timeSpan >= 3000) {
@@ -74,13 +76,13 @@ export default function App() {
   const startRecording = useCallback(async () => {
     setIsRecording(true);
     setRecordingSeconds(0);
-    
+
     timerRef.current = setInterval(() => {
       setRecordingSeconds(s => s + 1);
     }, 1000);
 
     wsRef.current = new WebSocket("ws://100.104.164.84:8000/ws");
-    
+
     wsRef.current.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -96,15 +98,15 @@ export default function App() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
-        
+
         const audioContext = new AudioContext();
         audioContextRef.current = audioContext;
-        
+
         await audioContext.audioWorklet.addModule("/pcm-worklet.js");
 
         const source = audioContext.createMediaStreamSource(stream);
         sourceRef.current = source;
-        
+
         const processor = new AudioWorkletNode(audioContext, "pcm-worklet");
         processorRef.current = processor;
 
@@ -134,14 +136,18 @@ export default function App() {
   const seconds = recordingSeconds % 60;
   const recordingTimeText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
+  if (currentView === 'home') {
+    return <Home onNavigate={(view) => setCurrentView(view)} />;
+  }
+
   return (
     <div className="p-[12px] flex gap-[12px] relative h-full w-full">
-      <LeftSidebar />
-      <MainContent 
-        isRecording={isRecording} 
-        recordingTimeText={recordingTimeText} 
-        startRecording={startRecording} 
-        stopRecording={stopRecording} 
+      <LeftSidebar onNavigateHome={() => setCurrentView('home')} />
+      <MainContent
+        isRecording={isRecording}
+        recordingTimeText={recordingTimeText}
+        startRecording={startRecording}
+        stopRecording={stopRecording}
       />
       <RightSidebar transcriptions={transcriptions} />
     </div>
