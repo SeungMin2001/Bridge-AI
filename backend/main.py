@@ -15,14 +15,16 @@ from rag_service import retrieve_similar_chunks, generate_llm_response
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-#from corrector import correct_text
+
+#from corrector import correct_text asdasd
+
 
 device="mps" if torch.backends.mps.is_available() else "cuda"
 
 model=whisper.load_model("large-v3",device=device) #모델설정(transcript할 모델)
 app=FastAPI()
 
-CHUNK_SIZE=288000 #1초
+CHUNK_SIZE=360000 
 
 # REST API 데이터 검증을 위한 Pydantic 스키마
 class ChatRequest(BaseModel):
