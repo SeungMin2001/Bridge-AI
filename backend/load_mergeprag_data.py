@@ -7,4 +7,6 @@ sample = dataset[0]
 print("question:", sample["question"])
 print("answer:", sample["answer"])
 print("supporting_facts:", sample["supporting_facts"])
-print("context example:", sample["context"][:2])
+print("context keys:", sample["context"].keys())
+print("context titles example:", sample["context"]["title"][:2])
+print("context sentences example:", sample["context"]["sentences"][:2])
