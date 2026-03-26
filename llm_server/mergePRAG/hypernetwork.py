@@ -29,7 +29,7 @@ res=mlp.forward(res)
 lp=LinearProjection(d_model,d_model,k).to(device=device,dtype=dtype)
 res=lp.forward(res)
 
-print(res.size())
-print(res)
-
+K,V=res
+print(K.size())
+print(K)
 
