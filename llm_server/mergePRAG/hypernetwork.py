@@ -11,6 +11,8 @@ text="test"
 
 embedded=embedding(model,tokenizer,text) #embedding from qwen 3.5
 
-pooling=AttentivePooling()
 
 print(model.config.hidden_size)
+#pooling=AttentivePooling()
+
+
