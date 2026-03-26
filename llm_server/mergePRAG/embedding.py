@@ -1,7 +1,7 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
-def embedding(MODEL_NAME):
+def embedding(MODEL_NAME, text):
     device = "cuda"
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
