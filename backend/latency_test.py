@@ -37,7 +37,9 @@ def measure_pipeline_latency():
     # ---------------------------------------------------------
     t1_start = time.time()
     print("🗣️ [1/2] Diart 화자 분리 진행 중...")
-    # 참고: 실제 스트리밍에서는 diart.stream을 쓰지만, 지연 시간 측정을 위해 파일 기반으로 구동합니다.
+    ## Diart를 위해 파일을 실시간 스트림처럼 쪼개서 읽는 소스 생성 (16kHz 규격)
+    # source = FileAudioSource(INPUT_AUDIO, sample_rate=16000)
+    ## 참고: 실제 스트리밍에서는 diart.stream을 쓰지만, 지연 시간 측정을 위해 파일 기반으로 구동합니다.
     diarization_result = diart_pipeline(INPUT_AUDIO)
     t1_end = time.time()
     diart_latency = t1_end - t1_start
