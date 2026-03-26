@@ -4,21 +4,32 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from llm_server.run_model import run_model
 from .embedding import embedding
 from .pooling import AttentivePooling
-
+from .mlp import MLP
+from .linearProjection import LinearProjection
 
 
 model,tokenizer=run_model() #모델 실행(qwen 3.5 9B)
-device = next(model.parameters()).device # cuda
-dtype = next(model.parameters()).dtype
+device = next(model.parameters()).device #cuda
+dtype = next(model.parameters()).dtype #float16
 
 
 text="test"
+k=16
 
 embedded=embedding(model,tokenizer,text).to(device=device,dtype=dtype) #embedding from qwen 3.5
 
-pooling=AttentivePooling(model.config.hidden_size).to(device=device,dtype=dtype)
+d_model=model.config.hidden_size
+
+pooling=AttentivePooling(d_model).to(device=device,dtype=dtype)
 res=pooling.forward(embedded)
 
+mlp=MLP(d_model)
+res=mlp.forward(res)
+
+lp=LinearProjection(d_model,d_model,k)
+res=lp.forward(res)
+
+print(res.shape(name=None))
 print(res)
 
 
