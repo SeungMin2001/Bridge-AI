@@ -9,12 +9,14 @@ from .pooling import AttentivePooling
 
 model,tokenizer=run_model() #모델 실행(qwen 3.5 9B)
 device = next(model.parameters()).device # cuda
+dtype = next(model.parameters()).dtype
+
 
 text="test"
 
-embedded=embedding(model,tokenizer,text).to(device) #embedding from qwen 3.5
+embedded=embedding(model,tokenizer,text).to(device=device,dtype=dtype) #embedding from qwen 3.5
 
-pooling=AttentivePooling(model.config.hidden_size).to(device)
+pooling=AttentivePooling(model.config.hidden_size).to(device=device,dtype=dtype)
 res=pooling.forward(embedded)
 
 print(res)
