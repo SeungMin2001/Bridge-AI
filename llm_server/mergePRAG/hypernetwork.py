@@ -23,10 +23,10 @@ d_model=model.config.hidden_size
 pooling=AttentivePooling(d_model).to(device=device,dtype=dtype)
 res=pooling.forward(embedded)
 
-mlp=MLP(d_model)
+mlp=MLP(d_model).to(device=device,dtype=dtype)
 res=mlp.forward(res)
 
-lp=LinearProjection(d_model,d_model,k)
+lp=LinearProjection(d_model,d_model,k).to(device=device,dtype=dtype)
 res=lp.forward(res)
 
 print(res.shape(name=None))
