@@ -1,7 +1,8 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-MODEL_NAME = "Qwen/Qwen3.5-27B"
+
+MODEL_NAME = "Qwen/Qwen3.5-9B"
 
 if torch.cuda.is_available():
     device="cuda"
@@ -12,33 +13,20 @@ else:
 
 print("device: ",device)
 tokenizer = AutoTokenizer.from_pretrained(
-    MODEL_NAME
+    MODEL_NAME,
+    trust_remote_code=True
     )
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     torch_dtype="auto",
     device_map="auto",
+    trust_remote_code=True
 )
+
+model.eval()
 
 print("model ready")
 
-user_input = input("\nUser: ")
-
-prompt = f"User: {user_input}\nAssistant:"
-
-inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-outputs = model.generate(
-    **inputs,
-    max_new_tokens=200,
-    temperature=0.7,
-    do_sample=True
-)
-
-response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-# Assistant 부분만 출력
-answer = response.split("Assistant:")[-1].strip()
-
-print("\nAssistant:", answer)
+print("tokenizer loaded:", type(tokenizer))
+print("model loaded:", type(model))
