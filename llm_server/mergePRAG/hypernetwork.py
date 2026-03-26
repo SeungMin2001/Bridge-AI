@@ -2,6 +2,10 @@ import json
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from llm_server.run_model import run_model
+from embedding import embedding
 
-model=run_model()
-print(model)
+model,tokenizer=run_model()
+
+embedded=embedding(model,tokenizer,text="test")
+
+print(embedded)

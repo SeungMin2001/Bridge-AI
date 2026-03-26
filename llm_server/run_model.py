@@ -30,4 +30,4 @@ def run_model():
 
     print("tokenizer loaded:", type(tokenizer))
     print("model loaded:", type(model))
-    return model
+    return model, tokenizer

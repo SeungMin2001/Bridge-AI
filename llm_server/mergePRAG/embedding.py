@@ -1,11 +1,8 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
-def embedding(MODEL_NAME, text):
+def embedding(model, tokenizer, text):
     device = "cuda"
-
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME).to(device)
 
     text = "This is a passage for hypernetwork input."
 
@@ -21,7 +18,7 @@ def embedding(MODEL_NAME, text):
 
     # Qwen의 입력 임베딩 사용
     embeddings = model.get_input_embeddings()(input_ids)   # [B, T, d]
-
-    print(embeddings.shape)
+    
+    return embeddings
     
 embedding("Qwen/Qwen3.5-9B")
