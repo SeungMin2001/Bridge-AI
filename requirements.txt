@@ -7,6 +7,8 @@ cffi==2.0.0
 charset-normalizer==3.4.5
 click==8.3.1
 ctranslate2==4.7.1
+deepfilternet
+diart
 fastapi==0.116.1
 faster-whisper==1.2.0
 filelock==3.25.2
@@ -59,6 +61,7 @@ threadpoolctl==3.6.0
 tiktoken==0.12.0
 tokenizers==0.22.2
 torch==2.10.0
+torchaudio
 tqdm==4.67.3
 transformers==5.3.0
 typer==0.24.1
