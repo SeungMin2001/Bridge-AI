@@ -13,11 +13,10 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`tab-btn px-4 py-1.5 rounded-[10px] text-[13px] font-bold whitespace-nowrap transition-colors ${
-                activeTab === tab
-                  ? 'active-tab'
-                  : 'text-[#8e8e93] hover:text-[#1d1d1f] font-medium'
-              }`}
+              className={`tab-btn px-4 py-1.5 rounded-[10px] text-[13px] font-bold whitespace-nowrap transition-colors ${activeTab === tab
+                ? 'active-tab'
+                : 'text-[#8e8e93] hover:text-[#1d1d1f] font-medium'
+                }`}
             >
               {tab === 'note' ? '새 노트' : tab === 'ai' ? 'AI' : tab === 'material' ? '자료' : tab === 'summary' ? '요약' : '퀴즈'}
             </button>
@@ -27,7 +26,7 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
           <button className="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]">
             <span className="material-symbols-outlined text-[20px]">play_circle</span>
           </button>
-          
+
           {!isRecording ? (
             <button className="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" onClick={startRecording} id="start">
               <span className="material-symbols-outlined text-[20px]">mic</span>
@@ -151,7 +150,7 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
                 </button>
               </div>
             </div>
-            
+
             <div id="subcontent-ai-summary" className={`summary-subcontent space-y-10 ${activeSummaryTab === 'ai-summary' ? 'block' : 'hidden'}`}></div>
             <div id="subcontent-history" className={`summary-subcontent space-y-10 ${activeSummaryTab === 'history' ? 'block' : 'hidden'}`}></div>
           </div>

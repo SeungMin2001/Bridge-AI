@@ -143,7 +143,7 @@ export default function Home({ onNavigate }) {
         </div>
       </aside>
 
-      <main id="home-main-content" className="custom-scrollbar">
+      <main id="home-main-content" className="custom-scrollbar"> 
         <div className="home-banner shrink-0">
           <div className="absolute w-[140px] h-[140px] bg-[#2d2b3e] rounded-full top-[10px] left-[40%]"></div>
           <div className="absolute w-[220px] h-[220px] bg-[#2d2b3e] rounded-full bottom-[-60px] left-[10%]"></div>

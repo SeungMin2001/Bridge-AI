@@ -60,9 +60,20 @@ body {
 }
 
 @keyframes pulse {
-  0% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.1); }
-  100% { opacity: 1; transform: scale(1); }
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(1.1);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .message-bubble {
@@ -70,31 +81,66 @@ body {
   border-radius: 16px;
 }
 
-.custom-scrollbar::-webkit-scrollbar { width: 4px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #d1d1d6;
   border-radius: 10px;
 }
 
-.btn-ghost-icon { transition: background-color 0.2s; }
-.btn-ghost-icon:hover { background-color: #f2f2f7; }
+.btn-ghost-icon {
+  transition: background-color 0.2s;
+}
 
-#sidebar { transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-.sidebar-collapsed { width: 72px !important; }
-.sidebar-collapsed .collapsible-content { display: none !important; }
+.btn-ghost-icon:hover {
+  background-color: #f2f2f7;
+}
+
+#sidebar {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-collapsed {
+  width: 72px !important;
+}
+
+.sidebar-collapsed .collapsible-content {
+  display: none !important;
+}
+
 .sidebar-collapsed .sidebar-header {
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  flex-direction: row;
+  justify-content: center;
+  gap: 8px;
 }
+
+.sidebar-collapsed .sidebar-logo-section {
+  order: 2;
+}
+
 .sidebar-collapsed .sidebar-btn-group {
-  flex-direction: column;
+  flex-direction: row;
+  order: 1;
 }
 
-#resizer-right { z-index: 20; }
+.sidebar-collapsed .sidebar-main-card {
+  padding: 20px 12px;
+}
 
-main { flex: 1 1 0%; min-width: 300px; }
+#resizer-right {
+  z-index: 20;
+}
+
+main {
+  flex: 1 1 0%;
+  min-width: 300px;
+}
 
 aside:last-of-type {
   width: 300px;
@@ -102,7 +148,10 @@ aside:last-of-type {
   max-width: 600px;
 }
 
-.note-canvas { background-color: #ffffff; cursor: text; }
+.note-canvas {
+  background-color: #ffffff;
+  cursor: text;
+}
 
 #ai-chat-window {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -111,6 +160,7 @@ aside:last-of-type {
   pointer-events: none;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
+
 #ai-chat-window.open {
   transform: translateY(0);
   opacity: 1;
@@ -122,6 +172,7 @@ aside:last-of-type {
   border: 1px solid #f2f2f7;
   border-bottom-left-radius: 4px;
 }
+
 .user-bubble {
   background-color: #1d1d1f;
   color: white;
@@ -135,7 +186,9 @@ aside:last-of-type {
   -webkit-text-fill-color: transparent;
 }
 
-.ai-btn-shadow { box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.1); }
+.ai-btn-shadow {
+  box-shadow: 0 4px 14px 0 rgba(0, 0, 0, 0.1);
+}
 
 .chat-input-container {
   border: 1px solid #e5e5ea;
@@ -154,14 +207,21 @@ aside:last-of-type {
   box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.05);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .chat-input-glow:focus-within {
   border-color: rgba(59, 130, 246, 0.4);
   box-shadow: 0 8px 32px -6px rgba(59, 130, 246, 0.15);
   transform: translateY(-2px);
 }
 
-.prompt-textarea::-webkit-scrollbar { display: none; }
-.prompt-textarea { -ms-overflow-style: none; scrollbar-width: none; }
+.prompt-textarea::-webkit-scrollbar {
+  display: none;
+}
+
+.prompt-textarea {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 
 /* ── Sidebar Common Styles ── */
 .sidebar-main-card {
@@ -197,6 +257,7 @@ aside:last-of-type {
   justify-content: center;
   flex-shrink: 0;
 }
+
 .sidebar-logo-box .material-symbols-outlined {
   font-size: 17px;
   transform: scaleX(-1);
@@ -220,10 +281,12 @@ aside:last-of-type {
   justify-content: center;
   transition: background 0.15s, color 0.15s;
 }
+
 .sidebar-icon-btn:hover {
   background-color: #f2f2f7;
   color: #1d1d1f;
 }
+
 .sidebar-icon-btn .material-symbols-outlined {
   font-size: 20px;
 }
@@ -237,10 +300,12 @@ aside:last-of-type {
   gap: 8px;
   margin-bottom: 24px;
 }
+
 .sidebar-search-container .material-symbols-outlined {
   font-size: 20px;
   color: #8e8e93;
 }
+
 .sidebar-search-text {
   font-size: 14px;
   color: #aeaeb2;
@@ -265,12 +330,15 @@ aside:last-of-type {
   cursor: pointer;
   transition: background 0.15s;
 }
+
 .sidebar-nav-item:hover {
   background-color: #f2f2f7;
 }
+
 .sidebar-nav-item .nav-icon {
   font-size: 20px;
 }
+
 .sidebar-nav-item .nav-text {
   font-size: 13px;
   font-weight: 500;
