@@ -3,9 +3,14 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from llm_server.run_model import run_model
 from .embedding import embedding
+from .pooling import AttentivePooling
 
-model,tokenizer=run_model()
+model,tokenizer=run_model() #모델 실행(qwen 3.5 9B)
+
 text="test"
-embedded=embedding(model,tokenizer,text)
 
-print(embedded)
+embedded=embedding(model,tokenizer,text) #embedding from qwen 3.5
+
+pooling=AttentivePooling()
+
+print(model.config.hidden_size)
