@@ -6,6 +6,6 @@ from .embedding import embedding
 
 model,tokenizer=run_model()
 text="test"
-embedded=embedding.embedding(model,tokenizer,text)
+embedded=embedding(model,tokenizer,text)
 
 print(embedded)
