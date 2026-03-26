@@ -23,3 +23,5 @@ def embedding(MODEL_NAME):
     embeddings = model.get_input_embeddings()(input_ids)   # [B, T, d]
 
     print(embeddings.shape)
+    
+embedding("Qwen/Qwen3.5-9B")
