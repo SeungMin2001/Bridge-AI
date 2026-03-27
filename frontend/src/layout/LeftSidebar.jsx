@@ -448,7 +448,7 @@ export default function LeftSidebar({
                           style={{
                             color: n.color || '#8e8e93',
                             fontSize: '18px',
-                            fontVariationSettings: n.type === 'folder' ? '"FILL" 1' : undefined,
+                            fontVariationSettings: n.type === 'folder' ? "'FILL' 1" : "'FILL' 0",
                           }}
                         >
                           {n.type === 'folder' ? 'folder' : 'description'}
@@ -487,7 +487,7 @@ export default function LeftSidebar({
                         style={{
                           color: n.color || '#8e8e93',
                           fontSize: '18px',
-                          fontVariationSettings: n.type === 'folder' ? '"FILL" 1' : undefined,
+                          fontVariationSettings: n.type === 'folder' ? "'FILL' 1" : "'FILL' 0",
                         }}
                       >
                         {n.type === 'folder' ? 'folder' : 'description'}
@@ -518,7 +518,7 @@ export default function LeftSidebar({
                         style={{
                           color: n.color || '#8e8e93',
                           fontSize: '18px',
-                          fontVariationSettings: n.type === 'folder' ? '"FILL" 1' : undefined,
+                          fontVariationSettings: n.type === 'folder' ? "'FILL' 1" : "'FILL' 0",
                         }}
                       >
                         {n.type === 'folder' ? 'folder' : 'description'}

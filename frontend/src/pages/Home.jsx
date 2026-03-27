@@ -97,7 +97,7 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
               <div className="sidebar-logo-box">
                 <span className="material-symbols-outlined text-white text-[20px]">menu_book</span>
               </div>
-              <span className="collapsible-content sidebar-logo-text">LectoAI</span>
+              <span className="collapsible-content sidebar-logo-text font-extrabold">LectoAI</span>
             </div>
             <div className="sidebar-btn-group">
               <button className="sidebar-icon-btn" onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}>
@@ -124,7 +124,7 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
             <div id="favorites-list" className="flex flex-col gap-1">
               {fileTree.filter(item => favorites.has(item.id)).map(fav => (
                 <div key={`fav-${fav.id}`} className="sidebar-nav-item" onClick={() => onNavigate('workspace')}>
-                  <span className="material-symbols-outlined nav-icon" style={{ color: fav.color, fontVariationSettings: `"FILL" ${fav.type === 'folder' ? 1 : 0}` }}>
+                  <span className="material-symbols-outlined nav-icon" style={{ color: fav.color, fontVariationSettings: `'FILL' ${fav.type === 'folder' ? 1 : 0}` }}>
                     {fav.type === 'folder' ? 'folder' : 'description'}
                   </span>
                   <span className="nav-text truncate">{fav.name}</span>
@@ -195,23 +195,88 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
           <div className="folder-grid">
             {fileTree.map(item => {
               const isStarred = favorites.has(item.id);
-              return (
-                <div key={item.id} className="folder-card" onClick={() => onNavigate('workspace')}>
-                  <button 
-                    className={`star-btn ${isStarred ? 'starred' : ''}`} 
-                    onClick={(e) => toggleStar(e, item.id)}
-                  >
-                    <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: `"FILL" ${isStarred ? 1 : 0}` }}>star</span>
-                  </button>
-                  <span className="material-symbols-outlined text-[48px] opacity-90" style={{ color: item.color, fontVariationSettings: `"FILL" ${item.type === 'folder' ? 1 : 0}` }}>
-                    {item.type === 'folder' ? 'folder' : 'description'}
-                  </span>
-                  <div className="mt-auto">
-                    <div className="text-[15px] font-bold text-[#1d1d1f] tracking-[-0.01em] leading-[1.3] truncate">{item.name}</div>
-                    <div className="text-[12px] text-[#aeaeb2] font-medium mt-1 truncate">{item.date || '날짜 정보 없음'}</div>
+              
+              if (item.type === 'folder') {
+                // 색상 매핑 (color hex → CSS class)
+                const colorMap = {
+                  '#3b82f6': { body: 'fc-blue',   tab: 'fc-blue-tab' },
+                  '#2dd4bf': { body: 'fc-teal',   tab: 'fc-teal-tab' },
+                  '#ef4444': { body: 'fc-coral',  tab: 'fc-coral-tab' },
+                  '#f87171': { body: 'fc-coral',  tab: 'fc-coral-tab' },
+                  '#f59e0b': { body: 'fc-amber',  tab: 'fc-amber-tab' },
+                  '#10b981': { body: 'fc-teal',   tab: 'fc-teal-tab' },
+                  '#8b5cf6': { body: 'fc-purple', tab: 'fc-purple-tab' },
+                  '#a78bfa': { body: 'fc-purple', tab: 'fc-purple-tab' },
+                };
+                const colors = colorMap[item.color] || { body: 'fc-blue', tab: 'fc-blue-tab' };
+                
+                return (
+                  <div key={item.id} className="folder-card" onClick={() => onNavigate('workspace')}>
+                    <div className={`folder-tab ${colors.tab}`} style={{ width: '45%' }}></div>
+                    <div className={`folder-body ${colors.body}`}>
+                      <button 
+                        className={`star-btn ${isStarred ? 'starred' : ''}`} 
+                        onClick={(e) => toggleStar(e, item.id)}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '16px', fontVariationSettings: `'FILL' ${isStarred ? 1 : 0}` }}>star</span>
+                      </button>
+                      <div className="folder-icon-area">
+                        <span className="material-symbols-outlined" style={{ fontSize: '22px', color: '#fff', fontVariationSettings: "'FILL' 1" }}>folder</span>
+                      </div>
+                      <div className="folder-card-name">{item.name}</div>
+                      <div className="folder-card-date">{item.date || ''}</div>
+                    </div>
                   </div>
-                </div>
-              );
+                );
+              } else {
+                // 파일 카드 (노트 스타일)
+                return (
+                  <div key={item.id} className="folder-card file-card" onClick={() => onNavigate('workspace')} style={{ display: 'flex', flexDirection: 'column', height: '160px' }}>
+                    <div style={{ height: '10px', flexShrink: 0 }}></div>
+                    <div style={{
+                      background: '#fff',
+                      borderRadius: '14px',
+                      padding: 0,
+                      flex: 1,
+                      position: 'relative',
+                      overflow: 'hidden',
+                      boxShadow: '2px 3px 0px #e0e0e8',
+                      border: '1.5px solid #e5e5ea',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}>
+                      {/* 상단 컬러 바 */}
+                      <div style={{ height: '6px', background: 'linear-gradient(90deg, #6366f1, #a78bfa)', borderRadius: '12px 12px 0 0' }}></div>
+                      {/* 줄 배경 */}
+                      <div style={{
+                        position: 'absolute', top: '30px', left: 0, right: 0, bottom: 0,
+                        backgroundImage: 'repeating-linear-gradient(transparent, transparent 22px, #f0f0f5 22px, #f0f0f5 23px)',
+                        opacity: 0.6
+                      }}></div>
+                      <div style={{ position: 'relative', zIndex: 1, padding: '14px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                        <button 
+                          className={`star-btn ${isStarred ? 'starred' : ''}`}
+                          onClick={(e) => toggleStar(e, item.id)}
+                          style={{ position: 'absolute', top: '14px', right: '10px', background: 'rgba(0,0,0,0.04)', color: '#d1d1d6' }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '16px', fontVariationSettings: `'FILL' ${isStarred ? 1 : 0}` }}>star</span>
+                        </button>
+                        {/* 문서 아이콘 + 확장자 뱃지 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                          <div style={{ width: '36px', height: '36px', background: '#ede9fe', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#6366f1', fontVariationSettings: "'FILL' 1" }}>article</span>
+                          </div>
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: '#6366f1', background: '#ede9fe', padding: '2px 8px', borderRadius: '100px', letterSpacing: '0.04em' }}>FILE</span>
+                        </div>
+                        <div style={{ marginTop: 'auto' }}>
+                          <div className="folder-card-name" style={{ color: '#1d1d1f', fontSize: '13px' }}>{item.name}</div>
+                          <div className="folder-card-date" style={{ color: '#8e8e93' }}>{item.date || ''}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
             })}
           </div>
         </div>
