@@ -1,5 +1,6 @@
 import os
 import json
+from database import get_db_conn
 
 async def save_transcript(transcript_data):
     try:
@@ -16,7 +17,29 @@ async def save_transcript(transcript_data):
         with open(file_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(transcript_data, ensure_ascii=False) + "\n")
 
-        print("저장 완료")
+        # DB 저장 로직
+        conn = get_db_conn()
+        cur = conn.cursor()
 
+        cur.execute(
+            """
+            INSERT INTO transcripts (
+                session_id, segment_index, start_time, end_time, original_text
+            )
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (
+                transcript_data["session_id"],
+                transcript_data["segment_index"],
+                transcript_data["start_time"],
+                transcript_data["end_time"],
+                transcript_data["raw_text"]
+            )
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"save_transcripts 저장 완료 (index: {transcript_data['segment_index']})")
     except Exception as e:
         print("save_transcript 에러:", e)

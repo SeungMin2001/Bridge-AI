@@ -7,10 +7,9 @@ from data.save_transcript import save_transcript
 from data.embeded_test import get_embedding
 import torch
 import uuid
-
+from database import init_test_session
 
 #from corrector import correct_text asdasd
-
 
 device="mps" if torch.backends.mps.is_available() else "cuda"
 
@@ -24,7 +23,11 @@ async def websocket_endpoint(ws:WebSocket):
     await ws.accept()
     audio_buffer=bytearray()
     session_id=str(uuid.uuid4())
+    # fk방지용 테스트 세션
+    init_test_session(session_id)
     processed_seconds=0.0
+
+    segment_index = 0
 
     try:
         while True:
@@ -68,6 +71,7 @@ async def websocket_endpoint(ws:WebSocket):
                 
                 transcript_data={
                     "session_id":session_id,
+                    "segment_index": segment_index,
                     "start_time":start_time,
                     "end_time":end_time,
                     "raw_text":text,
@@ -80,6 +84,8 @@ async def websocket_endpoint(ws:WebSocket):
                     "text": text,
                 })
                 processed_seconds=end_time
+                segment_index += 1
+
     except WebSocketDisconnect:
         print("error")
         
