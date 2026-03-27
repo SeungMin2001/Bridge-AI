@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './Home.css';
 
-export default function Home({ onNavigate }) {
+export default function Home({ onNavigate, fileTree, setFileTree, favorites, setFavorites }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
@@ -11,17 +11,6 @@ export default function Home({ onNavigate }) {
   const aiWinRef = useRef(null);
   const aiBtnRef = useRef(null);
   
-  // Folders state
-  const [folders, setFolders] = useState([
-    { id: 'folder-26', name: '26년도 폴더', date: '2026. 3. 9. 오후 2:27', color: '#3b82f6', isFile: false, isStarred: true },
-    { id: 'folder-sqld', name: 'SQLD', date: '2026. 3. 9. 오전 11:15', color: '#3b82f6', isFile: false, isStarred: false },
-    { id: 'folder-25', name: '25년 1학기', date: '2026. 3. 8. 오후 6:40', color: '#3b82f6', isFile: false, isStarred: true },
-    { id: 'folder-network', name: '컴퓨터 네트워크', date: '2026. 3. 7. 오후 1:12', color: '#3b82f6', isFile: false, isStarred: false },
-    { id: 'folder-note', name: '2학기 필기폴더', date: '2026. 3. 5. 오전 9:45', color: '#3b82f6', isFile: false, isStarred: true },
-    { id: 'folder-lecture', name: '2학기 강의 폴더', date: '2026. 3. 4. 오후 10:20', color: '#3b82f6', isFile: false, isStarred: false },
-    { id: 'file-minutes', name: '주간 회의록.docx', date: '2026. 3. 10. 오전 10:15', color: '#1d1d1f', isFile: true, isStarred: false },
-  ]);
-
   const [newFolderName, setNewFolderName] = useState('');
   const [newFileName, setNewFileName] = useState('');
 
@@ -47,21 +36,30 @@ export default function Home({ onNavigate }) {
 
   const toggleStar = (e, targetId) => {
     e.stopPropagation();
-    setFolders(prev => prev.map(f => f.id === targetId ? { ...f, isStarred: !f.isStarred } : f));
+    setFavorites(prev => {
+      const next = new Set(prev);
+      if (next.has(targetId)) next.delete(targetId);
+      else next.add(targetId);
+      return next;
+    });
   };
 
   const handleCreateFolder = () => {
     if (!newFolderName.trim()) return;
     const now = new Date();
     const timeStr = `${now.getFullYear()}. ${now.getMonth() + 1}. ${now.getDate()}. ${now.getHours() >= 12 ? '오후' : '오전'} ${now.getHours() % 12 || 12}:${now.getMinutes().toString().padStart(2, '0')}`;
-    setFolders([{
-      id: 'folder-' + Date.now(),
+    
+    const newFolder = {
+      id: 'f' + Date.now(),
+      type: 'folder',
       name: newFolderName,
       date: timeStr,
       color: selectedColor,
-      isFile: false,
-      isStarred: false
-    }, ...folders]);
+      expanded: false,
+      children: []
+    };
+
+    setFileTree([newFolder, ...fileTree]);
     setIsFolderModalOpen(false);
     setNewFolderName('');
   };
@@ -70,19 +68,22 @@ export default function Home({ onNavigate }) {
     if (!newFileName.trim()) return;
     const now = new Date();
     const timeStr = `${now.getFullYear()}. ${now.getMonth() + 1}. ${now.getDate()}. ${now.getHours() >= 12 ? '오후' : '오전'} ${now.getHours() % 12 || 12}:${now.getMinutes().toString().padStart(2, '0')}`;
-    setFolders([{
+    
+    const newFile = {
       id: 'file-' + Date.now(),
+      type: 'file',
       name: newFileName,
       date: timeStr,
-      color: '#1d1d1f',
-      isFile: true,
-      isStarred: false
-    }, ...folders]);
+      color: '#1d1d1f'
+    };
+
+    setFileTree([newFile, ...fileTree]);
     setIsFileModalOpen(false);
     setNewFileName('');
   };
 
-  const favorites = folders.filter(f => f.isStarred);
+  // 즐겨찾기 목록 필터링 (fileTree에서 favorites Set에 포함된 항목만 추출)
+  const favoriteItems = fileTree.filter(item => favorites.has(item.id));
 
   return (
     <div className="p-[12px] flex gap-[12px] relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden">
@@ -118,16 +119,16 @@ export default function Home({ onNavigate }) {
             <span className="sidebar-search-text">제목으로 검색</span>
           </div>
 
-          <div className="sidebar-content collapsible-content custom-scrollbar">
+            <div className="sidebar-content collapsible-content custom-scrollbar">
             <div className="sidebar-section-title">즐겨찾기</div>
             <div id="favorites-list" className="flex flex-col gap-1">
-              {favorites.map(fav => (
+              {fileTree.filter(item => favorites.has(item.id)).map(fav => (
                 <div key={`fav-${fav.id}`} className="sidebar-nav-item" onClick={() => onNavigate('workspace')}>
-                  <span className="material-symbols-outlined nav-icon" style={{ color: fav.color, fontVariationSettings: `"FILL" ${fav.isFile ? 0 : 1}` }}>
-                    {fav.isFile ? 'description' : 'folder'}
+                  <span className="material-symbols-outlined nav-icon" style={{ color: fav.color, fontVariationSettings: `"FILL" ${fav.type === 'folder' ? 1 : 0}` }}>
+                    {fav.type === 'folder' ? 'folder' : 'description'}
                   </span>
                   <span className="nav-text truncate">{fav.name}</span>
-                  {!fav.isFile && (
+                  {fav.type === 'folder' && (
                     <span className="material-symbols-outlined text-[#8e8e93] text-[18px]">expand_more</span>
                   )}
                 </div>
@@ -192,23 +193,26 @@ export default function Home({ onNavigate }) {
           </div>
           
           <div className="folder-grid">
-            {folders.map(folder => (
-              <div key={folder.id} className="folder-card" onClick={() => onNavigate('workspace')}>
-                <button 
-                  className={`star-btn ${folder.isStarred ? 'starred' : ''}`} 
-                  onClick={(e) => toggleStar(e, folder.id)}
-                >
-                  <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: `"FILL" ${folder.isStarred ? 1 : 0}` }}>star</span>
-                </button>
-                <span className="material-symbols-outlined text-[48px] opacity-90" style={{ color: folder.color, fontVariationSettings: `"FILL" ${folder.isFile ? 0 : 1}` }}>
-                  {folder.isFile ? 'description' : 'folder'}
-                </span>
-                <div className="mt-auto">
-                  <div className="text-[15px] font-bold text-[#1d1d1f] tracking-[-0.01em] leading-[1.3] truncate">{folder.name}</div>
-                  <div className="text-[12px] text-[#aeaeb2] font-medium mt-1 truncate">{folder.date}</div>
+            {fileTree.map(item => {
+              const isStarred = favorites.has(item.id);
+              return (
+                <div key={item.id} className="folder-card" onClick={() => onNavigate('workspace')}>
+                  <button 
+                    className={`star-btn ${isStarred ? 'starred' : ''}`} 
+                    onClick={(e) => toggleStar(e, item.id)}
+                  >
+                    <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: `"FILL" ${isStarred ? 1 : 0}` }}>star</span>
+                  </button>
+                  <span className="material-symbols-outlined text-[48px] opacity-90" style={{ color: item.color, fontVariationSettings: `"FILL" ${item.type === 'folder' ? 1 : 0}` }}>
+                    {item.type === 'folder' ? 'folder' : 'description'}
+                  </span>
+                  <div className="mt-auto">
+                    <div className="text-[15px] font-bold text-[#1d1d1f] tracking-[-0.01em] leading-[1.3] truncate">{item.name}</div>
+                    <div className="text-[12px] text-[#aeaeb2] font-medium mt-1 truncate">{item.date || '날짜 정보 없음'}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         

@@ -1,24 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
-// ── 초기 파일 트리 데이터 (file1.html과 동일) ──
-const INITIAL_FILE_TREE = [
-  {
-    id: 'f1', type: 'folder', name: '컴퓨터 네트워크', color: '#3b82f6', expanded: true,
-    children: [
-      {
-        id: 'f1-1', type: 'folder', name: '강의요점', color: '#3b82f6', expanded: true,
-        children: [
-          { id: 'f1-1-1', type: 'file', name: '강의1', content: '' },
-          { id: 'f1-1-2', type: 'file', name: '강의2', content: '' },
-        ]
-      }
-    ]
-  },
-  { id: 'f2', type: 'folder', name: 'SQLD', color: '#3b82f6', expanded: false, children: [] },
-  { id: 'f3', type: 'folder', name: '25년 1학기', color: '#5856d6', expanded: false, children: [] },
-  { id: 'f4', type: 'folder', name: '26년도 폴더', color: '#ff9500', expanded: false, children: [] },
-  { id: 'f5', type: 'file', name: '주간 회의록.docx', content: '' },
-];
+// ── 초기 파일 트리 데이터 (빈 상태로 시작) ──
+const INITIAL_FILE_TREE = [];
 
 const FOLDER_COLORS = ['#3b82f6', '#5856d6', '#ff9500', '#34c759', '#ff3b30', '#af52de'];
 
@@ -174,12 +157,20 @@ function ContextMenu({ visible, x, y, targetNode, isFavorite, onClose, onAction 
 }
 
 // ── 메인 LeftSidebar 컴포넌트 ──
-export default function LeftSidebar({ onNavigateHome, transcriptions = [], activeFileId: externalActiveFileId, onFileSelect }) {
+export default function LeftSidebar({ 
+  onNavigateHome, 
+  transcriptions = [], 
+  activeFileId: externalActiveFileId, 
+  onFileSelect,
+  fileTree,
+  setFileTree,
+  favorites,
+  setFavorites 
+}) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [sidebarMode, setSidebarMode] = useState('transcription'); // 'folder' | 'transcription'
-  const [fileTree, setFileTree] = useState(INITIAL_FILE_TREE);
-  const [activeFileId, setActiveFileId] = useState(externalActiveFileId || 'f1-1-1');
-  const [favorites, setFavorites] = useState(new Set(['f1', 'f3', 'f4']));
+
+  const [activeFileId, setActiveFileId] = useState(externalActiveFileId || null);
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState('');
   const [width, setWidth] = useState(280);

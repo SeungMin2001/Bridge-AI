@@ -13,6 +13,25 @@ export default function App() {
   const [activeFileName, setActiveFileName] = useState('강의1');
   const [isRightSidebarVisible, setIsRightSidebarVisible] = useState(true);
 
+  // --- 통합 데이터 상태 (Home & Sidebar 공유) ---
+  const [fileTree, setFileTree] = useState(() => {
+    const saved = localStorage.getItem('lecto_file_tree');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [favorites, setFavorites] = useState(() => {
+    const saved = localStorage.getItem('lecto_favorites');
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
+
+  // 데이터 자동 저장
+  useEffect(() => {
+    localStorage.setItem('lecto_file_tree', JSON.stringify(fileTree));
+  }, [fileTree]);
+
+  useEffect(() => {
+    localStorage.setItem('lecto_favorites', JSON.stringify(Array.from(favorites)));
+  }, [favorites]);
+
   // --- 참조 관리 (Refs) ---
   const timerRef = useRef(null);
   const wsRef = useRef(null);
@@ -134,7 +153,15 @@ export default function App() {
   }, []);
 
   if (currentView === 'home') {
-    return <Home onNavigate={(view) => setCurrentView(view)} />;
+    return (
+      <Home 
+        onNavigate={(view) => setCurrentView(view)} 
+        fileTree={fileTree}
+        setFileTree={setFileTree}
+        favorites={favorites}
+        setFavorites={setFavorites}
+      />
+    );
   }
 
   return (
@@ -143,6 +170,10 @@ export default function App() {
         onNavigateHome={() => setCurrentView('home')}
         transcriptions={transcriptions}
         onFileSelect={handleFileSelect}
+        fileTree={fileTree}
+        setFileTree={setFileTree}
+        favorites={favorites}
+        setFavorites={setFavorites}
       />
       <MainContent
         isRecording={isRecording}
