@@ -106,32 +106,7 @@ body {
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.sidebar-collapsed {
-  width: 72px !important;
-}
-
-.sidebar-collapsed .collapsible-content {
-  display: none !important;
-}
-
-.sidebar-collapsed .sidebar-header {
-  flex-direction: row;
-  justify-content: center;
-  gap: 8px;
-}
-
-.sidebar-collapsed .sidebar-logo-section {
-  order: 2;
-}
-
-.sidebar-collapsed .sidebar-btn-group {
-  flex-direction: row;
-  order: 1;
-}
-
-.sidebar-collapsed .sidebar-main-card {
-  padding: 20px 12px;
-}
+/* Old sidebar-collapsed styles removed — see bottom of file */
 
 #resizer-right {
   z-index: 20;
@@ -349,4 +324,242 @@ aside:last-of-type {
 .sidebar-content {
   flex: 1;
   overflow-y: auto;
+}
+
+/* ── Tree items (file1.html 스타일) ── */
+.tree-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  user-select: none;
+}
+
+.tree-item:hover {
+  background-color: #f2f2f7;
+}
+
+.tree-item.is-selected {
+  background-color: #e8e8ed;
+}
+
+/* 활성화한 파일 섹션 row 배경 흰색 */
+#active-file-display .tree-item {
+  background-color: #ffffff !important;
+}
+
+#active-file-display .tree-item:hover {
+  background-color: #f2f2f7 !important;
+}
+
+/* 더보기 버튼: 기본 숨김, hover 시 표시 */
+.dots-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: #8e8e93;
+  flex-shrink: 0;
+  transition: background-color 0.15s;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.tree-item:hover .dots-btn {
+  display: flex;
+}
+
+.dots-btn:hover {
+  background-color: #e5e5ea !important;
+  color: #1d1d1f;
+}
+
+.chevron {
+  transition: transform 0.2s;
+  color: #8e8e93;
+  flex-shrink: 0;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+.tree-children {
+  margin-left: 8px;
+  border-left: 1.5px solid #e5e5ea;
+  padding-left: 4px;
+  overflow: hidden;
+  transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
+}
+
+.tree-children.collapsed {
+  max-height: 0 !important;
+  opacity: 0;
+}
+
+.tree-children.expanded {
+  opacity: 1;
+}
+
+/* ── Dropdown Menu ── */
+.dropdown-menu {
+  position: fixed;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 5px;
+  z-index: 9999;
+  min-width: 158px;
+  animation: menuIn 0.12s ease;
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.1s;
+  white-space: nowrap;
+}
+
+.dropdown-item:hover {
+  background-color: #f2f2f7;
+}
+
+.dropdown-item.danger {
+  color: #ff3b30;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: #f2f2f7;
+  margin: 4px 0;
+}
+
+/* ── Sidebar mode button ── */
+.sidebar-mode-btn.active {
+  background-color: #f2f2f7;
+  color: #1d1d1f;
+}
+
+/* ── Action cards ── */
+.action-card {
+  border: 1px solid #f2f2f7;
+  transition: all 0.2s;
+}
+
+.action-card:hover {
+  background-color: #f9f9fb;
+  border-color: #e5e5ea;
+  transform: translateY(-1px);
+}
+
+/* ── AI gradient bg ── */
+.ai-gradient-bg {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+}
+
+/* ── Drag states ── */
+.drag-over {
+  background-color: #eff6ff !important;
+  border: 1.5px dashed #3b82f6;
+  border-radius: 10px;
+}
+
+.dragging {
+  opacity: 0.4;
+}
+
+/* ── Toast ── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: #1d1d1f;
+  color: white;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  z-index: 99999;
+  opacity: 0;
+  transition: all 0.25s;
+  pointer-events: none;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── Rename ── */
+.rename-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid #3b82f6;
+  outline: none;
+  font-size: 13px;
+  color: #1d1d1f;
+  padding: 0 2px;
+  width: 100%;
+  font-family: inherit;
+}
+
+/* ── Resizing helper ── */
+.is-resizing #sidebar,
+.is-resizing #right-sidebar,
+.is-resizing main {
+  transition: none !important;
+}
+
+#resizer-left {
+  z-index: 20;
+}
+
+/* ── Sidebar collapsed (file1.html 스타일) ── */
+.sidebar-collapsed {
+  width: 0 !important;
+  margin-right: -12px !important;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar-collapsed .collapsible-content,
+.sidebar-collapsed .sidebar-header-row,
+.sidebar-collapsed footer {
+  display: none !important;
+}
+
+/* ── Right sidebar scrollbar hide ── */
+#right-sidebar .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+#right-sidebar:hover .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #d1d1d6;
 }
