@@ -98,6 +98,7 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
                       className="clickable-word" 
                       onClick={(e) => { 
                         e.stopPropagation(); 
+<<<<<<< HEAD
                         const wordRect = e.currentTarget.getBoundingClientRect();
                         const bubble = e.currentTarget.closest('.message-bubble');
                         const bubbleRect = bubble ? bubble.getBoundingClientRect() : wordRect;
@@ -106,6 +107,14 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
                           visible: true,
                           x: bubbleRect.right + 15, // 말풍선 오른쪽으로 15px 오프셋
                           y: wordRect.top - 20,      // 클릭한 단어의 높이는 유지
+=======
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const bubbleRect = e.currentTarget.closest('.message-bubble').getBoundingClientRect();
+                        setWordPopover({
+                          visible: true,
+                          x: bubbleRect.right + 10,
+                          y: rect.top - 20,
+>>>>>>> toyo
                           word: word
                         });
                       }}
