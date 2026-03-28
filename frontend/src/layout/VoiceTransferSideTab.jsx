@@ -16,13 +16,13 @@ const WORD_EXPLANATIONS = {
 function WordPopover({ visible, x, y, word, onClose }) {
   if (!visible) return null;
 
-  const data = WORD_EXPLANATIONS[word.replace(/[.,]/g, '')] || { 
+  const data = WORD_EXPLANATIONS[word.replace(/[.,]/g, '')] || {
     desc: "해당 단어에 대한 상세 설명 정보가 아직 등록되지 않았습니다. AI를 사용하여 자동으로 검색하거나 노트를 추가할 수 있습니다.",
     source: "AI 분석 결과"
   };
 
   return (
-    <div 
+    <div
       className="fixed z-[10000] bg-white/80 backdrop-blur-md rounded-[20px] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-white/40 flex flex-col gap-3 min-w-[240px] max-w-[280px] transition-all animate-in fade-in zoom-in duration-200"
       style={{ left: x + 'px', top: y + 'px' }}
       onClick={(e) => e.stopPropagation()}
@@ -39,7 +39,7 @@ function WordPopover({ visible, x, y, word, onClose }) {
       <div className="text-[13px] text-[#3a3a3c] leading-[1.6] font-medium tracking-tight">
         {data.desc}
       </div>
-      
+
       {/* 근거 링크 섹션 */}
       <div className="flex items-center gap-1.5 mt-1 border-t border-black/5 pt-3">
         <span className="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
@@ -93,28 +93,17 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
                 </div>
                 <div className="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
                   {t.text.split(' ').map((word, wIdx) => (
-                    <span 
-                      key={wIdx} 
-                      className="clickable-word" 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-<<<<<<< HEAD
-                        const wordRect = e.currentTarget.getBoundingClientRect();
-                        const bubble = e.currentTarget.closest('.message-bubble');
-                        const bubbleRect = bubble ? bubble.getBoundingClientRect() : wordRect;
-                        
-                        setWordPopover({
-                          visible: true,
-                          x: bubbleRect.right + 15, // 말풍선 오른쪽으로 15px 오프셋
-                          y: wordRect.top - 20,      // 클릭한 단어의 높이는 유지
-=======
+                    <span
+                      key={wIdx}
+                      className="clickable-word"
+                      onClick={(e) => {
+                        e.stopPropagation();
                         const rect = e.currentTarget.getBoundingClientRect();
                         const bubbleRect = e.currentTarget.closest('.message-bubble').getBoundingClientRect();
                         setWordPopover({
                           visible: true,
                           x: bubbleRect.right + 10,
                           y: rect.top - 20,
->>>>>>> toyo
                           word: word
                         });
                       }}
