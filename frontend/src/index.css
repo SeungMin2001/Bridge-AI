@@ -81,6 +81,24 @@ body {
   border-radius: 16px;
 }
 
+.clickable-word {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0 2px;
+  transition: all 0.1s;
+  display: inline-block;
+}
+
+.clickable-word:hover {
+  background-color: #e5e5ea;
+  color: #3b82f6;
+}
+
+.clickable-word:active {
+  transform: scale(0.95);
+  background-color: #d1d1d6;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }

@@ -41,6 +41,7 @@ export default function App() {
   const processorRef = useRef(null);
   const sourceRef = useRef(null);
   const lastBubbleTimeRef = useRef(0);
+  const mockTimersRef = useRef([]);
 
   const float32ToInt16 = (float32Array) => {
     const int16Array = new Int16Array(float32Array.length);
@@ -54,6 +55,10 @@ export default function App() {
   const stopRecording = useCallback(() => {
     setIsRecording(false);
     clearInterval(timerRef.current);
+
+    // 모의 타이머 정리
+    mockTimersRef.current.forEach(t => clearTimeout(t));
+    mockTimersRef.current = [];
 
     if (processorRef.current) { processorRef.current.disconnect(); processorRef.current = null; }
     if (sourceRef.current) { sourceRef.current.disconnect(); sourceRef.current = null; }
@@ -90,6 +95,22 @@ export default function App() {
       setRecordingSeconds(s => s + 1);
     }, 1000);
 
+    // --- Mock Data 설정 --- 
+    // 나중에 백엔드 서버를 사용할 때는 이 값을 false로 바꾸면 됩니다.
+    const USE_MOCK_DATA = true; 
+
+    if (USE_MOCK_DATA) {
+      const t1 = setTimeout(() => {
+        addTranscriptionBubble("안녕하세요, 실시간 음성 전사 테스트 중입니다.");
+      }, 3000);
+      const t2 = setTimeout(() => {
+        addTranscriptionBubble("현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.");
+      }, 7000);
+      mockTimersRef.current = [t1, t2];
+      return; 
+    }
+
+    // --- 실시간 백엔드 연결 (WebSocket) ---
     wsRef.current = new WebSocket("ws://100.104.164.84:8000/ws");
 
     wsRef.current.onmessage = (event) => {
