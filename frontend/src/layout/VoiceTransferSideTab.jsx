@@ -98,11 +98,14 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
                       className="clickable-word" 
                       onClick={(e) => { 
                         e.stopPropagation(); 
-                        const rect = e.currentTarget.getBoundingClientRect();
+                        const wordRect = e.currentTarget.getBoundingClientRect();
+                        const bubble = e.currentTarget.closest('.message-bubble');
+                        const bubbleRect = bubble ? bubble.getBoundingClientRect() : wordRect;
+                        
                         setWordPopover({
                           visible: true,
-                          x: rect.right + 10,
-                          y: rect.top - 20,
+                          x: bubbleRect.right + 15, // 말풍선 오른쪽으로 15px 오프셋
+                          y: wordRect.top - 20,      // 클릭한 단어의 높이는 유지
                           word: word
                         });
                       }}
