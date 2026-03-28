@@ -26,7 +26,6 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
         <nav className="flex gap-1 overflow-x-auto no-scrollbar" id="main-tabs">
           {[
             { key: 'note', label: noteTabName },
-            { key: 'ai', label: 'AI' },
             { key: 'material', label: '자료' },
             { key: 'summary', label: '요약' },
             { key: 'quiz', label: '퀴즈' },
@@ -117,56 +116,6 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
           </div>
         </section>
 
-        {/* AI Tab */}
-        <section className={`tab-content card main-card-enhanced flex-1 flex flex-col relative overflow-hidden note-canvas ${activeTab === 'ai' ? 'flex' : 'hidden'}`}>
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-10 gap-6">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#3b82f6] to-[#a855f7] flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform duration-300 cursor-pointer">
-              <span className="material-symbols-outlined text-white text-[32px]">auto_awesome</span>
-            </div>
-            <h2 className="text-[24px] font-heavy-heading text-[#1d1d1f]">무엇을 도와드릴까요?</h2>
-            <div className="flex flex-wrap items-center justify-center gap-3 mt-2 max-w-2xl">
-              <button className="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">edit_document</span> 강의 노트 요약하기
-              </button>
-              <button className="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">quiz</span> 핵심 개념 퀴즈 생성
-              </button>
-              <button className="px-4 py-2.5 rounded-xl bg-white border border-[#e5e5ea] text-[14px] text-[#3a3a3c] hover:border-[#3b82f6] hover:text-[#3b82f6] shadow-sm transition-all flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">translate</span> 외국어 자료 번역
-              </button>
-            </div>
-          </div>
-          <div className="p-6 pt-0 w-full relative z-10">
-            <div className="max-w-4xl mx-auto flex flex-col gap-3">
-              <div className="chat-input-glow rounded-[24px] px-3 py-3 flex flex-col gap-2">
-                <textarea
-                  className="prompt-textarea w-full bg-transparent border-none focus:ring-0 text-[15px] text-[#1d1d1f] placeholder-[#aeaeb2] resize-none px-3 pt-2 pb-1 min-h-[44px] leading-relaxed"
-                  onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = (e.target.scrollHeight) + 'px'; }}
-                  placeholder="여기에 프롬프트를 입력하거나 파일을 업로드하세요..." rows={1}
-                />
-                <div className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-1">
-                    <button className="btn-ghost-icon w-9 h-9 rounded-full flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] transition-colors" title="파일 첨부">
-                      <span className="material-symbols-outlined text-[20px]">attach_file</span>
-                    </button>
-                    <button className="btn-ghost-icon w-9 h-9 rounded-full flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] transition-colors" title="음성 입력">
-                      <span className="material-symbols-outlined text-[20px]">mic</span>
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f2f2f7] hover:bg-[#e5e5ea] transition-colors text-[12px] font-medium text-[#3a3a3c]">
-                      <span className="material-symbols-outlined text-[16px]">library_books</span> 소스 0개
-                    </button>
-                    <button className="w-[36px] h-[36px] bg-[#1d1d1f] rounded-full flex items-center justify-center text-white hover:bg-[#3a3a3c] transition-all shadow-md transform active:scale-95">
-                      <span className="material-symbols-outlined text-[18px]">arrow_upward</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <p className="text-center text-[12px] text-[#aeaeb2]">AI는 실수를 할 수 있으므로 중요한 정보는 확인해 주세요.</p>
-            </div>
-          </div>
-        </section>
 
         {/* Material Tab */}
         <section className={`tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12 ${activeTab === 'material' ? 'flex' : 'hidden'}`}>

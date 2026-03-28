@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import LeftSidebar from './layout/LeftSidebar';
-import MainContent from './layout/MainContent';
-import RightSidebar from './layout/RightSidebar';
-import Home from './pages/Home';
-import AiHistory from './pages/AiHistory';
+import Workspace from './pages/Workspace/Workspace';
+import Home from './pages/Home/Home';
+import AiHistory from './pages/AiHistory/AiHistory';
 
 export default function App() {
   // --- 상태 관리 (State) ---
@@ -193,25 +191,21 @@ export default function App() {
   }
 
   return (
-    <div className="p-[12px] flex gap-[12px] relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden">
-      <LeftSidebar
-        onNavigateHome={() => setCurrentView('home')}
-        transcriptions={transcriptions}
-        onFileSelect={handleFileSelect}
-        fileTree={fileTree}
-        setFileTree={setFileTree}
-        favorites={favorites}
-        setFavorites={setFavorites}
-      />
-      <MainContent
-        isRecording={isRecording}
-        recordingTimeText={recordingTimeText}
-        startRecording={startRecording}
-        stopRecording={stopRecording}
-        activeFileName={activeFileName}
-        onRightSidebarToggle={handleRightSidebarToggle}
-      />
-      <RightSidebar visible={isRightSidebarVisible} />
-    </div>
+    <Workspace
+      onNavigateHome={() => setCurrentView('home')}
+      transcriptions={transcriptions}
+      onFileSelect={handleFileSelect}
+      fileTree={fileTree}
+      setFileTree={setFileTree}
+      favorites={favorites}
+      setFavorites={setFavorites}
+      isRecording={isRecording}
+      recordingTimeText={recordingTimeText}
+      startRecording={startRecording}
+      stopRecording={stopRecording}
+      activeFileName={activeFileName}
+      onRightSidebarToggle={handleRightSidebarToggle}
+      isRightSidebarVisible={isRightSidebarVisible}
+    />
   );
 }
