@@ -64,10 +64,10 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
   return (
     <>
       <div className="flex flex-col flex-1 overflow-hidden">
-        <div className="sidebar-search-bg rounded-[12px] px-3.5 py-2 flex items-center gap-2 mb-5">
-          <span className="material-symbols-outlined text-[#8e8e93] text-[18px]">search</span>
+        <div className="sidebar-search-bg rounded-[14px] px-4 py-2 flex items-center gap-2.5 mb-6">
+          <span className="material-symbols-outlined text-[#8e8e93] text-[20px]">search</span>
           <input
-            className="bg-transparent border-none focus:ring-0 p-0 text-[13px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
+            className="bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
             placeholder="전사 내용 검색"
             type="text"
             value={transSearch}
@@ -75,46 +75,44 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
           />
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4">
           {filteredTrans.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full opacity-40 py-10">
               <span className="material-symbols-outlined text-[48px] mb-2 text-[#aeaeb2]">record_voice_over</span>
               <p className="text-[13px] font-medium text-[#8e8e93]">전사된 데이터가 없습니다.</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-4 pb-4">
-              {filteredTrans.map((t, idx) => (
-                <div key={idx} className="flex flex-col gap-1.5 mt-2">
-                  <span className="text-[11px] font-bold text-[#aeaeb2] px-1.5">{t.time}</span>
-                  <div className="flex items-center gap-2 px-1.5 mb-1">
-                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
-                      <span className="text-[10px] font-bold text-blue-600">나</span>
-                    </div>
-                    <span className="text-[11px] font-bold text-[#1d1d1f]">나</span>
+            filteredTrans.map((t, idx) => (
+              <div key={idx} className="flex flex-col gap-1.5 mt-2">
+                <span className="text-[11px] font-bold text-[#aeaeb2] px-1.5">{t.time}</span>
+                <div className="flex items-center gap-2 px-1.5 mb-1">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                    <span className="text-[10px] font-bold text-blue-600">나</span>
                   </div>
-                  <div className="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
-                    {t.text.split(' ').map((word, wIdx) => (
-                      <span 
-                        key={wIdx} 
-                        className="clickable-word" 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setWordPopover({
-                            visible: true,
-                            x: rect.right + 10,
-                            y: rect.top - 20,
-                            word: word
-                          });
-                        }}
-                      >
-                        {word}{' '}
-                      </span>
-                    ))}
-                  </div>
+                  <span className="text-[11px] font-bold text-[#1d1d1f]">나</span>
                 </div>
-              ))}
-            </div>
+                <div className="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
+                  {t.text.split(' ').map((word, wIdx) => (
+                    <span 
+                      key={wIdx} 
+                      className="clickable-word" 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setWordPopover({
+                          visible: true,
+                          x: rect.right + 10,
+                          y: rect.top - 20,
+                          word: word
+                        });
+                      }}
+                    >
+                      {word}{' '}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))
           )}
         </div>
       </div>

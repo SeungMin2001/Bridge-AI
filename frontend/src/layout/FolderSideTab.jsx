@@ -34,7 +34,7 @@ function genId() { return 'n' + Date.now() + Math.random().toString(36).slice(2,
 
 const FOLDER_COLORS = ['#3b82f6', '#5856d6', '#ff9500', '#34c759', '#ff3b30', '#af52de'];
 
-// ── TreeItem 컴포넌트 (재귀) ──
+// ── TreeItem 컴포넌트 ──
 function TreeItem({ node, depth, activeFileId, onSelectFile, onToggleFolder, onShowContextMenu }) {
   const isFile = node.type === 'file';
   const isSelected = node.id === activeFileId;
@@ -256,10 +256,10 @@ export default function FolderSideTab({
   return (
     <>
       <div className="flex flex-col flex-1 overflow-hidden">
-        <div className="sidebar-search-bg rounded-[12px] px-3.5 py-2 flex items-center gap-2 mb-5">
-          <span className="material-symbols-outlined text-[#8e8e93] text-[18px]">search</span>
+        <div className="sidebar-search-bg rounded-[14px] px-4 py-2 flex items-center gap-2.5 mb-6">
+          <span className="material-symbols-outlined text-[#8e8e93] text-[20px]">search</span>
           <input
-            className="bg-transparent border-none focus:ring-0 p-0 text-[13px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
+            className="bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
             placeholder="제목으로 검색"
             type="text"
             value={searchQuery}
