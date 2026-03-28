@@ -3,6 +3,7 @@ import LeftSidebar from './layout/LeftSidebar';
 import MainContent from './layout/MainContent';
 import RightSidebar from './layout/RightSidebar';
 import Home from './pages/Home';
+import AiHistory from './pages/AiHistory';
 
 export default function App() {
   // --- 상태 관리 (State) ---
@@ -152,10 +153,16 @@ export default function App() {
     setIsRightSidebarVisible(prev => !prev);
   }, []);
 
+  if (currentView === 'ai-history') {
+    return (
+      <AiHistory onNavigateBack={() => setCurrentView('home')} />
+    );
+  }
+
   if (currentView === 'home') {
     return (
-      <Home 
-        onNavigate={(view) => setCurrentView(view)} 
+      <Home
+        onNavigate={(view) => setCurrentView(view)}
         fileTree={fileTree}
         setFileTree={setFileTree}
         favorites={favorites}

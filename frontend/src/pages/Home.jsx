@@ -7,10 +7,11 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [isFileModalOpen, setIsFileModalOpen] = useState(false);
   const [selectedColor, setSelectedColor] = useState('#3b82f6');
+  const [navigationStack, setNavigationStack] = useState([]); // [{id, name}]
 
   const aiWinRef = useRef(null);
   const aiBtnRef = useRef(null);
-  
+
   const [newFolderName, setNewFolderName] = useState('');
   const [newFileName, setNewFileName] = useState('');
 
@@ -21,7 +22,7 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
         setIsFolderModalOpen(false);
         setIsFileModalOpen(false);
       }
-      
+
       // AI Chat
       if (
         aiWinRef.current && !aiWinRef.current.contains(e.target) &&
@@ -44,11 +45,24 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
     });
   };
 
+  const addItemToTree = (nodes, parentId, newItem) => {
+    if (!parentId) return [newItem, ...nodes];
+    return nodes.map(node => {
+      if (node.id === parentId) {
+        return { ...node, children: [newItem, ...(node.children || [])] };
+      }
+      if (node.children) {
+        return { ...node, children: addItemToTree(node.children, parentId, newItem) };
+      }
+      return node;
+    });
+  };
+
   const handleCreateFolder = () => {
     if (!newFolderName.trim()) return;
     const now = new Date();
     const timeStr = `${now.getFullYear()}. ${now.getMonth() + 1}. ${now.getDate()}. ${now.getHours() >= 12 ? '오후' : '오전'} ${now.getHours() % 12 || 12}:${now.getMinutes().toString().padStart(2, '0')}`;
-    
+
     const newFolder = {
       id: 'f' + Date.now(),
       type: 'folder',
@@ -59,7 +73,8 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
       children: []
     };
 
-    setFileTree([newFolder, ...fileTree]);
+    const currentFolderId = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1].id : null;
+    setFileTree(addItemToTree(fileTree, currentFolderId, newFolder));
     setIsFolderModalOpen(false);
     setNewFolderName('');
   };
@@ -68,7 +83,7 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
     if (!newFileName.trim()) return;
     const now = new Date();
     const timeStr = `${now.getFullYear()}. ${now.getMonth() + 1}. ${now.getDate()}. ${now.getHours() >= 12 ? '오후' : '오전'} ${now.getHours() % 12 || 12}:${now.getMinutes().toString().padStart(2, '0')}`;
-    
+
     const newFile = {
       id: 'file-' + Date.now(),
       type: 'file',
@@ -77,18 +92,49 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
       color: '#1d1d1f'
     };
 
-    setFileTree([newFile, ...fileTree]);
+    const currentFolderId = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1].id : null;
+    setFileTree(addItemToTree(fileTree, currentFolderId, newFile));
     setIsFileModalOpen(false);
     setNewFileName('');
   };
 
-  // 즐겨찾기 목록 필터링 (fileTree에서 favorites Set에 포함된 항목만 추출)
-  const favoriteItems = fileTree.filter(item => favorites.has(item.id));
+  // 현재 폴더 데이터 필터링
+  const getCurrentItems = () => {
+    if (navigationStack.length === 0) return fileTree;
+    
+    const currentFolderId = navigationStack[navigationStack.length - 1].id;
+    const findFolder = (nodes, id) => {
+      for (const node of nodes) {
+        if (node.id === id) return node;
+        if (node.children) {
+          const found = findFolder(node.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const folder = findFolder(fileTree, currentFolderId);
+    return folder ? (folder.children || []) : [];
+  };
+
+  const handleEnterFolder = (e, item) => {
+    e.stopPropagation();
+    setNavigationStack([...navigationStack, { id: item.id, name: item.name }]);
+  };
+
+  const handleGoBack = () => {
+    setNavigationStack(navigationStack.slice(0, -1));
+  };
+
+  const currentItems = getCurrentItems();
+  const currentTitle = navigationStack.length > 0 
+    ? navigationStack[navigationStack.length - 1].name 
+    : '내 폴더';
 
   return (
     <div className="p-[12px] flex gap-[12px] relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden">
-      <aside 
-        id="sidebar" 
+      <aside
+        id="sidebar"
         className={`w-[280px] flex flex-col h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}
       >
         <div className="sidebar-main-card card">
@@ -105,8 +151,8 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
                   {isSidebarCollapsed ? 'menu' : 'side_navigation'}
                 </span>
               </button>
-              <button 
-                className="sidebar-icon-btn collapsible-content" 
+              <button
+                className="sidebar-icon-btn collapsible-content"
                 onClick={() => onNavigate('workspace')}
               >
                 <span className="material-symbols-outlined">edit_note</span>
@@ -119,7 +165,7 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
             <span className="sidebar-search-text">제목으로 검색</span>
           </div>
 
-            <div className="sidebar-content collapsible-content custom-scrollbar">
+          <div className="sidebar-content collapsible-content custom-scrollbar">
             <div className="sidebar-section-title">즐겨찾기</div>
             <div id="favorites-list" className="flex flex-col gap-1">
               {fileTree.filter(item => favorites.has(item.id)).map(fav => (
@@ -168,8 +214,6 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
                 <path d="M10 40 h10 M12 45 h6" stroke="#fff" strokeLinecap="round" strokeWidth="2.5"></path>
                 <path d="M15 15 v10" stroke="#fff" strokeLinecap="round" strokeWidth="2.5"></path>
               </g>
-              <path d="M130 90 C130 65 170 65 170 90 C170 105 160 115 150 115 C140 115 130 105 130 90 Z" fill="#fff"></path>
-              <path d="M125 60 C140 45 165 45 175 60 C185 75 160 80 150 70 C140 80 115 75 125 60 Z" fill="#2d2b3e"></path>
               <circle cx="140" cy="85" fill="#2d2b3e" r="2.5"></circle>
               <circle cx="160" cy="85" fill="#2d2b3e" r="2.5"></circle>
               <path d="M145 95 Q150 100 155 95" fill="none" stroke="#2d2b3e" strokeLinecap="round" strokeWidth="2"></path>
@@ -185,37 +229,56 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
         </div>
 
         <div className="shrink-0">
-          <div className="flex items-center justify-end mb-4">
-            <button className="flex items-center gap-1 px-2 py-1 bg-transparent border-none text-[14px] font-bold text-[#3b82f6] cursor-pointer rounded-lg hover:bg-blue-50 transition-colors">
-              전체보기
-              <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-            </button>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              {navigationStack.length > 0 && (
+                <button 
+                  onClick={handleGoBack}
+                  className="flex items-center justify-center p-2 bg-white border-none text-[#1d1d1f] cursor-pointer rounded-xl hover:bg-[#f2f2f7] transition-colors shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+                </button>
+              )}
+              <span className="section-title !m-0 transition-all duration-300">{currentTitle}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => onNavigate('ai-history')}
+                className="flex items-center justify-center p-2 bg-white border-none text-[#3a3a3c] cursor-pointer rounded-xl hover:bg-[#f2f2f7] transition-colors shadow-sm"
+                title="AI 명령 기록"
+              >
+                <span className="material-symbols-outlined text-[20px]">history</span>
+              </button>
+              <button className="flex items-center gap-1 px-3 py-1.5 bg-white border-none text-[14px] font-bold text-[#3b82f6] cursor-pointer rounded-xl hover:bg-blue-50 transition-colors shadow-sm">
+                전체보기
+                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+              </button>
+            </div>
           </div>
           
           <div className="folder-grid">
-            {fileTree.map(item => {
+            {currentItems.map(item => {
               const isStarred = favorites.has(item.id);
-              
+
               if (item.type === 'folder') {
-                // 색상 매핑 (color hex → CSS class)
                 const colorMap = {
-                  '#3b82f6': { body: 'fc-blue',   tab: 'fc-blue-tab' },
-                  '#2dd4bf': { body: 'fc-teal',   tab: 'fc-teal-tab' },
-                  '#ef4444': { body: 'fc-coral',  tab: 'fc-coral-tab' },
-                  '#f87171': { body: 'fc-coral',  tab: 'fc-coral-tab' },
-                  '#f59e0b': { body: 'fc-amber',  tab: 'fc-amber-tab' },
-                  '#10b981': { body: 'fc-teal',   tab: 'fc-teal-tab' },
+                  '#3b82f6': { body: 'fc-blue', tab: 'fc-blue-tab' },
+                  '#2dd4bf': { body: 'fc-teal', tab: 'fc-teal-tab' },
+                  '#ef4444': { body: 'fc-coral', tab: 'fc-coral-tab' },
+                  '#f87171': { body: 'fc-coral', tab: 'fc-coral-tab' },
+                  '#f59e0b': { body: 'fc-amber', tab: 'fc-amber-tab' },
+                  '#10b981': { body: 'fc-teal', tab: 'fc-teal-tab' },
                   '#8b5cf6': { body: 'fc-purple', tab: 'fc-purple-tab' },
                   '#a78bfa': { body: 'fc-purple', tab: 'fc-purple-tab' },
                 };
                 const colors = colorMap[item.color] || { body: 'fc-blue', tab: 'fc-blue-tab' };
-                
+
                 return (
-                  <div key={item.id} className="folder-card" onClick={() => onNavigate('workspace')}>
+                  <div key={item.id} className="folder-card" onClick={(e) => handleEnterFolder(e, item)}>
                     <div className={`folder-tab ${colors.tab}`} style={{ width: '45%' }}></div>
                     <div className={`folder-body ${colors.body}`}>
-                      <button 
-                        className={`star-btn ${isStarred ? 'starred' : ''}`} 
+                      <button
+                        className={`star-btn ${isStarred ? 'starred' : ''}`}
                         onClick={(e) => toggleStar(e, item.id)}
                       >
                         <span className="material-symbols-outlined" style={{ fontSize: '16px', fontVariationSettings: `'FILL' ${isStarred ? 1 : 0}` }}>star</span>
@@ -229,7 +292,6 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
                   </div>
                 );
               } else {
-                // 파일 카드 (노트 스타일)
                 return (
                   <div key={item.id} className="folder-card file-card" onClick={() => onNavigate('workspace')} style={{ display: 'flex', flexDirection: 'column', height: '160px' }}>
                     <div style={{ height: '10px', flexShrink: 0 }}></div>
@@ -245,23 +307,20 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
                       display: 'flex',
                       flexDirection: 'column',
                     }}>
-                      {/* 상단 컬러 바 */}
                       <div style={{ height: '6px', background: 'linear-gradient(90deg, #6366f1, #a78bfa)', borderRadius: '12px 12px 0 0' }}></div>
-                      {/* 줄 배경 */}
                       <div style={{
                         position: 'absolute', top: '30px', left: 0, right: 0, bottom: 0,
                         backgroundImage: 'repeating-linear-gradient(transparent, transparent 22px, #f0f0f5 22px, #f0f0f5 23px)',
                         opacity: 0.6
                       }}></div>
                       <div style={{ position: 'relative', zIndex: 1, padding: '14px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                        <button 
+                        <button
                           className={`star-btn ${isStarred ? 'starred' : ''}`}
                           onClick={(e) => toggleStar(e, item.id)}
                           style={{ position: 'absolute', top: '14px', right: '10px', background: 'rgba(0,0,0,0.04)', color: '#d1d1d6' }}
                         >
                           <span className="material-symbols-outlined" style={{ fontSize: '16px', fontVariationSettings: `'FILL' ${isStarred ? 1 : 0}` }}>star</span>
                         </button>
-                        {/* 문서 아이콘 + 확장자 뱃지 */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                           <div style={{ width: '36px', height: '36px', background: '#ede9fe', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#6366f1', fontVariationSettings: "'FILL' 1" }}>article</span>
@@ -280,9 +339,9 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
             })}
           </div>
         </div>
-        
+
         <div className="h-[140px] shrink-0"></div>
-        
+
         <div className="fab-group z-50">
           <button className="fab-btn group" onClick={() => setIsFolderModalOpen(true)}>
             <span className="material-symbols-outlined group-hover:scale-110 transition-transform">create_new_folder</span>
@@ -342,20 +401,20 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
         <div className="modal-card" onClick={(e) => e.stopPropagation()}>
           <h2 className="text-[20px] font-bold tracking-[-0.02em] mb-1.5">새 폴더 생성</h2>
           <p className="text-[14px] text-[#8e8e93] mb-6">이름과 색상을 지정해주세요.</p>
-          <input 
-            className="modal-input mb-5" 
-            placeholder="폴더 이름 입력" 
+          <input
+            className="modal-input mb-5"
+            placeholder="폴더 이름 입력"
             autoFocus
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            type="text" 
+            type="text"
           />
           <p className="text-[14px] font-bold text-[#3a3a3c] mb-3">테마 색상</p>
           <div className="color-picker-container">
             {['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'].map(color => (
-              <div 
+              <div
                 key={color}
-                className={`color-circle ${selectedColor === color ? 'selected' : ''}`} 
+                className={`color-circle ${selectedColor === color ? 'selected' : ''}`}
                 style={{ backgroundColor: color }}
                 onClick={() => setSelectedColor(color)}
               ></div>
@@ -373,13 +432,13 @@ export default function Home({ onNavigate, fileTree, setFileTree, favorites, set
         <div className="modal-card" onClick={(e) => e.stopPropagation()}>
           <h2 className="text-[20px] font-bold tracking-[-0.02em] mb-1.5">새 파일 생성</h2>
           <p className="text-[14px] text-[#8e8e93] mb-6">노트의 제목을 입력해주세요.</p>
-          <input 
-            className="modal-input mb-8" 
-            placeholder="파일 이름 입력" 
+          <input
+            className="modal-input mb-8"
+            placeholder="파일 이름 입력"
             autoFocus
             value={newFileName}
             onChange={(e) => setNewFileName(e.target.value)}
-            type="text" 
+            type="text"
           />
           <div className="flex justify-end gap-3">
             <button className="modal-btn-secondary" onClick={() => { setIsFileModalOpen(false); setNewFileName(''); }}>취소</button>
