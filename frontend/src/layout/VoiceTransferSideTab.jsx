@@ -99,9 +99,10 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
                       onClick={(e) => { 
                         e.stopPropagation(); 
                         const rect = e.currentTarget.getBoundingClientRect();
+                        const bubbleRect = e.currentTarget.closest('.message-bubble').getBoundingClientRect();
                         setWordPopover({
                           visible: true,
-                          x: rect.right + 10,
+                          x: bubbleRect.right + 10,
                           y: rect.top - 20,
                           word: word
                         });
