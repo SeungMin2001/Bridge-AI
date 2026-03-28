@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  db:
+    # pgvector가 사전 구성된(설치된) 이미지 사용
+    image: ankane/pgvector:latest
+    container_name: rag_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: always
+
+  fastapi_backend:
+    build: .
+    container_name: fastapi_backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Docker 내부에서는 IP 대신 서비스 이름('db')으로 DB에 연결합니다.
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=1234
+      - DB_NAME=rag
+      # 호스트 머신(현재 내 노트북/컴퓨터)에서 실행 중인 Qwen에 접근하기 위해 host.docker.internal 사용
+      - LLM_API_URL=http://host.docker.internal:11434/api/generate
+    depends_on:
+      - db
+    volumes:
+      - .:/app  # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
+
+volumes:
+  pgdata:
