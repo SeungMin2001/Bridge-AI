@@ -1,35 +1,28 @@
-import json
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
 from llm_server.run_model import run_model
 from .embedding import embedding
 from .pooling import AttentivePooling
 from .mlp import MLP
 from .linearProjection import LinearProjection
 
-
 model,tokenizer=run_model() #모델 실행(qwen 3.5 9B)
 device = next(model.parameters()).device #cuda
 dtype = next(model.parameters()).dtype #float16
+k=16 #논문 그대로.
 
+def HyperNetwork(text):
+    embedded=embedding(model,tokenizer,text).to(device=device,dtype=dtype) #embedding from qwen 3.5
 
-text="test"
-k=16
+    d_model=model.config.hidden_size
 
-embedded=embedding(model,tokenizer,text).to(device=device,dtype=dtype) #embedding from qwen 3.5
+    pooling=AttentivePooling(d_model).to(device=device,dtype=dtype)
+    res=pooling.forward(embedded)
 
-d_model=model.config.hidden_size
+    mlp=MLP(d_model).to(device=device,dtype=dtype)
+    res=mlp.forward(res)
 
-pooling=AttentivePooling(d_model).to(device=device,dtype=dtype)
-res=pooling.forward(embedded)
+    lp=LinearProjection(d_model,d_model,k).to(device=device,dtype=dtype)
+    res=lp.forward(res)
 
-mlp=MLP(d_model).to(device=device,dtype=dtype)
-res=mlp.forward(res)
-
-lp=LinearProjection(d_model,d_model,k).to(device=device,dtype=dtype)
-res=lp.forward(res)
-
-K,V=res
-print(K.size())
-print(K)
-
+    K,V=res
+    
+    return K,V
