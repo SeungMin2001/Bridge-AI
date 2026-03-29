@@ -9,7 +9,10 @@ from data.embeded_test import get_embedding
 logger = logging.getLogger(__name__)
 
 # Docker 환경변수가 없으면 로컬 호스트의 Qwen 주소를 기본값으로 사용(변경해야함)
-LLM_API_URL = os.getenv("LLM_API_URL", "http://localhost:11434/api/generate")
+# LLM_API_URL = os.getenv("LLM_API_URL", "http://localhost:11434/api/generate")
+
+# llm_server/server.py (포트 8001)의 /generate 엔드포인트를 사용
+LLM_API_URL = os.getenv("LLM_API_URL", "http://localhost:8001/generate")
 
 def retrieve_similar_chunks(query: str, limit: int = 3) -> list[str]:
     """
@@ -32,7 +35,7 @@ def retrieve_similar_chunks(query: str, limit: int = 3) -> list[str]:
     try:
         cur = conn.cursor()
         # 주의: 테이블 이름이 'chunks'이고 벡터 컬럼이 'embedding'이어야 합니다.
-        # pgvector의 코사인 유사도 연산자(<=>)를 사용하여 가장 유사한 데이터를 찾습니다. (L2 거리는 <-> 사용)
+        # pgvector의 코사인 유사도 연산자(<=>) 를 사용하여 가장 유사한 데이터를 찾습니다. (L2 거리는 <-> 사용)
         cur.execute(
             """
             SELECT chunk_text
@@ -58,22 +61,24 @@ def retrieve_similar_chunks(query: str, limit: int = 3) -> list[str]:
 
 async def generate_llm_response(query: str, contexts: list[str]) -> str | None:
     """
-    로컬 Qwen LLM으로 프롬프트(질문+문맥)를 전송하여 답변을 생성합니다.
+    Qwen LLM(llm_server/server.py)으로 프롬프트(질문+문맥)를 전송하여 답변을 생성합니다.
     """
     # 검색된 문맥들을 하나의 문자열로 합칩니다.
     combined_context = "\n".join(contexts) if contexts else "참고할 만한 문맥이 없습니다."
 
     prompt = f"다음 문맥을 참고하여 질문에 답하세요.\n\n문맥:\n{combined_context}\n\n질문: {query}\n\n답변:"
 
+    # llm_server/server.py의 GenerateRequest 스키마에 맞는 페이로드
     payload = {
-        "model": "qwen",
         "prompt": prompt,
-        "stream": False # 스트리밍(한 글자씩 출력) 사용 여부
+        "max_new_tokens": 512,
+        "temperature": 0.7,
+        "top_p": 0.9
     }
 
     try:
         # 비동기 HTTP 클라이언트를 사용하여 LLM 서버에 요청 전송
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(LLM_API_URL, json=payload)
             response.raise_for_status() # HTTP에러 발생 시 예외 처리
 
