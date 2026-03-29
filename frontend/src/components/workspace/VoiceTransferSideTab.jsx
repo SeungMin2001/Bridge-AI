@@ -97,14 +97,19 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
                       key={wIdx}
                       className="clickable-word"
                       onClick={(e) => {
+                        // 부모 요소로의 이벤트 전파를 막아 중복 처리를 방지
                         e.stopPropagation();
+                        // 클릭된 단어(span)의 화면상 위치 정보를 가져옴
                         const rect = e.currentTarget.getBoundingClientRect();
+                        // 해당 단어가 포함된 메시지 말풍선 요소의 위치 정보를 가져옴
                         const bubbleRect = e.currentTarget.closest('.message-bubble').getBoundingClientRect();
+                        
+                        // 단어 설명 팝오버(WordPopover) 상태를 활성화하고 위치 및 단어 설정
                         setWordPopover({
                           visible: true,
-                          x: bubbleRect.right + 10,
-                          y: rect.top - 20,
-                          word: word
+                          x: bubbleRect.right + 10, // 말풍선 오른쪽에 10px 간격을 두고 배치
+                          y: rect.top - 20,         // 클릭된 단어의 상단 높이에 맞춰 배치
+                          word: word                // 클릭된 단어 전달
                         });
                       }}
                     >
