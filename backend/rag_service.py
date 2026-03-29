@@ -1,7 +1,7 @@
 import logging
 import httpx
 import os
-from data.save_chunk_to_db import get_db_connection
+from data.save_chunk_to_db import get_conn
 # 데이터 폴더에 있는 임베딩 생성 함수 임포트
 from data.embeded_test import get_embedding
 
@@ -25,7 +25,7 @@ def retrieve_similar_chunks(query: str, limit: int = 3) -> list[str]:
         return []
 
     # 2. DB 연결
-    conn = get_db_connection()
+    conn = get_conn()
     if conn is None:
         return []
 
