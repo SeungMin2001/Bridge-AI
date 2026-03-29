@@ -1,119 +1,147 @@
-import os
-import re
-import pandas as pd
-from datasets import load_dataset, Audio
-from transformers import pipeline
+import soundfile as sf
 from tqdm import tqdm
+from datasets import load_dataset
+from faster_whisper import WhisperModel
 
 # =========================
-# 설정
+# 경로 설정
 # =========================
-DATASET_NAME = "cheulyop/ksponspeech"   # 필요시 다른 KsponSpeech 미러로 변경
-TRAIN_SPLIT = "train"
-VALID_SPLIT = "validation"              # 없으면 train 일부를 나눠도 됨
+CACHE_DIR = r"C:\Users\user\Documents\last_project\data\hf_cache"
+TEMP_WAV_DIR = r"C:\Users\user\Documents\last_project\data\temp_audio"
+OUTPUT_DIR = r"C:\Users\user\Documents\last_project\data\pair_dataset"
 
-WHISPER_MODEL = "openai/whisper-large-v3"
-DEVICE = 0  # GPU: 0, CPU: -1
-
-TRAIN_MAX_SAMPLES = 10   # 처음엔 작게
-VALID_MAX_SAMPLES = 10
-
-OUT_DIR = "data"
-os.makedirs(OUT_DIR, exist_ok=True)
-
+os.makedirs(TEMP_WAV_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # =========================
-# 텍스트 정리
+# Whisper 설정
 # =========================
-def normalize_text(text: str) -> str:
-    if text is None:
+WHISPER_SIZE = "large-v3"      # 테스트 후 "large-v3"로 변경 가능
+DEVICE = "cuda"             # GPU 없으면 "cpu"
+COMPUTE_TYPE = "float16"    # CPU면 보통 "int8"
+SAVE_INTERVAL = 100         # 중간 저장 주기
+
+# =========================
+# KsponSpeech 전처리
+# =========================
+def clean_kspon_text(text: str) -> str:
+    if not isinstance(text, str):
         return ""
-    text = str(text).strip()
 
-    # KsponSpeech류에 자주 있는 표기 노이즈 최소 정리
-    # 예: "아/ 우리랑 l/" 같은 표식, 여러 공백 등
-    text = re.sub(r"[+/l]", " ", text)
+    text = text.replace("\n", " ")
+
+    # b/, o/, l/, n/ 제거
+    text = re.sub(r"\b[boln]/\s*", "", text)
+
+    # (철자)/(발음) -> 철자만 사용
+    text = re.sub(r"\(([^()]+)\)/\(([^()]+)\)", r"\1", text)
+
+    # 별표 제거
+    text = text.replace("*", "")
+
+    # 공백 정리
     text = re.sub(r"\s+", " ", text).strip()
-
-    # 괄호 내 대안표기 처리:
-    # "(1년)/(일 년)" -> "1년"
-    # "(그러니까)/(그까)" -> "그러니까"
-    def pick_first_option(match):
-        content = match.group(0)
-        parts = content.split("/")
-        if parts:
-            return parts[0].replace("(", "").replace(")", "").strip()
-        return content
-
-    text = re.sub(r"\([^)]*\)(/\([^)]*\))+", pick_first_option, text)
-
     return text
 
+# =========================
+# Whisper 전사
+# =========================
+def transcribe_with_whisper(model: WhisperModel, wav_path: str) -> str:
+    segments, _ = model.transcribe(wav_path, language="ko")
+    text = " ".join(seg.text.strip() for seg in segments).strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
 
 # =========================
-# Whisper 파이프라인
+# split별 pair 생성
 # =========================
-asr = pipeline(
-    "automatic-speech-recognition",
-    model=WHISPER_MODEL,
-    device=DEVICE,
-)
-
-def transcribe_audio(audio_item):
-    """
-    audio_item 예시:
-    {"array": np.ndarray, "sampling_rate": 16000, "path": "..."}
-    """
-    result = asr(
-        {"array": audio_item["array"], "sampling_rate": audio_item["sampling_rate"]},
-        generate_kwargs={"language": "ko", "task": "transcribe"},
-        return_timestamps=False,
+def make_pair_csv(split_name: str, output_csv: str, model: WhisperModel):
+    print(f"\n[{split_name}] 데이터 로드 시작")
+    ds = load_dataset(
+        "DragonLine/ksponspeech",
+        split=split_name,
+        cache_dir=CACHE_DIR
     )
-    return result["text"].strip()
 
+    rows = []
 
-def detect_text_column(ds):
-    # 후보 컬럼명 탐색
-    candidates = ["sentence", "transcript", "text", "label"]
-    for c in candidates:
-        if c in ds.column_names:
-            return c
-    raise ValueError(f"텍스트 컬럼을 찾지 못함. columns={ds.column_names}")
-
-def build_pairs(split_name, max_samples, out_csv):
-    ds = load_dataset(DATASET_NAME, split=split_name)
-    ds = ds.cast_column("audio", Audio(sampling_rate=16000))
-
-    text_col = detect_text_column(ds)
-
-    records = []
-    total = min(len(ds), max_samples)
-
-    for ex in tqdm(ds.select(range(total)), total=total, desc=f"building {split_name}"):
-        gold_text = normalize_text(ex[text_col])
-        if not gold_text:
-            continue
-
+    print(f"[{split_name}] pair 생성 시작")
+    for i, item in enumerate(tqdm(ds, desc=split_name)):
         try:
-            whisper_text = transcribe_audio(ex["audio"])
-            whisper_text = normalize_text(whisper_text)
-
-            if not whisper_text:
+            target_text = clean_kspon_text(item["transcripts"])
+            if not target_text:
                 continue
 
-            records.append({
-                "input_text": whisper_text,
-                "target_text": gold_text
+            wav_path = os.path.join(TEMP_WAV_DIR, f"{split_name}_{i}.wav")
+            sf.write(
+                wav_path,
+                item["audio"]["array"],
+                item["audio"]["sampling_rate"]
+            )
+
+            input_text = transcribe_with_whisper(model, wav_path)
+            if not input_text:
+                if os.path.exists(wav_path):
+                    os.remove(wav_path)
+                continue
+
+            rows.append({
+                "input_text": input_text,
+                "target_text": target_text
             })
+
+            if len(rows) % SAVE_INTERVAL == 0:
+                pd.DataFrame(rows).to_csv(
+                    output_csv,
+                    index=False,
+                    encoding="utf-8-sig"
+                )
+
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+
         except Exception as e:
-            print(f"skip due to error: {e}")
-            continue
+            print(f"[에러] split={split_name}, index={i}, error={e}")
 
-    df = pd.DataFrame(records)
-    df.to_csv(out_csv, index=False, encoding="utf-8-sig")
-    print(f"saved: {out_csv}, rows={len(df)}")
+    df = pd.DataFrame(rows)
+    df.to_csv(output_csv, index=False, encoding="utf-8-sig")
 
+    print(f"[{split_name}] 완료")
+    print(f"저장 경로: {output_csv}")
+    print(f"총 pair 수: {len(df)}")
+
+# =========================
+# 메인 실행
+# =========================
+def main():
+    print("Whisper 모델 로드 시작")
+    model = WhisperModel(
+        WHISPER_SIZE,
+        device=DEVICE,
+        compute_type=COMPUTE_TYPE
+    )
+    print("Whisper 모델 로드 완료")
+
+    make_pair_csv(
+        split_name="train",
+        output_csv=os.path.join(OUTPUT_DIR, "train_pairs.csv"),
+        model=model
+    )
+
+    make_pair_csv(
+        split_name="valid",
+        output_csv=os.path.join(OUTPUT_DIR, "valid_pairs.csv"),
+        model=model
+    )
+
+    make_pair_csv(
+        split_name="test",
+        output_csv=os.path.join(OUTPUT_DIR, "test_pairs.csv"),
+        model=model
+    )
+
+    print("\n모든 pair 생성 완료")
 
 if __name__ == "__main__":
-    build_pairs(TRAIN_SPLIT, TRAIN_MAX_SAMPLES, os.path.join(OUT_DIR, "pairs_train.csv"))
-    build_pairs(VALID_SPLIT, VALID_MAX_SAMPLES, os.path.join(OUT_DIR, "pairs_valid.csv"))
+    main()
+>>>>>>> shin
