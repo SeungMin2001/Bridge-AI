@@ -44,12 +44,12 @@ async def chat_endpoint(request: ChatRequest):
     #contexts = retrieve_similar_chunks(request.message)
 
     # 2. 로컬 Qwen LLM에 질문 전달 및 답변 생성
-    answer = await generate_llm_response(request.message, contexts)
+    answer = await generate_llm_response(request.message)
 
     if answer is None:
         raise HTTPException(status_code=500, detail="LLM에서 답변을 생성하는 데 실패했습니다.")
 
-    return ChatResponse(answer=answer, contexts=contexts)
+    return ChatResponse(answer=answer)
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws:WebSocket):
