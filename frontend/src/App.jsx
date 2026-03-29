@@ -95,7 +95,7 @@ export default function App() {
 
     // --- Mock Data 설정 --- 
     // 나중에 백엔드 서버를 사용할 때는 이 값을 false로 바꾸면 됩니다.
-    const USE_MOCK_DATA = true; 
+    const USE_MOCK_DATA = false;
 
     if (USE_MOCK_DATA) {
       const t1 = setTimeout(() => {
@@ -105,7 +105,7 @@ export default function App() {
         addTranscriptionBubble("현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.");
       }, 7000);
       mockTimersRef.current = [t1, t2];
-      return; 
+      return;
     }
 
     // --- 실시간 백엔드 연결 (WebSocket) ---
