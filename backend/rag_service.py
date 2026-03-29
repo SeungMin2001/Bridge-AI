@@ -59,14 +59,14 @@ def retrieve_similar_chunks(query: str, limit: int = 3) -> list[str]:
         if conn:
             conn.close()
 
-async def generate_llm_response(query: str, contexts: list[str]) -> str | None:
+async def generate_llm_response(query: str) -> str | None:
     """
     Qwen LLM(llm_server/server.py)으로 프롬프트(질문+문맥)를 전송하여 답변을 생성합니다.
     """
     # 검색된 문맥들을 하나의 문자열로 합칩니다.
-    combined_context = "\n".join(contexts) if contexts else "참고할 만한 문맥이 없습니다."
+    #combined_context = "\n".join(contexts) if contexts else "참고할 만한 문맥이 없습니다."
 
-    prompt = f"다음 문맥을 참고하여 질문에 답하세요.\n\n문맥:\n{combined_context}\n\n질문: {query}\n\n답변:"
+    prompt = f"다음 질문을 참고하여 질문에 답하세요. 질문: {query}\n\n답변:"
 
     # llm_server/server.py의 GenerateRequest 스키마에 맞는 페이로드
     payload = {

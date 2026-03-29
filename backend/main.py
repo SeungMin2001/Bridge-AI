@@ -41,7 +41,7 @@ async def chat_endpoint(request: ChatRequest):
     logger.info(f"채팅 요청 처리 중: {request.message}")
 
     # 1. PostgreSQL(pgvector)에서 관련된 문맥(청크) 검색
-    contexts = retrieve_similar_chunks(request.message)
+    #contexts = retrieve_similar_chunks(request.message)
 
     # 2. 로컬 Qwen LLM에 질문 전달 및 답변 생성
     answer = await generate_llm_response(request.message, contexts)
