@@ -2,7 +2,8 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 def run_model():
-    MODEL_NAME = "Qwen/Qwen3.5-9B"
+    #MODEL_NAME = "Qwen/Qwen3.5-9B"
+    MODEL_NAME="Qwen/Qwen2.5-3B-Instruct"
 
     if torch.cuda.is_available():
         device="cuda"
