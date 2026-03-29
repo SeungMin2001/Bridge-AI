@@ -2,7 +2,7 @@ import os
 import json
 import csv
 import numpy as np
-import evaluate
+import evaluate, torch
 
 from transformers import AutoTokenizer, BartForConditionalGeneration
 from make_dataset import dataset
@@ -14,6 +14,9 @@ model_name = "gogamza/kobart-base-v2"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = BartForConditionalGeneration.from_pretrained(model_name)
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(device)
+model.to(device)
 
 def preprocess_function(examples):
     model_inputs = tokenizer(
