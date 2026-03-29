@@ -1,6 +1,7 @@
 .env
 .DS_Store
 mcp.json
+frontend/toyo/
 **/.DS_Store
 **/.env
-**/.env.local  
+**/.env.local
