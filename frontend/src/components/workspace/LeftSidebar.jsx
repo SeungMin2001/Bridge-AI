@@ -9,7 +9,9 @@ export default function LeftSidebar({
   favorites, 
   setFavorites, 
   onFileSelect,
-  transcriptions = []
+  transcriptions = [],
+  onAddToNote,
+  onAskAi
 }) {
   const [activeTab, setActiveTab] = useState('folders'); // 'folders' or 'voice'
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -110,6 +112,8 @@ export default function LeftSidebar({
           ) : (
             <VoiceTransferSideTab 
               transcriptions={transcriptions}
+              onAddToNote={onAddToNote}
+              onAskAi={onAskAi}
             />
           )}
 

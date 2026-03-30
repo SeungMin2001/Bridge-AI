@@ -16,7 +16,12 @@ export default function Workspace({
   stopRecording,
   activeFileName,
   onRightSidebarToggle,
-  isRightSidebarVisible
+  isRightSidebarVisible,
+  summaryNotes,
+  aiInput,
+  setAiInput,
+  onAddToNote,
+  onAskAi
 }) {
   return (
     <div className="p-[12px] flex gap-[12px] relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden">
@@ -28,6 +33,8 @@ export default function Workspace({
         setFileTree={setFileTree}
         favorites={favorites}
         setFavorites={setFavorites}
+        onAddToNote={onAddToNote}
+        onAskAi={onAskAi}
       />
       <MainContent
         isRecording={isRecording}
@@ -36,8 +43,13 @@ export default function Workspace({
         stopRecording={stopRecording}
         activeFileName={activeFileName}
         onRightSidebarToggle={onRightSidebarToggle}
+        summaryNotes={summaryNotes}
       />
-      <RightSidebar visible={isRightSidebarVisible} />
+      <RightSidebar 
+        visible={isRightSidebarVisible} 
+        aiInput={aiInput}
+        setAiInput={setAiInput}
+      />
     </div>
   );
 }

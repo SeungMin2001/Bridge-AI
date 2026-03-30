@@ -13,7 +13,7 @@ const WORD_EXPLANATIONS = {
   "실시간": { desc: "데이터가 발생하는 즉시 또는 아주 짧은 지연 시간 내에 처리되는 방식을 의미합니다.", source: "운영체제론" },
 };
 
-function WordPopover({ visible, x, y, word, onClose }) {
+function WordPopover({ visible, x, y, word, onClose, onAddToNote, onAskAi }) {
   if (!visible) return null;
 
   const data = WORD_EXPLANATIONS[word.replace(/[.,]/g, '')] || {
@@ -48,14 +48,28 @@ function WordPopover({ visible, x, y, word, onClose }) {
       </div>
 
       <div className="flex gap-2 mt-1">
-        <button className="flex-1 bg-blue-500 text-white border-none py-2 rounded-xl text-[12px] font-bold hover:bg-blue-600 transition-colors shadow-sm">AI에게 질문</button>
-        <button className="flex-1 bg-[#f2f2f7] text-[#1d1d1f] border-none py-2 rounded-xl text-[12px] font-bold hover:bg-[#e5e5ea] transition-colors">노트에 추가</button>
+        <button 
+          className="flex-1 bg-blue-500 text-white border-none py-2 rounded-xl text-[12px] font-bold hover:bg-blue-600 transition-colors shadow-sm"
+          onClick={() => { onAskAi(word); onClose(); }}
+        >
+          AI에게 질문
+        </button>
+        <button 
+          className="flex-1 bg-[#f2f2f7] text-[#1d1d1f] border-none py-2 rounded-xl text-[12px] font-bold hover:bg-[#e5e5ea] transition-colors"
+          onClick={() => { onAddToNote(data.desc, data.source); onClose(); }}
+        >
+          노트에 추가
+        </button>
       </div>
     </div>
   );
 }
 
-export default function VoiceTransferSideTab({ transcriptions = [] }) {
+export default function VoiceTransferSideTab({ 
+  transcriptions = [],
+  onAddToNote,
+  onAskAi
+}) {
   const [transSearch, setTransSearch] = useState('');
   const [wordPopover, setWordPopover] = useState({ visible: false, x: 0, y: 0, word: '' });
 
@@ -129,6 +143,8 @@ export default function VoiceTransferSideTab({ transcriptions = [] }) {
         y={wordPopover.y}
         word={wordPopover.word}
         onClose={() => setWordPopover({ ...wordPopover, visible: false })}
+        onAddToNote={onAddToNote}
+        onAskAi={onAskAi}
       />
 
       {wordPopover.visible && (

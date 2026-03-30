@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 
-export default function MainContent({ isRecording, recordingTimeText, startRecording, stopRecording, activeFileName, onMainSidebarToggle, onRightSidebarToggle }) {
+export default function MainContent({ 
+  isRecording, 
+  recordingTimeText, 
+  startRecording, 
+  stopRecording, 
+  activeFileName, 
+  onMainSidebarToggle, 
+  onRightSidebarToggle,
+  summaryNotes = []
+}) {
   const [activeTab, setActiveTab] = useState('note');
   const [activeSummaryTab, setActiveSummaryTab] = useState('ai-summary');
   const [noteContent, setNoteContent] = useState('');
@@ -26,6 +35,7 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
         <nav className="flex gap-1 overflow-x-auto no-scrollbar" id="main-tabs">
           {[
             { key: 'note', label: noteTabName },
+            { key: 'summary-note', label: '정리 노트' },
             { key: 'material', label: '자료' },
             { key: 'summary', label: '요약' },
             { key: 'quiz', label: '퀴즈' },
@@ -44,9 +54,9 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
             </button>
           ))}
         </nav>
-
-        {/* 우측 버튼들 */}
+        {/* ... (중략: 우측 버튼들 로직 유지) ... */}
         <div className="ml-auto flex items-center gap-1.5 shrink-0 pl-2">
+          {/* ... */}
           <button className="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]">
             <span className="material-symbols-outlined text-[20px]">play_circle</span>
           </button>
@@ -66,7 +76,6 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
             </div>
           )}
 
-          {/* 우측 사이드바 토글 */}
           <button
             className="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]"
             title="우측 사이드바 토글"
@@ -82,7 +91,7 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
         {/* Note Tab */}
         <section className={`tab-content card flex-1 flex flex-col relative overflow-hidden note-canvas p-10 pt-12 ${activeTab === 'note' ? 'flex' : 'hidden'}`}>
           <div className="max-w-4xl mx-auto w-full h-full">
-            <h1 className="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8" id="note-title">{noteTabName}</h1>
+            <h1 className="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">{noteTabName}</h1>
             <div
               className="text-[16px] leading-relaxed min-h-[200px] focus:outline-none"
               id="note-body"
@@ -99,7 +108,6 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
             </div>
           </div>
 
-          {/* Floating Toolbar */}
           <div className="floating-toolbar absolute bottom-8 left-1/2 -translate-x-1/2 flex p-1.5 gap-1 z-10 bg-white">
             <button className="tool-btn-active w-[48px] h-[48px] flex items-center justify-center rounded-full">
               <span className="material-symbols-outlined text-[24px]">near_me</span>
@@ -116,6 +124,36 @@ export default function MainContent({ isRecording, recordingTimeText, startRecor
           </div>
         </section>
 
+        {/* Summary Note Tab (NEW) */}
+        <section className={`tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12 ${activeTab === 'summary-note' ? 'flex' : 'hidden'}`}>
+          <div className="max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
+            <h1 className="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">정리 노트</h1>
+            <div className="flex flex-col gap-4">
+              {summaryNotes.length === 0 ? (
+                <div className="text-[16px] text-[#aeaeb2] leading-relaxed italic">아직 추가된 내용이 없습니다. 전사 내용에서 '노트에 추가'를 눌러보세요.</div>
+              ) : (
+                summaryNotes.map((note) => (
+                  <div key={note.id} className="p-5 rounded-2xl bg-[#fbfbfd] border border-gray-100 shadow-sm flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[18px] text-blue-500">auto_stories</span>
+                        <span className="text-[13px] font-bold text-[#1d1d1f]">추가된 내용</span>
+                      </div>
+                      <span className="text-[11px] font-medium text-[#aeaeb2]">{note.time}</span>
+                    </div>
+                    <p className="text-[15px] leading-[1.6] text-[#3a3a3c] font-medium">{note.text}</p>
+                    {/* 출처 링크 추가 */}
+                    <div className="flex items-center gap-1.5 mt-1 border-t border-black/5 pt-3">
+                      <span className="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
+                      <span className="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">Source:</span>
+                      <span className="text-[11px] font-bold text-blue-500 cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2">{note.source || 'AI 분석 결과'}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </section>
 
         {/* Material Tab */}
         <section className={`tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12 ${activeTab === 'material' ? 'flex' : 'hidden'}`}>

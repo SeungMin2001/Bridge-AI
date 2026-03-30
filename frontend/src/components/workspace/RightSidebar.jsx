@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-export default function RightSidebar({ visible = true }) {
+export default function RightSidebar({ 
+  visible = true,
+  aiInput = '',
+  setAiInput
+}) {
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [width, setWidth] = useState(420);
 
@@ -8,7 +12,7 @@ export default function RightSidebar({ visible = true }) {
   const aiWinRef = useRef(null);
   const aiBtnRef = useRef(null);
 
-  // Outside click for AI chat
+  // ... (중략: 기존 useEffect 로직 유지) ...
   useEffect(() => {
     const handleOutsideClick = (e) => {
       if (
@@ -22,11 +26,9 @@ export default function RightSidebar({ visible = true }) {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  // Resizer logic
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isResizingRef.current) return;
-      // 우측 패딩 12px + 리사이저 폭 고려
       const newWidth = window.innerWidth - e.clientX - 12;
       if (newWidth > 180 && newWidth < 600) {
         setWidth(newWidth);
@@ -60,7 +62,6 @@ export default function RightSidebar({ visible = true }) {
 
   return (
     <>
-      {/* 우측 리사이저 */}
       <div
         className="w-1.5 hover:bg-[#d1d1d6] transition-colors cursor-col-resize flex items-center justify-center group active:bg-[#aeaeb2] mx-[-6px] z-20"
         id="resizer-right"
@@ -82,7 +83,10 @@ export default function RightSidebar({ visible = true }) {
                 <span className="material-symbols-outlined text-[18px] text-[#8e8e93]">description</span>
                 <span className="text-[13px] font-medium text-[#1d1d1f]">강의 노트 요약하기</span>
               </button>
-              <button className="action-card w-full flex items-center gap-3 p-3.5 rounded-xl bg-white text-left">
+              <button 
+                className="action-card w-full flex items-center gap-3 p-3.5 rounded-xl bg-white text-left"
+                onClick={() => setAiInput('핵심 개념 퀴즈 생성해줘')}
+              >
                 <span className="material-symbols-outlined text-[18px] text-[#8e8e93]">quiz</span>
                 <span className="text-[13px] font-medium text-[#1d1d1f]">핵심 개념 퀴즈 생성</span>
               </button>
@@ -99,6 +103,8 @@ export default function RightSidebar({ visible = true }) {
               <input
                 className="bg-transparent border-none focus:ring-0 p-0 text-[13px] flex-1 text-[#1d1d1f] placeholder-[#aeaeb2]"
                 placeholder="AI에게 질문하기..." type="text"
+                value={aiInput}
+                onChange={(e) => setAiInput(e.target.value)}
               />
               <button className="text-[#3b82f6] hover:text-blue-700 transition-colors">
                 <span className="material-symbols-outlined text-[20px]">arrow_upward</span>
@@ -110,7 +116,7 @@ export default function RightSidebar({ visible = true }) {
           {/* AI FAB 버튼 (숨겨진 상태 — file1.html에서도 hidden) */}
           <button
             ref={aiBtnRef}
-            className="absolute bottom-4 right-4 w-12 h-12 bg-white rounded-full ai-btn-shadow flex items-center justify-center hover:bg-gray-50 transition-all active:scale-95 z-30 hidden"
+            className="absolute bottom-4 right-4 w-12 h-12 bg-white rounded-full ai-btn-shadow flex items-center justify-center hover:bg-gray-100 transition-all active:scale-95 z-30 hidden"
             id="ai-assistant-btn"
             onClick={() => setIsAiChatOpen(!isAiChatOpen)}
           >
@@ -152,6 +158,8 @@ export default function RightSidebar({ visible = true }) {
                 <input
                   className="bg-transparent border-none focus:ring-0 p-0 text-[13px] flex-1 text-[#1d1d1f] placeholder-[#aeaeb2]"
                   placeholder="AI에게 질문하기..." type="text" id="sidebar-ai-input"
+                  value={aiInput}
+                  onChange={(e) => setAiInput(e.target.value)}
                 />
                 <button className="text-[#3b82f6]" id="sidebar-ai-send">
                   <span className="material-symbols-outlined text-[18px]">send</span>

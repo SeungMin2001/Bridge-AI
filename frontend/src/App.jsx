@@ -12,6 +12,12 @@ export default function App() {
   const [activeFileName, setActiveFileName] = useState('강의1');
   const [isRightSidebarVisible, setIsRightSidebarVisible] = useState(true);
 
+  // --- 추가된 통합 데이터 상태 ('정리 노트' 및 'AI 질문' 연동용) ---
+  const [summaryNotes, setSummaryNotes] = useState([
+    { id: 1, text: "데모 데이터: AI가 전사한 내용을 여기에 정리할 수 있습니다.", source: "AI 분석 결과", time: "12:00 PM" }
+  ]);
+  const [aiInput, setAiInput] = useState('');
+
   // --- 통합 데이터 상태 (Home & Sidebar 공유) ---
   const [fileTree, setFileTree] = useState(() => {
     const saved = localStorage.getItem('lecto_file_tree');
@@ -94,8 +100,9 @@ export default function App() {
     }, 1000);
 
     // --- Mock Data 설정 --- 
-    // 나중에 백엔드 서버를 사용할 때는 이 값을 false로 바꾸면 됩니다.
-    const USE_MOCK_DATA = true; 
+    // 나중에 백엔드 서버를 사용할 때는 이 값을 false로 설정
+    // 테스트용 텍스트는 true
+    const USE_MOCK_DATA = true;
 
     if (USE_MOCK_DATA) {
       const t1 = setTimeout(() => {
@@ -105,7 +112,7 @@ export default function App() {
         addTranscriptionBubble("현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.");
       }, 7000);
       mockTimersRef.current = [t1, t2];
-      return; 
+      return;
     }
 
     // --- 실시간 백엔드 연결 (WebSocket) ---
@@ -172,6 +179,25 @@ export default function App() {
     setIsRightSidebarVisible(prev => !prev);
   }, []);
 
+  // --- 추가된 핸들러 ('정리 노트' 및 'AI 질문' 연동용) ---
+  const handleAddToNote = useCallback((text, source) => {
+    const now = new Date();
+    setSummaryNotes(prev => [
+      ...prev,
+      {
+        id: Date.now(),
+        text: text,
+        source: source || 'AI 분석 결과',
+        time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+      }
+    ]);
+  }, []);
+
+  const handleAskAi = useCallback((word) => {
+    setAiInput(word);
+    setIsRightSidebarVisible(true);
+  }, []);
+
   if (currentView === 'ai-history') {
     return (
       <AiHistory onNavigateBack={() => setCurrentView('home')} />
@@ -206,6 +232,11 @@ export default function App() {
       activeFileName={activeFileName}
       onRightSidebarToggle={handleRightSidebarToggle}
       isRightSidebarVisible={isRightSidebarVisible}
+      summaryNotes={summaryNotes}
+      aiInput={aiInput}
+      setAiInput={setAiInput}
+      onAddToNote={handleAddToNote}
+      onAskAi={handleAskAi}
     />
   );
 }
