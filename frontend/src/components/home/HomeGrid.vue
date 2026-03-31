@@ -30,7 +30,7 @@ const emit = defineEmits([
 <template>
   <div class="flex-1 mt-6"> 
     <div class="shrink-0">
-      <div class="flex items-center justify-between mb-6">
+      <div class="grid-header flex items-center justify-between">
         <div class="flex items-center gap-3">
           <button 
             v-if="navigationStack.length > 0"
@@ -41,18 +41,35 @@ const emit = defineEmits([
           </button>
           <span class="section-title !m-0 transition-all duration-300">{{ currentTitle }}</span>
         </div>
-        <div class="flex items-center gap-3">
-          <button 
-            @click="emit('navigate', 'ai-history')"
-            class="flex items-center justify-center p-2 bg-white border-none text-[#3a3a3c] cursor-pointer rounded-xl hover:bg-[#f2f2f7] transition-colors shadow-sm"
-            title="AI 명령 기록"
-          >
-            <span class="material-symbols-outlined text-[20px]">history</span>
-          </button>
-          <button class="flex items-center gap-1 px-3 py-1.5 bg-white border-none text-[14px] font-bold text-[#3b82f6] cursor-pointer rounded-xl hover:bg-blue-50 transition-colors shadow-sm">
-            전체보기
-            <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
-          </button>
+
+        <div class="flex items-center gap-4">
+          <!-- Create Group moved from bottom -->
+          <div class="flex items-center gap-2">
+            <button class="header-action-btn group" @click="emit('openFolderModal')">
+              <span class="material-symbols-outlined group-hover:scale-110 transition-transform">create_new_folder</span>
+              <span>새 폴더</span>
+            </button>
+            <button class="header-action-btn group" @click="emit('openFileModal')">
+              <span class="material-symbols-outlined group-hover:scale-110 transition-transform">description</span>
+              <span>새 파일</span>
+            </button>
+          </div>
+
+          <div class="w-[1px] h-4 bg-black/10 mx-1"></div>
+
+          <div class="flex items-center gap-2">
+            <button 
+              @click="emit('navigate', 'ai-history')"
+              class="flex items-center justify-center p-2 bg-white border-none text-[#3a3a3c] cursor-pointer rounded-xl hover:bg-[#f2f2f7] transition-colors shadow-sm"
+              title="AI 명령 기록"
+            >
+              <span class="material-symbols-outlined text-[20px]">history</span>
+            </button>
+            <button class="flex items-center gap-1 px-3 py-1.5 bg-white border-none text-[14px] font-bold text-[#3b82f6] cursor-pointer rounded-xl hover:bg-blue-50 transition-colors shadow-sm">
+              전체보기
+              <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+            </button>
+          </div>
         </div>
       </div>
       
@@ -110,17 +127,6 @@ const emit = defineEmits([
       </div>
     </div>
 
-    <div class="h-[140px] shrink-0"></div>
-
-    <div class="fab-group z-50">
-      <button class="fab-btn group" @click="emit('openFolderModal')">
-        <span class="material-symbols-outlined group-hover:scale-110 transition-transform">create_new_folder</span>
-        <span>새 폴더 생성</span>
-      </button>
-      <button class="fab-btn group" @click="emit('openFileModal')">
-        <span class="material-symbols-outlined group-hover:scale-110 transition-transform">description</span>
-        <span>새 파일 생성</span>
-      </button>
-    </div>
+    <div class="h-[60px] shrink-0"></div>
   </div>
 </template>

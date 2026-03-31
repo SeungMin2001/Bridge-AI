@@ -37,10 +37,48 @@
   margin-bottom: 16px;
 }
 .section-title {
-  font-size: 18px;
+  font-size: 24px;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   color: #1d1d1f;
+}
+
+.grid-header {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 20px;
+  margin-bottom: 60px;
+}
+
+.header-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #f2f2f7;
+  color: #1d1d1f;
+  border: none;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+}
+
+.header-action-btn:hover {
+  background: #1d1d1f;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.header-action-btn:active {
+  transform: translateY(0);
+}
+
+.header-action-btn .material-symbols-outlined {
+  font-size: 20px;
 }
 
 /* ── Folder Grid ── */
@@ -48,6 +86,10 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
   gap: 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+  justify-content: center;
+  padding: 0 20px;
 }
 
 /* ── Folder Card (Tab/Folder shape) ── */
@@ -232,13 +274,8 @@
 .fc-purple-tab { background: #9171f0; }
 .fc-navy-tab   { background: #2c2a3d; }
 
-/* ── FAB ── */
-.fab-group { position: fixed; bottom: 32px; left: 50%; transform: translateX(calc(-50% + 140px)); display: flex; gap: 12px; z-index: 50; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-.sidebar-collapsed ~ #home-main-content .fab-group { transform: translateX(calc(-50% + 36px)); }
-.fab-btn { display: flex; align-items: center; gap: 10px; padding: 14px 28px; border-radius: 100px; background: #1d1d1f; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; transition: transform 0.2s, opacity 0.2s; border: none; box-shadow: none; }
-.fab-btn:hover { opacity: 0.9; transform: translateY(-2px); }
-.fab-btn:active { transform: translateY(0); }
-.fab-btn .material-symbols-outlined { font-size: 20px; }
+/* ── FAB Hidden (Replaced by Header buttons) ── */
+.fab-group { display: none; }
 
 /* ── AI FAB ── */
 .home-ai-fab { position: fixed; bottom: 32px; right: 32px; width: 56px; height: 56px; border-radius: 18px; background: #fff; color: #373549; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 60; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); transition: transform 0.2s, background 0.2s; border: 1px solid rgba(0, 0, 0, 0.05); }
