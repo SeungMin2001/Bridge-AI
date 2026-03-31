@@ -8,7 +8,11 @@
       <div class="text-[15px] text-white/80 leading-[1.6] font-medium">
         Learn fun anywhere and anytime without any time limit just through the application.
       </div>
-      <button class="bg-white text-[#373549] border-none rounded-full px-7 py-3.5 text-[14px] font-bold cursor-pointer transition-opacity hover:opacity-90">
+    </div>
+
+    <!-- Centered Button -->
+    <div class="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+      <button class="bg-white text-[#373549] border-none rounded-full px-7 py-3.5 text-[14px] font-bold cursor-pointer transition-opacity hover:opacity-90 pointer-events-auto shadow-lg">
         Get Started
       </button>
     </div>

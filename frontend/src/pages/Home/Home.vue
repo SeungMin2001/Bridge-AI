@@ -5,6 +5,7 @@ import HomeBanner from '../../components/home/HomeBanner.vue'
 import HomeGrid from '../../components/home/HomeGrid.vue'
 import HomeModals from '../../components/home/HomeModals.vue'
 import AiAssistant from '../../components/home/AiAssistant.vue'
+import InfiniteGrid from '../../components/home/InfiniteGrid.vue'
 import { useHome } from '../../composables/useHome'
 
 const props = defineProps({
@@ -60,8 +61,10 @@ const currentItems = computed(() => {
 </script>
 
 <template>
-  <div class="p-[12px] flex gap-[12px] relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden">
+  <div class="p-[12px] flex gap-[12px] relative h-full w-full text-[#1d1d1f] overflow-hidden">
+    <InfiniteGrid />
     <HomeSidebar 
+      class="relative z-10"
       :isCollapsed="isSidebarCollapsed"
       :fileTree="fileTree"
       :favorites="favorites"
@@ -69,7 +72,7 @@ const currentItems = computed(() => {
       @navigate="emit('navigate', $event)"
     />
 
-    <main id="home-main-content" class="custom-scrollbar flex-1 overflow-y-auto">
+    <main id="home-main-content" class="custom-scrollbar flex-1 overflow-y-auto relative z-10">
       <HomeBanner />
       
       <HomeGrid 

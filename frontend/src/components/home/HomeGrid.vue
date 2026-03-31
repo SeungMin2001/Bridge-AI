@@ -60,7 +60,10 @@ const emit = defineEmits([
         <template v-for="item in currentItems" :key="item.id">
           <!-- Folder Card -->
           <div v-if="item.type === 'folder'" class="folder-card" @click="emit('enterFolder', $event, item)">
-            <div :class="['folder-tab', FOLDER_COLORS[item.color]?.tab || 'fc-blue-tab']" style="width: 45%;"></div>
+            <div :class="['folder-back', FOLDER_COLORS[item.color]?.body || 'fc-blue']">
+              <div :class="['folder-tab', FOLDER_COLORS[item.color]?.tab || 'fc-blue-tab']" style="width: 45%;"></div>
+            </div>
+            <div class="folder-paper"></div>
             <div :class="['folder-body', FOLDER_COLORS[item.color]?.body || 'fc-blue']">
               <button
                 :class="['star-btn', { starred: favorites.has(item.id) }]"
