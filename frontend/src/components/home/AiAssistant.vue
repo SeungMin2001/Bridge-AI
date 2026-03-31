@@ -17,38 +17,33 @@ const messages = ref([
 
 async function sendMessage() {
   const question = inputText.value.trim()
-  if (!question || isLoading.value) return
+  console.log('[AI Chat] sendMessage called, question:', question)
+  if (!question) return
 
   messages.value.push({ role: 'user', text: question })
   inputText.value = ''
   isLoading.value = true
 
   try {
-    const res = await fetch('http://localhost:8000/chat', {
+    const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question }),
     })
     const data = await res.json()
+    console.log('[AI Chat] response:', data)
     messages.value.push({ role: 'ai', text: data.answer })
   } catch (e) {
+    console.error('[AI Chat] fetch error:', e)
     messages.value.push({ role: 'ai', text: '오류가 발생했습니다. 서버 연결을 확인해주세요.' })
   } finally {
     isLoading.value = false
-  }
-}
-
-function handleKeydown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    sendMessage()
   }
 }
 </script>
 
 <template>
   <button
-    ref="aiBtnRef"
     class="absolute bottom-8 right-8 w-[64px] h-[64px] bg-gradient-to-r from-[#3b82f6] to-[#5856d6] rounded-full shadow-[0_8px_24px_rgba(59,130,246,0.3)] flex items-center justify-center text-white hover:scale-105 active:scale-95 transition-all z-40"
     id="home-ai-btn"
     @click="emit('update:isOpen', !isOpen)"
@@ -56,7 +51,7 @@ function handleKeydown(e) {
     <span class="material-symbols-outlined text-[28px]">auto_awesome</span>
   </button>
 
-  <div ref="aiWinRef" :class="['home-ai-chat-window z-[60]', { open: isOpen }]">
+  <div :class="['home-ai-chat-window z-[60]', { open: isOpen }]">
     <div class="chat-header">
       <div class="flex items-center gap-2.5">
         <div class="w-8 h-8 bg-[#373549] rounded-lg flex items-center justify-center">
@@ -89,10 +84,9 @@ function handleKeydown(e) {
           placeholder="AI에게 질문해보세요..."
           type="text"
           v-model="inputText"
-          @keydown="handleKeydown"
-          :disabled="isLoading"
+          @keyup.enter="sendMessage"
         />
-        <button class="btn-ghost-icon p-1 text-[#373549]" @click="sendMessage" :disabled="isLoading">
+        <button class="btn-ghost-icon p-1 text-[#373549]" @click="sendMessage">
           <span class="material-symbols-outlined text-[20px]">send</span>
         </button>
       </div>

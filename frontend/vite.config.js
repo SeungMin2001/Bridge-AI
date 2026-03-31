@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
-      '/chat': 'http://localhost:8000',
+      '/chat': 'http://100.104.164.84:8000',
     },
   },
 })

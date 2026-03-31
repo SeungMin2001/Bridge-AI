@@ -98,7 +98,7 @@ const startRecording = async () => {
 
   // Mock Data 설정
   // 전사 테스트
-  const USE_MOCK_DATA = true
+  const USE_MOCK_DATA = false
 
   if (USE_MOCK_DATA) {
     const t1 = setTimeout(() => {

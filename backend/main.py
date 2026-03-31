@@ -31,12 +31,15 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        res = await client.post(
-            f"{LLM_SERVER_URL}/generate",
-            json={"prompt": req.question},
-        )
-    return res.json()
+    from fastapi.responses import StreamingResponse
+
+    async def stream():
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream("POST", f"{LLM_SERVER_URL}/generate", json={"prompt": req.question}) as res:
+                async for chunk in res.aiter_bytes():
+                    yield chunk
+
+    return StreamingResponse(stream(), media_type="text/plain")
 
 CHUNK_SIZE=360000 
 

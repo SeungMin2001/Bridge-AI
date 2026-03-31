@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
+from threading import Thread
 import torch
+from transformers import TextIteratorStreamer
 from run_model import run_model
 
 model = None
@@ -28,7 +31,7 @@ app.add_middleware(
 
 class GenerateRequest(BaseModel):
     prompt: str
-    max_new_tokens: int = 512
+    max_new_tokens: int = 256
 
 
 @app.post("/generate")
@@ -45,16 +48,22 @@ async def generate(req: GenerateRequest):
     )
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 
-    with torch.no_grad():
-        output_ids = model.generate(
-            **inputs,
-            max_new_tokens=req.max_new_tokens,
-            do_sample=False,
-        )
+    def run_generation():
+        with torch.no_grad():
+            model.generate(
+                **inputs,
+                max_new_tokens=req.max_new_tokens,
+                do_sample=False,
+                streamer=streamer,
+            )
 
-    # 입력 토큰 제거, 생성된 부분만 추출
-    generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
-    answer = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    thread = Thread(target=run_generation)
+    thread.start()
 
-    return {"answer": answer}
+    def token_stream():
+        for token in streamer:
+            yield token
+
+    return StreamingResponse(token_stream(), media_type="text/plain")

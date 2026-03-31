@@ -8,6 +8,39 @@ const props = defineProps({
 
 const emit = defineEmits(['update:aiInput'])
 
+const messages = ref([])
+const isLoading = ref(false)
+
+async function sendMessage() {
+  const question = props.aiInput.trim()
+  if (!question) return
+
+  messages.value.push({ role: 'user', text: question })
+  emit('update:aiInput', '')
+  isLoading.value = true
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    })
+    messages.value.push({ role: 'ai', text: '' })
+    const idx = messages.value.length - 1
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      messages.value[idx].text += decoder.decode(value)
+    }
+  } catch (e) {
+    messages.value.push({ role: 'ai', text: '오류가 발생했습니다. 서버 연결을 확인해주세요.' })
+  } finally {
+    isLoading.value = false
+  }
+}
+
 const width = ref(420)
 const isResizing = ref(false)
 
@@ -77,14 +110,26 @@ const handleMouseDown = () => {
         </div>
 
         <div class="mt-auto">
+          <div v-if="messages.length > 0" class="mb-3 flex flex-col gap-2 max-h-[300px] overflow-y-auto custom-scrollbar">
+            <div
+              v-for="(msg, i) in messages"
+              :key="i"
+              :class="['px-3 py-2 rounded-xl text-[13px] leading-relaxed', msg.role === 'ai' ? 'bg-[#f2f2f7] text-[#1d1d1f] self-start' : 'bg-[#373549] text-white self-end']"
+            >
+              {{ msg.text }}
+            </div>
+            <div v-if="isLoading" class="px-3 py-2 rounded-xl text-[13px] bg-[#f2f2f7] text-[#8e8e93] self-start">...</div>
+          </div>
+
           <div class="sidebar-search-bg rounded-[14px] px-4 py-3 flex items-center gap-3 border border-transparent focus-within:border-[#3b82f6] transition-all">
             <input
               class="bg-transparent border-none focus:ring-0 p-0 text-[13px] flex-1 text-[#1d1d1f] placeholder-[#aeaeb2]"
               placeholder="AI에게 질문하기..." type="text"
               :value="aiInput"
               @input="emit('update:aiInput', $event.target.value)"
+              @keyup.enter="sendMessage"
             />
-            <button class="text-[#3b82f6] hover:text-blue-700 transition-colors">
+            <button class="text-[#3b82f6] hover:text-blue-700 transition-colors" @click="sendMessage">
               <span class="material-symbols-outlined text-[20px]">arrow_upward</span>
             </button>
           </div>
