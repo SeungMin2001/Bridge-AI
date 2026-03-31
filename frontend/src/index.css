@@ -589,59 +589,132 @@ aside:last-of-type {
 
 /* 1. 전사 내용 등장 — Fade-in & Slide-up */
 @keyframes transcriptionIn {
-  from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 .transcription-item-enter {
   animation: transcriptionIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 /* 2. 단어 팝오버 — Zoom-in Bounce */
 @keyframes popoverIn {
-  0%   { opacity: 0; transform: scale(0.8) translateY(8px); }
-  70%  { transform: scale(1.03) translateY(-2px); }
-  100% { opacity: 1; transform: scale(1) translateY(0); }
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(8px);
+  }
+
+  70% {
+    transform: scale(1.03) translateY(-2px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
+
 @keyframes popoverOut {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.85) translateY(6px); }
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.85) translateY(6px);
+  }
 }
-.popover-enter { animation: popoverIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.popover-exit  { animation: popoverOut 0.18s ease-in both; }
+
+.popover-enter {
+  animation: popoverIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.popover-exit {
+  animation: popoverOut 0.18s ease-in both;
+}
 
 /* 3. 사이드바 콘텐츠 — Bounce-in */
 @keyframes sidebarBounceIn {
-  0%   { opacity: 0; transform: translateX(-16px); }
-  60%  { transform: translateX(4px); }
-  100% { opacity: 1; transform: translateX(0); }
+  0% {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+
+  60% {
+    transform: translateX(4px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
+
 .sidebar-content-animate {
   animation: sidebarBounceIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 /* 4. 탭 전환 — Slide */
 @keyframes slideInFromRight {
-  from { opacity: 0; transform: translateX(28px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
+
 @keyframes slideInFromLeft {
-  from { opacity: 0; transform: translateX(-28px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
-.tab-slide-right { animation: slideInFromRight 0.28s cubic-bezier(0.4, 0, 0.2, 1) both; }
-.tab-slide-left  { animation: slideInFromLeft  0.28s cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+.tab-slide-right {
+  animation: slideInFromRight 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.tab-slide-left {
+  animation: slideInFromLeft 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
 
 /* 5. 녹음 파동 — Wave Rings */
 @keyframes waveRing {
-  0%   { transform: scale(1);   opacity: 0.6; }
-  100% { transform: scale(2.4); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
 }
+
 .recording-wave-container {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
 }
+
 .recording-wave-ring {
   position: absolute;
   width: 6px;
@@ -650,5 +723,11 @@ aside:last-of-type {
   background-color: #ff3b30;
   animation: waveRing 1.8s ease-out infinite;
 }
-.recording-wave-ring:nth-child(2) { animation-delay: 0.45s; }
-.recording-wave-ring:nth-child(3) { animation-delay: 0.9s; }
+
+.recording-wave-ring:nth-child(2) {
+  animation-delay: 0.45s;
+}
+
+.recording-wave-ring:nth-child(3) {
+  animation-delay: 0.9s;
+}

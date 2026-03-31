@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import Workspace from './pages/Workspace/Workspace.vue'
 import Home from './pages/Home/Home.vue'
+import Workfolder from './pages/Workfolder/Workfolder.vue'
 import AiHistory from './pages/AiHistory/AiHistory.vue'
 
 // --- 상태 관리 (State) ---
@@ -98,7 +99,7 @@ const startRecording = async () => {
 
   // Mock Data 설정
   // 전사 테스트
-  const USE_MOCK_DATA = true
+  const USE_MOCK_DATA = false
 
   if (USE_MOCK_DATA) {
     const t1 = setTimeout(() => {
@@ -194,6 +195,15 @@ const handleNavigate = (view) => {
   <AiHistory 
     v-if="currentView === 'ai-history'" 
     @navigateBack="handleNavigate('home')" 
+  />
+
+  <Workfolder 
+    v-else-if="currentView === 'workfolder'"
+    :fileTree="fileTree"
+    :favorites="favorites"
+    @update:fileTree="fileTree = $event"
+    @update:favorites="favorites = $event"
+    @navigate="handleNavigate"
   />
 
   <Home 

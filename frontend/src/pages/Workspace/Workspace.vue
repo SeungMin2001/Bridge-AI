@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
@@ -27,14 +28,18 @@ const emit = defineEmits([
   'addToNote',
   'askAi'
 ])
+
+const isLeftSidebarCollapsed = ref(false)
 </script>
 
 <template>
   <div class="p-[12px] flex gap-[12px] relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden">
     <LeftSidebar
+      :isCollapsed="isLeftSidebarCollapsed"
       :transcriptions="transcriptions"
       :fileTree="fileTree"
       :favorites="favorites"
+      @toggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @navigateHome="emit('navigateHome')"
       @fileSelect="(id, node) => emit('fileSelect', id, node)"
       @update:fileTree="emit('update:fileTree', $event)"
@@ -50,6 +55,7 @@ const emit = defineEmits([
       :summaryNotes="summaryNotes"
       @startRecording="emit('startRecording')"
       @stopRecording="emit('stopRecording')"
+      @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @rightSidebarToggle="emit('rightSidebarToggle')"
     />
     

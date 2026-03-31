@@ -7,6 +7,7 @@ defineProps({
   fileTree: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() },
   transcriptions: { type: Array, default: () => [] },
+  isCollapsed: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -15,11 +16,11 @@ const emit = defineEmits([
   'update:fileTree',
   'update:favorites',
   'addToNote',
-  'askAi'
+  'askAi',
+  'toggle'
 ])
 
 const activeTab = ref('folders')
-const isSidebarCollapsed = ref(false)
 const width = ref(280)
 const toastMsg = ref('')
 const isResizing = ref(false)
@@ -63,9 +64,9 @@ const showToast = (msg) => {
 
 <template>
   <aside
-    :class="[{ 'sidebar-collapsed': isSidebarCollapsed }]"
+    :class="[{ 'sidebar-collapsed': isCollapsed }]"
     id="sidebar"
-    :style="{ width: isSidebarCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
+    :style="{ width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
   >
     <div class="card h-full bg-white flex flex-col p-5 overflow-hidden">
       <!-- Header -->
@@ -77,7 +78,7 @@ const showToast = (msg) => {
           <span class="text-[20px]">LectoAI</span>
         </div>
         <div class="flex gap-1">
-          <button class="btn-ghost-icon p-1.5 rounded-[10px]" title="사이드바 접기" @click="isSidebarCollapsed = true">
+          <button class="btn-ghost-icon p-1.5 rounded-[10px]" title="사이드바 접기" @click="emit('toggle')">
             <span class="material-symbols-outlined text-[22px] text-[#8e8e93]">menu_open</span>
           </button>
         </div>
@@ -127,7 +128,7 @@ const showToast = (msg) => {
 
   <!-- Resizer -->
   <div
-    v-show="!isSidebarCollapsed"
+    v-show="!isCollapsed"
     class="w-1.5 hover:bg-[#d1d1d6] transition-colors cursor-col-resize flex items-center justify-center group active:bg-[#aeaeb2] mx-[-6px] z-20"
     id="resizer-left"
     @mousedown="handleResizerMouseDown"
@@ -135,11 +136,10 @@ const showToast = (msg) => {
     <div class="w-0.5 h-8 bg-[#d1d1d6] rounded-full group-hover:bg-[#8e8e93]"></div>
   </div>
 
-  <!-- Expand Button -->
   <button
-    v-if="isSidebarCollapsed"
+    v-if="isCollapsed"
     class="fixed left-4 top-5 z-[50] w-10 h-10 bg-white shadow-lg rounded-full flex items-center justify-center border border-black/5 hover:scale-110 transition-transform active:scale-95"
-    @click="isSidebarCollapsed = false"
+    @click="emit('toggle')"
   >
     <span class="material-symbols-outlined text-[20px] text-[#1d1d1f]">dock_to_left</span>
   </button>

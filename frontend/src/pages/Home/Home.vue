@@ -1,68 +1,29 @@
 <script setup>
-import { computed } from 'vue'
 import HomeSidebar from '../../components/home/HomeSidebar.vue'
 import HomeBanner from '../../components/home/HomeBanner.vue'
-import HomeGrid from '../../components/home/HomeGrid.vue'
-import HomeModals from '../../components/home/HomeModals.vue'
-import AiAssistant from '../../components/home/AiAssistant.vue'
 import InfiniteGrid from '../../components/home/InfiniteGrid.vue'
-import { useHome } from '../../composables/useHome'
+import { ref } from 'vue'
 
 const props = defineProps({
   fileTree: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() }
 })
 
-const emit = defineEmits(['navigate', 'update:fileTree', 'update:favorites'])
+const emit = defineEmits(['navigate'])
 
-const {
-  isSidebarCollapsed,
-  setIsSidebarCollapsed,
-  isAiChatOpen,
-  setIsAiChatOpen,
-  isFolderModalOpen,
-  isFileModalOpen,
-  selectedColor,
-  navigationStack,
-  aiWinRef,
-  aiBtnRef,
-  newFolderName,
-  newFileName,
-  toggleStar,
-  handleCreateFolder,
-  handleCreateFile,
-  handleEnterFolder,
-  handleGoBack
-} = useHome(props, emit)
+const isSidebarCollapsed = ref(false)
+const hasStartedChat = ref(false)
 
-const currentTitle = computed(() => {
-  return navigationStack.value.length > 0
-    ? navigationStack.value[navigationStack.value.length - 1].name
-    : '내 폴더'
-})
-
-const currentItems = computed(() => {
-  if (navigationStack.value.length === 0) return props.fileTree
-  
-  const currentFolderId = navigationStack.value[navigationStack.value.length - 1].id
-  const findFolder = (nodes, id) => {
-    for (const node of nodes) {
-      if (node.id === id) return node
-      if (node.children) {
-        const found = findFolder(node.children, id)
-        if (found) return found
-      }
-    }
-    return null
-  }
-  const folder = findFolder(props.fileTree, currentFolderId)
-  return folder ? (folder.children || []) : []
-})
+const handleMessageSent = (params) => {
+  console.log('Message sent:', params)
+  hasStartedChat.value = true
+}
 </script>
 
 <template>
   <div class="p-[12px] flex gap-[12px] relative h-full w-full text-[#1d1d1f] overflow-hidden">
     <InfiniteGrid />
+    
     <HomeSidebar 
       class="relative z-10"
       :isCollapsed="isSidebarCollapsed"
@@ -72,44 +33,34 @@ const currentItems = computed(() => {
       @navigate="emit('navigate', $event)"
     />
 
-    <main id="home-main-content" class="custom-scrollbar flex-1 overflow-y-auto relative z-10">
-      <HomeBanner />
+    <main id="home-main-content" class="flex-1 relative z-10 transition-all duration-700 overflow-hidden">
       
-      <HomeGrid 
-        :currentItems="currentItems"
-        :currentTitle="currentTitle"
-        :navigationStack="navigationStack"
-        :favorites="favorites"
-        @goBack="handleGoBack"
-        @enterFolder="handleEnterFolder"
-        @openFolderModal="isFolderModalOpen = true"
-        @openFileModal="isFileModalOpen = true"
-        @toggleStar="toggleStar"
-        @navigate="emit('navigate', $event)"
-      />
+      <!-- Unified Content Wrapper for seamless transition -->
+      <div :class="[
+        'absolute inset-0 flex flex-col transition-all duration-700',
+        hasStartedChat ? '' : 'items-center justify-center -mt-20'
+      ]">
+        
+        <HomeBanner 
+          @sendMessage="handleMessageSent" 
+          :class="['transition-all duration-700', hasStartedChat ? 'w-full h-full' : 'w-full max-w-[800px]']" 
+        />
+        
+      </div>
+
+    <!-- Navigation Button to All Folders (Fixed at viewport) -->
+    <button 
+      @click="emit('navigate', 'workfolder')"
+      class="fixed bottom-8 right-8 bg-[#1d1d1f] text-white px-6 py-4 rounded-full flex items-center gap-3 shadow-[0_8px_30px_rgba(0,0,0,0.15)] hover:scale-105 active:scale-95 transition-all duration-300 z-[60] group">
+      <span class="font-bold tracking-tight">전체 폴더 가기</span>
+      <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white/30 transition-colors">
+        <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+      </div>
+    </button>
+
     </main>
-
-    <AiAssistant 
-      :isOpen="isAiChatOpen"
-      :aiWinRef="aiWinRef"
-      :aiBtnRef="aiBtnRef"
-      @update:isOpen="isAiChatOpen = $event"
-    />
-
-    <HomeModals 
-      :isFolderModalOpen="isFolderModalOpen"
-      :isFileModalOpen="isFileModalOpen"
-      :selectedColor="selectedColor"
-      :newFolderName="newFolderName"
-      :newFileName="newFileName"
-      @update:isFolderModalOpen="isFolderModalOpen = $event"
-      @update:isFileModalOpen="isFileModalOpen = $event"
-      @update:selectedColor="selectedColor = $event"
-      @update:newFolderName="newFolderName = $event"
-      @update:newFileName="newFileName = $event"
-      @createFolder="handleCreateFolder"
-      @createFile="handleCreateFile"
-    />
   </div>
 </template>
-<style src="./Home.css"></style>
+
+<style scoped>
+</style>

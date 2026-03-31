@@ -1,42 +1,192 @@
-<template>
-  <div class="home-banner shrink-0">
-    <div class="absolute w-[140px] h-[140px] bg-[#2d2b3e] rounded-full top-[10px] left-[40%]"></div>
-    <div class="absolute w-[220px] h-[220px] bg-[#2d2b3e] rounded-full bottom-[-60px] left-[10%]"></div>
-    
-    <div class="relative z-10 max-w-[480px] flex flex-col gap-3 items-start">
-      <div class="text-[36px] font-bold text-white tracking-[-0.03em] leading-[1.1]">하이</div>
-      <div class="text-[15px] text-white/80 leading-[1.6] font-medium">
-        Learn fun anywhere and anytime without any time limit just through the application.
-      </div>
-    </div>
+<script setup>
+import { ref, defineEmits, nextTick } from 'vue'
+import MultimodalInput from './MultimodalInput.vue'
 
-    <!-- Centered Button -->
-    <div class="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-      <button class="bg-white text-[#373549] border-none rounded-full px-7 py-3.5 text-[14px] font-bold cursor-pointer transition-opacity hover:opacity-90 pointer-events-auto shadow-lg">
-        Get Started
-      </button>
+const emit = defineEmits(['sendMessage'])
+
+const messages = ref([])
+const isGenerating = ref(false)
+const chatScrollRef = ref(null)
+
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (chatScrollRef.value) {
+      chatScrollRef.value.scrollTop = chatScrollRef.value.scrollHeight
+    }
+  })
+}
+
+const recentFiles = ref([
+  { id: '1', name: '자료구조 강의 노트.pdf', type: 'pdf', date: '오늘' },
+  { id: '2', name: 'AI 프로젝트 기획서.docx', type: 'doc', date: '어제' },
+  { id: '3', name: '중간고사 요약본.pptx', type: 'ppt', date: '2일 전' }
+])
+
+const getFileIcon = (type) => {
+  switch (type) {
+    case 'pdf': return 'picture_as_pdf'
+    case 'ppt': return 'slideshow'
+    case 'doc': return 'description'
+    default: return 'insert_drive_file'
+  }
+}
+
+const onSendMessage = (params) => {
+  // Add user message
+  messages.value.push({ role: 'user', content: params.input, attachments: params.attachments })
+  emit('sendMessage', params)
+  scrollToBottom()
+  
+  // Simulate AI generating
+  isGenerating.value = true
+  
+  // Mock AI Response
+  setTimeout(() => {
+    const aiMessage = { role: 'assistant', content: '' }
+    messages.value.push(aiMessage)
+    
+    const fullResponse = "안녕하세요! 파일 요약이나 새로운 문서 작업 등 어떤 것을 도와드릴까요?"
+    let charIndex = 0
+    
+    const interval = setInterval(() => {
+      if (charIndex < fullResponse.length) {
+        aiMessage.content += fullResponse[charIndex]
+        charIndex++
+        scrollToBottom()
+      } else {
+        clearInterval(interval)
+        isGenerating.value = false
+      }
+    }, 50)
+  }, 1000)
+}
+
+const onStopGenerating = () => {
+  isGenerating.value = false
+}
+</script>
+
+<template>
+  <div class="w-full h-full relative transition-all duration-700">
+    
+    <!-- Chat History -->
+    <Transition name="fade">
+      <div v-if="messages.length > 0" 
+           ref="chatScrollRef"
+           class="absolute inset-0 overflow-y-auto px-4 w-full flex flex-col items-center custom-scrollbar z-10">
+        <div class="w-full max-w-[700px] flex flex-col gap-4 pt-12 pb-[160px]">
+          <div v-for="(msg, idx) in messages" :key="idx" 
+               :class="['flex w-full', msg.role === 'user' ? 'justify-end' : 'justify-start']">
+            <div :class="[
+              'max-w-[85%] rounded-2xl px-5 py-3.5 text-[15px] leading-relaxed break-words shadow-sm',
+              msg.role === 'user' 
+                ? 'bg-[#1d1d1f] text-white rounded-tr-none' 
+                : 'bg-white/80 backdrop-blur-xl text-[#1d1d1f] border border-black/5 rounded-tl-none shadow-[0_4px_20px_rgba(0,0,0,0.03)]'
+            ]">
+              <div v-if="msg.attachments?.length" class="flex gap-2 mb-3">
+                <div v-for="att in msg.attachments" :key="att.url" class="w-14 h-14 rounded-lg overflow-hidden border border-black/10">
+                  <img :src="att.url" class="w-full h-full object-cover" />
+                </div>
+              </div>
+              {{ msg.content }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Layout structure for Title & Input (Flex-grow animation) -->
+    <div class="absolute inset-0 flex flex-col items-center pointer-events-none z-20 transition-all duration-700">
+      
+      <!-- Top dynamic space -->
+      <div 
+        class="w-full flex-shrink-0 transition-all duration-700" 
+        :style="{ flexGrow: 1, transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' }"
+      ></div>
+
+      <!-- Title (Hides when chat starts) -->
+      <Transition name="fade">
+        <div v-if="messages.length === 0" class="flex flex-col items-center text-center gap-3 pb-8 pointer-events-auto shrink-0 w-full transition-all duration-500">
+          <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-6">
+            <span class="material-symbols-outlined text-[28px] text-white">auto_awesome</span>
+          </div>
+          <div class="text-[32px] font-extrabold text-[#1d1d1f] tracking-tight leading-tight">무엇을 도와드릴까요?</div>
+        </div>
+      </Transition>
+
+      <!-- Input component -->
+      <div class="w-full max-w-[730px] pointer-events-auto flex-shrink-0 z-50 transition-all duration-700">
+        <MultimodalInput 
+          :is-generating="isGenerating"
+          @sendMessage="onSendMessage"
+          @stopGenerating="onStopGenerating"
+        />
+      </div>
+
+      <!-- Recent Files Section (New Position) -->
+      <div v-if="messages.length === 0" class="w-full max-w-[600px] pointer-events-auto flex flex-col gap-4 mt-12 opacity-80 animate-fade-in-up shrink-0" style="animation-duration: 0.6s; animation-delay: 0.2s; animation-fill-mode: both;">
+        <h3 class="text-sm font-semibold text-gray-500 px-2 uppercase tracking-wider">최근 연 파일</h3>
+        <div class="flex gap-4">
+          <div v-for="file in recentFiles" :key="file.id" 
+               class="flex-1 bg-white/40 backdrop-blur-md border border-white/50 rounded-2xl p-4 flex flex-col gap-3 cursor-pointer hover:-translate-y-1 hover:bg-white/60 hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition-all duration-300">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-gray-600 shadow-sm border border-black/5">
+              <span class="material-symbols-outlined text-[20px]">{{ getFileIcon(file.type) }}</span>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-[14px] font-bold text-[#1d1d1f] truncate leading-tight">{{ file.name }}</span>
+              <span class="text-[12px] text-gray-500 mt-0.5">{{ file.date }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom dynamic space -->
+      <div 
+        class="w-full flex-shrink-0 transition-all duration-700"
+        :style="{ 
+           flexGrow: messages.length > 0 ? 0 : 1.2, 
+           height: messages.length > 0 ? '32px' : '0px',
+           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' 
+        }"
+      ></div>
+
     </div>
     
-    <div class="relative z-10 shrink-0 w-[240px] h-[140px] flex items-end justify-center">
-      <svg fill="none" height="180" style="position: absolute; bottom: -20px; right: -20px" viewBox="0 0 240 180" width="240" xmlns="http://www.w3.org/2000/svg">
-        <path d="M40 50 h12 v-12 h8 v12 h12 v8 h-12 v12 h-8 v-12 h-12 z" fill="#fff" opacity="0.9" transform="rotate(-15 50 50)"></path>
-        <path d="M50 100 h20 v6 h-20 z" fill="#fff" opacity="0.9" transform="rotate(10 60 100)"></path>
-        <g transform="translate(180, 20) rotate(15)">
-          <path d="M15 0 C6.7 0 0 6.7 0 15 C0 20.3 2.7 25 6.7 27.8 L6.7 33.3 C6.7 34.2 7.5 35 8.3 35 L21.7 35 C22.6 35 23.3 34.2 23.3 33.3 L23.3 27.8 C27.3 25 30 20.3 30 15 Z" fill="none" stroke="#fff" stroke-width="2.5"></path>
-          <path d="M10 40 h10 M12 45 h6" stroke="#fff" stroke-linecap="round" stroke-width="2.5"></path>
-          <path d="M15 15 v10" stroke="#fff" stroke-linecap="round" stroke-width="2.5"></path>
-        </g>
-        <circle cx="140" cy="85" fill="#2d2b3e" r="2.5"></circle>
-        <circle cx="160" cy="85" fill="#2d2b3e" r="2.5"></circle>
-        <path d="M145 95 Q150 100 155 95" fill="none" stroke="#2d2b3e" stroke-linecap="round" stroke-width="2"></path>
-        <path d="M110 180 C110 130 190 130 190 180 Z" fill="#2d2b3e"></path>
-        <path d="M90 160 C110 145 125 155 135 165" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="12"></path>
-        <path d="M210 160 C190 145 175 155 165 165" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="12"></path>
-        <path d="M85 140 L150 165 L150 200 L85 175 Z" fill="#fff" stroke="#2d2b3e" stroke-linejoin="round" stroke-width="2"></path>
-        <path d="M215 140 L150 165 L150 200 L215 175 Z" fill="#f4f4f5" stroke="#2d2b3e" stroke-linejoin="round" stroke-width="2"></path>
-        <path d="M95 150 L140 168 M95 158 L140 176" stroke="#2d2b3e" stroke-linecap="round" stroke-width="2"></path>
-        <path d="M205 150 L160 168 M205 158 L160 176" stroke="#2d2b3e" stroke-linecap="round" stroke-width="2"></path>
-      </svg>
-    </div>
   </div>
 </template>
+
+<style scoped>
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.98);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+}
+</style>

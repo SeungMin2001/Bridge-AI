@@ -2,14 +2,10 @@ import { ref, onMounted, onUnmounted } from 'vue'
 
 export function useHome({ fileTree, favorites }, emit) {
   const isSidebarCollapsed = ref(false)
-  const isAiChatOpen = ref(false)
   const isFolderModalOpen = ref(false)
   const isFileModalOpen = ref(false)
   const selectedColor = ref('#3b82f6')
   const navigationStack = ref([]) // [{id, name}]
-
-  const aiWinRef = ref(null)
-  const aiBtnRef = ref(null)
 
   const newFolderName = ref('')
   const newFileName = ref('')
@@ -19,14 +15,6 @@ export function useHome({ fileTree, favorites }, emit) {
     if (e.target.classList.contains('modal-overlay')) {
       isFolderModalOpen.value = false
       isFileModalOpen.value = false
-    }
-
-    // AI Chat
-    if (
-      aiWinRef.value && !aiWinRef.value.contains(e.target) &&
-      aiBtnRef.value && !aiBtnRef.value.contains(e.target)
-    ) {
-      isAiChatOpen.value = false
     }
   }
 
@@ -111,13 +99,10 @@ export function useHome({ fileTree, favorites }, emit) {
 
   return {
     isSidebarCollapsed,
-    isAiChatOpen,
     isFolderModalOpen,
     isFileModalOpen,
     selectedColor,
     navigationStack,
-    aiWinRef,
-    aiBtnRef,
     newFolderName,
     newFileName,
     toggleStar,
