@@ -34,7 +34,7 @@ async def chat(req: ChatRequest):
     from fastapi.responses import StreamingResponse
 
     async def stream():
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
             async with client.stream("POST", f"{LLM_SERVER_URL}/generate", json={"prompt": req.question}) as res:
                 async for chunk in res.aiter_bytes():
                     yield chunk
