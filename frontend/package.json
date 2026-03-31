@@ -1,14 +1,15 @@
 {
-  "name": "lecto-ai-frontend",
+  "name": "frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "main":"main.js",
   "type": "module",
-  "scripts": {
-    "dev": "vite --host",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
+ "scripts": {
+  "dev": "vite",
+  "build": "vite build",
+  "preview": "vite preview",
+  "lint":"eslint ."
+},
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@vitejs/plugin-vue": "^6.0.5",
