@@ -14,7 +14,7 @@ app=FastAPI()
 
 CHUNK_SIZE=360000 
 
-@app.websocket("/ws")
+@app.websocket("/ws")  
 async def websocket_endpoint(ws:WebSocket):
     await ws.accept()
     audio_buffer=bytearray()
