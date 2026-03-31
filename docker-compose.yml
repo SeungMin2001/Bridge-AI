@@ -16,6 +16,24 @@ services:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: always
 
+  # DeepFilterNet 잡음 제거 서버 (numpy<2.0 별도 환경)
+  denoise_server:
+    build: ./denoise_server
+    container_name: denoise_server
+    ports:
+      - "8002:8002"
+    restart: always
+
+  # diart 화자 분리 서버 (별도 컨테이너, 독립 스케일링 가능)
+  diart_server:
+    build: ./diart_server
+    container_name: diart_server
+    ports:
+      - "8003:8003"
+    environment:
+      - HF_TOKEN=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
+    restart: always
+
   fastapi_backend:
     build: .
     container_name: fastapi_backend
