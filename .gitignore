@@ -1,6 +1,35 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+dist/
+
+# Env / Secrets
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build
 .DS_Store
-mcp.json
 **/.DS_Store
-**/.env
-**/.env.local  
+dist-ssr
+*.local
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Project specific
+frontend/toyo/
+mcp.json
+__pycache__/
+**/*.pyc
+venv/
