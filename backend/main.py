@@ -1,4 +1,5 @@
-from fastapi import FastAPI,WebSocket
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 import whisper
 from starlette.websockets import WebSocketDisconnect
@@ -6,11 +7,36 @@ from scipy.signal import resample
 from data.save_transcript import save_transcript
 import torch
 import uuid
+import httpx
+from pydantic import BaseModel
 
-device="mps" if torch.backends.mps.is_available() else "cuda"
+device = "mps" if torch.backends.mps.is_available() else "cuda"
 
-model=whisper.load_model("large-v3",device=device) #모델설정(transcript할 모델)
-app=FastAPI()
+model = whisper.load_model("large-v3", device=device)
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+LLM_SERVER_URL = "http://localhost:8001"
+
+
+class ChatRequest(BaseModel):
+    question: str
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        res = await client.post(
+            f"{LLM_SERVER_URL}/generate",
+            json={"prompt": req.question},
+        )
+    return res.json()
 
 CHUNK_SIZE=360000 
 

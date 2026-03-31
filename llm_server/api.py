@@ -1,0 +1,60 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from contextlib import asynccontextmanager
+import torch
+from run_model import run_model
+
+model = None
+tokenizer = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global model, tokenizer
+    model, tokenizer = run_model()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class GenerateRequest(BaseModel):
+    prompt: str
+    max_new_tokens: int = 512
+
+
+@app.post("/generate")
+async def generate(req: GenerateRequest):
+    messages = [
+        {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean."},
+        {"role": "user", "content": req.prompt},
+    ]
+
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    with torch.no_grad():
+        output_ids = model.generate(
+            **inputs,
+            max_new_tokens=req.max_new_tokens,
+            do_sample=False,
+        )
+
+    # 입력 토큰 제거, 생성된 부분만 추출
+    generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
+    answer = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+    return {"answer": answer}

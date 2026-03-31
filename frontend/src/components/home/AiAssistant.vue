@@ -1,4 +1,6 @@
 <script setup>
+import { ref } from 'vue'
+
 defineProps({
   isOpen: Boolean,
   aiWinRef: Object,
@@ -6,6 +8,42 @@ defineProps({
 })
 
 const emit = defineEmits(['update:isOpen'])
+
+const inputText = ref('')
+const isLoading = ref(false)
+const messages = ref([
+  { role: 'ai', text: '안녕하세요! 어떤 것을 도와드릴까요? 강의 노트 요약이나 시험 문제 생성 등을 도와드릴 수 있습니다.' }
+])
+
+async function sendMessage() {
+  const question = inputText.value.trim()
+  if (!question || isLoading.value) return
+
+  messages.value.push({ role: 'user', text: question })
+  inputText.value = ''
+  isLoading.value = true
+
+  try {
+    const res = await fetch('http://localhost:8000/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    })
+    const data = await res.json()
+    messages.value.push({ role: 'ai', text: data.answer })
+  } catch (e) {
+    messages.value.push({ role: 'ai', text: '오류가 발생했습니다. 서버 연결을 확인해주세요.' })
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function handleKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendMessage()
+  }
+}
 </script>
 
 <template>
@@ -30,24 +68,31 @@ const emit = defineEmits(['update:isOpen'])
         <span class="material-symbols-outlined text-[20px]">close</span>
       </button>
     </div>
+
     <div class="chat-content custom-scrollbar">
-      <div class="chat-bubble bubble-ai">
-        안녕하세요! 어떤 것을 도와드릴까요? <br />강의 노트 요약이나 시험 문제 생성 등을 도와드릴 수 있습니다.
+      <div
+        v-for="(msg, i) in messages"
+        :key="i"
+        :class="['chat-bubble', msg.role === 'ai' ? 'bubble-ai' : 'bubble-user']"
+      >
+        {{ msg.text }}
       </div>
-      <div class="chat-bubble bubble-user">
-        지난 '컴퓨터 네트워크' 수업 내용을 요약해줘.
-      </div>
-      <div class="chat-bubble bubble-ai">
-        네, '컴퓨터 네트워크' 폴더의 최신 노트를 분석하여 요약해 드릴게요. <br /><br />
-        1. OSI 7계층의 구조와 각 계층의 역할<br />
-        2. TCP/IP 4계층 모델과의 차이점<br />
-        3. 데이터 캡슐화와 비캡슐화 과정...
+      <div v-if="isLoading" class="chat-bubble bubble-ai">
+        <span>...</span>
       </div>
     </div>
+
     <div class="chat-footer">
       <div class="chat-input-container">
-        <input class="chat-input" placeholder="AI에게 질문해보세요..." type="text" />
-        <button class="btn-ghost-icon p-1 text-[#373549]">
+        <input
+          class="chat-input"
+          placeholder="AI에게 질문해보세요..."
+          type="text"
+          v-model="inputText"
+          @keydown="handleKeydown"
+          :disabled="isLoading"
+        />
+        <button class="btn-ghost-icon p-1 text-[#373549]" @click="sendMessage" :disabled="isLoading">
           <span class="material-symbols-outlined text-[20px]">send</span>
         </button>
       </div>
