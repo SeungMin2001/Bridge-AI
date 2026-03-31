@@ -1,37 +1,25 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
-# Rag를 통해 나온 유사한 벡터 데이터를 받고 프론트엔드에 전달 코드 구현
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 def run_model():
-    MODEL_NAME = "Qwen/Qwen3.5-9B"
+    MODEL_NAME = "Qwen/Qwen2.5-3B-Instruct"  # 9B → 3B로 교체 (속도 3배 향상)
 
-    if torch.cuda.is_available():
-        device="cuda"
-    elif torch.backends.mps.is_available():
-        device= "mps"
-    else:
-        device="cpu"
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16,
+    )
 
-    print("device: ",device)
-    tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_NAME,
-        trust_remote_code=True
-        )
+    print("Loading tokenizer...")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
+    print("Loading model with 4-bit quantization...")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        torch_dtype="auto",
+        quantization_config=quantization_config,
         device_map="auto",
-        trust_remote_code=True
+        trust_remote_code=True,
     )
 
     model.eval()
-
     print("model ready")
-
-    print("tokenizer loaded:", type(tokenizer))
-    print("model loaded:", type(model))
     return model, tokenizer
-
-
