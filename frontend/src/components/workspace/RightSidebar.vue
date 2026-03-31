@@ -25,15 +25,8 @@ async function sendMessage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question }),
     })
-    messages.value.push({ role: 'ai', text: '' })
-    const idx = messages.value.length - 1
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      messages.value[idx].text += decoder.decode(value)
-    }
+    const data = await res.json()
+    messages.value.push({ role: 'ai', text: data.answer })
   } catch (e) {
     messages.value.push({ role: 'ai', text: '오류가 발생했습니다. 서버 연결을 확인해주세요.' })
   } finally {
