@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
+import asyncio
 import torch
 from run_model import run_model
 
@@ -47,14 +48,17 @@ async def generate(req: GenerateRequest):
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
-    with torch.no_grad():
-        output_ids = model.generate(
-            **inputs,
-            max_new_tokens=req.max_new_tokens,
-            do_sample=False,
-        )
+    def run_generation():
+        with torch.no_grad():
+            output_ids = model.generate(
+                **inputs,
+                max_new_tokens=req.max_new_tokens,
+                do_sample=False,
+            )
+        generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
+        return tokenizer.decode(generated_ids, skip_special_tokens=True)
 
-    generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
-    answer = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    loop = asyncio.get_event_loop()
+    answer = await loop.run_in_executor(None, run_generation)
 
     return {"answer": answer}
