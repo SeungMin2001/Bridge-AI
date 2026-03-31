@@ -2,7 +2,7 @@
 import { ref, defineEmits, nextTick } from 'vue'
 import MultimodalInput from './MultimodalInput.vue'
 
-const emit = defineEmits(['sendMessage'])
+const emit = defineEmits(['sendMessage', 'openReference'])
 
 const messages = ref([])
 const isGenerating = ref(false)
@@ -42,10 +42,24 @@ const onSendMessage = (params) => {
   
   // Mock AI Response
   setTimeout(() => {
-    const aiMessage = { role: 'assistant', content: '' }
+    const isMathQuery = params.input.includes('수학')
+    const aiMessage = { role: 'assistant', content: '', references: [] }
     messages.value.push(aiMessage)
     
-    const fullResponse = "안녕하세요! 파일 요약이나 새로운 문서 작업 등 어떤 것을 도와드릴까요?"
+    // add references for math
+    if (isMathQuery) {
+      aiMessage.summary = "수학은 논리와 기호학을 기반으로 수, 양, 구조, 공간, 변화 등의 개념을 다루는 학문입니다. 각 강의에서는 수학적 사고의 뼈대가 되는 공리부터 실생활에 적용되는 응용 수학까지 폭넓게 다룹니다."
+      aiMessage.references = [
+        { id: 'lec1', title: '강의 1: 수학의 기초', script: '이 강의에서는 수학의 가장 기초가 되는 논리와 집합론에 대해 다룹니다.\n\n수학은 우리 생활 모든 곳에 스며들어 있으며 변해야 할 것과 변하지 않아야 할 것을 명확히 구분하는 학문입니다.\n\n먼저 기본 공리에 대해 알아보겠습니다...' },
+        { id: 'lec2', title: '강의 2: 대수학 입문', script: '방정식과 변수에 대한 이해를 돕는 대수학 입문 강의 전사 내용입니다.\n\n미지수 x를 구하기 위해 우리는 양변에 같은 조작을 가해야 합니다.\n이러한 원칙은 복잡한 식을 간결하게 만듭니다.' },
+        { id: 'lec3', title: '강의 3: 실생활 미적분', script: '우리 주변에서 발견할 수 있는 변화율과 미적분 활용 사례에 대한 스크립트입니다.\n\n자동차가 가속할 때 속도의 변화량, 즉 가속도를 계산하는 것이 미분의 기초이며, 총 이동 거리를 구하는 것이 적분의 기초입니다.' }
+      ]
+    }
+
+    const fullResponse = isMathQuery 
+      ? "수학에 관한 자료를 바탕으로 종합된 설명을 요약해 보았습니다. 더 자세한 원본 스크립트는 아래 근거 링크를 클릭하여 확인해 보세요:"
+      : "안녕하세요! 파일 요약이나 새로운 문서 작업 등 어떤 것을 도와드릴까요?"
+    
     let charIndex = 0
     
     const interval = setInterval(() => {
@@ -57,8 +71,8 @@ const onSendMessage = (params) => {
         clearInterval(interval)
         isGenerating.value = false
       }
-    }, 50)
-  }, 1000)
+    }, 30) // slightly faster typing
+  }, 500)
 }
 
 const onStopGenerating = () => {
@@ -88,7 +102,29 @@ const onStopGenerating = () => {
                   <img :src="att.url" class="w-full h-full object-cover" />
                 </div>
               </div>
-              {{ msg.content }}
+              <div class="whitespace-pre-wrap">{{ msg.content }}</div>
+              
+              <!-- Summary Block -->
+              <div v-if="msg.summary" class="mt-4 p-4 bg-indigo-50/40 rounded-xl border border-indigo-100/50">
+                <div class="flex items-center gap-2 mb-2 text-indigo-800 font-semibold text-[13px] uppercase tracking-wider">
+                  <span class="material-symbols-outlined text-[16px]">summarize</span>
+                  종합된 설명
+                </div>
+                <p class="text-[14px] text-gray-700 leading-relaxed">{{ msg.summary }}</p>
+              </div>
+
+              <!-- Reference Links -->
+              <div v-if="msg.references && msg.references.length > 0" class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/10">
+                <button 
+                  v-for="ref in msg.references" 
+                  :key="ref.id" 
+                  @click="emit('openReference', ref)"
+                  class="flex items-center gap-1 text-[13px] bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full border border-indigo-200/50 transition-colors shadow-sm font-medium"
+                >
+                  <span class="material-symbols-outlined text-[14px]">link</span>
+                  {{ ref.title }}
+                </button>
+              </div>
             </div>
           </div>
         </div>

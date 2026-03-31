@@ -2,6 +2,7 @@
 import HomeSidebar from '../../components/home/HomeSidebar.vue'
 import HomeBanner from '../../components/home/HomeBanner.vue'
 import InfiniteGrid from '../../components/home/InfiniteGrid.vue'
+import HomeRightSidebar from '../../components/home/HomeRightSidebar.vue'
 import { ref } from 'vue'
 
 const props = defineProps({
@@ -13,10 +14,17 @@ const emit = defineEmits(['navigate'])
 
 const isSidebarCollapsed = ref(false)
 const hasStartedChat = ref(false)
+const activeReference = ref(null)
+const isRightSidebarOpen = ref(false)
 
 const handleMessageSent = (params) => {
   console.log('Message sent:', params)
   hasStartedChat.value = true
+}
+
+const openReferenceHandler = (refData) => {
+  activeReference.value = refData
+  isRightSidebarOpen.value = true
 }
 </script>
 
@@ -37,13 +45,15 @@ const handleMessageSent = (params) => {
       
       <!-- Unified Content Wrapper for seamless transition -->
       <div :class="[
-        'absolute inset-0 flex flex-col transition-all duration-700',
+        'absolute top-0 bottom-0 left-0 flex flex-col transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]',
+        isRightSidebarOpen ? 'right-[420px]' : 'right-0',
         hasStartedChat ? '' : 'items-center justify-center -mt-20'
       ]">
         
         <HomeBanner 
           @sendMessage="handleMessageSent" 
-          :class="['transition-all duration-700', hasStartedChat ? 'w-full h-full' : 'w-full max-w-[800px]']" 
+          @openReference="openReferenceHandler"
+          :class="['transition-all duration-700 w-full', hasStartedChat ? 'h-full' : 'max-w-[800px]']" 
         />
         
       </div>
@@ -59,6 +69,13 @@ const handleMessageSent = (params) => {
     </button>
 
     </main>
+    
+    <!-- Right Sidebar for References -->
+    <HomeRightSidebar 
+      :isOpen="isRightSidebarOpen"
+      :referenceData="activeReference"
+      @close="isRightSidebarOpen = false"
+    />
   </div>
 </template>
 
