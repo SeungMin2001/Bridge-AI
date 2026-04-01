@@ -100,7 +100,7 @@ const emit = defineEmits([
           <div v-else class="folder-card file-card" @click="emit('navigate', 'workspace')" style="display: flex; flex-direction: column; height: 160px;">
             <div style="height: 10px; flex-shrink: 0;"></div>
             <div style="background: #fff; border-radius: 14px; padding: 0; flex: 1; position: relative; overflow: hidden; box-shadow: 2px 3px 0px #e0e0e8; border: 1.5px solid #e5e5ea; display: flex; flex-direction: column;">
-              <div style="height: 6px; background: linear-gradient(90deg, #6366f1, #a78bfa); border-radius: 12px 12px 0 0;"></div>
+              <div :style="{ height: '6px', background: item.color || '#6366f1', borderRadius: '12px 12px 0 0' }"></div>
               <div style="position: absolute; top: 30px; left: 0; right: 0; bottom: 0; background-image: repeating-linear-gradient(transparent, transparent 22px, #f0f0f5 22px, #f0f0f5 23px); opacity: 0.6;"></div>
               <div style="position: relative; z-index: 1; padding: 14px; display: flex; flex-direction: column; flex: 1;">
                 <button
@@ -111,10 +111,10 @@ const emit = defineEmits([
                   <span class="material-symbols-outlined" :style="{ fontSize: '16px', fontVariationSettings: `'FILL' ${favorites.has(item.id) ? 1 : 0}` }">star</span>
                 </button>
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                  <div style="width: 36px; height: 36px; background: #ede9fe; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                    <span class="material-symbols-outlined" style="font-size: 20px; color: #6366f1; font-variation-settings: 'FILL' 1">article</span>
+                  <div :style="{ width: '36px', height: '36px', background: `${item.color}15` || '#ede9fe', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }">
+                    <span class="material-symbols-outlined" :style="{ fontSize: '20px', color: item.color || '#6366f1', fontVariationSettings: `'FILL' 1` }">article</span>
                   </div>
-                  <span style="font-size: 10px; font-weight: 700; color: #6366f1; background: #ede9fe; padding: 2px 8px; border-radius: 100px; letter-spacing: 0.04em;">FILE</span>
+                  <span :style="{ fontSize: '10px', fontWeight: '700', color: item.color || '#6366f1', background: `${item.color}15` || '#ede9fe', padding: '2px 8px', borderRadius: '100px', letterSpacing: '0.04em' }">FILE</span>
                 </div>
                 <div style="margin-top: auto;">
                   <div class="folder-card-name" style="color: #1d1d1f; font-size: 13px;">{{ item.name }}</div>

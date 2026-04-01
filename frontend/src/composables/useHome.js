@@ -79,7 +79,7 @@ export function useHome({ fileTree, favorites }, emit) {
       type: 'file',
       name: newFileName.value,
       date: timeStr,
-      color: '#1d1d1f'
+      color: selectedColor.value
     }
 
     const currentFolderId = navigationStack.value.length > 0 ? navigationStack.value[navigationStack.value.length - 1].id : null
