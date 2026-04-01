@@ -22,18 +22,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-LLM_SERVER_URL = "http://localhost:8001"
+llm_server_url = "http://localhost:8001"
 
 
 class ChatRequest(BaseModel):
     question: str
 
 
+class RegisterRequest(BaseModel):
+    url: str
+
+
+@app.post("/register-llm")
+async def register_llm(req: RegisterRequest):
+    global llm_server_url
+    llm_server_url = req.url.rstrip("/")
+    print(f"[LLM] URL updated: {llm_server_url}")
+    return {"status": "ok", "url": llm_server_url}
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
         res = await client.post(
-            f"{LLM_SERVER_URL}/generate",
+            f"{llm_server_url}/generate",
             json={"prompt": req.question},
         )
     return res.json()
