@@ -1,4 +1,6 @@
 <script setup>
+import { ref, computed } from 'vue'
+
 const FOLDER_COLORS = {
   '#3b82f6': { body: 'fc-blue', tab: 'fc-blue-tab' },
   '#2dd4bf': { body: 'fc-teal', tab: 'fc-teal-tab' },
@@ -10,7 +12,7 @@ const FOLDER_COLORS = {
   '#a78bfa': { body: 'fc-purple', tab: 'fc-purple-tab' },
 }
 
-defineProps({
+const props = defineProps({
   currentItems: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() },
   navigationStack: { type: Array, default: () => [] },
@@ -25,6 +27,39 @@ const emit = defineEmits([
   'openFolderModal',
   'openFileModal'
 ])
+
+const filterType = ref('all')
+const isFilterOpen = ref(false)
+
+const filterLabels = {
+  all: '모두 보기',
+  folder: '폴더만 보기',
+  file: '파일만 보기'
+}
+
+const filteredItems = computed(() => {
+  if (filterType.value === 'all') return props.currentItems
+  return props.currentItems.filter(item => item.type === filterType.value)
+})
+
+const toggleFilter = () => {
+  isFilterOpen.value = !isFilterOpen.value
+}
+
+const selectFilter = (type) => {
+  filterType.value = type
+  isFilterOpen.value = false
+}
+
+// Close dropdown on outside click
+import { onMounted, onUnmounted } from 'vue'
+const handleGlobalClick = (e) => {
+  if (!e.target.closest('.filter-dropdown-wrapper')) {
+    isFilterOpen.value = false
+  }
+}
+onMounted(() => window.addEventListener('click', handleGlobalClick))
+onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 </script>
 
 <template>
@@ -43,7 +78,6 @@ const emit = defineEmits([
         </div>
 
         <div class="flex items-center gap-4">
-          <!-- Create Group moved from bottom -->
           <div class="flex items-center gap-2">
             <button class="header-action-btn group" @click="emit('openFolderModal')">
               <span class="material-symbols-outlined group-hover:scale-110 transition-transform">create_new_folder</span>
@@ -57,24 +91,36 @@ const emit = defineEmits([
 
           <div class="w-[1px] h-4 bg-black/10 mx-1"></div>
 
-          <div class="flex items-center gap-2">
-            <button 
-              @click="emit('navigate', 'ai-history')"
-              class="flex items-center justify-center p-2 bg-white border-none text-[#3a3a3c] cursor-pointer rounded-xl hover:bg-[#f2f2f7] transition-colors shadow-sm"
-              title="AI 명령 기록"
-            >
-              <span class="material-symbols-outlined text-[20px]">history</span>
-            </button>
-            <button class="flex items-center gap-1 px-3 py-1.5 bg-white border-none text-[14px] font-bold text-[#3b82f6] cursor-pointer rounded-xl hover:bg-blue-50 transition-colors shadow-sm">
-              전체보기
-              <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
-            </button>
+          <div class="flex items-center">
+            <div class="filter-dropdown-wrapper">
+              <button 
+                @click.stop="toggleFilter"
+                :class="['filter-trigger-btn shadow-sm', { active: isFilterOpen }]"
+              >
+                <span>{{ filterLabels[filterType] }}</span>
+                <span :class="['material-symbols-outlined dropdown-icon', { rotate: isFilterOpen }]">expand_more</span>
+              </button>
+              
+              <Transition name="dropdown">
+                <div v-if="isFilterOpen" class="filter-menu shadow-xl">
+                  <div 
+                    v-for="(label, type) in filterLabels" 
+                    :key="type"
+                    @click="selectFilter(type)"
+                    :class="['filter-item', { selected: filterType === type }]"
+                  >
+                    {{ label }}
+                    <span v-if="filterType === type" class="material-symbols-outlined check-icon">check</span>
+                  </div>
+                </div>
+              </Transition>
+            </div>
           </div>
         </div>
       </div>
       
       <div class="folder-grid">
-        <template v-for="item in currentItems" :key="item.id">
+        <template v-for="item in filteredItems" :key="item.id">
           <!-- Folder Card -->
           <div v-if="item.type === 'folder'" class="folder-card" @click="emit('enterFolder', $event, item)">
             <div :class="['folder-back', FOLDER_COLORS[item.color]?.body || 'fc-blue']">
@@ -130,3 +176,99 @@ const emit = defineEmits([
     <div class="h-[60px] shrink-0"></div>
   </div>
 </template>
+
+<style scoped>
+.filter-dropdown-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.filter-trigger-btn {
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1d1d1f;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.filter-trigger-btn:hover {
+  background: #f9f9fb;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.filter-trigger-btn.active {
+  background: #f2f2f7;
+  border-color: #1d1d1f;
+}
+
+.dropdown-icon {
+  font-size: 18px;
+  transition: transform 0.3s ease;
+}
+
+.dropdown-icon.rotate {
+  transform: rotate(180deg);
+}
+
+.filter-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 160px;
+  background: white;
+  border-radius: 16px;
+  padding: 6px;
+  z-index: 100;
+  border: 1px solid rgba(0,0,0,0.06);
+  transform-origin: top right;
+}
+
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3a3a3c;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-item:hover {
+  background: #f2f2f7;
+  color: #1d1d1f;
+}
+
+.filter-item.selected {
+  background: #f2f2f7;
+  color: #3b82f6;
+}
+
+.check-icon {
+  margin-left: auto;
+  font-size: 16px;
+  color: #3b82f6;
+}
+
+/* Transition styles */
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+}
+</style>
