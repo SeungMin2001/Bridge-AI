@@ -40,31 +40,26 @@ def load_correction_model():
     return True
 
 
-def _clean_fillers(text: str) -> str:
-    """필러 단어 및 불필요한 기호를 제거한다."""
-    # "어.", "응.", "음.", "어/", "어+", "어," 등 필러 패턴 제거
-    text = re.sub(r'[어응음으으음아에]+[./?+,!]*\s*', '', text)
-    # "u/" 같은 비한글 필러 제거
-    text = re.sub(r'\bu/\b', '', text)
-    # 연속 공백 정리
-    text = re.sub(r'\s+', ' ', text).strip()
+def _trim_repetition(text: str) -> str:
+    """반복 패턴이 시작되는 지점을 찾아 잘라낸다."""
+    tokens = text.split()
+    for i in range(len(tokens)):
+        # 같은 토큰이 3번 연속 반복되면 그 지점에서 자름
+        if i + 2 < len(tokens) and tokens[i] == tokens[i + 1] == tokens[i + 2]:
+            return ' '.join(tokens[:i]).strip()
+        # 2-gram 반복 감지 (A B A B)
+        if i + 3 < len(tokens) and tokens[i] == tokens[i + 2] and tokens[i + 1] == tokens[i + 3]:
+            return ' '.join(tokens[:i]).strip()
     return text
 
 
 def correct_text(text: str) -> str:
     """Whisper 전사 텍스트를 교정하여 반환한다."""
-    # 1단계: 필러 제거
-    cleaned = _clean_fillers(text)
-    if not cleaned:
+    if _model is None or _tokenizer is None:
         return text
 
-    # 모델이 없으면 필러 제거만 적용
-    if _model is None or _tokenizer is None:
-        return cleaned
-
-    # 2단계: KoBART 교정
     inputs = _tokenizer(
-        cleaned,
+        text,
         return_tensors="pt",
         max_length=128,
         truncation=True,
@@ -76,14 +71,14 @@ def correct_text(text: str) -> str:
             **inputs,
             max_length=128,
             num_beams=4,
-            repetition_penalty=2.0,
-            no_repeat_ngram_size=3,
         )
 
     corrected = _tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
-    # 3단계: 품질 체크 - 교정 결과가 원본보다 짧거나 이상하면 필러제거본 반환
-    if len(corrected) < len(cleaned) * 0.3 or not corrected:
-        return cleaned
+    # 반복 패딩 제거
+    corrected = _trim_repetition(corrected)
+
+    if not corrected:
+        return text
 
     return corrected
