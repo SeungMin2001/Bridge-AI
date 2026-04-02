@@ -6,7 +6,7 @@ DB_CONFIG = {
     "port": int(os.getenv("DB_PORT", 5432)),
     "database": os.getenv("DB_NAME", "shin"),
     "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASSWORD", ""),
+    "password": os.getenv("DB_PASSWORD", "1234"),
 }
 
 _pool = None
