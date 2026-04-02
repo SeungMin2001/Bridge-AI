@@ -87,7 +87,7 @@ onMounted(() => {
         v-model="input"
         placeholder="무엇이든 물어보세요..."
         class="w-full bg-transparent border-none outline-none focus:ring-0 focus:outline-none text-[#1d1d1f] placeholder:text-[#1d1d1f]/40 px-4 py-3 resize-none min-h-[44px] max-h-[200px] custom-scrollbar text-[15px]"
-        @keydown.enter.prevent="!$event.shiftKey && handleSubmit()"
+        @keydown.enter.prevent="!$event.isComposing && !$event.shiftKey && handleSubmit()"
       ></textarea>
 
       <div class="flex items-center justify-between px-2 pb-1">
