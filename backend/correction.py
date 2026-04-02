@@ -57,6 +57,8 @@ def correct_text(text: str) -> str:
             **inputs,
             max_length=128,
             num_beams=4,
+            repetition_penalty=2.0,
+            no_repeat_ngram_size=3,
         )
 
     corrected = _tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
