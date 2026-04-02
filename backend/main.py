@@ -9,6 +9,7 @@ from db import create_session
 import torch
 import uuid
 import httpx
+import asyncio
 from pydantic import BaseModel
 
 device = "mps" if torch.backends.mps.is_available() else "cuda"
@@ -75,7 +76,10 @@ async def websocket_endpoint(ws:WebSocket):
     audio_buffer=bytearray()
     session_id=str(uuid.uuid4())
     processed_seconds=0.0
-    await create_session(session_id)
+    try:
+        await create_session(session_id)
+    except Exception as e:
+        print(f"[DB] create_session 실패 (전사는 계속 진행): {e}")
 
     try:
         while True:
@@ -104,7 +108,9 @@ async def websocket_endpoint(ws:WebSocket):
                 rms=np.sqrt(np.mean(audio_float**2))
                 if rms<0.01:
                     continue
-                res=model.transcribe( #모델 돌려서 전사하기.
+
+                loop = asyncio.get_event_loop()
+                res = await loop.run_in_executor(None, lambda: model.transcribe(
                     audio_16k,
                     language="ko",
                     task="transcribe",
@@ -112,8 +118,8 @@ async def websocket_endpoint(ws:WebSocket):
                     temperature=0.0,
                     condition_on_previous_text=False,
                     verbose=False,
-                    ) 
-                
+                ))
+
                 text=res["text"].strip()
                 is_transcribing=False
                 
@@ -124,8 +130,11 @@ async def websocket_endpoint(ws:WebSocket):
                     "raw_text":text,
                     "text":text
                 }
-                await save_transcript(transcript_data)
-                
+                try:
+                    await save_transcript(transcript_data)
+                except Exception as e:
+                    print(f"[DB] save_transcript 실패: {e}")
+
                 await ws.send_json({
                     "raw_text": text,
                     "text": text,
