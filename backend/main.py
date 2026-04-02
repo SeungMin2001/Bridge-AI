@@ -41,6 +41,16 @@ async def register_llm(req: RegisterRequest):
     return {"status": "ok", "url": llm_server_url}
 
 
+def remove_thinking(text: str) -> str:
+    # <think>...</think> 태그 제거
+    import re
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    # assistant\n 이후 텍스트만 추출
+    if 'assistant\n' in text:
+        text = text.split('assistant\n')[-1]
+    return text.strip()
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
@@ -49,7 +59,9 @@ async def chat(req: ChatRequest):
             json={"prompt": req.question},
             headers={"ngrok-skip-browser-warning": "true"},
         )
-    return res.json()
+    data = res.json()
+    answer = data.get("answer") or data.get("response") or ""
+    return {"answer": remove_thinking(answer)}
 
 CHUNK_SIZE=360000 
 
