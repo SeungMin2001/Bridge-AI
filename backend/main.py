@@ -47,6 +47,7 @@ async def chat(req: ChatRequest):
         res = await client.post(
             f"{llm_server_url}/generate",
             json={"prompt": req.question},
+            headers={"ngrok-skip-browser-warning": "true"},
         )
     return res.json()
 
