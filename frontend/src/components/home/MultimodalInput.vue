@@ -1,5 +1,4 @@
-<script setup>
-import { ref, watch, onMounted, nextTick } from 'vue'
+<script setup> import { ref, watch, onMounted, nextTick } from 'vue'
 
 const props = defineProps({
   chatId: { type: String, default: 'default' },
@@ -18,7 +17,15 @@ const fileInputRef = ref(null)
 const adjustHeight = () => {
   if (textareaRef.value) {
     textareaRef.value.style.height = 'auto'
-    textareaRef.value.style.height = `${textareaRef.value.scrollHeight}px`
+    const scrollHeight = textareaRef.value.scrollHeight
+    textareaRef.value.style.height = `${scrollHeight}px`
+    
+    // 200px(max-h)를 넘을 때만 스크롤바 표시
+    if (scrollHeight > 200) {
+      textareaRef.value.style.overflowY = 'auto'
+    } else {
+      textareaRef.value.style.overflowY = 'hidden'
+    }
   }
 }
 
@@ -85,8 +92,9 @@ onMounted(() => {
       <textarea
         ref="textareaRef"
         v-model="input"
+        rows="1"
         placeholder="무엇이든 물어보세요..."
-        class="w-full bg-transparent border-none outline-none focus:ring-0 focus:outline-none text-[#1d1d1f] placeholder:text-[#1d1d1f]/40 px-4 py-3 resize-none min-h-[44px] max-h-[200px] custom-scrollbar text-[15px]"
+        class="w-full bg-transparent border-none outline-none focus:ring-0 focus:outline-none text-[#1d1d1f] placeholder:text-[#1d1d1f]/40 px-4 py-2 resize-none min-h-[40px] max-h-[200px] custom-scrollbar text-[15px] leading-relaxed overflow-hidden"
         @keydown.enter.prevent="!$event.isComposing && !$event.shiftKey && handleSubmit()"
       ></textarea>
 
