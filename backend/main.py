@@ -116,9 +116,6 @@ async def websocket_endpoint(ws: WebSocket):
         print(f"[DB] create_session 실패 (전사는 계속 진행): {e}")
 
     loop = asyncio.get_event_loop()
-    # 이전 청크의 교정 task (파이프라인용)
-    pending_correction = None
-    pending_meta = None
 
     try:
         while True:
@@ -133,7 +130,6 @@ async def websocket_endpoint(ws: WebSocket):
                 start_time = processed_seconds
                 end_time = processed_seconds + chunk_duration
 
-                # PCM → float → GPU resampling
                 audio_np = np.frombuffer(pcm_chunk, dtype=np.int16)
                 audio_float = audio_np.astype(np.float32) / 32768.0
 
@@ -141,58 +137,38 @@ async def websocket_endpoint(ws: WebSocket):
                 if rms < 0.01:
                     continue
 
+                # GPU resampling
                 audio_tensor = torch.from_numpy(audio_float).to(device)
                 audio_16k = resampler(audio_tensor).cpu().numpy()
 
-                # 이전 청크 교정이 완료됐으면 결과 전송
-                if pending_correction is not None:
-                    corrected_text = await pending_correction
-                    meta = pending_meta
-                    await ws.send_json({
-                        "raw_text": meta["raw_text"],
-                        "text": corrected_text,
-                    })
-                    meta["text"] = corrected_text
-                    try:
-                        await save_transcript(meta)
-                    except Exception as e:
-                        print(f"[DB] save_transcript 실패: {e}")
-
-                # 현재 청크 전사 (전사 스레드풀)
+                # 전사
                 raw_text = await loop.run_in_executor(transcribe_pool, _transcribe_chunk, audio_16k)
 
-                # 교정을 백그라운드로 시작하고, 다음 청크 수신과 겹침
-                meta = {
+                # 교정 → 바로 전송
+                if correction_enabled:
+                    corrected_text = await loop.run_in_executor(correction_pool, _correct_chunk, raw_text)
+                else:
+                    corrected_text = raw_text
+
+                await ws.send_json({
+                    "raw_text": raw_text,
+                    "text": corrected_text,
+                })
+
+                transcript_data = {
                     "session_id": session_id,
                     "start_time": start_time,
                     "end_time": end_time,
                     "raw_text": raw_text,
+                    "text": corrected_text,
                 }
-                if correction_enabled:
-                    pending_correction = loop.run_in_executor(correction_pool, _correct_chunk, raw_text)
-                    pending_meta = meta
-                else:
-                    # 교정 없으면 바로 전송
-                    await ws.send_json({"raw_text": raw_text, "text": raw_text})
-                    meta["text"] = raw_text
-                    try:
-                        await save_transcript(meta)
-                    except Exception as e:
-                        print(f"[DB] save_transcript 실패: {e}")
-                    pending_correction = None
-                    pending_meta = None
+                try:
+                    await save_transcript(transcript_data)
+                except Exception as e:
+                    print(f"[DB] save_transcript 실패: {e}")
 
                 processed_seconds = end_time
 
-        # 루프 종료 시 마지막 교정 결과 전송
     except (WebSocketDisconnect, ConnectionResetError):
-        if pending_correction is not None:
-            try:
-                corrected_text = await pending_correction
-                meta = pending_meta
-                meta["text"] = corrected_text
-                await save_transcript(meta)
-            except Exception:
-                pass
         print(f"[WS] 클라이언트 연결 종료: session_id={session_id}")
         
