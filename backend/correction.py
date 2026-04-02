@@ -3,6 +3,7 @@ KoBART 기반 전사 텍스트 교정 모듈
 Whisper STT 출력을 fine-tuned KoBART 모델로 교정한다.
 """
 import os
+import re
 import torch
 from transformers import AutoTokenizer, BartForConditionalGeneration
 
@@ -39,13 +40,31 @@ def load_correction_model():
     return True
 
 
+def _clean_fillers(text: str) -> str:
+    """필러 단어 및 불필요한 기호를 제거한다."""
+    # "어.", "응.", "음.", "어/", "어+", "어," 등 필러 패턴 제거
+    text = re.sub(r'[어응음으으음아에]+[./?+,!]*\s*', '', text)
+    # "u/" 같은 비한글 필러 제거
+    text = re.sub(r'\bu/\b', '', text)
+    # 연속 공백 정리
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 def correct_text(text: str) -> str:
     """Whisper 전사 텍스트를 교정하여 반환한다."""
-    if _model is None or _tokenizer is None:
+    # 1단계: 필러 제거
+    cleaned = _clean_fillers(text)
+    if not cleaned:
         return text
 
+    # 모델이 없으면 필러 제거만 적용
+    if _model is None or _tokenizer is None:
+        return cleaned
+
+    # 2단계: KoBART 교정
     inputs = _tokenizer(
-        text,
+        cleaned,
         return_tensors="pt",
         max_length=128,
         truncation=True,
@@ -62,4 +81,9 @@ def correct_text(text: str) -> str:
         )
 
     corrected = _tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+
+    # 3단계: 품질 체크 - 교정 결과가 원본보다 짧거나 이상하면 필러제거본 반환
+    if len(corrected) < len(cleaned) * 0.3 or not corrected:
+        return cleaned
+
     return corrected
