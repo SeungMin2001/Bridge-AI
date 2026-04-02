@@ -42,9 +42,12 @@ async def register_llm(req: RegisterRequest):
 
 
 def remove_thinking(text: str) -> str:
-    # <think>...</think> 태그 제거
     import re
+    # 닫힌 <think>...</think> 제거
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    # 닫히지 않은 <think> 이후 전부 제거
+    if '<think>' in text:
+        text = text[:text.index('<think>')]
     # assistant\n 이후 텍스트만 추출
     if 'assistant\n' in text:
         text = text.split('assistant\n')[-1]
