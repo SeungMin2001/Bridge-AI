@@ -70,17 +70,22 @@ const handleMouseDown = () => {
 </script>
 
 <template>
-  <template v-if="visible">
-    <div
-      class="w-1.5 hover:bg-[#d1d1d6] transition-colors cursor-col-resize flex items-center justify-center group active:bg-[#aeaeb2] mx-[-6px] z-20"
-      id="resizer-right"
-      @mousedown="handleMouseDown"
-    >
-      <div class="w-0.5 h-8 bg-[#d1d1d6] rounded-full group-hover:bg-[#8e8e93]"></div>
-    </div>
+  <div
+    class="w-1.5 hover:bg-[#d1d1d6] transition-colors cursor-col-resize flex items-center justify-center group active:bg-[#aeaeb2] mx-[-6px] z-20"
+    id="resizer-right"
+    :class="{ 'is-collapsed': !visible }"
+    @mousedown="handleMouseDown"
+  >
+    <div class="w-0.5 h-8 bg-[#d1d1d6] rounded-full group-hover:bg-[#8e8e93]"></div>
+  </div>
 
-    <aside class="h-full shrink-0" id="right-sidebar" :style="{ width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` }">
-      <div class="card h-full flex flex-col p-4 pt-3.5 relative">
+  <aside
+    class="h-full shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)]"
+    id="right-sidebar"
+    :class="{ 'sidebar-collapsed': !visible }"
+    :style="{ width: visible ? `${width}px` : '0px', minWidth: visible ? `${width}px` : '0px', maxWidth: visible ? `${width}px` : '0px' }"
+  >
+    <div class="card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
         <div class="flex-1 flex flex-col items-center justify-center px-2">
           <div class="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-6 shadow-lg">
             <span class="material-symbols-outlined text-white text-[32px]">auto_awesome</span>
@@ -129,6 +134,5 @@ const handleMouseDown = () => {
           <p class="text-[10px] text-center text-[#aeaeb2] mt-3">AI는 실수를 할 수 있으므로 중요한 정보는 확인해 주세요.</p>
         </div>
       </div>
-    </aside>
-  </template>
+  </aside>
 </template>

@@ -11,7 +11,11 @@ const emit = defineEmits(['toggle', 'navigate'])
 <template>
   <aside
     id="sidebar"
-    :class="['w-[280px] flex flex-col h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]', { 'sidebar-collapsed': isCollapsed }]"
+    :class="[
+      isCollapsed ? 'w-14' : 'w-[280px]',
+      'home-sidebar flex flex-col h-full shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] relative z-10',
+      { 'sidebar-collapsed': isCollapsed }
+    ]"
   >
     <div class="sidebar-main-card card">
       <div class="sidebar-header transition-all">
@@ -28,7 +32,7 @@ const emit = defineEmits(['toggle', 'navigate'])
             </span>
           </button>
           <button
-            class="sidebar-icon-btn collapsible-content"
+            class="sidebar-icon-btn"
             @click="emit('navigate', 'workspace')"
           >
             <span class="material-symbols-outlined">edit_note</span>
@@ -59,7 +63,7 @@ const emit = defineEmits(['toggle', 'navigate'])
         </div>
       </div>
 
-      <div class="mt-auto pt-5 flex justify-center">
+      <div class="mt-auto pt-5 flex justify-center w-full">
         <button class="sidebar-icon-btn !p-3 rounded-full text-[#1d1d1f]" @click="emit('navigate', 'home')">
           <span class="material-symbols-outlined !text-[24px]" style="font-variation-settings: 'FILL' 1">home</span>
         </button>

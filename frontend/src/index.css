@@ -559,18 +559,92 @@ aside:last-of-type {
   z-index: 20;
 }
 
-/* ── Sidebar collapsed (file1.html 스타일) ── */
-.sidebar-collapsed {
-  width: 0 !important;
-  margin-right: -12px !important;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
+/* ── Sidebar collapsed (Icon/Mini Mode - Home Only) ── */
+#sidebar.home-sidebar {
+  will-change: width;
 }
 
-.sidebar-collapsed .collapsible-content,
-.sidebar-collapsed .sidebar-header-row,
-.sidebar-collapsed footer {
+#sidebar.home-sidebar.sidebar-collapsed {
+  width: 56px !important;
+  min-width: 56px !important;
+  max-width: 56px !important;
+  overflow: hidden;
+  opacity: 1;
+}
+
+/* Hide text and search box smoothly in mini mode without taking up space */
+.home-sidebar.sidebar-collapsed .collapsible-content {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/* Perfect centering for Ultra-Mini Mode (56px) */
+.home-sidebar.sidebar-collapsed .sidebar-main-card {
+  padding: 24px 0 !important;
+  align-items: center !important;
+  gap: 20px;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-logo-section {
+  gap: 0 !important;
+  margin-bottom: 0 !important;
+  padding: 0 !important;
+  justify-content: center !important;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-header {
+  flex-direction: column !important;
+  gap: 28px !important;
+  margin-bottom: 0 !important;
+  align-items: center !important;
+  width: 100%;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-btn-group {
+  flex-direction: column !important;
+  gap: 20px !important;
+  width: 100%;
+  align-items: center;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-icon-btn {
+  width: 40px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+  border-radius: 10px !important;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-icon-btn .material-symbols-outlined {
+  font-size: 22px !important;
+}
+
+/* Sidebar Scroll Content - hide in mini mode */
+.home-sidebar.sidebar-collapsed .sidebar-content {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Generic sidebar collapsed (for Workspace etc.) */
+#sidebar.sidebar-collapsed:not(.home-sidebar),
+#right-sidebar.sidebar-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Resizers - hide when collapsed in Workspace */
+#resizer-left.is-collapsed,
+#resizer-right.is-collapsed {
   display: none !important;
 }
 

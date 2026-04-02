@@ -33,7 +33,12 @@ const isLeftSidebarCollapsed = ref(false)
 </script>
 
 <template>
-  <div class="p-[12px] flex gap-[12px] relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden">
+  <div 
+    class="p-[12px] flex relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden transition-all duration-400"
+    :class="[
+      { 'gap-[12px]': !isLeftSidebarCollapsed || isRightSidebarVisible }
+    ]"
+  >
     <LeftSidebar
       :isCollapsed="isLeftSidebarCollapsed"
       :transcriptions="transcriptions"
