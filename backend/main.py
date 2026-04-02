@@ -127,7 +127,11 @@ async def websocket_endpoint(ws:WebSocket):
 
                 # KoBART 교정 모델 적용
                 if correction_enabled:
-                    corrected_text = await loop.run_in_executor(None, correct_text, raw_text)
+                    try:
+                        corrected_text = await loop.run_in_executor(None, correct_text, raw_text)
+                    except Exception as e:
+                        print(f"[교정] 교정 실패, raw_text 사용: {e}")
+                        corrected_text = raw_text
                 else:
                     corrected_text = raw_text
 

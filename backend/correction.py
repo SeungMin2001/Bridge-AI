@@ -58,6 +58,9 @@ def correct_text(text: str) -> str:
     if _model is None or _tokenizer is None:
         return text
 
+    if not text or not text.strip():
+        return text
+
     inputs = _tokenizer(
         text,
         return_tensors="pt",
