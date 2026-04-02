@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
-import whisper
+from faster_whisper import WhisperModel
 from starlette.websockets import WebSocketDisconnect
 import torchaudio
 from data.save_transcript import save_transcript
@@ -18,10 +18,14 @@ device = "cuda" if torch.cuda.is_available() else (
     "mps" if torch.backends.mps.is_available() else "cpu"
 )
 
-model = whisper.load_model("large-v3-turbo", device=device)
+# faster-whisper: CTranslate2 기반, 같은 정확도에 2~4배 빠름
+model = WhisperModel(
+    "large-v3-turbo",
+    device=device,
+    compute_type="float16" if device == "cuda" else "float32",
+)
 correction_enabled = load_correction_model()
 
-# 전사용, 교정용 스레드풀 분리 → 파이프라인 병렬 실행
 transcribe_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
 correction_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="correction")
 
@@ -80,17 +84,16 @@ async def chat(req: ChatRequest):
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:
-    """Whisper 전사 (스레드풀에서 실행)"""
-    res = model.transcribe(
+    """faster-whisper 전사 (스레드풀에서 실행)"""
+    segments, _ = model.transcribe(
         audio_16k,
         language="ko",
         task="transcribe",
-        fp16=(device == "cuda"),
         temperature=0.0,
         condition_on_previous_text=False,
-        verbose=False,
+        vad_filter=True,
     )
-    return res["text"].strip()
+    return " ".join(seg.text.strip() for seg in segments).strip()
 
 
 def _correct_chunk(text: str) -> str:
@@ -102,7 +105,7 @@ def _correct_chunk(text: str) -> str:
         return text
 
 
-CHUNK_SIZE = 360000
+CHUNK_SIZE = 240000  # ~2.5초 (체감 응답 빠르게)
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -144,16 +147,24 @@ async def websocket_endpoint(ws: WebSocket):
                 # 전사
                 raw_text = await loop.run_in_executor(transcribe_pool, _transcribe_chunk, audio_16k)
 
-                # 교정 → 바로 전송
-                if correction_enabled:
+                # 1단계: raw_text 즉시 전송 (빠른 체감)
+                await ws.send_json({
+                    "type": "raw",
+                    "raw_text": raw_text,
+                    "text": raw_text,
+                })
+
+                # 2단계: 교정 후 업데이트 전송
+                if correction_enabled and raw_text:
                     corrected_text = await loop.run_in_executor(correction_pool, _correct_chunk, raw_text)
+                    if corrected_text != raw_text:
+                        await ws.send_json({
+                            "type": "corrected",
+                            "raw_text": raw_text,
+                            "text": corrected_text,
+                        })
                 else:
                     corrected_text = raw_text
-
-                await ws.send_json({
-                    "raw_text": raw_text,
-                    "text": corrected_text,
-                })
 
                 transcript_data = {
                     "session_id": session_id,
@@ -171,4 +182,3 @@ async def websocket_endpoint(ws: WebSocket):
 
     except (WebSocketDisconnect, ConnectionResetError):
         print(f"[WS] 클라이언트 연결 종료: session_id={session_id}")
-        
