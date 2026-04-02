@@ -16,7 +16,6 @@ async def lifespan(app: FastAPI):
     model, tokenizer = run_model()
     yield
 
-
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -25,7 +24,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 class GenerateRequest(BaseModel):
     prompt: str
