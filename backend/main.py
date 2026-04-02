@@ -6,6 +6,7 @@ from starlette.websockets import WebSocketDisconnect
 from scipy.signal import resample
 from data.save_transcript import save_transcript
 from db import create_session
+from correction import load_correction_model, correct_text
 import torch
 import uuid
 import httpx
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 device = "mps" if torch.backends.mps.is_available() else "cuda"
 
 model = whisper.load_model("large-v3", device=device)
+correction_enabled = load_correction_model()
 app = FastAPI()
 
 app.add_middleware(
@@ -120,15 +122,21 @@ async def websocket_endpoint(ws:WebSocket):
                     verbose=False,
                 ))
 
-                text=res["text"].strip()
+                raw_text=res["text"].strip()
                 is_transcribing=False
-                
+
+                # KoBART 교정 모델 적용
+                if correction_enabled:
+                    corrected_text = await loop.run_in_executor(None, correct_text, raw_text)
+                else:
+                    corrected_text = raw_text
+
                 transcript_data={
                     "session_id":session_id,
                     "start_time":start_time,
                     "end_time":end_time,
-                    "raw_text":text,
-                    "text":text
+                    "raw_text":raw_text,
+                    "text":corrected_text
                 }
                 try:
                     await save_transcript(transcript_data)
@@ -136,8 +144,8 @@ async def websocket_endpoint(ws:WebSocket):
                     print(f"[DB] save_transcript 실패: {e}")
 
                 await ws.send_json({
-                    "raw_text": text,
-                    "text": text,
+                    "raw_text": raw_text,
+                    "text": corrected_text,
                 })
                 processed_seconds=end_time
     except (WebSocketDisconnect, ConnectionResetError):

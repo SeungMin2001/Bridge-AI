@@ -32,7 +32,7 @@ with open(file_path, "r", encoding="utf-8") as f:
         documents.append(doc)
 
 vector_store = PGVectorStore.from_params(
-    database="rag",
+    database="shin",
     host="localhost",
     password="1234",
     port=5432,

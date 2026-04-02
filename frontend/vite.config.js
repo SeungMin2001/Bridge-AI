@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   server: {
+    host: true,
     proxy: {
       '/chat': 'http://100.104.164.84:8000',
     },
