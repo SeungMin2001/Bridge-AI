@@ -84,7 +84,13 @@ async def chat(req: ChatRequest):
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:
-    """faster-whisper 전사 (스레드풀에서 실행)"""
+    """faster-whisper 전사 (스레드풀에서 실행)
+
+    환각(Hallucination) 필터링 기준:
+    - no_speech_prob > 0.6 : Whisper가 "무음/노이즈"라고 판단 → 제거
+    - avg_logprob < -1.0   : 전사 신뢰도가 낮음 → 제거
+    두 필터 모두 확률 기반이므로 실제 발화("감사합니다" 등)는 통과됨.
+    """
     segments, _ = model.transcribe(
         audio_16k,
         language="ko",
@@ -92,8 +98,28 @@ def _transcribe_chunk(audio_16k: np.ndarray) -> str:
         temperature=0.0,
         condition_on_previous_text=False,
         vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 500},
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
     )
-    return " ".join(seg.text.strip() for seg in segments).strip()
+
+    result_parts = []
+    for seg in segments:
+        text = seg.text.strip()
+        if not text:
+            continue
+        # 1. no_speech_prob 기반 필터 (실제 발화 시엔 낮은 값 → 통과)
+        if seg.no_speech_prob > 0.6:
+            print(f"[필터] no_speech_prob={seg.no_speech_prob:.2f} → 제거: {text!r}")
+            continue
+        # 2. avg_logprob 기반 필터 (실제 발화 시엔 높은 값 → 통과)
+        if seg.avg_logprob < -1.0:
+            print(f"[필터] avg_logprob={seg.avg_logprob:.2f} → 제거: {text!r}")
+            continue
+        result_parts.append(text)
+
+    return " ".join(result_parts).strip()
 
 
 def _correct_chunk(text: str) -> str:
