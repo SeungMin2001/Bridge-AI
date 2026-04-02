@@ -159,7 +159,7 @@ const startRecording = async () => {
             updateLastSegment(rawText, correctedText)
           }, 400)
         } else {
-          // raw 텍스트 추가 시 rawText도 저장해 교정 매칭에 활용
+          // raw 텍스트 추가: rawText 저장 + 자동 confirmed 타임아웃 설정
           const segId = ++segIdCounter
           const now = new Date()
           const timeSpan = now.getTime() - lastBubbleTime
@@ -178,6 +178,22 @@ const startRecording = async () => {
             t.text = t.segments.map(s => s.text).join(' ')
           }
           lastBubbleTime = now.getTime()
+
+          // 백엔드가 corrected를 보내지 않는 경우(교정 불필요 or 교정 disabled)를 위한 자동 confirmed 처리
+          // 2.5초 후에도 pending 상태이면 confirmed로 자동 전환
+          setTimeout(() => {
+            for (const trans of transcriptions.value) {
+              const segIdx = trans.segments.findIndex(s => s.id === segId && s.status === 'pending')
+              if (segIdx !== -1) {
+                trans.segments.splice(segIdx, 1, {
+                  ...trans.segments[segIdx],
+                  status: 'confirmed'
+                })
+                trans.text = trans.segments.map(s => s.text).join(' ')
+                break
+              }
+            }
+          }, 2500)
         }
       }
     } catch (e) {
