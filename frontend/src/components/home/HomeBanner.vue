@@ -72,7 +72,7 @@ const onSendMessage = (params) => {
         isGenerating.value = false
       }
     }, 30) // slightly faster typing
-  }, 500)
+  }, 800) // 800ms "thinking" delay
 }
 
 const onStopGenerating = () => {
@@ -88,9 +88,25 @@ const onStopGenerating = () => {
       <div v-if="messages.length > 0" 
            ref="chatScrollRef"
            class="absolute inset-0 overflow-y-auto px-4 w-full flex flex-col items-center custom-scrollbar z-10">
-        <div class="w-full max-w-[700px] flex flex-col gap-4 pt-12 pb-[160px]">
+        <div class="w-full max-w-[700px] flex flex-col gap-6 pt-12 pb-[160px]">
+          
           <div v-for="(msg, idx) in messages" :key="idx" 
-               :class="['flex w-full', msg.role === 'user' ? 'justify-end' : 'justify-start']">
+               :class="['flex w-full gap-3', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row items-start']">
+            
+            <!-- AI Avatar (Animating when it's the latest message being generated) -->
+            <div v-if="msg.role === 'assistant'" class="flex-shrink-0 mt-1">
+              <div :class="[
+                'w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm border border-white/20 overflow-hidden',
+                isGenerating && idx === messages.length - 1 ? 'ring-2 ring-indigo-400/30' : ''
+              ]">
+                <span :class="[
+                  'material-symbols-outlined text-[18px] text-white',
+                  isGenerating && idx === messages.length - 1 ? 'animate-spin-slow' : ''
+                ]" style="font-variation-settings: 'FILL' 1">auto_awesome</span>
+              </div>
+            </div>
+
+            <!-- Message Bubble -->
             <div :class="[
               'max-w-[85%] rounded-2xl px-5 py-3.5 text-[15px] leading-relaxed break-words shadow-sm',
               msg.role === 'user' 
@@ -127,6 +143,24 @@ const onStopGenerating = () => {
               </div>
             </div>
           </div>
+
+          <!-- Thinking Dots Animation (Shown before the AI message starts typing) -->
+          <Transition name="fade-fast">
+            <div v-if="isGenerating && messages.length > 0 && messages[messages.length-1].role === 'user'" 
+                 class="flex w-full gap-3 flex-row items-start">
+              <div class="flex-shrink-0 mt-1">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm border border-white/20 ring-2 ring-indigo-400/30 overflow-hidden animate-pulse-slow">
+                  <span class="material-symbols-outlined text-[18px] text-white animate-spin-slow" style="font-variation-settings: 'FILL' 1">auto_awesome</span>
+                </div>
+              </div>
+              <div class="bg-white/80 backdrop-blur-xl border border-black/5 rounded-2xl rounded-tl-none px-6 py-4 shadow-sm flex items-center gap-1.5">
+                <div class="thinking-dot w-1.5 h-1.5 bg-indigo-400 rounded-full animate-thinking-dot"></div>
+                <div class="thinking-dot w-1.5 h-1.5 bg-indigo-500 rounded-full animate-thinking-dot [animation-delay:0.2s]"></div>
+                <div class="thinking-dot w-1.5 h-1.5 bg-indigo-600 rounded-full animate-thinking-dot [animation-delay:0.4s]"></div>
+              </div>
+            </div>
+          </Transition>
+
         </div>
       </div>
     </Transition>
@@ -143,8 +177,8 @@ const onStopGenerating = () => {
       <!-- Title (Hides when chat starts) -->
       <Transition name="fade">
         <div v-if="messages.length === 0" class="flex flex-col items-center text-center gap-3 pb-8 pointer-events-auto shrink-0 w-full transition-all duration-500">
-          <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-6">
-            <span class="material-symbols-outlined text-[28px] text-white">auto_awesome</span>
+          <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-6 transition-transform hover:rotate-0 duration-500">
+            <span class="material-symbols-outlined text-[28px] text-white" style="font-variation-settings: 'FILL' 1">auto_awesome</span>
           </div>
           <div class="text-[32px] font-extrabold text-[#1d1d1f] tracking-tight leading-tight">무엇을 도와드릴까요?</div>
         </div>
@@ -159,9 +193,9 @@ const onStopGenerating = () => {
         />
       </div>
 
-      <!-- Recent Files Section (New Position) -->
+      <!-- Recent Files Section -->
       <div v-if="messages.length === 0" class="w-full max-w-[600px] pointer-events-auto flex flex-col gap-4 mt-12 opacity-80 animate-fade-in-up shrink-0" style="animation-duration: 0.6s; animation-delay: 0.2s; animation-fill-mode: both;">
-        <h3 class="text-sm font-semibold text-gray-500 px-2 uppercase tracking-wider">최근 연 파일</h3>
+        <h3 class="text-sm font-semibold text-gray-500 px-2 uppercase tracking-wider font-sans">최근 연 파일</h3>
         <div class="flex gap-4">
           <div v-for="file in recentFiles" :key="file.id" 
                class="flex-1 bg-white/40 backdrop-blur-md border border-white/50 rounded-2xl p-4 flex flex-col gap-3 cursor-pointer hover:-translate-y-1 hover:bg-white/60 hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition-all duration-300">
@@ -203,8 +237,35 @@ const onStopGenerating = () => {
   }
 }
 
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes thinking-dot {
+  0%, 100% { transform: translateY(0); opacity: 0.5; }
+  50% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
 .animate-fade-in-up {
   animation: fadeInUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+.animate-thinking-dot {
+  animation: thinking-dot 1.2s ease-in-out infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
 }
 
 .fade-enter-active,
@@ -216,6 +277,15 @@ const onStopGenerating = () => {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-10px) scale(0.98);
+}
+
+.fade-fast-enter-active,
+.fade-fast-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-fast-enter-from,
+.fade-fast-leave-to {
+  opacity: 0;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
