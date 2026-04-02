@@ -5,6 +5,7 @@ import whisper
 from starlette.websockets import WebSocketDisconnect
 from scipy.signal import resample
 from data.save_transcript import save_transcript
+from db import create_session
 import torch
 import uuid
 import httpx
@@ -74,6 +75,7 @@ async def websocket_endpoint(ws:WebSocket):
     audio_buffer=bytearray()
     session_id=str(uuid.uuid4())
     processed_seconds=0.0
+    await create_session(session_id)
 
     try:
         while True:
