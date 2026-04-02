@@ -71,21 +71,35 @@ const stopRecording = () => {
   if (ws) { ws.close(); ws = null }
 }
 
-const addTranscriptionBubble = (text) => {
+const addTranscriptionBubble = (text, status = 'confirmed') => {
   const now = new Date()
   const timeSpan = now.getTime() - lastBubbleTime
 
   if (transcriptions.value.length === 0 || timeSpan >= 3000) {
     transcriptions.value.push({
       time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
-      text: text
+      text: text,
+      segments: [{ text, status }]
     })
   } else {
     const lastIdx = transcriptions.value.length - 1
-    transcriptions.value[lastIdx].text += " " + text
+    const t = transcriptions.value[lastIdx]
+    t.segments.push({ text, status })
+    t.text = t.segments.map(s => s.text).join(' ')
   }
-  
+
   lastBubbleTime = now.getTime()
+}
+
+const updateLastSegment = (rawText, correctedText) => {
+  if (transcriptions.value.length === 0) return
+  const t = transcriptions.value[transcriptions.value.length - 1]
+  const seg = [...t.segments].reverse().find(s => s.text === rawText && s.status === 'pending')
+  if (seg) {
+    seg.text = correctedText
+    seg.status = 'confirmed'
+    t.text = t.segments.map(s => s.text).join(' ')
+  }
 }
 
 const startRecording = async () => {
@@ -120,7 +134,11 @@ const startRecording = async () => {
     try {
       const data = JSON.parse(event.data)
       if (data.text && data.text.trim() !== "") {
-        addTranscriptionBubble(data.text)
+        if (data.type === 'corrected') {
+          updateLastSegment(data.raw_text, data.text)
+        } else {
+          addTranscriptionBubble(data.text, 'pending')
+        }
       }
     } catch (e) {
       console.log("Error parsing JSON:", e)

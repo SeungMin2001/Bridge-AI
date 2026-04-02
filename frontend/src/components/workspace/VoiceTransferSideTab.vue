@@ -84,15 +84,29 @@ const getWordData = (word) => {
             <span class="text-[11px] font-bold text-[#1d1d1f]">나</span>
           </div>
           <div class="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
-            <!-- 단어별로 클릭 가능하게 렌더링 -->
-            <span
-              v-for="(word, wIdx) in t.text.split(' ')"
-              :key="wIdx"
-              class="clickable-word"
-              @click="(e) => handleWordClick(e, word)"
-            >
-              {{ word }}&nbsp;
-            </span>
+            <template v-if="t.segments && t.segments.length">
+              <span
+                v-for="(seg, sIdx) in t.segments"
+                :key="sIdx"
+                class="segment-wrap"
+                :class="{ 'segment-pending': seg.status === 'pending', 'segment-confirmed': seg.status === 'confirmed' }"
+              >
+                <span
+                  v-for="(word, wIdx) in seg.text.split(' ')"
+                  :key="wIdx"
+                  class="clickable-word"
+                  @click="(e) => handleWordClick(e, word)"
+                >{{ word }}&nbsp;</span>
+              </span>
+            </template>
+            <template v-else>
+              <span
+                v-for="(word, wIdx) in t.text.split(' ')"
+                :key="wIdx"
+                class="clickable-word"
+                @click="(e) => handleWordClick(e, word)"
+              >{{ word }}&nbsp;</span>
+            </template>
           </div>
         </div>
       </template>
@@ -166,5 +180,19 @@ const getWordData = (word) => {
 .popover-leave-from {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+
+/* 전사 텍스트 상태 애니메이션 */
+.segment-pending .clickable-word {
+  color: #c7c7cc;
+  transition: color 0.4s ease;
+}
+.segment-confirmed .clickable-word {
+  color: #1d1d1f;
+  animation: fadeInText 0.4s ease forwards;
+}
+@keyframes fadeInText {
+  from { color: #c7c7cc; }
+  to { color: #1d1d1f; }
 }
 </style>
