@@ -131,6 +131,6 @@ async def websocket_endpoint(ws:WebSocket):
                     "text": text,
                 })
                 processed_seconds=end_time
-    except WebSocketDisconnect:
-        print("error")
+    except (WebSocketDisconnect, ConnectionResetError):
+        print(f"[WS] 클라이언트 연결 종료: session_id={session_id}")
         
