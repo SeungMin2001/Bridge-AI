@@ -9,7 +9,7 @@ Settings.embed_model = HuggingFaceEmbedding(
 
 # 2) PostgreSQL vector store 다시 연결
 vector_store = PGVectorStore.from_params(
-    database="rag",
+    database="shin",
     host="localhost",
     password="1234",
     port=5432,

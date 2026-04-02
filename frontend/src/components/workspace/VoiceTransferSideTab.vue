@@ -84,15 +84,29 @@ const getWordData = (word) => {
             <span class="text-[11px] font-bold text-[#1d1d1f]">나</span>
           </div>
           <div class="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
-            <!-- 단어별로 클릭 가능하게 렌더링 -->
-            <span
-              v-for="(word, wIdx) in t.text.split(' ')"
-              :key="wIdx"
-              class="clickable-word"
-              @click="(e) => handleWordClick(e, word)"
-            >
-              {{ word }}&nbsp;
-            </span>
+            <template v-if="t.segments && t.segments.length">
+              <span
+                v-for="(seg, sIdx) in t.segments"
+                :key="seg.id ?? sIdx"
+                class="segment-wrap"
+                :class="{ 'segment-pending': seg.status === 'pending', 'segment-confirmed': seg.status === 'confirmed' }"
+              >
+                <span
+                  v-for="(word, wIdx) in seg.text.split(' ')"
+                  :key="wIdx"
+                  class="clickable-word"
+                  @click="(e) => handleWordClick(e, word)"
+                >{{ word }}&nbsp;</span>
+              </span>
+            </template>
+            <template v-else>
+              <span
+                v-for="(word, wIdx) in t.text.split(' ')"
+                :key="wIdx"
+                class="clickable-word"
+                @click="(e) => handleWordClick(e, word)"
+              >{{ word }}&nbsp;</span>
+            </template>
           </div>
         </div>
       </template>
@@ -166,5 +180,40 @@ const getWordData = (word) => {
 .popover-leave-from {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+
+/* segment-wrap 인라인 표시 */
+.segment-wrap {
+  display: inline;
+}
+
+/* 전사 텍스트 상태 애니메이션 */
+.segment-pending {
+  opacity: 0.55;
+  filter: blur(0.3px);
+  transition: opacity 0.5s ease, filter 0.5s ease;
+}
+.segment-pending .clickable-word {
+  color: #aeaeb2;
+  transition: color 0.5s ease;
+}
+.segment-confirmed {
+  opacity: 1;
+  filter: none;
+  animation: confirmSegment 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.segment-confirmed .clickable-word {
+  color: #1d1d1f;
+  animation: confirmWord 0.5s ease forwards;
+}
+@keyframes confirmSegment {
+  0%   { opacity: 0.55; transform: translateY(2px); }
+  60%  { opacity: 1;    transform: translateY(-1px); }
+  100% { opacity: 1;    transform: translateY(0); }
+}
+@keyframes confirmWord {
+  0%   { color: #aeaeb2; }
+  40%  { color: #3b82f6; }
+  100% { color: #1d1d1f; }
 }
 </style>

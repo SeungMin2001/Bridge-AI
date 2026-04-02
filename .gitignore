@@ -33,3 +33,13 @@ mcp.json
 __pycache__/
 **/*.pyc
 venv/
+DB/
+
+# Large files / models
+stt-test/
+models/
+*.pt
+*.bin
+*.safetensors
+*.onnx
+temp_audio/

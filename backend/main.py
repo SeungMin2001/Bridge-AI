@@ -1,18 +1,37 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
-import whisper
+from faster_whisper import WhisperModel
 from starlette.websockets import WebSocketDisconnect
-from scipy.signal import resample
+import torchaudio
 from data.save_transcript import save_transcript
+from db import create_session
+from correction import load_correction_model, correct_text
 import torch
 import uuid
 import httpx
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 
-device = "mps" if torch.backends.mps.is_available() else "cuda"
+device = "cuda" if torch.cuda.is_available() else (
+    "mps" if torch.backends.mps.is_available() else "cpu"
+)
 
-model = whisper.load_model("large-v3", device=device)
+# faster-whisper: CTranslate2 기반, 같은 정확도에 2~4배 빠름
+model = WhisperModel(
+    "large-v3-turbo",
+    device=device,
+    compute_type="float16" if device == "cuda" else "float32",
+)
+correction_enabled = load_correction_model()
+
+transcribe_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
+correction_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="correction")
+
+# GPU resampler (48kHz → 16kHz)
+resampler = torchaudio.transforms.Resample(orig_freq=48000, new_freq=16000).to(device)
+
 app = FastAPI()
 
 app.add_middleware(
@@ -22,7 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-llm_server_url = "http://localhost:8001"
+llm_server_url = "https://dialysable-kyson-microelectrophoretic.ngrok-free.dev"
 
 
 class ChatRequest(BaseModel):
@@ -41,78 +60,125 @@ async def register_llm(req: RegisterRequest):
     return {"status": "ok", "url": llm_server_url}
 
 
+def remove_thinking(text: str) -> str:
+    import re
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    if '<think>' in text:
+        text = text[:text.index('<think>')]
+    if 'assistant\n' in text:
+        text = text.split('assistant\n')[-1]
+    return text.strip()
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
         res = await client.post(
             f"{llm_server_url}/generate",
             json={"prompt": req.question},
+            headers={"ngrok-skip-browser-warning": "true"},
         )
-    return res.json()
+    data = res.json()
+    answer = data.get("answer") or data.get("response") or ""
+    return {"answer": remove_thinking(answer)}
 
-CHUNK_SIZE=360000 
 
-@app.websocket("/ws")  
-async def websocket_endpoint(ws:WebSocket):
+def _transcribe_chunk(audio_16k: np.ndarray) -> str:
+    """faster-whisper 전사 (스레드풀에서 실행)"""
+    segments, _ = model.transcribe(
+        audio_16k,
+        language="ko",
+        task="transcribe",
+        temperature=0.0,
+        condition_on_previous_text=False,
+        vad_filter=True,
+    )
+    return " ".join(seg.text.strip() for seg in segments).strip()
+
+
+def _correct_chunk(text: str) -> str:
+    """KoBART 교정 (스레드풀에서 실행)"""
+    try:
+        return correct_text(text)
+    except Exception as e:
+        print(f"[교정] 교정 실패, raw_text 사용: {e}")
+        return text
+
+
+CHUNK_SIZE = 240000  # ~2.5초 (체감 응답 빠르게)
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
-    audio_buffer=bytearray()
-    session_id=str(uuid.uuid4())
-    processed_seconds=0.0
+    audio_buffer = bytearray()
+    session_id = str(uuid.uuid4())
+    processed_seconds = 0.0
+    try:
+        await create_session(session_id)
+    except Exception as e:
+        print(f"[DB] create_session 실패 (전사는 계속 진행): {e}")
+
+    loop = asyncio.get_event_loop()
 
     try:
         while True:
-            data=await ws.receive_bytes()
+            data = await ws.receive_bytes()
             audio_buffer.extend(data)
-            # 만약 버퍼가 충분히 쌓이면 전사시켜줘야함.
-            #print("chunk:", len(data), "buffer:", len(audio_buffer)) # 계속 음성 INT16 data받아서 buffer에 쌓아놓기.
-            
-            is_transcribing=False
-            
-            if len(audio_buffer)>=CHUNK_SIZE and not is_transcribing: #버퍼에 쌓인게 청크기준보다 커지면 그만큼의 청크 빼내야함.
-                is_transcribing=True
-                
-                pcm_chunk=bytes(audio_buffer[:CHUNK_SIZE])
+
+            if len(audio_buffer) >= CHUNK_SIZE:
+                pcm_chunk = bytes(audio_buffer[:CHUNK_SIZE])
                 del audio_buffer[:CHUNK_SIZE]
-                
-                chunk_duration=(len(pcm_chunk)/2)/CHUNK_SIZE
-                start_time=processed_seconds
-                end_time=processed_seconds+chunk_duration
-                
-                audio_np=np.frombuffer(pcm_chunk,dtype=np.int16) #꺼낸 청크 읽고(int)로
-                audio_float = audio_np.astype(np.float32) / 32768.0 #그걸 float로 다시 변환(모델이 float로 읽어야함)
-                
-                audio_16k=resample(audio_float,len(audio_float)*16000//48000)
-                
-                rms=np.sqrt(np.mean(audio_float**2))
-                if rms<0.01:
+
+                chunk_duration = (len(pcm_chunk) / 2) / CHUNK_SIZE
+                start_time = processed_seconds
+                end_time = processed_seconds + chunk_duration
+
+                audio_np = np.frombuffer(pcm_chunk, dtype=np.int16)
+                audio_float = audio_np.astype(np.float32) / 32768.0
+
+                rms = np.sqrt(np.mean(audio_float ** 2))
+                if rms < 0.01:
                     continue
-                res=model.transcribe( #모델 돌려서 전사하기.
-                    audio_16k,
-                    language="ko",
-                    task="transcribe",
-                    fp16=False,
-                    temperature=0.0,
-                    condition_on_previous_text=False,
-                    verbose=False,
-                    ) 
-                
-                text=res["text"].strip()
-                is_transcribing=False
-                
-                transcript_data={
-                    "session_id":session_id,
-                    "start_time":start_time,
-                    "end_time":end_time,
-                    "raw_text":text,
-                    "text":text
-                }
-                await save_transcript(transcript_data)
-                
+
+                # GPU resampling
+                audio_tensor = torch.from_numpy(audio_float).to(device)
+                audio_16k = resampler(audio_tensor).cpu().numpy()
+
+                # 전사
+                raw_text = await loop.run_in_executor(transcribe_pool, _transcribe_chunk, audio_16k)
+
+                # 1단계: raw_text 즉시 전송 (빠른 체감)
                 await ws.send_json({
-                    "raw_text": text,
-                    "text": text,
+                    "type": "raw",
+                    "raw_text": raw_text,
+                    "text": raw_text,
                 })
-                processed_seconds=end_time
-    except WebSocketDisconnect:
-        print("error")
-        
+
+                # 2단계: 교정 후 업데이트 전송
+                if correction_enabled and raw_text:
+                    corrected_text = await loop.run_in_executor(correction_pool, _correct_chunk, raw_text)
+                    if corrected_text != raw_text:
+                        await ws.send_json({
+                            "type": "corrected",
+                            "raw_text": raw_text,
+                            "text": corrected_text,
+                        })
+                else:
+                    corrected_text = raw_text
+
+                transcript_data = {
+                    "session_id": session_id,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "raw_text": raw_text,
+                    "text": corrected_text,
+                }
+                try:
+                    await save_transcript(transcript_data)
+                except Exception as e:
+                    print(f"[DB] save_transcript 실패: {e}")
+
+                processed_seconds = end_time
+
+    except (WebSocketDisconnect, ConnectionResetError):
+        print(f"[WS] 클라이언트 연결 종료: session_id={session_id}")

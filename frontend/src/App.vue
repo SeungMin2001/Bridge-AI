@@ -72,21 +72,52 @@ const stopRecording = () => {
   if (ws) { ws.close(); ws = null }
 }
 
-const addTranscriptionBubble = (text) => {
+let segIdCounter = 0
+
+const addTranscriptionBubble = (text, status = 'confirmed') => {
   const now = new Date()
   const timeSpan = now.getTime() - lastBubbleTime
+  const segId = ++segIdCounter
 
   if (transcriptions.value.length === 0 || timeSpan >= 3000) {
     transcriptions.value.push({
       time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
-      text: text
+      text: text,
+      segments: [{ id: segId, text, status }]
     })
   } else {
     const lastIdx = transcriptions.value.length - 1
-    transcriptions.value[lastIdx].text += " " + text
+    const t = transcriptions.value[lastIdx]
+    t.segments.push({ id: segId, text, status })
+    t.text = t.segments.map(s => s.text).join(' ')
   }
-  
+
   lastBubbleTime = now.getTime()
+  return segId
+}
+
+const updateLastSegment = (rawText, correctedText) => {
+  if (transcriptions.value.length === 0) return
+  const t = transcriptions.value[transcriptions.value.length - 1]
+  // 가장 최근의 pending 세그먼트를 역순으로 찾음 (rawText 우선, 없으면 가장 최근 pending)
+  let segIdx = [...t.segments].map((s, i) => i).reverse().find(
+    i => t.segments[i].status === 'pending' && t.segments[i].rawText === rawText
+  )
+  // fallback: rawText 매칭 없을 경우 가장 최근 pending 사용
+  if (segIdx === undefined) {
+    segIdx = [...t.segments].map((s, i) => i).reverse().find(
+      i => t.segments[i].status === 'pending'
+    )
+  }
+  if (segIdx !== undefined) {
+    // Vue 반응성을 위해 splice로 객체 교체
+    t.segments.splice(segIdx, 1, {
+      ...t.segments[segIdx],
+      text: correctedText,
+      status: 'confirmed'
+    })
+    t.text = t.segments.map(s => s.text).join(' ')
+  }
 }
 
 const startRecording = async () => {
@@ -121,7 +152,50 @@ const startRecording = async () => {
     try {
       const data = JSON.parse(event.data)
       if (data.text && data.text.trim() !== "") {
-        addTranscriptionBubble(data.text)
+        if (data.type === 'corrected') {
+          // pending 상태가 최소 400ms 동안 보이도록 딜레이 후 교정 적용
+          const rawText = data.raw_text
+          const correctedText = data.text
+          setTimeout(() => {
+            updateLastSegment(rawText, correctedText)
+          }, 400)
+        } else {
+          // raw 텍스트 추가: rawText 저장 + 자동 confirmed 타임아웃 설정
+          const segId = ++segIdCounter
+          const now = new Date()
+          const timeSpan = now.getTime() - lastBubbleTime
+          const rawText = data.text
+
+          if (transcriptions.value.length === 0 || timeSpan >= 3000) {
+            transcriptions.value.push({
+              time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+              text: rawText,
+              segments: [{ id: segId, text: rawText, rawText, status: 'pending' }]
+            })
+          } else {
+            const lastIdx = transcriptions.value.length - 1
+            const t = transcriptions.value[lastIdx]
+            t.segments.push({ id: segId, text: rawText, rawText, status: 'pending' })
+            t.text = t.segments.map(s => s.text).join(' ')
+          }
+          lastBubbleTime = now.getTime()
+
+          // 백엔드가 corrected를 보내지 않는 경우(교정 불필요 or 교정 disabled)를 위한 자동 confirmed 처리
+          // 2.5초 후에도 pending 상태이면 confirmed로 자동 전환
+          setTimeout(() => {
+            for (const trans of transcriptions.value) {
+              const segIdx = trans.segments.findIndex(s => s.id === segId && s.status === 'pending')
+              if (segIdx !== -1) {
+                trans.segments.splice(segIdx, 1, {
+                  ...trans.segments[segIdx],
+                  status: 'confirmed'
+                })
+                trans.text = trans.segments.map(s => s.text).join(' ')
+                break
+              }
+            }
+          }, 2500)
+        }
       }
     } catch (e) {
       console.log("Error parsing JSON:", e)
