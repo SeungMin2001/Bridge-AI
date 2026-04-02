@@ -22,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-llm_server_url = "https://dialysable-kyson-microelectrophoretic.ngrok-free.dev/generate"
+llm_server_url = "https://dialysable-kyson-microelectrophoretic.ngrok-free.dev"
 
 
 class ChatRequest(BaseModel):
