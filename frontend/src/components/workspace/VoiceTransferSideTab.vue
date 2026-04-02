@@ -87,7 +87,7 @@ const getWordData = (word) => {
             <template v-if="t.segments && t.segments.length">
               <span
                 v-for="(seg, sIdx) in t.segments"
-                :key="sIdx"
+                :key="seg.id ?? sIdx"
                 class="segment-wrap"
                 :class="{ 'segment-pending': seg.status === 'pending', 'segment-confirmed': seg.status === 'confirmed' }"
               >
@@ -182,17 +182,38 @@ const getWordData = (word) => {
   transform: translateY(0) scale(1);
 }
 
+/* segment-wrap 인라인 표시 */
+.segment-wrap {
+  display: inline;
+}
+
 /* 전사 텍스트 상태 애니메이션 */
+.segment-pending {
+  opacity: 0.55;
+  filter: blur(0.3px);
+  transition: opacity 0.5s ease, filter 0.5s ease;
+}
 .segment-pending .clickable-word {
-  color: #c7c7cc;
-  transition: color 0.4s ease;
+  color: #aeaeb2;
+  transition: color 0.5s ease;
+}
+.segment-confirmed {
+  opacity: 1;
+  filter: none;
+  animation: confirmSegment 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 .segment-confirmed .clickable-word {
   color: #1d1d1f;
-  animation: fadeInText 0.4s ease forwards;
+  animation: confirmWord 0.5s ease forwards;
 }
-@keyframes fadeInText {
-  from { color: #c7c7cc; }
-  to { color: #1d1d1f; }
+@keyframes confirmSegment {
+  0%   { opacity: 0.55; transform: translateY(2px); }
+  60%  { opacity: 1;    transform: translateY(-1px); }
+  100% { opacity: 1;    transform: translateY(0); }
+}
+@keyframes confirmWord {
+  0%   { color: #aeaeb2; }
+  40%  { color: #3b82f6; }
+  100% { color: #1d1d1f; }
 }
 </style>
