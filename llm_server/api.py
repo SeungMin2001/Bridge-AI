@@ -11,6 +11,8 @@ from run_model import run_model
 model = None
 tokenizer = None
 
+_DONE = object()  # 센티널: 생성 완료 신호
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,26 +59,54 @@ async def generate(req: GenerateRequest):
         "streamer": streamer,
     }
 
-    thread = Thread(target=lambda: model.generate(**gen_kwargs))
-    thread.start()
+    q = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    def run_and_feed():
+        """생성 스레드: streamer에서 토큰을 읽어 asyncio.Queue에 넣는다."""
+        try:
+            model.generate(**gen_kwargs)
+        except Exception as e:
+            loop.call_soon_threadsafe(q.put_nowait, e)
+        # streamer 소진 후 토큰들을 큐에 전달
+        for token_text in streamer:
+            loop.call_soon_threadsafe(q.put_nowait, token_text)
+        loop.call_soon_threadsafe(q.put_nowait, _DONE)
+
+    # 수정: generate가 끝나야 streamer가 끝나므로, 별도 스레드에서 읽기
+    def feed_from_streamer():
+        """streamer에서 blocking으로 읽어 큐에 넣는다."""
+        for token_text in streamer:
+            loop.call_soon_threadsafe(q.put_nowait, token_text)
+        loop.call_soon_threadsafe(q.put_nowait, _DONE)
+
+    def run_generate():
+        model.generate(**gen_kwargs)
+
+    Thread(target=run_generate, daemon=True).start()
+    Thread(target=feed_from_streamer, daemon=True).start()
 
     async def event_stream():
         phase = "thinking"
-        loop = asyncio.get_event_loop()
 
         while True:
-            # blocking iterator를 스레드에서 실행하여 이벤트 루프 차단 방지
-            try:
-                token_text = await loop.run_in_executor(None, next, streamer)
-            except StopIteration:
+            item = await q.get()
+
+            if item is _DONE:
                 break
+
+            if isinstance(item, Exception):
+                yield f"data: {json.dumps({'type': 'error', 'token': str(item)}, ensure_ascii=False)}\n\n"
+                break
+
+            token_text = item
 
             # <think> 태그 시작
             if "<think>" in token_text:
                 token_text = token_text.replace("<think>", "")
                 phase = "thinking"
 
-            # </think> 태그 끝 → answer 단계로 전환
+            # </think> 태그 끝
             if "</think>" in token_text:
                 token_text = token_text.replace("</think>", "")
                 if token_text.strip():
@@ -88,7 +118,6 @@ async def generate(req: GenerateRequest):
             if not token_text:
                 continue
 
-            # special token 필터링
             if token_text.strip() in ("<|im_end|>", "<|endoftext|>", "<|im_start|>"):
                 continue
 
