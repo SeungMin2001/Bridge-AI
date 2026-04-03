@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from threading import Thread
-import asyncio, json, torch, queue
+import asyncio, json
 from transformers import TextIteratorStreamer
 from run_model import run_model
 
@@ -61,29 +61,30 @@ async def generate(req: GenerateRequest):
     thread.start()
 
     async def event_stream():
-        phase = "thinking"  # thinking → answer
-        inside_think = False
+        phase = "thinking"
+        loop = asyncio.get_event_loop()
 
-        for token_text in streamer:
+        while True:
+            # blocking iterator를 스레드에서 실행하여 이벤트 루프 차단 방지
+            try:
+                token_text = await loop.run_in_executor(None, next, streamer)
+            except StopIteration:
+                break
+
             # <think> 태그 시작
             if "<think>" in token_text:
-                inside_think = True
                 token_text = token_text.replace("<think>", "")
                 phase = "thinking"
 
             # </think> 태그 끝 → answer 단계로 전환
             if "</think>" in token_text:
-                inside_think = False
                 token_text = token_text.replace("</think>", "")
-                # thinking 남은 부분 전송
                 if token_text.strip():
                     yield f"data: {json.dumps({'type': 'thinking', 'token': token_text}, ensure_ascii=False)}\n\n"
-                # phase 전환 신호
                 yield f"data: {json.dumps({'type': 'thinking_done'}, ensure_ascii=False)}\n\n"
                 phase = "answer"
                 continue
 
-            # 빈 토큰 스킵
             if not token_text:
                 continue
 
@@ -95,4 +96,11 @@ async def generate(req: GenerateRequest):
 
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
