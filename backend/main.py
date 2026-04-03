@@ -91,7 +91,14 @@ async def chat(req: ChatRequest):
                     if line.startswith("data: "):
                         yield line + "\n\n"
 
-    return StreamingResponse(proxy_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        proxy_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:
