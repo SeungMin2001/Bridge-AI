@@ -2,7 +2,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 def run_model():
-    MODEL_NAME = "google/gemma-4-27b-it"  # Gemma 4 26B A4B (MoE, 4B activated)
+    MODEL_NAME = "google/gemma-4-26B-A4B-it"  # Gemma 4 26B A4B (MoE, 4B activated)
 
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,

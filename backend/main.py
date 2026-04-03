@@ -41,6 +41,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+#python -c "from huggingface_hub import login; login(token='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')"
+
+
 # 코랩 모델
 #llm_server_url = "https://dialysable-kyson-microelectrophoretic.ngrok-free.dev"
 
