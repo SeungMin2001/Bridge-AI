@@ -79,20 +79,35 @@ def remove_thinking(text: str) -> str:
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    async def proxy_stream():
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
-            async with client.stream(
-                "POST",
-                f"{llm_server_url}/generate",
-                json={"prompt": req.question},
-                headers={"ngrok-skip-browser-warning": "true"},
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        yield line + "\n\n"
+    import json as _json
+
+    # 1. LLM 서버에서 전체 응답 (JSON)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
+        res = await client.post(
+            f"{llm_server_url}/generate",
+            json={"prompt": req.question},
+            headers={"ngrok-skip-browser-warning": "true"},
+        )
+    data = res.json()
+    thinking = data.get("thinking") or ""
+    answer = remove_thinking(data.get("answer") or data.get("response") or "")
+
+    # 2. 백엔드가 직접 토큰 단위로 프론트에 SSE 스트리밍
+    async def token_stream():
+        # thinking 토큰 스트리밍
+        if thinking:
+            for char in thinking:
+                yield f"data: {_json.dumps({'type': 'thinking', 'token': char}, ensure_ascii=False)}\n\n"
+            yield f"data: {_json.dumps({'type': 'thinking_done'}, ensure_ascii=False)}\n\n"
+
+        # answer 토큰 스트리밍
+        for char in answer:
+            yield f"data: {_json.dumps({'type': 'answer', 'token': char}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {_json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
-        proxy_stream(),
+        token_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -1,17 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from threading import Thread
-import asyncio, json, traceback
-from transformers import TextIteratorStreamer
+import asyncio, re, torch
 from run_model import run_model
 
 model = None
 tokenizer = None
-
-_DONE = object()
 
 
 @asynccontextmanager
@@ -50,86 +45,24 @@ async def generate(req: GenerateRequest):
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=False)
-
-    q = asyncio.Queue()
-    loop = asyncio.get_event_loop()
-
-    def run_generate():
-        try:
-            print("[LLM] 생성 시작...")
-            model.generate(
+    def run_generation():
+        with torch.no_grad():
+            output_ids = model.generate(
                 **inputs,
                 max_new_tokens=req.max_new_tokens,
                 do_sample=False,
-                streamer=streamer,
             )
-            print("[LLM] 생성 완료")
-        except Exception as e:
-            print(f"[LLM] 생성 에러: {e}")
-            traceback.print_exc()
-            # 에러 발생 시에도 streamer에 종료 신호를 보내야 feed_from_streamer가 끝남
-            streamer.end()
+        generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
+        return tokenizer.decode(generated_ids, skip_special_tokens=False)
 
-    def feed_from_streamer():
-        try:
-            for token_text in streamer:
-                loop.call_soon_threadsafe(q.put_nowait, token_text)
-        except Exception as e:
-            print(f"[LLM] streamer 에러: {e}")
-            loop.call_soon_threadsafe(q.put_nowait, Exception(str(e)))
-        finally:
-            loop.call_soon_threadsafe(q.put_nowait, _DONE)
+    loop = asyncio.get_event_loop()
+    raw_output = await loop.run_in_executor(None, run_generation)
 
-    Thread(target=run_generate, daemon=True).start()
-    Thread(target=feed_from_streamer, daemon=True).start()
+    # think / answer 분리
+    think_match = re.search(r'<think>(.*?)</think>', raw_output, re.DOTALL)
+    thinking = think_match.group(1).strip() if think_match else ""
+    answer = re.sub(r'<think>.*?</think>', '', raw_output, flags=re.DOTALL)
+    # special token 제거
+    answer = re.sub(r'<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>', '', answer).strip()
 
-    async def event_stream():
-        phase = "thinking"
-
-        while True:
-            try:
-                item = await asyncio.wait_for(q.get(), timeout=120)
-            except asyncio.TimeoutError:
-                yield f"data: {json.dumps({'type': 'error', 'token': '응답 시간 초과'}, ensure_ascii=False)}\n\n"
-                break
-
-            if item is _DONE:
-                break
-
-            if isinstance(item, Exception):
-                yield f"data: {json.dumps({'type': 'error', 'token': str(item)}, ensure_ascii=False)}\n\n"
-                break
-
-            token_text = item
-
-            if "<think>" in token_text:
-                token_text = token_text.replace("<think>", "")
-                phase = "thinking"
-
-            if "</think>" in token_text:
-                token_text = token_text.replace("</think>", "")
-                if token_text.strip():
-                    yield f"data: {json.dumps({'type': 'thinking', 'token': token_text}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'type': 'thinking_done'}, ensure_ascii=False)}\n\n"
-                phase = "answer"
-                continue
-
-            if not token_text:
-                continue
-
-            if token_text.strip() in ("<|im_end|>", "<|endoftext|>", "<|im_start|>"):
-                continue
-
-            yield f"data: {json.dumps({'type': phase, 'token': token_text}, ensure_ascii=False)}\n\n"
-
-        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return {"thinking": thinking, "answer": answer}
