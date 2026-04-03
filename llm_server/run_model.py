@@ -2,7 +2,7 @@ import torch
 from transformers import AutoProcessor, AutoModelForCausalLM, BitsAndBytesConfig
 
 def run_model():
-    MODEL_NAME = "google/gemma-4-26B-A4B-it"  # Gemma 4 26B A4B (MoE, 4B activated)
+    MODEL_NAME = "Qwen/Qwen3.5-27B"
 
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -10,7 +10,7 @@ def run_model():
     )
 
     print("Loading tokenizer...")
-    processor = AutoProcessor.from_pretrained(MODEL_NAME)
+    processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
 
     print("Loading model with 4-bit quantization...")
@@ -18,7 +18,7 @@ def run_model():
         MODEL_NAME,
         quantization_config=quantization_config,
         device_map="auto",
-
+        trust_remote_code=True,
     )
 
     model.eval()
