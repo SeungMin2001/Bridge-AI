@@ -41,8 +41,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-llm_server_url = "https://dialysable-kyson-microelectrophoretic.ngrok-free.dev"
+# 코랩 모델
+#llm_server_url = "https://dialysable-kyson-microelectrophoretic.ngrok-free.dev"
 
+# 윈도우 모델
+llm_server_url = "http://localhost:8001"
 
 class ChatRequest(BaseModel):
     question: str
