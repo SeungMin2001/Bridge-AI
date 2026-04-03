@@ -7,13 +7,13 @@ import torch
 from run_model import run_model
 
 model = None
-processor = None
+tokenizer = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model, processor
-    model, processor = run_model()
+    global model, tokenizer
+    model, tokenizer = run_model()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -37,13 +37,13 @@ async def generate(req: GenerateRequest):
         {"role": "user", "content": req.prompt},
     ]
 
-    text = processor.apply_chat_template(
+    text = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=True,
     )
 
-    inputs = processor(text, return_tensors="pt").to(model.device)
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
     def run_generation():
         with torch.no_grad():
@@ -53,7 +53,7 @@ async def generate(req: GenerateRequest):
                 do_sample=False,
             )
         generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
-        return processor.decode(generated_ids, skip_special_tokens=True)
+        return tokenizer.decode(generated_ids, skip_special_tokens=True)
 
     loop = asyncio.get_event_loop()
     answer = await loop.run_in_executor(None, run_generation)

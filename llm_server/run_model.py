@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 def run_model():
     MODEL_NAME = "Qwen/Qwen3.5-9B"
@@ -10,7 +10,7 @@ def run_model():
     )
 
     print("Loading tokenizer...")
-    processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
 
     print("Loading model with 4-bit quantization...")
@@ -23,4 +23,4 @@ def run_model():
 
     model.eval()
     print("model ready")
-    return model, processor
+    return model, tokenizer
