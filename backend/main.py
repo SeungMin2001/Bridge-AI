@@ -1,5 +1,6 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import numpy as np
 from faster_whisper import WhisperModel
 from starlette.websockets import WebSocketDisconnect
@@ -78,16 +79,19 @@ def remove_thinking(text: str) -> str:
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
-        res = await client.post(
-            f"{llm_server_url}/generate",
-            json={"prompt": req.question},
-            headers={"ngrok-skip-browser-warning": "true"},
-        )
-    data = res.json()
-    thinking = data.get("thinking") or ""
-    answer = data.get("answer") or data.get("response") or ""
-    return {"thinking": thinking, "answer": remove_thinking(answer)}
+    async def proxy_stream():
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
+            async with client.stream(
+                "POST",
+                f"{llm_server_url}/generate",
+                json={"prompt": req.question},
+                headers={"ngrok-skip-browser-warning": "true"},
+            ) as response:
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        yield line + "\n\n"
+
+    return StreamingResponse(proxy_stream(), media_type="text/event-stream")
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: true },
@@ -19,21 +19,54 @@ async function sendMessage() {
   emit('update:aiInput', '')
   isLoading.value = true
 
+  const aiMsg = { role: 'ai', text: '', thinking: '', phase: 'thinking' }
+  messages.value.push(aiMsg)
+
   try {
     const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question }),
     })
-    const data = await res.json()
-    messages.value.push({
-      role: 'ai',
-      text: data.answer,
-      thinking: data.thinking || '',
-      thinkingExpanded: false,
-    })
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const data = JSON.parse(line.slice(6))
+          if (data.type === 'thinking') {
+            aiMsg.thinking += data.token
+            aiMsg.phase = 'thinking'
+          } else if (data.type === 'thinking_done') {
+            aiMsg.phase = 'answering'
+          } else if (data.type === 'answer') {
+            aiMsg.text += data.token
+            aiMsg.phase = 'answering'
+          } else if (data.type === 'done') {
+            aiMsg.phase = 'done'
+          }
+        } catch {}
+      }
+
+      await nextTick()
+    }
   } catch (e) {
-    messages.value.push({ role: 'ai', text: '오류가 발생했습니다. 서버 연결을 확인해주세요.' })
+    const lastMsg = messages.value[messages.value.length - 1]
+    if (lastMsg.role === 'ai' && !lastMsg.text) {
+      lastMsg.text = '오류가 발생했습니다. 서버 연결을 확인해주세요.'
+      lastMsg.phase = 'done'
+    }
   } finally {
     isLoading.value = false
   }
@@ -119,28 +152,27 @@ const handleMouseDown = () => {
               :key="i"
               :class="['px-3 py-2 rounded-xl text-[13px] leading-relaxed', msg.role === 'ai' ? 'bg-[#f2f2f7] text-[#1d1d1f] self-start' : 'bg-[#373549] text-white self-end']"
             >
-              <!-- Thinking 토글 -->
+              <!-- Thinking 실시간 표시 -->
               <div v-if="msg.thinking" class="thinking-block mb-1.5">
-                <button
-                  class="flex items-center gap-1 text-[10px] font-semibold text-[#8e8e93] hover:text-[#636366] transition-colors"
-                  @click="msg.thinkingExpanded = !msg.thinkingExpanded"
-                >
-                  <span class="material-symbols-outlined text-[13px]">
-                    {{ msg.thinkingExpanded ? 'expand_less' : 'psychology' }}
+                <div class="flex items-center gap-1 mb-1">
+                  <span class="material-symbols-outlined text-[13px] text-[#8e8e93]" :class="{ 'thinking-spin': msg.phase === 'thinking' }">psychology</span>
+                  <span class="text-[10px] font-semibold text-[#8e8e93]">
+                    {{ msg.phase === 'thinking' ? '생각하는 중...' : '사고 완료' }}
                   </span>
-                  {{ msg.thinkingExpanded ? '닫기' : '사고 과정' }}
-                </button>
-                <Transition name="think-expand">
-                  <div v-if="msg.thinkingExpanded" class="thinking-content text-[11px]">
-                    {{ msg.thinking }}
-                  </div>
-                </Transition>
+                </div>
+                <div class="thinking-content thinking-stream text-[11px]">
+                  {{ msg.thinking }}
+                </div>
               </div>
-              {{ msg.text }}
-            </div>
-            <div v-if="isLoading" class="px-3 py-2 rounded-xl text-[13px] bg-[#f2f2f7] self-start flex items-center gap-2">
-              <span class="material-symbols-outlined text-[14px] thinking-spin">psychology</span>
-              <span class="text-[#8e8e93]">생각하는 중...</span>
+              <!-- 최종 답변 -->
+              <div v-if="msg.text" :class="{ 'answer-fade-in': msg.phase === 'answering' || msg.phase === 'done' }">
+                {{ msg.text }}
+              </div>
+              <!-- thinking 중 대기 -->
+              <div v-if="msg.phase === 'thinking' && !msg.text && !msg.thinking" class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[14px] thinking-spin">psychology</span>
+                <span class="text-[#8e8e93]">생각하는 중...</span>
+              </div>
             </div>
           </div>
 

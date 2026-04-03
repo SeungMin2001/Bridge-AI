@@ -847,3 +847,25 @@ aside:last-of-type {
   from { opacity: 0; max-height: 0; }
   to { opacity: 1; max-height: 200px; }
 }
+
+/* 실시간 스트리밍 thinking */
+.thinking-stream {
+  color: #aeaeb2;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 150px;
+  overflow-y: auto;
+  transition: color 0.3s ease;
+}
+
+/* 답변 fade-in */
+.answer-text,
+.answer-fade-in {
+  animation: answerAppear 0.5s ease forwards;
+}
+
+@keyframes answerAppear {
+  from { opacity: 0.3; }
+  to { opacity: 1; }
+}
