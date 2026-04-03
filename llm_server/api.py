@@ -41,10 +41,6 @@ async def generate(req: GenerateRequest):
         messages,
         tokenize=False,
         add_generation_prompt=True,
-<<<<<<< HEAD
-        enable_thinking=False,
-=======
->>>>>>> 32910fd8 (test)
     )
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
