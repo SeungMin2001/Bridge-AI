@@ -2,12 +2,11 @@ import torch
 from transformers import AutoProcessor, AutoModelForCausalLM, BitsAndBytesConfig
 
 def run_model():
-    MODEL_NAME = "Qwen/Qwen3.5-27B"
+    MODEL_NAME = "Qwen/Qwen3.5-9B"
 
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.bfloat16,
-        llm_int8_enable_fp32_cpu_offload=True,
     )
 
     print("Loading tokenizer...")
