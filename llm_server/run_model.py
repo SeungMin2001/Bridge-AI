@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoProcessor, AutoModelForCausalLM, BitsAndBytesConfig
 
 def run_model():
     MODEL_NAME = "google/gemma-4-26B-A4B-it"  # Gemma 4 26B A4B (MoE, 4B activated)
@@ -10,7 +10,7 @@ def run_model():
     )
 
     print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    processor = AutoProcessor.from_pretrained(MODEL_NAME)
 
 
     print("Loading model with 4-bit quantization...")
@@ -23,4 +23,4 @@ def run_model():
 
     model.eval()
     print("model ready")
-    return model, tokenizer
+    return model, processor
