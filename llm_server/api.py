@@ -4,14 +4,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from threading import Thread
-import asyncio, json
+import asyncio, json, traceback
 from transformers import TextIteratorStreamer
 from run_model import run_model
 
 model = None
 tokenizer = None
 
-_DONE = object()  # 센티널: 생성 완료 신호
+_DONE = object()
 
 
 @asynccontextmanager
@@ -52,36 +52,34 @@ async def generate(req: GenerateRequest):
 
     streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=False)
 
-    gen_kwargs = {
-        **inputs,
-        "max_new_tokens": req.max_new_tokens,
-        "do_sample": False,
-        "streamer": streamer,
-    }
-
     q = asyncio.Queue()
     loop = asyncio.get_event_loop()
 
-    def run_and_feed():
-        """생성 스레드: streamer에서 토큰을 읽어 asyncio.Queue에 넣는다."""
-        try:
-            model.generate(**gen_kwargs)
-        except Exception as e:
-            loop.call_soon_threadsafe(q.put_nowait, e)
-        # streamer 소진 후 토큰들을 큐에 전달
-        for token_text in streamer:
-            loop.call_soon_threadsafe(q.put_nowait, token_text)
-        loop.call_soon_threadsafe(q.put_nowait, _DONE)
-
-    # 수정: generate가 끝나야 streamer가 끝나므로, 별도 스레드에서 읽기
-    def feed_from_streamer():
-        """streamer에서 blocking으로 읽어 큐에 넣는다."""
-        for token_text in streamer:
-            loop.call_soon_threadsafe(q.put_nowait, token_text)
-        loop.call_soon_threadsafe(q.put_nowait, _DONE)
-
     def run_generate():
-        model.generate(**gen_kwargs)
+        try:
+            print("[LLM] 생성 시작...")
+            model.generate(
+                **inputs,
+                max_new_tokens=req.max_new_tokens,
+                do_sample=False,
+                streamer=streamer,
+            )
+            print("[LLM] 생성 완료")
+        except Exception as e:
+            print(f"[LLM] 생성 에러: {e}")
+            traceback.print_exc()
+            # 에러 발생 시에도 streamer에 종료 신호를 보내야 feed_from_streamer가 끝남
+            streamer.end()
+
+    def feed_from_streamer():
+        try:
+            for token_text in streamer:
+                loop.call_soon_threadsafe(q.put_nowait, token_text)
+        except Exception as e:
+            print(f"[LLM] streamer 에러: {e}")
+            loop.call_soon_threadsafe(q.put_nowait, Exception(str(e)))
+        finally:
+            loop.call_soon_threadsafe(q.put_nowait, _DONE)
 
     Thread(target=run_generate, daemon=True).start()
     Thread(target=feed_from_streamer, daemon=True).start()
@@ -90,7 +88,11 @@ async def generate(req: GenerateRequest):
         phase = "thinking"
 
         while True:
-            item = await q.get()
+            try:
+                item = await asyncio.wait_for(q.get(), timeout=120)
+            except asyncio.TimeoutError:
+                yield f"data: {json.dumps({'type': 'error', 'token': '응답 시간 초과'}, ensure_ascii=False)}\n\n"
+                break
 
             if item is _DONE:
                 break
@@ -101,12 +103,10 @@ async def generate(req: GenerateRequest):
 
             token_text = item
 
-            # <think> 태그 시작
             if "<think>" in token_text:
                 token_text = token_text.replace("<think>", "")
                 phase = "thinking"
 
-            # </think> 태그 끝
             if "</think>" in token_text:
                 token_text = token_text.replace("</think>", "")
                 if token_text.strip():
