@@ -32,7 +32,12 @@ async function sendMessage() {
     })
     const data = await res.json()
     console.log('[AI Chat] response:', data)
-    messages.value.push({ role: 'ai', text: data.answer })
+    messages.value.push({
+      role: 'ai',
+      text: data.answer,
+      thinking: data.thinking || '',
+      thinkingExpanded: false,
+    })
   } catch (e) {
     console.error('[AI Chat] fetch error:', e)
     messages.value.push({ role: 'ai', text: '오류가 발생했습니다. 서버 연결을 확인해주세요.' })
@@ -70,10 +75,28 @@ async function sendMessage() {
         :key="i"
         :class="['chat-bubble', msg.role === 'ai' ? 'bubble-ai' : 'bubble-user']"
       >
+        <!-- Thinking 토글 -->
+        <div v-if="msg.thinking" class="thinking-block mb-2">
+          <button
+            class="flex items-center gap-1 text-[11px] font-semibold text-[#8e8e93] hover:text-[#636366] transition-colors"
+            @click="msg.thinkingExpanded = !msg.thinkingExpanded"
+          >
+            <span class="material-symbols-outlined text-[14px]">
+              {{ msg.thinkingExpanded ? 'expand_less' : 'psychology' }}
+            </span>
+            {{ msg.thinkingExpanded ? '사고 과정 닫기' : '사고 과정 보기' }}
+          </button>
+          <Transition name="think-expand">
+            <div v-if="msg.thinkingExpanded" class="thinking-content">
+              {{ msg.thinking }}
+            </div>
+          </Transition>
+        </div>
         {{ msg.text }}
       </div>
-      <div v-if="isLoading" class="chat-bubble bubble-ai">
-        <span>...</span>
+      <div v-if="isLoading" class="chat-bubble bubble-ai thinking-loading">
+        <span class="material-symbols-outlined text-[14px] thinking-spin">psychology</span>
+        <span class="text-[12px] text-[#8e8e93]">생각하는 중...</span>
       </div>
     </div>
 

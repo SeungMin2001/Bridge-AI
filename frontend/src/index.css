@@ -805,3 +805,45 @@ aside:last-of-type {
 .recording-wave-ring:nth-child(3) {
   animation-delay: 0.9s;
 }
+
+/* ── Thinking Process UI ── */
+.thinking-block {
+  border-left: 2px solid #e5e5ea;
+  padding-left: 8px;
+}
+
+.thinking-content {
+  margin-top: 6px;
+  color: #8e8e93;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.thinking-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thinking-spin {
+  animation: thinkSpin 1.5s ease-in-out infinite;
+}
+
+@keyframes thinkSpin {
+  0% { transform: rotate(0deg); opacity: 0.4; }
+  50% { transform: rotate(180deg); opacity: 1; }
+  100% { transform: rotate(360deg); opacity: 0.4; }
+}
+
+.think-expand-enter-active {
+  animation: thinkExpand 0.3s ease;
+}
+.think-expand-leave-active {
+  animation: thinkExpand 0.2s ease reverse;
+}
+@keyframes thinkExpand {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 200px; }
+}

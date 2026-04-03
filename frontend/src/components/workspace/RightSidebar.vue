@@ -26,7 +26,12 @@ async function sendMessage() {
       body: JSON.stringify({ question }),
     })
     const data = await res.json()
-    messages.value.push({ role: 'ai', text: data.answer })
+    messages.value.push({
+      role: 'ai',
+      text: data.answer,
+      thinking: data.thinking || '',
+      thinkingExpanded: false,
+    })
   } catch (e) {
     messages.value.push({ role: 'ai', text: '오류가 발생했습니다. 서버 연결을 확인해주세요.' })
   } finally {
@@ -114,9 +119,29 @@ const handleMouseDown = () => {
               :key="i"
               :class="['px-3 py-2 rounded-xl text-[13px] leading-relaxed', msg.role === 'ai' ? 'bg-[#f2f2f7] text-[#1d1d1f] self-start' : 'bg-[#373549] text-white self-end']"
             >
+              <!-- Thinking 토글 -->
+              <div v-if="msg.thinking" class="thinking-block mb-1.5">
+                <button
+                  class="flex items-center gap-1 text-[10px] font-semibold text-[#8e8e93] hover:text-[#636366] transition-colors"
+                  @click="msg.thinkingExpanded = !msg.thinkingExpanded"
+                >
+                  <span class="material-symbols-outlined text-[13px]">
+                    {{ msg.thinkingExpanded ? 'expand_less' : 'psychology' }}
+                  </span>
+                  {{ msg.thinkingExpanded ? '닫기' : '사고 과정' }}
+                </button>
+                <Transition name="think-expand">
+                  <div v-if="msg.thinkingExpanded" class="thinking-content text-[11px]">
+                    {{ msg.thinking }}
+                  </div>
+                </Transition>
+              </div>
               {{ msg.text }}
             </div>
-            <div v-if="isLoading" class="px-3 py-2 rounded-xl text-[13px] bg-[#f2f2f7] text-[#8e8e93] self-start">...</div>
+            <div v-if="isLoading" class="px-3 py-2 rounded-xl text-[13px] bg-[#f2f2f7] self-start flex items-center gap-2">
+              <span class="material-symbols-outlined text-[14px] thinking-spin">psychology</span>
+              <span class="text-[#8e8e93]">생각하는 중...</span>
+            </div>
           </div>
 
           <div class="sidebar-search-bg rounded-[14px] px-4 py-3 flex items-center gap-3 border border-transparent focus-within:border-[#3b82f6] transition-all">

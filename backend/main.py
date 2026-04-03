@@ -85,8 +85,9 @@ async def chat(req: ChatRequest):
             headers={"ngrok-skip-browser-warning": "true"},
         )
     data = res.json()
+    thinking = data.get("thinking") or ""
     answer = data.get("answer") or data.get("response") or ""
-    return {"answer": remove_thinking(answer)}
+    return {"thinking": thinking, "answer": remove_thinking(answer)}
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:

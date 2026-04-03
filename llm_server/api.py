@@ -41,6 +41,7 @@ async def generate(req: GenerateRequest):
         messages,
         tokenize=False,
         add_generation_prompt=True,
+        enable_thinking=True,
     )
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
@@ -58,4 +59,10 @@ async def generate(req: GenerateRequest):
     loop = asyncio.get_event_loop()
     answer = await loop.run_in_executor(None, run_generation)
 
-    return {"answer": answer}
+    # think / answer 분리
+    import re
+    think_match = re.search(r'<think>(.*?)</think>', answer, re.DOTALL)
+    thinking = think_match.group(1).strip() if think_match else ""
+    clean_answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
+
+    return {"thinking": thinking, "answer": clean_answer}
