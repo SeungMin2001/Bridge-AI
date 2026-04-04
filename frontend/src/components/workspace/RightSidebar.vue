@@ -1,5 +1,7 @@
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { useChat } from '../../composables/useChat'
+import ChatHistoryModal from './ChatHistoryModal.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: true },
@@ -8,18 +10,23 @@ const props = defineProps({
 
 const emit = defineEmits(['update:aiInput'])
 
-const messages = ref([])
+const { 
+  messages, 
+  addMessage, 
+  updateLastAiMessage, 
+  createNewSession 
+} = useChat()
 const isLoading = ref(false)
 
 async function sendMessage() {
   const question = props.aiInput.trim()
   if (!question) return
 
-  messages.value.push({ role: 'user', text: question })
+  addMessage({ role: 'user', text: question })
   emit('update:aiInput', '')
   isLoading.value = true
 
-  messages.value.push({ role: 'ai', text: '', thinking: '', phase: 'thinking' })
+  addMessage({ role: 'ai', text: '', thinking: '', phase: 'thinking' })
 
   try {
     const res = await fetch('/chat', {
@@ -28,19 +35,19 @@ async function sendMessage() {
       body: JSON.stringify({ question }),
     })
     const data = await res.json()
-    messages.value[messages.value.length - 1] = {
+    updateLastAiMessage({
       role: 'ai',
       thinking: data.thinking || '',
       text: data.answer || '',
       phase: 'done',
-    }
+    })
   } catch (e) {
-    messages.value[messages.value.length - 1] = {
+    updateLastAiMessage({
       role: 'ai',
       thinking: '',
       text: '오류가 발생했습니다. 서버 연결을 확인해주세요.',
       phase: 'done',
-    }
+    })
   } finally {
     isLoading.value = false
   }
@@ -76,9 +83,26 @@ onUnmounted(() => {
 const handleMouseDown = () => {
   isResizing.value = true
   document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
   document.body.classList.add('is-resizing')
 }
+
+const isHistoryOpen = ref(false)
+const scrollContainer = ref(null)
+
+const scrollToBottom = async () => {
+  await nextTick()
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTo({
+      top: scrollContainer.value.scrollHeight,
+      behavior: 'smooth'
+    })
+  }
+}
+
+watch(messages, () => {
+  scrollToBottom()
+}, { deep: true })
+
 </script>
 
 <template>
@@ -98,7 +122,26 @@ const handleMouseDown = () => {
     :style="{ width: visible ? `${width}px` : '0px', minWidth: visible ? `${width}px` : '0px', maxWidth: visible ? `${width}px` : '0px' }"
   >
     <div class="card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
-        <div class="flex-1 flex flex-col items-center justify-center px-2">
+      <div class="flex justify-between items-center mb-2 px-1">
+        <button 
+          class="p-2 rounded-xl bg-[#f2f2f7] hover:bg-[#e5e5ea] transition-all flex items-center justify-center group gap-1.5" 
+          title="새로운 대화 시작" 
+          @click="createNewSession"
+        >
+          <span class="material-symbols-outlined text-[18px] text-[#1d1d1f]">add</span>
+          <span class="text-[11px] font-bold text-[#1d1d1f]">새 채팅</span>
+        </button>
+        <button 
+          class="p-1.5 rounded-lg hover:bg-[#f2f2f7] transition-all flex items-center justify-center group" 
+          title="AI 채팅 히스토리" 
+          @click="isHistoryOpen = true"
+        >
+          <span class="material-symbols-outlined text-[20px] text-[#8e8e93] group-hover:text-[#1d1d1f]">history</span>
+        </button>
+      </div>
+
+      <transition name="fade-slide-switch" mode="out-in">
+        <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
           <div class="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-6 shadow-lg">
             <span class="material-symbols-outlined text-white text-[32px]">auto_awesome</span>
           </div>
@@ -119,12 +162,12 @@ const handleMouseDown = () => {
           </div>
         </div>
 
-        <div class="mt-auto">
-          <div v-if="messages.length > 0" class="mb-3 flex flex-col gap-2 max-h-[300px] overflow-y-auto custom-scrollbar">
+        <div v-else key="chat-history" class="flex-1 flex flex-col gap-3 mb-4 overflow-y-auto custom-scrollbar px-1" ref="scrollContainer">
+          <transition-group name="chat-bubble">
             <div
               v-for="(msg, i) in messages"
               :key="i"
-              :class="['px-3 py-2 rounded-xl text-[13px] leading-relaxed', msg.role === 'ai' ? 'bg-[#f2f2f7] text-[#1d1d1f] self-start' : 'bg-[#373549] text-white self-end']"
+              :class="['px-3 py-2 rounded-xl text-[13px] leading-relaxed w-fit max-w-[90%]', msg.role === 'ai' ? 'bg-[#f2f2f7] text-[#1d1d1f] self-start' : 'bg-[#373549] text-white self-end']"
             >
               <!-- Thinking 실시간 표시 -->
               <div v-if="msg.thinking" class="thinking-block mb-1.5">
@@ -148,8 +191,10 @@ const handleMouseDown = () => {
                 <span class="text-[#8e8e93]">생각하는 중...</span>
               </div>
             </div>
-          </div>
-
+          </transition-group>
+        </div>
+      </transition>
+        <div class="mt-auto">
           <div class="sidebar-search-bg rounded-[14px] px-4 py-3 flex items-center gap-3 border border-transparent focus-within:border-[#3b82f6] transition-all">
             <input
               class="bg-transparent border-none focus:ring-0 p-0 text-[13px] flex-1 text-[#1d1d1f] placeholder-[#aeaeb2]"
@@ -166,4 +211,37 @@ const handleMouseDown = () => {
         </div>
       </div>
   </aside>
+
+  <!-- AI History Modal -->
+  <ChatHistoryModal :isOpen="isHistoryOpen" @close="isHistoryOpen = false" />
 </template>
+
+<style scoped>
+/* 화면 전환 애니메이션 */
+.fade-slide-switch-enter-active,
+.fade-slide-switch-leave-active {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-slide-switch-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.fade-slide-switch-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+/* 채팅 말풍선 등장 애니메이션 */
+.chat-bubble-enter-active {
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.chat-bubble-enter-from {
+  opacity: 0;
+  transform: translateY(15px) scale(0.95);
+}
+
+/* 리스트 레이아웃 부드러운 이동 */
+.chat-bubble-move {
+  transition: transform 0.4s ease;
+}
+</style>
