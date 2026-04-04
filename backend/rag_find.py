@@ -14,7 +14,7 @@ vector_store = PGVectorStore.from_params(
     password="1234",
     port=5432,
     user="postgres",
-    table_name="test",   # 네가 저장할 때 쓴 논리 이름
+    table_name="shin",
     embed_dim=1024
 )
 
@@ -25,7 +25,7 @@ index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
 retriever = index.as_retriever(similarity_top_k=3)
 
 # 5) 검색
-nodes = retriever.retrieve("초코 드링크")
+nodes = retriever.retrieve("기억과 인출")
 
 print("검색 결과 개수:", len(nodes))
 print()

@@ -37,7 +37,7 @@ vector_store = PGVectorStore.from_params(
     password="1234",
     port=5432,
     user="postgres",
-    table_name="test",
+    table_name="shin",
     embed_dim=1024
 )
 
