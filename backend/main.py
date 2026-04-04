@@ -108,7 +108,7 @@ async def chat(req: ChatRequest):
 
         # 3. LLM 호출 (vLLM OpenAI 호환 API)
         messages = [
-            {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 간결하게 답변하되, 자세한 설명이 필요한 질문에만 길게 답변해."},
+            {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."},
             {"role": "user", "content": prompt},
         ]
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
@@ -117,7 +117,7 @@ async def chat(req: ChatRequest):
                 json={
                     "model": llm_model_name,
                     "messages": messages,
-                    "max_tokens": 512,
+                    "max_tokens": 128,
                     "temperature": 0.7,
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
