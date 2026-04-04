@@ -8,7 +8,7 @@ import torchaudio
 from data.save_transcript import save_transcript
 from db import create_session
 from correction import load_correction_model, correct_text
-from rag_search import search as rag_search
+from rag_search import search as rag_search, init as rag_init, add_document as rag_add_document
 import torch
 import uuid
 import httpx
@@ -35,6 +35,10 @@ correction_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="correcti
 resampler = torchaudio.transforms.Resample(orig_freq=48000, new_freq=16000).to(device)
 
 app = FastAPI()
+
+@app.on_event("startup")
+async def startup():
+    rag_init()
 
 app.add_middleware(
     CORSMiddleware,
@@ -235,6 +239,20 @@ async def websocket_endpoint(ws: WebSocket):
                     await save_transcript(transcript_data)
                 except Exception as e:
                     print(f"[DB] save_transcript 실패: {e}")
+
+                # RAG vector store에 임베딩 추가
+                if corrected_text:
+                    try:
+                        rag_add_document(corrected_text, {
+                            "session_id": session_id,
+                            "session_title": "실시간 녹음",
+                            "course_title": "실시간 강의",
+                            "session_date": str(__import__('datetime').date.today()),
+                            "start_time": start_time,
+                            "end_time": end_time,
+                        })
+                    except Exception as e:
+                        print(f"[RAG] 임베딩 추가 실패 (전사는 정상): {e}")
 
                 processed_seconds = end_time
 

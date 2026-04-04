@@ -3,24 +3,28 @@ RAG 검색 모듈
 - Hybrid Search (벡터 유사도 + 키워드 BM25)
 - Query Rewriting + Multi-query
 - Citation (출처 표시)
+- 실시간 전사 임베딩 추가
 """
 import re
 import psycopg2
-from llama_index.core import Settings, VectorStoreIndex
+from llama_index.core import Settings, VectorStoreIndex, Document
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
 
-# ── 임베딩 모델 (모듈 로드 시 1회 초기화) ──
+# ── 임베딩 모델 (서버 시작 시 1회 초기화) ──
 _embed_model = None
 _vector_store = None
 _index = None
+_initialized = False
 
 
-def _init():
-    global _embed_model, _vector_store, _index
-    if _index is not None:
+def init():
+    """서버 시작 시 1회 호출. 임베딩 모델 + vector store 로드."""
+    global _embed_model, _vector_store, _index, _initialized
+    if _initialized:
         return
 
+    print("[RAG] 임베딩 모델 로딩 중...")
     _embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-m3")
     Settings.embed_model = _embed_model
 
@@ -34,6 +38,16 @@ def _init():
         embed_dim=1024,
     )
     _index = VectorStoreIndex.from_vector_store(vector_store=_vector_store)
+    _initialized = True
+    print("[RAG] 초기화 완료")
+
+
+def add_document(text: str, metadata: dict):
+    """실시간 전사 chunk를 임베딩하여 vector store에 추가"""
+    init()
+    doc = Document(text=text, metadata=metadata)
+    _index.insert(doc)
+    print(f"[RAG] 문서 추가됨: {text[:30]}...")
 
 
 # ── 키워드(BM25 대용) 검색: DB에서 직접 텍스트 매칭 ──
@@ -88,7 +102,7 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
 
 # ── 벡터 검색 ──
 def _vector_search(query: str, top_k: int = 5) -> list[dict]:
-    _init()
+    init()
     retriever = _index.as_retriever(similarity_top_k=top_k)
     nodes = retriever.retrieve(query)
 
