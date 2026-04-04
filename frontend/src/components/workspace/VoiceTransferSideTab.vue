@@ -1,5 +1,8 @@
 <script setup>
 import { ref, watch, onMounted, nextTick } from 'vue'
+import { useChat } from '../../composables/useChat'
+
+const { openCitePopover } = useChat()
 
 const props = defineProps({
   transcriptions: { type: Array, default: () => [] }
@@ -66,6 +69,17 @@ const getWordData = (word) => {
     desc: "해당 단어에 대한 상세 설명 정보가 아직 등록되지 않았습니다. AI를 사용하여 자동으로 검색하거나 노트를 추가할 수 있습니다.",
     source: "AI 분석 결과"
   }
+}
+
+const handleSourceClick = (e, wordData) => {
+  if (!wordData || !wordData.source) return
+  
+  const rect = e.currentTarget.getBoundingClientRect()
+  // 좌측 사이드바에서는 팝오버를 요소의 오른쪽(메인 방향)으로 띄웁니다.
+  let x = rect.right + 10
+  let y = rect.top - 20
+
+  openCitePopover({ text: wordData.desc, citation: wordData.source, session_title: "단어 사전" }, x, y)
 }
 </script>
 
@@ -162,7 +176,12 @@ const getWordData = (word) => {
       <div class="flex items-center gap-1.5 mt-1 border-t border-black/5 pt-3">
         <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
         <span class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">Source:</span>
-        <span class="text-[11px] font-bold text-blue-500 cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2">{{ getWordData(wordPopover.word).source }}</span>
+        <span 
+          class="text-[11px] font-bold text-blue-500 cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2"
+          @click="handleSourceClick($event, getWordData(wordPopover.word))"
+        >
+          {{ getWordData(wordPopover.word).source }}
+        </span>
       </div>
 
       <div class="flex gap-2 mt-1">
