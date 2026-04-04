@@ -8,7 +8,6 @@ from run_model import run_model
 model = None
 tokenizer = None
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model, tokenizer
