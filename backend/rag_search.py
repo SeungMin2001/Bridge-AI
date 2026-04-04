@@ -222,7 +222,7 @@ def search(question: str, top_k: int = 5) -> dict:
 
 # 테스트용
 if __name__ == "__main__":
-    result = search("CPU가 뭐야?")
+    result = search("생필품이 뭐야?")
     print("=== Context (LLM에 전달) ===")
     print(result["context"])
     print()
