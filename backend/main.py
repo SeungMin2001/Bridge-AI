@@ -56,8 +56,10 @@ app.add_middleware(
 # 윈도우 모델
 #llm_server_url = "http://localhost:8001"
 
-# 도커+vllm
-llm_server_url = "http://localhost:8001/v1/chat/completions"
+# 도커+vllm (OpenAI 호환 API)
+llm_server_url = "http://localhost:8001"
+llm_model_name = "QuantTrio/Qwen3.5-4B-AWQ"
+llm_api_key = "test-key"
 
 class ChatRequest(BaseModel):
     question: str
@@ -104,18 +106,33 @@ async def chat(req: ChatRequest):
         else:
             prompt = req.question
 
-        # 3. LLM 호출
+        # 3. LLM 호출 (vLLM OpenAI 호환 API)
+        messages = [
+            {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 간결하게 답변하되, 자세한 설명이 필요한 질문에만 길게 답변해."},
+            {"role": "user", "content": prompt},
+        ]
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
             res = await client.post(
-                f"{llm_server_url}/generate",
-                json={"prompt": prompt},
-                headers={"ngrok-skip-browser-warning": "true"},
+                f"{llm_server_url}/v1/chat/completions",
+                json={
+                    "model": llm_model_name,
+                    "messages": messages,
+                    "max_tokens": 512,
+                    "temperature": 0.7,
+                },
+                headers={"Authorization": f"Bearer {llm_api_key}"},
             )
         print(f"[CHAT] LLM 응답 상태: {res.status_code}")
         data = res.json()
-        print(f"[CHAT] thinking 길이: {len(data.get('thinking',''))}, answer 길이: {len(data.get('answer',''))}")
-        thinking = data.get("thinking") or ""
-        answer = remove_thinking(data.get("answer") or data.get("response") or "")
+        raw_answer = data["choices"][0]["message"]["content"]
+        thinking = ""
+        # think 태그가 있으면 분리
+        import re
+        think_match = re.search(r'<think>(.*?)</think>', raw_answer, re.DOTALL)
+        if think_match:
+            thinking = think_match.group(1).strip()
+        answer = remove_thinking(raw_answer)
+        print(f"[CHAT] thinking 길이: {len(thinking)}, answer 길이: {len(answer)}")
         return {"thinking": thinking, "answer": answer, "citations": citations}
     except Exception as e:
         print(f"[CHAT] 에러: {e}")
