@@ -79,41 +79,23 @@ def remove_thinking(text: str) -> str:
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    import json as _json
-
-    # 1. LLM 서버에서 전체 응답 (JSON)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
-        res = await client.post(
-            f"{llm_server_url}/generate",
-            json={"prompt": req.question},
-            headers={"ngrok-skip-browser-warning": "true"},
-        )
-    data = res.json()
-    thinking = data.get("thinking") or ""
-    answer = remove_thinking(data.get("answer") or data.get("response") or "")
-
-    # 2. 백엔드가 직접 토큰 단위로 프론트에 SSE 스트리밍
-    async def token_stream():
-        # thinking 토큰 스트리밍
-        if thinking:
-            for char in thinking:
-                yield f"data: {_json.dumps({'type': 'thinking', 'token': char}, ensure_ascii=False)}\n\n"
-            yield f"data: {_json.dumps({'type': 'thinking_done'}, ensure_ascii=False)}\n\n"
-
-        # answer 토큰 스트리밍
-        for char in answer:
-            yield f"data: {_json.dumps({'type': 'answer', 'token': char}, ensure_ascii=False)}\n\n"
-
-        yield f"data: {_json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
-
-    return StreamingResponse(
-        token_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    print(f"[CHAT] 요청 수신: {req.question}")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
+            res = await client.post(
+                f"{llm_server_url}/generate",
+                json={"prompt": req.question},
+                headers={"ngrok-skip-browser-warning": "true"},
+            )
+        print(f"[CHAT] LLM 응답 상태: {res.status_code}")
+        data = res.json()
+        print(f"[CHAT] thinking 길이: {len(data.get('thinking',''))}, answer 길이: {len(data.get('answer',''))}")
+        thinking = data.get("thinking") or ""
+        answer = remove_thinking(data.get("answer") or data.get("response") or "")
+        return {"thinking": thinking, "answer": answer}
+    except Exception as e:
+        print(f"[CHAT] 에러: {e}")
+        return {"thinking": "", "answer": f"오류: {e}"}
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:
