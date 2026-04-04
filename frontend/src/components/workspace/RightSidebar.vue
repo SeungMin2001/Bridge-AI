@@ -1,7 +1,6 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useChat } from '../../composables/useChat'
-import ChatHistoryModal from './ChatHistoryModal.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: true },
@@ -13,8 +12,7 @@ const emit = defineEmits(['update:aiInput'])
 const { 
   messages, 
   addMessage, 
-  updateLastAiMessage, 
-  createNewSession 
+  updateLastAiMessage 
 } = useChat()
 const isLoading = ref(false)
 
@@ -26,7 +24,7 @@ async function sendMessage() {
   emit('update:aiInput', '')
   isLoading.value = true
 
-  addMessage({ role: 'ai', text: '', thinking: '', phase: 'thinking' })
+  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'thinking' })
 
   try {
     const res = await fetch('/chat', {
@@ -39,6 +37,7 @@ async function sendMessage() {
       role: 'ai',
       thinking: data.thinking || '',
       text: data.answer || '',
+      citations: data.citations || [],
       phase: 'done',
     })
   } catch (e) {
@@ -46,6 +45,7 @@ async function sendMessage() {
       role: 'ai',
       thinking: '',
       text: '오류가 발생했습니다. 서버 연결을 확인해주세요.',
+      citations: [],
       phase: 'done',
     })
   } finally {
@@ -80,13 +80,6 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', handleMouseUp)
 })
 
-const handleMouseDown = () => {
-  isResizing.value = true
-  document.body.style.cursor = 'col-resize'
-  document.body.classList.add('is-resizing')
-}
-
-const isHistoryOpen = ref(false)
 const scrollContainer = ref(null)
 
 const scrollToBottom = async () => {
@@ -122,24 +115,6 @@ watch(messages, () => {
     :style="{ width: visible ? `${width}px` : '0px', minWidth: visible ? `${width}px` : '0px', maxWidth: visible ? `${width}px` : '0px' }"
   >
     <div class="card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
-      <div class="flex justify-between items-center mb-2 px-1">
-        <button 
-          class="p-2 rounded-xl bg-[#f2f2f7] hover:bg-[#e5e5ea] transition-all flex items-center justify-center group gap-1.5" 
-          title="새로운 대화 시작" 
-          @click="createNewSession"
-        >
-          <span class="material-symbols-outlined text-[18px] text-[#1d1d1f]">add</span>
-          <span class="text-[11px] font-bold text-[#1d1d1f]">새 채팅</span>
-        </button>
-        <button 
-          class="p-1.5 rounded-lg hover:bg-[#f2f2f7] transition-all flex items-center justify-center group" 
-          title="AI 채팅 히스토리" 
-          @click="isHistoryOpen = true"
-        >
-          <span class="material-symbols-outlined text-[20px] text-[#8e8e93] group-hover:text-[#1d1d1f]">history</span>
-        </button>
-      </div>
-
       <transition name="fade-slide-switch" mode="out-in">
         <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
           <div class="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-6 shadow-lg">
@@ -185,6 +160,17 @@ watch(messages, () => {
               <div v-if="msg.text" :class="{ 'answer-fade-in': msg.phase === 'answering' || msg.phase === 'done' }">
                 {{ msg.text }}
               </div>
+              <!-- 출처 표시 -->
+              <div v-if="msg.citations && msg.citations.length" class="mt-2 pt-2 border-t border-black/5">
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="material-symbols-outlined text-[12px] text-[#8e8e93]">menu_book</span>
+                  <span class="text-[10px] font-bold text-[#8e8e93]">참고 출처</span>
+                </div>
+                <div v-for="(cite, ci) in msg.citations" :key="ci" class="flex items-start gap-1.5 mb-1">
+                  <span class="text-[10px] text-blue-500 font-bold mt-0.5">{{ ci + 1 }}</span>
+                  <span class="text-[10px] text-[#636366] leading-[1.5]">{{ cite.citation }}</span>
+                </div>
+              </div>
               <!-- thinking 중 대기 -->
               <div v-if="msg.phase === 'thinking' && !msg.text && !msg.thinking" class="flex items-center gap-2">
                 <span class="material-symbols-outlined text-[14px] thinking-spin">psychology</span>
@@ -211,9 +197,6 @@ watch(messages, () => {
         </div>
       </div>
   </aside>
-
-  <!-- AI History Modal -->
-  <ChatHistoryModal :isOpen="isHistoryOpen" @close="isHistoryOpen = false" />
 </template>
 
 <style scoped>

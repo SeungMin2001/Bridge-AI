@@ -8,6 +8,7 @@ import torchaudio
 from data.save_transcript import save_transcript
 from db import create_session
 from correction import load_correction_model, correct_text
+from rag_search import search as rag_search, init as rag_init, add_document as rag_add_document
 import torch
 import uuid
 import httpx
@@ -34,6 +35,10 @@ correction_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="correcti
 resampler = torchaudio.transforms.Resample(orig_freq=48000, new_freq=16000).to(device)
 
 app = FastAPI()
+
+@app.on_event("startup")
+async def startup():
+    rag_init()
 
 app.add_middleware(
     CORSMiddleware,
@@ -81,10 +86,26 @@ def remove_thinking(text: str) -> str:
 async def chat(req: ChatRequest):
     print(f"[CHAT] 요청 수신: {req.question}")
     try:
+        # 1. RAG 검색
+        rag_result = rag_search(req.question, top_k=5)
+        context = rag_result["context"]
+        citations = rag_result["citations"]
+
+        # 2. RAG context가 있으면 프롬프트에 포함
+        if context:
+            prompt = (
+                f"다음은 강의 내용에서 검색된 참고자료입니다:\n\n{context}\n\n"
+                f"위 참고자료를 바탕으로 답변하고, 답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
+                f"질문: {req.question}"
+            )
+        else:
+            prompt = req.question
+
+        # 3. LLM 호출
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
             res = await client.post(
                 f"{llm_server_url}/generate",
-                json={"prompt": req.question},
+                json={"prompt": prompt},
                 headers={"ngrok-skip-browser-warning": "true"},
             )
         print(f"[CHAT] LLM 응답 상태: {res.status_code}")
@@ -92,10 +113,10 @@ async def chat(req: ChatRequest):
         print(f"[CHAT] thinking 길이: {len(data.get('thinking',''))}, answer 길이: {len(data.get('answer',''))}")
         thinking = data.get("thinking") or ""
         answer = remove_thinking(data.get("answer") or data.get("response") or "")
-        return {"thinking": thinking, "answer": answer}
+        return {"thinking": thinking, "answer": answer, "citations": citations}
     except Exception as e:
         print(f"[CHAT] 에러: {e}")
-        return {"thinking": "", "answer": f"오류: {e}"}
+        return {"thinking": "", "answer": f"오류: {e}", "citations": []}
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:
@@ -218,6 +239,20 @@ async def websocket_endpoint(ws: WebSocket):
                     await save_transcript(transcript_data)
                 except Exception as e:
                     print(f"[DB] save_transcript 실패: {e}")
+
+                # RAG vector store에 임베딩 추가
+                if corrected_text:
+                    try:
+                        rag_add_document(corrected_text, {
+                            "session_id": session_id,
+                            "session_title": "실시간 녹음",
+                            "course_title": "실시간 강의",
+                            "session_date": str(__import__('datetime').date.today()),
+                            "start_time": start_time,
+                            "end_time": end_time,
+                        })
+                    except Exception as e:
+                        print(f"[RAG] 임베딩 추가 실패 (전사는 정상): {e}")
 
                 processed_seconds = end_time
 

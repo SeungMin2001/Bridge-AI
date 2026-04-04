@@ -24,7 +24,7 @@ async function sendMessage() {
   isLoading.value = true
 
   // 로딩 표시용 임시 버블
-  messages.value.push({ role: 'ai', text: '', thinking: '', phase: 'thinking' })
+  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'thinking' })
 
   try {
     const res = await fetch('/chat', {
@@ -38,6 +38,7 @@ async function sendMessage() {
       role: 'ai',
       thinking: data.thinking || '',
       text: data.answer || '',
+      citations: data.citations || [],
       phase: 'done',
     }
   } catch (e) {
@@ -46,6 +47,7 @@ async function sendMessage() {
       role: 'ai',
       thinking: '',
       text: '오류가 발생했습니다. 서버 연결을 확인해주세요.',
+      citations: [],
       phase: 'done',
     }
   } finally {
@@ -97,6 +99,17 @@ async function sendMessage() {
         <!-- 최종 답변 -->
         <div v-if="msg.text" class="answer-text" :class="{ 'answer-fade-in': msg.phase === 'answering' || msg.phase === 'done' }">
           {{ msg.text }}
+        </div>
+        <!-- 출처 표시 -->
+        <div v-if="msg.citations && msg.citations.length" class="mt-2 pt-2 border-t border-black/5">
+          <div class="flex items-center gap-1 mb-1.5">
+            <span class="material-symbols-outlined text-[12px] text-[#8e8e93]">menu_book</span>
+            <span class="text-[10px] font-bold text-[#8e8e93]">참고 출처</span>
+          </div>
+          <div v-for="(cite, ci) in msg.citations" :key="ci" class="flex items-start gap-1.5 mb-1">
+            <span class="text-[10px] text-blue-500 font-bold mt-0.5">{{ ci + 1 }}</span>
+            <span class="text-[10px] text-[#636366] leading-[1.5]">{{ cite.citation }}</span>
+          </div>
         </div>
         <!-- 아직 thinking 중이고 답변 없을 때 -->
         <div v-if="msg.phase === 'thinking' && !msg.text && !msg.thinking" class="thinking-loading">

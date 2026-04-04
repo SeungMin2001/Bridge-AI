@@ -20,9 +20,11 @@ conn = psycopg2.connect(
 cur = conn.cursor()
 cur.execute("""
     SELECT c.chunk_id, c.session_id, c.chunk_index, c.start_time, c.end_time, c.chunk_text,
-           s.title as session_title
+           s.title as session_title, s.session_date,
+           co.title as course_title
     FROM chunks c
     JOIN sessions s ON c.session_id = s.session_id
+    JOIN courses co ON s.course_id = co.course_id
     ORDER BY c.session_id, c.chunk_index
 """)
 rows = cur.fetchall()
@@ -34,13 +36,15 @@ print(f"총 {len(rows)}개 chunk 로드됨")
 # Document 변환
 documents = []
 for row in rows:
-    chunk_id, session_id, chunk_index, start_time, end_time, chunk_text, session_title = row
+    chunk_id, session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, course_title = row
     doc = Document(
         text=chunk_text,
         metadata={
             "chunk_id": str(chunk_id),
             "session_id": str(session_id),
+            "course_title": course_title,
             "session_title": session_title,
+            "session_date": str(session_date),
             "chunk_index": chunk_index,
             "start_time": float(start_time),
             "end_time": float(end_time),

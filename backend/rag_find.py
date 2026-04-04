@@ -22,7 +22,7 @@ vector_store = PGVectorStore.from_params(
 index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
 
 # 4) retriever 만들기
-retriever = index.as_retriever(similarity_top_k=3)
+retriever = index.as_retriever(similarity_top_k=5)
 
 # 5) 검색
 nodes = retriever.retrieve("기억과 인출")
