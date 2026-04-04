@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, nextTick } from 'vue'
 
 const props = defineProps({
   transcriptions: { type: Array, default: () => [] }
@@ -9,6 +9,27 @@ const emit = defineEmits(['addToNote', 'askAi'])
 
 const transSearch = ref('')
 const wordPopover = ref({ visible: false, x: 0, y: 0, word: '' })
+const scrollContainer = ref(null)
+
+// 최하단으로 스크롤 이동
+const scrollToBottom = async () => {
+  await nextTick()
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTo({
+      top: scrollContainer.value.scrollHeight,
+      behavior: 'smooth'
+    })
+  }
+}
+
+// 전사 데이터가 변경될 때마다 스크롤 이동
+watch(() => props.transcriptions, () => {
+  scrollToBottom()
+}, { deep: true })
+
+onMounted(() => {
+  scrollToBottom()
+})
 
 // 단어 클릭 이벤트
 const handleWordClick = (e, word) => {
@@ -62,7 +83,10 @@ const getWordData = (word) => {
     </div>
 
     <!-- 전사 기록 리스트 -->
-    <div class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4">
+    <div 
+      ref="scrollContainer"
+      class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4"
+    >
       <template v-if="transcriptions.filter(t => t.text.toLowerCase().includes(transSearch.toLowerCase())).length === 0">
         <div class="flex flex-col items-center justify-center h-full opacity-40 py-10">
           <span class="material-symbols-outlined text-[48px] mb-2 text-[#aeaeb2]">record_voice_over</span>

@@ -32,7 +32,11 @@ class GenerateRequest(BaseModel):
 @app.post("/generate")
 async def generate(req: GenerateRequest):
     messages = [
+<<<<<<< HEAD
         {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 간결하게 답변하되, 자세한 설명이 필요한 질문에만 길게 답변해. 한국어로 최종답변 및 thinking 진행해."},
+=======
+        {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 간결하게 답변하되, 자세한 설명이 필요한 질문에만 길게 답변해."},
+>>>>>>> origin/aki3
         {"role": "user", "content": req.prompt},
     ]
 
@@ -40,7 +44,7 @@ async def generate(req: GenerateRequest):
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=True,
+        enable_thinking=False,
     )
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
