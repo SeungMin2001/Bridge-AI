@@ -124,6 +124,7 @@ async def chat(req: ChatRequest):
             )
         print(f"[CHAT] LLM 응답 상태: {res.status_code}")
         data = res.json()
+        print(f"[CHAT] LLM 응답 데이터: {data}")
         raw_answer = data["choices"][0]["message"]["content"]
         thinking = ""
         # think 태그가 있으면 분리
