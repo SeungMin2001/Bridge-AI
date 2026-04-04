@@ -2,8 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-import asyncio
-import torch
+import asyncio, re, torch
 from run_model import run_model
 
 model = None
@@ -27,7 +26,7 @@ app.add_middleware(
 
 class GenerateRequest(BaseModel):
     prompt: str
-    max_new_tokens: int = 256
+    max_new_tokens: int = 512
 
 
 @app.post("/generate")
@@ -41,7 +40,7 @@ async def generate(req: GenerateRequest):
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=False,
+        enable_thinking=True,
     )
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
@@ -54,9 +53,16 @@ async def generate(req: GenerateRequest):
                 do_sample=False,
             )
         generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
-        return tokenizer.decode(generated_ids, skip_special_tokens=True)
+        return tokenizer.decode(generated_ids, skip_special_tokens=False)
 
     loop = asyncio.get_event_loop()
-    answer = await loop.run_in_executor(None, run_generation)
+    raw_output = await loop.run_in_executor(None, run_generation)
 
-    return {"answer": answer}
+    # think / answer 분리
+    think_match = re.search(r'<think>(.*?)</think>', raw_output, re.DOTALL)
+    thinking = think_match.group(1).strip() if think_match else ""
+    answer = re.sub(r'<think>.*?</think>', '', raw_output, flags=re.DOTALL)
+    # special token 제거
+    answer = re.sub(r'<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>', '', answer).strip()
+
+    return {"thinking": thinking, "answer": answer}

@@ -6,7 +6,19 @@ export default defineConfig({
   server: {
     host: true,
     proxy: {
-      '/chat': 'http://100.104.164.84:8000',
+      '/chat': {
+        target: 'http://100.104.164.84:8000',
+        changeOrigin: true,
+        // SSE 스트리밍을 위해 버퍼링 비활성화
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+              proxyRes.headers['cache-control'] = 'no-cache'
+              proxyRes.headers['x-accel-buffering'] = 'no'
+            }
+          })
+        },
+      },
     },
   },
 })

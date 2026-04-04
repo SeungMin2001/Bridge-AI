@@ -1,5 +1,6 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import numpy as np
 from faster_whisper import WhisperModel
 from starlette.websockets import WebSocketDisconnect
@@ -41,8 +42,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-llm_server_url = "https://dialysable-kyson-microelectrophoretic.ngrok-free.dev"
+#python -c "from huggingface_hub import login; login(token='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')"
 
+
+# 코랩 모델
+#llm_server_url = "https://dialysable-kyson-microelectrophoretic.ngrok-free.dev"
+
+# 윈도우 모델
+llm_server_url = "http://localhost:8001"
 
 class ChatRequest(BaseModel):
     question: str
@@ -72,6 +79,9 @@ def remove_thinking(text: str) -> str:
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
+    import json as _json
+
+    # 1. LLM 서버에서 전체 응답 (JSON)
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
         res = await client.post(
             f"{llm_server_url}/generate",
@@ -79,12 +89,41 @@ async def chat(req: ChatRequest):
             headers={"ngrok-skip-browser-warning": "true"},
         )
     data = res.json()
-    answer = data.get("answer") or data.get("response") or ""
-    return {"answer": remove_thinking(answer)}
+    thinking = data.get("thinking") or ""
+    answer = remove_thinking(data.get("answer") or data.get("response") or "")
+
+    # 2. 백엔드가 직접 토큰 단위로 프론트에 SSE 스트리밍
+    async def token_stream():
+        # thinking 토큰 스트리밍
+        if thinking:
+            for char in thinking:
+                yield f"data: {_json.dumps({'type': 'thinking', 'token': char}, ensure_ascii=False)}\n\n"
+            yield f"data: {_json.dumps({'type': 'thinking_done'}, ensure_ascii=False)}\n\n"
+
+        # answer 토큰 스트리밍
+        for char in answer:
+            yield f"data: {_json.dumps({'type': 'answer', 'token': char}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {_json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        token_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:
-    """faster-whisper 전사 (스레드풀에서 실행)"""
+    """faster-whisper 전사 (스레드풀에서 실행)
+
+    환각(Hallucination) 필터링 기준:
+    - no_speech_prob > 0.6 : Whisper가 "무음/노이즈"라고 판단 → 제거
+    - avg_logprob < -1.0   : 전사 신뢰도가 낮음 → 제거
+    두 필터 모두 확률 기반이므로 실제 발화("감사합니다" 등)는 통과됨.
+    """
     segments, _ = model.transcribe(
         audio_16k,
         language="ko",
@@ -92,8 +131,28 @@ def _transcribe_chunk(audio_16k: np.ndarray) -> str:
         temperature=0.0,
         condition_on_previous_text=False,
         vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 500},
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
     )
-    return " ".join(seg.text.strip() for seg in segments).strip()
+
+    result_parts = []
+    for seg in segments:
+        text = seg.text.strip()
+        if not text:
+            continue
+        # 1. no_speech_prob 기반 필터 (실제 발화 시엔 낮은 값 → 통과)
+        if seg.no_speech_prob > 0.6:
+            print(f"[필터] no_speech_prob={seg.no_speech_prob:.2f} → 제거: {text!r}")
+            continue
+        # 2. avg_logprob 기반 필터 (실제 발화 시엔 높은 값 → 통과)
+        if seg.avg_logprob < -1.0:
+            print(f"[필터] avg_logprob={seg.avg_logprob:.2f} → 제거: {text!r}")
+            continue
+        result_parts.append(text)
+
+    return " ".join(result_parts).strip()
 
 
 def _correct_chunk(text: str) -> str:
