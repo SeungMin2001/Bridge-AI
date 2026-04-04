@@ -119,6 +119,7 @@ async def chat(req: ChatRequest):
                     "messages": messages,
                     "max_tokens": 512,
                     "temperature": 0.7,
+                    "chat_template_kwargs": {"enable_thinking": False},
                 },
                 headers={"Authorization": f"Bearer {llm_api_key}"},
             )
