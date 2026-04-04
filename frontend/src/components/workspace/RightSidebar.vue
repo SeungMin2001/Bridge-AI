@@ -19,8 +19,7 @@ async function sendMessage() {
   emit('update:aiInput', '')
   isLoading.value = true
 
-  const aiMsg = { role: 'ai', text: '', thinking: '', phase: 'thinking' }
-  messages.value.push(aiMsg)
+  messages.value.push({ role: 'ai', text: '', thinking: '', phase: 'thinking' })
 
   try {
     const res = await fetch('/chat', {
@@ -28,44 +27,19 @@ async function sendMessage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question }),
     })
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop()
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        try {
-          const data = JSON.parse(line.slice(6))
-          if (data.type === 'thinking') {
-            aiMsg.thinking += data.token
-            aiMsg.phase = 'thinking'
-          } else if (data.type === 'thinking_done') {
-            aiMsg.phase = 'answering'
-          } else if (data.type === 'answer') {
-            aiMsg.text += data.token
-            aiMsg.phase = 'answering'
-          } else if (data.type === 'done') {
-            aiMsg.phase = 'done'
-          }
-        } catch {}
-      }
-
-      await nextTick()
+    const data = await res.json()
+    messages.value[messages.value.length - 1] = {
+      role: 'ai',
+      thinking: data.thinking || '',
+      text: data.answer || '',
+      phase: 'done',
     }
   } catch (e) {
-    const lastMsg = messages.value[messages.value.length - 1]
-    if (lastMsg.role === 'ai' && !lastMsg.text) {
-      lastMsg.text = '오류가 발생했습니다. 서버 연결을 확인해주세요.'
-      lastMsg.phase = 'done'
+    messages.value[messages.value.length - 1] = {
+      role: 'ai',
+      thinking: '',
+      text: '오류가 발생했습니다. 서버 연결을 확인해주세요.',
+      phase: 'done',
     }
   } finally {
     isLoading.value = false

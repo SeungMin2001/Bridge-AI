@@ -23,9 +23,8 @@ async function sendMessage() {
   inputText.value = ''
   isLoading.value = true
 
-  // AI 응답 버블을 미리 추가 (스트리밍으로 채워짐)
-  const aiMsg = { role: 'ai', text: '', thinking: '', phase: 'thinking' }
-  messages.value.push(aiMsg)
+  // 로딩 표시용 임시 버블
+  messages.value.push({ role: 'ai', text: '', thinking: '', phase: 'thinking' })
 
   try {
     const res = await fetch('/chat', {
@@ -34,13 +33,21 @@ async function sendMessage() {
       body: JSON.stringify({ question }),
     })
     const data = await res.json()
-    aiMsg.thinking = data.thinking || ''
-    aiMsg.text = data.answer || ''
-    aiMsg.phase = 'done'
+    // 마지막 메시지를 교체 (Vue 반응성 보장)
+    messages.value[messages.value.length - 1] = {
+      role: 'ai',
+      thinking: data.thinking || '',
+      text: data.answer || '',
+      phase: 'done',
+    }
   } catch (e) {
     console.error('[AI Chat] fetch error:', e)
-    aiMsg.text = '오류가 발생했습니다. 서버 연결을 확인해주세요.'
-    aiMsg.phase = 'done'
+    messages.value[messages.value.length - 1] = {
+      role: 'ai',
+      thinking: '',
+      text: '오류가 발생했습니다. 서버 연결을 확인해주세요.',
+      phase: 'done',
+    }
   } finally {
     isLoading.value = false
   }
