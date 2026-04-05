@@ -22,7 +22,7 @@ const {
   openCitePopover
 } = useChat()
 const isLoading = ref(false)
-const isThinkingMode = ref(true)
+const isThinkingMode = ref(false)
 const aiTextarea = ref(null)
 const isSending = ref(false) // 중복 전송 방지용 플래그
 
