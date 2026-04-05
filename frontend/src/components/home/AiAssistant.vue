@@ -23,24 +23,48 @@ async function sendMessage() {
   inputText.value = ''
   isLoading.value = true
 
-  // 로딩 표시용 임시 버블
-  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'thinking' })
+  const idx = messages.value.length
+  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
 
   try {
-    const res = await fetch('/chat', {
+    const res = await fetch('/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question }),
     })
-    const data = await res.json()
-    // 마지막 메시지를 교체 (Vue 반응성 보장)
-    messages.value[messages.value.length - 1] = {
-      role: 'ai',
-      thinking: data.thinking || '',
-      text: data.answer || '',
-      citations: data.citations || [],
-      phase: 'done',
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6)
+        if (payload === '[DONE]') break
+
+        const data = JSON.parse(payload)
+        const msg = messages.value[idx]
+
+        if (data.type === 'citations') {
+          messages.value[idx] = { ...msg, citations: data.citations }
+        } else if (data.type === 'token') {
+          messages.value[idx] = { ...msg, text: msg.text + data.token }
+        } else if (data.type === 'error') {
+          messages.value[idx] = { ...msg, text: msg.text + `\n오류: ${data.error}` }
+        }
+      }
     }
+
+    const msg = messages.value[idx]
+    messages.value[idx] = { ...msg, phase: 'done' }
   } catch (e) {
     console.error('[AI Chat] fetch error:', e)
     messages.value[messages.value.length - 1] = {

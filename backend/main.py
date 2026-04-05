@@ -87,26 +87,30 @@ def remove_thinking(text: str) -> str:
     return text.strip()
 
 
+def _build_prompt_and_citations(question: str):
+    """RAG 검색 후 prompt와 citations 반환"""
+    rag_result = rag_search(question, top_k=5)
+    context = rag_result["context"]
+    citations = rag_result["citations"]
+
+    if context:
+        prompt = (
+            f"다음은 강의 내용에서 검색된 참고자료입니다:\n\n{context}\n\n"
+            f"위 참고자료를 바탕으로 답변하고, 답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
+            f"질문: {question}"
+        )
+    else:
+        prompt = question
+
+    return prompt, citations
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
+    """기존 비스트리밍 엔드포인트 (호환용)"""
     print(f"[CHAT] 요청 수신: {req.question}")
     try:
-        # 1. RAG 검색
-        rag_result = rag_search(req.question, top_k=5)
-        context = rag_result["context"]
-        citations = rag_result["citations"]
-
-        # 2. RAG context가 있으면 프롬프트에 포함
-        if context:
-            prompt = (
-                f"다음은 강의 내용에서 검색된 참고자료입니다:\n\n{context}\n\n"
-                f"위 참고자료를 바탕으로 답변하고, 답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
-                f"질문: {req.question}"
-            )
-        else:
-            prompt = req.question
-
-        # 3. LLM 호출 (vLLM OpenAI 호환 API)
+        prompt, citations = _build_prompt_and_citations(req.question)
         messages = [
             {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."},
             {"role": "user", "content": prompt},
@@ -123,22 +127,65 @@ async def chat(req: ChatRequest):
                 },
                 headers={"Authorization": f"Bearer {llm_api_key}"},
             )
-        print(f"[CHAT] LLM 응답 상태: {res.status_code}")
         data = res.json()
-        print(f"[CHAT] LLM 응답 데이터: {data}")
         raw_answer = data["choices"][0]["message"]["content"]
-        thinking = ""
-        # think 태그가 있으면 분리
-        import re
-        think_match = re.search(r'<think>(.*?)</think>', raw_answer, re.DOTALL)
-        if think_match:
-            thinking = think_match.group(1).strip()
         answer = remove_thinking(raw_answer)
-        print(f"[CHAT] thinking 길이: {len(thinking)}, answer 길이: {len(answer)}")
-        return {"thinking": thinking, "answer": answer, "citations": citations}
+        return {"thinking": "", "answer": answer, "citations": citations}
     except Exception as e:
         print(f"[CHAT] 에러: {e}")
         return {"thinking": "", "answer": f"오류: {e}", "citations": []}
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """SSE 스트리밍 엔드포인트"""
+    print(f"[CHAT STREAM] 요청 수신: {req.question}")
+
+    prompt, citations = _build_prompt_and_citations(req.question)
+    messages = [
+        {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."},
+        {"role": "user", "content": prompt},
+    ]
+
+    import json
+
+    async def generate():
+        # 먼저 citations 전송
+        yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
+                async with client.stream(
+                    "POST",
+                    f"{llm_server_url}/v1/chat/completions",
+                    json={
+                        "model": llm_model_name,
+                        "messages": messages,
+                        "max_tokens": 128,
+                        "temperature": 0.7,
+                        "stream": True,
+                        "chat_template_kwargs": {"enable_thinking": False},
+                    },
+                    headers={"Authorization": f"Bearer {llm_api_key}"},
+                ) as stream:
+                    async for line in stream.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        payload = line[6:]
+                        if payload == "[DONE]":
+                            break
+                        chunk = json.loads(payload)
+                        delta = chunk["choices"][0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield f"data: {json.dumps({'type': 'token', 'token': content}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            print(f"[CHAT STREAM] 에러: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 def _transcribe_chunk(audio_16k: np.ndarray) -> str:
