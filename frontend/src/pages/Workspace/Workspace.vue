@@ -48,6 +48,27 @@ function noteAddDummy() {
   alert('노트에 추가되었습니다. (데모)')
   closeCitePopover()
 }
+
+import { computed } from 'vue'
+
+const highlightedTranscript = computed(() => {
+  const cite = currentCite.value
+  if (!cite) return ''
+
+  // 전체 전사가 있으면 그것을 쓰고, 없으면 기존 text 사용
+  const fullText = cite.full_transcript || cite.text
+  // 하이라이팅 대상
+  const target = cite.text
+
+  if (cite.full_transcript && fullText.includes(target)) {
+    // 찾은 문장을 <mark> 태그로 감싸서 리턴
+    return fullText.replace(
+      target, 
+      `<mark class="bg-[#eff6ff] text-[#1d1d1f] font-bold rounded-[4px] px-1 -mx-1" style="box-decoration-break: clone;">${target}</mark>`
+    )
+  }
+  return fullText
+})
 </script>
 
 <template>
@@ -108,33 +129,33 @@ function noteAddDummy() {
             </button>
           </div>
 
-          <!-- 본문 -->
-          <div class="text-[13px] text-[#3a3a3c] leading-[1.6] mb-5 whitespace-pre-wrap break-keep font-medium">
-            {{ currentCite?.text || '내용이 없습니다.' }}
+          <!-- 본문 (스크롤 영역) -->
+          <div class="flex-1 overflow-y-auto mb-5 pr-2 custom-scrollbar" style="max-height: 240px;">
+            <div 
+              class="text-[13px] text-[#3a3a3c] leading-[1.7] whitespace-pre-wrap break-keep font-medium"
+              v-html="highlightedTranscript"
+            >
+            </div>
           </div>
 
           <!-- 구분선 -->
-          <div class="w-full h-[1px] bg-black/5 mb-4"></div>
+          <div class="w-full h-[1px] bg-black/5 mb-4 shrink-0"></div>
 
           <!-- 출처 정보 -->
-          <div class="flex items-center gap-1.5 mb-5 pt-1">
-            <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
-            <span class="font-bold text-[#8e8e93] text-[11px] uppercase tracking-wider">SOURCE:</span>
-            <span class="font-bold text-[#3b82f6] text-[11px] ml-1 truncate hover:underline cursor-pointer">
-              {{ currentCite?.session_title || 'AI 분석 결과' }}
-            </span>
+          <div class="flex flex-col gap-1.5 pt-1 shrink-0">
+            <div class="flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
+              <span class="font-bold text-[#8e8e93] text-[11px] uppercase tracking-wider">SOURCE:</span>
+              <span class="font-bold text-[#3b82f6] text-[11px] ml-1 truncate hover:underline cursor-pointer">
+                {{ currentCite?.session_title || 'AI 분석 결과' }}
+              </span>
+            </div>
+            
+            <div v-if="currentCite?.transcript_id" class="flex items-center gap-1.5 ml-[20px]">
+              <span class="text-[#8e8e93] text-[9px] font-medium tracking-wide uppercase">REF_ID:</span>
+              <span class="text-[#aeaeb2] text-[9px] font-mono select-all">{{ currentCite.transcript_id }}</span>
+            </div>
           </div>
-
-          <!-- 하단 버튼들 -->
-          <div class="flex gap-2">
-            <button class="flex-1 bg-[#3b82f6] hover:bg-blue-600 active:bg-blue-700 text-white font-bold text-[12px] py-2.5 rounded-xl transition-colors border-none cursor-pointer shadow-sm" @click="askAboutCite(currentCite)">
-              AI에게 질문
-            </button>
-            <button class="flex-1 bg-[#f2f2f7] hover:bg-[#e5e5ea] active:bg-[#d1d1d6] text-[#1d1d1f] font-bold text-[12px] py-2.5 rounded-xl transition-colors border-none cursor-pointer" @click="noteAddDummy">
-              노트에 추가
-            </button>
-          </div>
-          
         </div>
       </div>
     </transition>
@@ -177,5 +198,20 @@ function noteAddDummy() {
 .popover-fade-leave-to {
   opacity: 0;
   transform: scale(0.95) translateY(5px);
+}
+
+/* 팝오버 스크롤바 디자인 */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
 }
 </style>
