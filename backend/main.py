@@ -63,6 +63,7 @@ llm_api_key = "test-key"
 
 class ChatRequest(BaseModel):
     question: str
+    is_thinking: bool = True
 
 
 class RegisterRequest(BaseModel):
@@ -117,6 +118,7 @@ async def chat(req: ChatRequest):
         ]
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
             res = await client.post(
+
                 f"{llm_server_url}/v1/chat/completions",
                 json={
                     "model": llm_model_name,
@@ -126,6 +128,7 @@ async def chat(req: ChatRequest):
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
                 headers={"Authorization": f"Bearer {llm_api_key}"},
+
             )
         data = res.json()
         raw_answer = data["choices"][0]["message"]["content"]

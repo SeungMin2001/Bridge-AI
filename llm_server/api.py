@@ -26,6 +26,7 @@ app.add_middleware(
 class GenerateRequest(BaseModel):
     prompt: str
     max_new_tokens: int = 512
+    enable_thinking: bool = True
 
 
 @app.post("/generate")
@@ -34,12 +35,12 @@ async def generate(req: GenerateRequest):
         {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 간결하게 답변하되, 자세한 설명이 필요한 질문에만 길게 답변해."},
         {"role": "user", "content": req.prompt},
     ]
-
+    # enable_thinking=True로 설정하면 <think> 태그가 생성됨
     text = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=False,
+        enable_thinking=req.enable_thinking,
     )
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
