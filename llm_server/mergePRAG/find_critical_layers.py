@@ -46,12 +46,19 @@ TEST_SAMPLES = [
 def load_model():
     print(f"[Critical Layer Finder] 모델 로딩: {MODEL_NAME}")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+
+    awq_config = AwqConfig(
+        bits=4,
+        do_fuse=False,
+        pre_quantized=True,
+    )
+
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         device_map="auto",
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         trust_remote_code=True,
-        quantization_config=AwqConfig(bits=4, do_fuse=False, pre_quantized=False),
+        quantization_config=awq_config,
     )
     model.eval()
     return model, tokenizer
