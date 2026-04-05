@@ -24,6 +24,7 @@ const {
 const isLoading = ref(false)
 const isThinkingMode = ref(true)
 const aiTextarea = ref(null)
+const isSending = ref(false) // 중복 전송 방지용 플래그
 
 // 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
 // true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
@@ -32,7 +33,9 @@ const USE_DEMO_DATA = false
 
 async function sendMessage() {
   const question = props.aiInput.trim()
-  if (!question) return
+  if (!question || isSending.value) return // 전송 중이거나 빈 메시지면 무시
+  
+  isSending.value = true
 
   addMessage({ role: 'user', text: question })
   emit('update:aiInput', '')
@@ -41,7 +44,7 @@ async function sendMessage() {
   const idx = messages.value.length
   messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
 
-  // 1. 데모(목업) 모드 동작
+  /* 1. 데모(목업) 모드 동작 (비활성화)
   if (USE_DEMO_DATA) {
     console.log('[테스트 모드] USE_DEMO_DATA가 true이므로 미리 설정된 데모 데이터를 출력합니다.')
     setTimeout(() => {
@@ -71,6 +74,7 @@ async function sendMessage() {
     }, 800)
     return
   }
+  */
 
   // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
   try {
@@ -135,6 +139,7 @@ async function sendMessage() {
     })
   } finally {
     isLoading.value = false
+    isSending.value = false // 전송 완료 후 플래그 해제
     // 전송 후 텍스트에어리어 높이 초기화
     nextTick(() => {
       if (aiTextarea.value) aiTextarea.value.style.height = 'auto'
@@ -154,7 +159,11 @@ function handleInput(e) {
 }
 
 function handleEnter(e) {
-  if (e.shiftKey) return // Shift+Enter는 줄바꿈
+  // 한국어 IME 중복 전송 방지를 위한 엄격한 체크 (keyCode 229는 조합 중을 의미)
+  if (e.isComposing || e.keyCode === 229) return
+  if (e.shiftKey) return 
+  
+  e.preventDefault()
   sendMessage()
 }
 
