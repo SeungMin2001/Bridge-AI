@@ -51,7 +51,7 @@ def load_model():
         device_map="auto",
         torch_dtype=torch.float16,
         trust_remote_code=True,
-        quantization_config=AwqConfig(bits=4, fuse_max_seq_len=1024, do_fuse=False),
+        quantization_config=AwqConfig(bits=4, do_fuse=False, pre_quantized=True),
     )
     model.eval()
     return model, tokenizer
