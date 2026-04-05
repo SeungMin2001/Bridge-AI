@@ -44,7 +44,8 @@ async function sendMessage() {
   const idx = messages.value.length
   messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
 
-  /* 1. 데모(목업) 모드 동작 (비활성화)
+  /*
+  // 1. 데모(목업) 모드 동작 (비활성화)
   if (USE_DEMO_DATA) {
     console.log('[테스트 모드] USE_DEMO_DATA가 true이므로 미리 설정된 데모 데이터를 출력합니다.')
     setTimeout(() => {
@@ -74,8 +75,8 @@ async function sendMessage() {
     }, 800)
     return
   }
-  */
-
+  //데모(목업) 모드 동작 (비활성화)
+*/
   // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
   try {
     const res = await fetch('/chat/stream', {
@@ -175,37 +176,21 @@ function renderTextWithCitations(text) {
 }
 
 function handleDocContentClick(event, msg, idx) {
-  const chip = event.currentTarget
-  if (!chip || isNaN(idx) || !msg.citations || !msg.citations[idx]) return
+  if (isNaN(idx) || !msg.citations || !msg.citations[idx]) return
   
-  const rect = chip.getBoundingClientRect()
-  const popoverWidth = 300
-  const popoverHeight = 400 // 하이라이트 텍스트 포함 넉넉한 높이 가정
-  
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-  
-  // 1. 좌우 위치 결정 (사이드바 메뉴 왼쪽)
-  let x = rect.left - popoverWidth 
-  if (x < 20) x = 20
-  
-  // 2. 상하 위치 결정 (스마트 포지셔닝)
-  let y = rect.top - 20 
-
-  // 클릭 위치가 화면의 60%보다 아래면 팝업을 위쪽으로 띄움
-  if (rect.top > viewportHeight * 0.6) {
-    y = rect.top - popoverHeight + 40 // 버튼 위쪽으로 띄움
-  } else {
-    // 위쪽에 띄울 공간이 충분할 때는 기존처럼 살짝 아래로
-    if (y + popoverHeight > viewportHeight) {
-      y = viewportHeight - popoverHeight - 30 
-    }
+  // 🎯 중앙 메인 컨텐츠 카드의 위치를 찾습니다.
+  const mainCard = document.getElementById('tab-contents-container')
+  if (!mainCard) {
+    // 만약 요소를 못 찾는 경우 대비한 fallback
+    openCitePopover(msg.citations[idx], window.innerWidth / 2 + 50, 100)
+    return
   }
 
-  // 상단 경계 최소값 보정
-  if (y < 20) y = 20
+  const rect = mainCard.getBoundingClientRect()
   
-  openCitePopover(msg.citations[idx], x, y)
+  // 사용자님 요청대로 중앙 컨텐츠 카드 우측 상단 모서리에 맞춥니다.
+  // 모달(팝오버)의 너비가 290px이므로 rect.right에서 290을 빼면 카드의 정확한 우측 라인에 정렬됩니다.
+  openCitePopover(msg.citations[idx], rect.right - 290, rect.top)
 }
 
 const width = ref(420)

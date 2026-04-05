@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import AnimatedTabs from '../ui/AnimatedTabs.vue'
+import { useChat } from '../../composables/useChat'
+
+const { selectedWordData, clearSelectedWord } = useChat()
 
 const props = defineProps({
   isRecording: Boolean,
@@ -9,7 +12,7 @@ const props = defineProps({
   summaryNotes: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['startRecording', 'stopRecording', 'mainSidebarToggle', 'rightSidebarToggle'])
+const emit = defineEmits(['startRecording', 'stopRecording', 'mainSidebarToggle', 'rightSidebarToggle', 'askAi', 'addToNote'])
 
 const activeTab = ref('note')
 const activeSummaryTab = ref('ai-summary')
@@ -48,6 +51,20 @@ const noteTabName = computed(() => props.activeFileName || '새 노트')
 const onNoteBlur = (e) => {
   isNoteFocused.value = false
   noteContent.value = e.target.innerText
+}
+
+const handleAskAi = () => {
+  if (selectedWordData.value) {
+    emit('askAi', selectedWordData.value.word)
+    clearSelectedWord()
+  }
+}
+
+const handleAddToNote = () => {
+  if (selectedWordData.value) {
+    emit('addToNote', selectedWordData.value.desc, selectedWordData.value.source)
+    clearSelectedWord()
+  }
 }
 </script>
 
@@ -92,6 +109,49 @@ const onNoteBlur = (e) => {
         </button>
       </div>
     </header>
+
+    <!-- ═══ 단어 정보 카드 (전사 단어 클릭 시 표시) ═══ -->
+    <transition name="word-card">
+      <div v-if="selectedWordData" class="word-info-card card shrink-0">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <div class="word-badge">
+              <span class="material-symbols-outlined text-[14px]">dictionary</span>
+            </div>
+            <span class="text-[15px] font-extrabold text-[#1d1d1f] tracking-tight">{{ selectedWordData.word }}</span>
+          </div>
+          <button @click="clearSelectedWord" class="p-1.5 rounded-full hover:bg-black/5 transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">close</span>
+          </button>
+        </div>
+        <p class="text-[13px] text-[#3a3a3c] leading-[1.7] font-medium mt-2 mb-0">
+          {{ selectedWordData.desc }}
+        </p>
+        <div class="flex items-center justify-between mt-2.5 pt-2.5 border-t border-black/5">
+          <div class="flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-[13px] text-[#8e8e93]">link</span>
+            <span class="text-[10px] font-bold text-[#8e8e93] uppercase tracking-wider">Source:</span>
+            <span class="text-[10px] font-bold text-blue-500">{{ selectedWordData.source }}</span>
+          </div>
+          <div class="flex gap-1.5">
+            <button 
+              class="word-card-btn word-card-btn-primary"
+              @click="handleAskAi"
+            >
+              <span class="material-symbols-outlined text-[13px]">auto_awesome</span>
+              AI 질문
+            </button>
+            <button 
+              class="word-card-btn word-card-btn-secondary"
+              @click="handleAddToNote"
+            >
+              <span class="material-symbols-outlined text-[13px]">note_add</span>
+              노트 추가
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <!-- Main Content Area -->
     <div id="tab-contents-container" class="flex-1 flex flex-col relative min-h-0 min-w-0">
@@ -181,3 +241,86 @@ const onNoteBlur = (e) => {
     </div>
   </main>
 </template>
+
+<style scoped>
+/* ═══ 단어 정보 카드 스타일 ═══ */
+.word-info-card {
+  padding: 14px 18px;
+  border-left: 3px solid #3b82f6;
+  background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(247,249,255,0.95));
+  backdrop-filter: blur(10px);
+}
+
+.word-badge {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.word-card-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.word-card-btn-primary {
+  background: #3b82f6;
+  color: white;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
+}
+.word-card-btn-primary:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.35);
+}
+
+.word-card-btn-secondary {
+  background: #f2f2f7;
+  color: #1d1d1f;
+}
+.word-card-btn-secondary:hover {
+  background: #e5e5ea;
+  transform: translateY(-1px);
+}
+
+/* ═══ 트랜지션 애니메이션 ═══ */
+.word-card-enter-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.word-card-leave-active {
+  transition: all 0.2s ease;
+}
+.word-card-enter-from {
+  opacity: 0;
+  transform: translateY(-8px) scaleY(0.9);
+  max-height: 0;
+}
+.word-card-enter-to {
+  opacity: 1;
+  transform: translateY(0) scaleY(1);
+  max-height: 200px;
+}
+.word-card-leave-from {
+  opacity: 1;
+  transform: translateY(0) scaleY(1);
+  max-height: 200px;
+}
+.word-card-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scaleY(0.9);
+  max-height: 0;
+}
+</style>

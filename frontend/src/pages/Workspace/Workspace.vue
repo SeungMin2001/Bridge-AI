@@ -101,6 +101,8 @@ const highlightedTranscript = computed(() => {
       @stopRecording="emit('stopRecording')"
       @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @rightSidebarToggle="emit('rightSidebarToggle')"
+      @askAi="(word) => emit('askAi', word)"
+      @addToNote="(text, source) => emit('addToNote', text, source)"
     />
     
     <RightSidebar 
@@ -119,20 +121,20 @@ const highlightedTranscript = computed(() => {
           :style="{ left: citePopoverPos.x + 'px', top: citePopoverPos.y + 'px' }"
         >
           <!-- 헤더 -->
-          <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-2.5">
-              <div class="w-2.5 h-2.5 bg-[#3b82f6] rounded-full animate-pulse"></div>
-              <span class="font-extrabold text-[#1d1d1f] text-[15px] tracking-tight">근거 정보</span>
+          <div class="flex items-center justify-between mb-5 px-1">
+            <div class="flex items-center gap-3">
+              <div class="w-2.5 h-2.5 bg-[#3b82f6] rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
+              <span class="font-bold text-[#1c1c1e] text-[17px] tracking-tight">근거 정보</span>
             </div>
-            <button class="text-[#8e8e93] hover:text-[#1d1d1f] transition-colors bg-transparent border-none p-1 cursor-pointer flex items-center justify-center rounded-full hover:bg-black/5" @click="closeCitePopover">
-              <span class="material-symbols-outlined text-[18px]">close</span>
+            <button class="text-[#8e8e93] hover:text-[#1c1c1e] transition-all bg-transparent border-none p-1.5 cursor-pointer flex items-center justify-center rounded-full hover:bg-black/5" @click="closeCitePopover">
+              <span class="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
 
           <!-- 본문 (스크롤 영역) -->
-          <div class="flex-1 overflow-y-auto mb-5 pr-2 custom-scrollbar" style="max-height: 240px;">
+          <div class="flex-1 overflow-y-auto mb-6 px-1 custom-scrollbar" style="max-height: 400px;">
             <div 
-              class="text-[13px] text-[#3a3a3c] leading-[1.7] whitespace-pre-wrap break-keep font-medium"
+              class="text-[15px] text-[#3a3a3c] leading-[1.8] whitespace-pre-wrap break-keep font-medium"
               v-html="highlightedTranscript"
             >
             </div>
@@ -172,19 +174,19 @@ const highlightedTranscript = computed(() => {
 
 .cite-popover {
   position: fixed;
-  width: 280px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* x, y 좌표는 citePopoverPos에서 인라인 스타일로 제어됨 */
+  width: 290px; /* 320px에서 30px 줄임 */
+  background: rgba(255, 255, 255, 0.95);
   border-radius: 20px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   display: flex;
   flex-direction: column;
   padding: 20px;
-  transform-origin: left top;
+  transform-origin: right top; /* 우측 정렬이므로 우상단 기준으로 애니메이션 */
 }
 
+/* 애니메이션 개선 */
 .popover-fade-enter-active {
   transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
@@ -202,16 +204,16 @@ const highlightedTranscript = computed(() => {
 
 /* 팝오버 스크롤바 디자인 */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.15);
 }
 </style>

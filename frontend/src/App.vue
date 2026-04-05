@@ -72,6 +72,20 @@ const stopRecording = () => {
   if (ws) { ws.close(); ws = null }
 }
 
+// 전사 테스트 관련코드
+const addTranscriptionBubble = (text, isMock = false) => {
+  const now = new Date()
+  transcriptions.value.push({
+    time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+    text: text,
+    segments: [{ 
+      id: Date.now() + Math.random(),
+      text: text, 
+      status: isMock ? 'confirmed' : 'pending' 
+    }]
+  })
+}
+//전사 테스트 코드 끝
 
 const startRecording = async () => {
   isRecording.value = true
@@ -82,15 +96,16 @@ const startRecording = async () => {
   }, 1000)
 
   // Mock Data 설정
-  // 전사 테스트
+  // 전사 테스트 모드
+  //백엔드 킬때 false로
   const USE_MOCK_DATA = false
 
   if (USE_MOCK_DATA) {
     const t1 = setTimeout(() => {
-      addTranscriptionBubble("안녕하세요, 실시간 음성 전사 테스트 중입니다.")
+      addTranscriptionBubble("안녕하세요, 실시간 음성 전사 테스트 중입니다.", true)
     }, 3000)
     const t2 = setTimeout(() => {
-      addTranscriptionBubble("현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.")
+      addTranscriptionBubble("현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.", true)
     }, 7000)
     mockTimers = [t1, t2]
     return
