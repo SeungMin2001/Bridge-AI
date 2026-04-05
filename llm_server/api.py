@@ -26,7 +26,7 @@ app.add_middleware(
 class GenerateRequest(BaseModel):
     prompt: str
     max_new_tokens: int = 512
-    enable_thinking: bool = True
+    enable_thinking: bool = False
 
 
 @app.post("/generate")
