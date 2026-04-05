@@ -9,7 +9,7 @@ Critical Layer Finder
 import torch
 import torch.nn.functional as F
 import json
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AwqConfig
 from .cross_attention import cross_attention
 
 # ── 설정 ──
@@ -51,7 +51,7 @@ def load_model():
         device_map="auto",
         torch_dtype=torch.float16,
         trust_remote_code=True,
-        quantization_config={"quant_method": "awq", "bits": 4, "pre_quantized": True},
+        quantization_config=AwqConfig(bits=4, fuse_max_seq_len=1024, do_fuse=False),
     )
     model.eval()
     return model, tokenizer
