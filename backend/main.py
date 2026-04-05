@@ -167,7 +167,7 @@ async def chat_stream(req: ChatRequest):
                         "max_tokens": 128,
                         "temperature": 0.7,
                         "stream": True,
-                        "chat_template_kwargs": {"enable_thinking": False},
+                        "chat_template_kwargs": {"enable_thinking": req.is_thinking},
                     },
                     headers={"Authorization": f"Bearer {llm_api_key}"},
                 ) as stream:

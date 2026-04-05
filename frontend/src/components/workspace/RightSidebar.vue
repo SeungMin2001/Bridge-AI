@@ -72,27 +72,57 @@ async function sendMessage() {
     return
   }
 
-  // 2. 실제 백엔드 서버 연동 모드
+  // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
   try {
     const res = await fetch('/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         question,
         is_thinking: isThinkingMode.value
       }),
     })
-    
+
     if (!res.ok) throw new Error(`서버 응답 오류 (상태 코드: ${res.status})`)
-    
-    const data = await res.json()
-    updateLastAiMessage({
-      role: 'ai',
-      thinking: data.thinking || '',
-      text: data.answer || '',
-      citations: data.citations || [],
-      phase: 'done',
-    })
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let streamedText = ''
+    let streamedCitations = []
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6)
+        if (payload === '[DONE]') break
+
+        try {
+          const data = JSON.parse(payload)
+          if (data.type === 'citations') {
+            streamedCitations = data.citations
+            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+          } else if (data.type === 'token') {
+            streamedText += data.token
+            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+          } else if (data.type === 'error') {
+            streamedText += `\n오류: ${data.error}`
+            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+          }
+        } catch (parseErr) {
+          // SSE 파싱 실패 시 무시
+        }
+      }
+    }
+
+    updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'done' })
 
   } catch (e) {
     console.error('[오류] 실제 백엔드 서버 연결에 실패했습니다.', e)
