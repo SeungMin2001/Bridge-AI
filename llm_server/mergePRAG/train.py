@@ -13,6 +13,7 @@ MergePRAG HyperNetwork 학습 스크립트 (논문 원본 KV_train.py 기반)
 import torch
 import torch.nn.functional as F
 import json
+import os
 import time
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -32,9 +33,13 @@ EPOCHS = 1                  # 논문: 1 epoch (single pass)
 MAX_SAMPLES = None           # 전체 학습
 MAX_VAL_SAMPLES = None       # 전체 검증
 EVAL_EVERY = 1000           # N step마다 validation
+EVAL_MAX_SAMPLES = 500      # validation 시 최대 샘플 수 (전체 순회 방지)
 LOG_EVERY = 50              # N step마다 터미널 출력 (논문: 49)
+SAVE_EVERY = 2000           # N step마다 체크포인트 저장
 PATIENCE = 5                # early stopping patience
+MAX_SEQ_LEN = 512           # passage/QA 토큰 최대 길이 (OOM 방지)
 SAVE_PATH = "llm_server/mergePRAG/hypernet_weights.pt"
+CHECKPOINT_PATH = "llm_server/mergePRAG/hypernet_checkpoint.pt"
 LOG_PATH = "llm_server/mergePRAG/train_log.json"
 CHART_PATH = "llm_server/mergePRAG/train_loss_curve.png"
 TRAIN_DATA_PATH = r"C:\Users\user\Documents\last_project\data\HotPot_train_min.jsonl"
@@ -98,8 +103,8 @@ def tokenize_qa(tokenizer, question, answer, device):
     prompt = f"Question: {question}\nAnswer:"
     full_text = f"Question: {question}\nAnswer: {answer}"
 
-    prompt_ids = tokenizer(prompt, return_tensors="pt")["input_ids"]
-    full_ids = tokenizer(full_text, return_tensors="pt")["input_ids"].to(device)
+    prompt_ids = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"]
+    full_ids = tokenizer(full_text, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
     prompt_len = prompt_ids.shape[1]
 
     # labels: prompt 부분은 -100, answer 부분만 학습
@@ -117,15 +122,16 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
     count = 0
 
     with torch.no_grad():
-        for sample in dataset:
-            # passage → embedding → K, V
+        for idx, sample in enumerate(dataset):
+            if idx >= EVAL_MAX_SAMPLES:
+                break
+
             passage = " ".join(sample["facts"])
-            input_ids = tokenizer(passage, return_tensors="pt", truncation=True)["input_ids"].to(device)
+            input_ids = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
             c_emb = model.model.embed_tokens(input_ids)
             c_emb = c_emb.to(dtype=torch.float32)
             delta_K, delta_V = hypernet(c_emb)
 
-            # hook 등록 → forward → hook 해제
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
             tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
             logits = model(input_ids=tok["input_ids"])["logits"]
@@ -135,6 +141,10 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             if loss is not None:
                 total_loss += loss.item()
                 count += 1
+
+            # VRAM 정리
+            del logits, loss
+            torch.cuda.empty_cache()
 
     hypernet.train()
     return total_loss / max(count, 1)
@@ -235,6 +245,17 @@ def train():
         optimizer, T_max=len(train_dataset), eta_min=LR_MIN
     )
 
+    # ── 체크포인트 복구 (중간에 끊긴 경우) ──
+    resume_step = 0
+    if os.path.exists(CHECKPOINT_PATH):
+        ckpt = torch.load(CHECKPOINT_PATH, map_location=device)
+        hypernet.load_state_dict(ckpt["hypernet"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+        resume_step = ckpt["step"]
+        best_val_loss = ckpt.get("best_val_loss", float("inf"))
+        print(f"[복구] 체크포인트에서 재개: step {resume_step}")
+
     # ── 로그 ──
     log_data = {
         "config": {
@@ -256,7 +277,8 @@ def train():
         "epochs": [],
     }
 
-    best_val_loss = float("inf")
+    if resume_step == 0:
+        best_val_loss = float("inf")
     patience_counter = 0
     early_stopped = False
 
@@ -276,38 +298,57 @@ def train():
         count = 0
 
         for i, sample in enumerate(train_dataset):
-            # 1. passage → base model embedding layer → HyperNetwork → delta_K, delta_V
-            passage = " ".join(sample["facts"])
-            input_ids = tokenizer(passage, return_tensors="pt", truncation=True)["input_ids"].to(device)
-            with torch.no_grad():
-                c_emb = model.model.embed_tokens(input_ids)  # [1, T, d_model]
-            c_emb = c_emb.to(dtype=torch.float32)
-            delta_K, delta_V = hypernet(c_emb)
-
-            # 2. hook 등록 (논문: 매 step 등록/해제)
-            hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
-
-            # 3. Q+A 토큰화 (labels=-100 마스킹)
-            tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
-
-            # 4. forward → loss
-            logits = model(input_ids=tok["input_ids"])["logits"]
-            hook.remove()  # 즉시 해제
-
-            loss = compute_loss(logits, tok["labels"])
-            if loss is None:
+            # 체크포인트 복구: 이미 학습한 step 건너뛰기
+            if i < resume_step:
                 continue
 
-            # 5. backward → HyperNetwork만 업데이트
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
+            try:
+                # 1. passage → base model embedding layer → HyperNetwork → delta_K, delta_V
+                passage = " ".join(sample["facts"])
+                input_ids = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
+                with torch.no_grad():
+                    c_emb = model.model.embed_tokens(input_ids)  # [1, T, d_model]
+                c_emb = c_emb.to(dtype=torch.float32)
+                delta_K, delta_V = hypernet(c_emb)
 
-            loss_val = loss.item()
-            total_loss += loss_val
-            count += 1
-            global_step += 1
+                # 2. hook 등록 (논문: 매 step 등록/해제)
+                hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
+
+                # 3. Q+A 토큰화 (labels=-100 마스킹)
+                tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
+
+                # 4. forward → loss
+                logits = model(input_ids=tok["input_ids"])["logits"]
+                hook.remove()  # 즉시 해제
+
+                loss = compute_loss(logits, tok["labels"])
+                if loss is None:
+                    continue
+
+                # 5. backward → HyperNetwork만 업데이트
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                scheduler.step()
+
+                loss_val = loss.item()
+                total_loss += loss_val
+                count += 1
+                global_step += 1
+
+                # VRAM 정리
+                del logits, loss, c_emb, delta_K, delta_V, input_ids
+                if global_step % 100 == 0:
+                    torch.cuda.empty_cache()
+
+            except RuntimeError as e:
+                if "out of memory" in str(e):
+                    print(f"  [OOM] step {global_step} 스킵, VRAM 정리 중...")
+                    torch.cuda.empty_cache()
+                    optimizer.zero_grad()
+                    continue
+                else:
+                    raise e
 
             # 로그 기록
             log_data["step_losses"].append({
@@ -321,13 +362,23 @@ def train():
                     "step": global_step,
                     "lr": round(lr_now, 8),
                 })
-
-            # 터미널 출력
-            if global_step % LOG_EVERY == 0:
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
-                lr_now = scheduler.get_last_lr()[0]
                 print(f"  Step {global_step}/{len(train_dataset)} | loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | {elapsed:.1f}min")
+
+            # 중간 체크포인트 저장
+            if global_step % SAVE_EVERY == 0:
+                torch.save({
+                    "step": global_step,
+                    "hypernet": hypernet.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "best_val_loss": best_val_loss,
+                }, CHECKPOINT_PATH)
+                # 중간 로그도 저장 (크래시 대비)
+                with open(LOG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(log_data, f, indent=2, ensure_ascii=False)
+                print(f"  [체크포인트] step {global_step} 저장")
 
             # Validation 평가
             if global_step % EVAL_EVERY == 0:
