@@ -22,6 +22,8 @@ const {
   openCitePopover
 } = useChat()
 const isLoading = ref(false)
+const isThinkingMode = ref(true)
+const aiTextarea = ref(null)
 
 // 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
 // true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
@@ -74,7 +76,10 @@ async function sendMessage() {
     const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ 
+        question,
+        is_thinking: isThinkingMode.value
+      }),
     })
     
     if (!res.ok) throw new Error(`서버 응답 오류 (상태 코드: ${res.status})`)
@@ -98,7 +103,27 @@ async function sendMessage() {
     })
   } finally {
     isLoading.value = false
+    // 전송 후 텍스트에어리어 높이 초기화
+    nextTick(() => {
+      if (aiTextarea.value) aiTextarea.value.style.height = 'auto'
+    })
   }
+}
+
+function handleInput(e) {
+  emit('update:aiInput', e.target.value)
+  // 높이 자동 조절
+  nextTick(() => {
+    if (aiTextarea.value) {
+      aiTextarea.value.style.height = 'auto'
+      aiTextarea.value.style.height = aiTextarea.value.scrollHeight + 'px'
+    }
+  })
+}
+
+function handleEnter(e) {
+  if (e.shiftKey) return // Shift+Enter는 줄바꿈
+  sendMessage()
 }
 
 function renderTextWithCitations(text) {
@@ -282,20 +307,49 @@ watch(messages, () => {
           </transition-group>
         </div>
       </transition>
-        <div class="mt-auto">
-          <div class="sidebar-search-bg rounded-[14px] px-4 py-3 flex items-center gap-3 border border-transparent focus-within:border-[#3b82f6] transition-all">
-            <input
-              class="bg-transparent border-none focus:ring-0 p-0 text-[13px] flex-1 text-[#1d1d1f] placeholder-[#aeaeb2]"
-              placeholder="AI에게 질문하기..." type="text"
+        <div class="mt-auto px-1 pb-2">
+          <!-- 🎨 다듬어진 프리미엄 입력창 디자인 -->
+          <div class="bg-[#f8f8fa] rounded-[26px] border border-[#efeff3] p-3.5 transition-all">
+            <textarea
+              class="w-full bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] min-h-[24px] max-h-[120px] resize-none leading-relaxed custom-scrollbar"
+              placeholder="무엇이든 물어보세요..."
+              rows="1"
+              ref="aiTextarea"
               :value="aiInput"
-              @input="emit('update:aiInput', $event.target.value)"
-              @keyup.enter="sendMessage"
-            />
-            <button class="text-[#3b82f6] hover:text-blue-700 transition-colors" @click="sendMessage">
-              <span class="material-symbols-outlined text-[20px]">arrow_upward</span>
-            </button>
+              @input="handleInput"
+              @keydown.enter.prevent="handleEnter"
+            ></textarea>
+            
+            <div class="flex items-center justify-between mt-2 pt-1 border-t border-[#f2f2f7]/50">
+              <!-- 왼쪽 도구: 첨부 아이콘 -->
+              <button class="w-8 h-8 flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] rounded-full transition-all">
+                <span class="material-symbols-outlined text-[20px]">attach_file</span>
+              </button>
+
+              <div class="flex items-center gap-2">
+                <!-- Thinking 모드 버튼 (동작 위주 아이콘) -->
+                <button 
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all border-none cursor-pointer"
+                  :class="isThinkingMode ? 'bg-[#3b82f6]/10 text-[#3b82f6]' : 'bg-[#f2f2f7] text-[#8e8e93] hover:bg-[#e5e5ea]'"
+                  @click="isThinkingMode = !isThinkingMode"
+                  title="Thinking Mode"
+                >
+                  <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-pulse': isThinkingMode }">psychology</span>
+                  <span class="text-[11px] font-bold tracking-tight">Thinking</span>
+                </button>
+
+                <!-- 전송 버튼 -->
+                <button 
+                  class="w-8 h-8 rounded-full flex items-center justify-center transition-all border-none"
+                  :class="aiInput.trim() ? 'bg-[#3b82f6] text-white shadow-sm' : 'bg-[#d1d1d6] text-white cursor-not-allowed'"
+                  @click="sendMessage"
+                  :disabled="!aiInput.trim()"
+                >
+                  <span class="material-symbols-outlined text-[18px]">arrow_upward</span>
+                </button>
+              </div>
+            </div>
           </div>
-          <p class="text-[10px] text-center text-[#aeaeb2] mt-3">AI는 실수를 할 수 있으므로 중요한 정보는 확인해 주세요.</p>
         </div>
       </div>
   </aside>

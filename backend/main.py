@@ -58,6 +58,7 @@ llm_server_url = "http://localhost:8001"
 
 class ChatRequest(BaseModel):
     question: str
+    is_thinking: bool = True
 
 
 class RegisterRequest(BaseModel):
@@ -105,7 +106,10 @@ async def chat(req: ChatRequest):
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
             res = await client.post(
                 f"{llm_server_url}/generate",
-                json={"prompt": prompt},
+                json={
+                    "prompt": prompt,
+                    "enable_thinking": req.is_thinking
+                },
                 headers={"ngrok-skip-browser-warning": "true"},
             )
         print(f"[CHAT] LLM 응답 상태: {res.status_code}")

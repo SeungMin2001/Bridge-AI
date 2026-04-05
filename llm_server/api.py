@@ -27,6 +27,7 @@ app.add_middleware(
 class GenerateRequest(BaseModel):
     prompt: str
     max_new_tokens: int = 512
+    enable_thinking: bool = True
 
 
 @app.post("/generate")
@@ -40,7 +41,7 @@ async def generate(req: GenerateRequest):
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=False,
+        enable_thinking=req.enable_thinking,
     )
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
