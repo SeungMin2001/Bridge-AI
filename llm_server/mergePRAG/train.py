@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 import json
 import os
+import time
+from datetime import datetime
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
@@ -28,8 +30,11 @@ ALPHA = 0.01
 LR = 1e-4
 EPOCHS = 3
 BATCH_SIZE = 1  # VRAM 제약
-MAX_SAMPLES = 500  # 학습 데이터 수 제한
-MAX_VAL_SAMPLES = 100  # 검증 데이터 수 제한
+MAX_SAMPLES = None  # 전체 학습
+MAX_VAL_SAMPLES = None  # 전체 검증
+EVAL_EVERY = 1000  # N step마다 validation 평가
+PATIENCE = 3  # val loss 개선 없으면 early stopping (eval 횟수 기준)
+GRAD_ACCUM_STEPS = 4  # gradient accumulation (실질 batch=4)
 SAVE_PATH = "llm_server/mergePRAG/hypernet_weights.pt"
 LOG_PATH = "llm_server/mergePRAG/train_log.json"
 CHART_PATH = "llm_server/mergePRAG/train_loss_curve.png"
@@ -129,21 +134,53 @@ def evaluate(model, tokenizer, hypernet, inject_hook, dataset, device):
 
 
 def save_chart(log_data):
-    """학습/검증 loss 곡선 차트 저장 (발표자료용)"""
-    epochs = [e["epoch"] for e in log_data["epochs"]]
-    train_losses = [e["train_loss"] for e in log_data["epochs"]]
-    val_losses = [e["val_loss"] for e in log_data["epochs"]]
+    """학습/검증 loss 곡선 차트 저장 (발표자료용) - step 기반"""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(epochs, train_losses, "o-", label="Train Loss", color="#2196F3", linewidth=2)
-    plt.plot(epochs, val_losses, "s--", label="Validation Loss", color="#FF5722", linewidth=2)
-    plt.xlabel("Epoch", fontsize=12)
-    plt.ylabel("Cross-Entropy Loss", fontsize=12)
-    plt.title("MergePRAG HyperNetwork Training", fontsize=14)
-    plt.legend(fontsize=11)
-    plt.grid(True, alpha=0.3)
+    # ── 좌측: Step별 Train Loss (smoothed) ──
+    steps = [s["step"] for s in log_data["step_losses"]]
+    losses = [s["loss"] for s in log_data["step_losses"]]
+
+    # 이동평균으로 스무딩 (window=50)
+    window = min(50, len(losses) // 5) if len(losses) > 10 else 1
+    if window > 1:
+        smoothed = []
+        for i in range(len(losses)):
+            start = max(0, i - window + 1)
+            smoothed.append(sum(losses[start:i+1]) / (i - start + 1))
+    else:
+        smoothed = losses
+
+    ax1.plot(steps, losses, alpha=0.15, color="#90CAF9", linewidth=0.5)
+    ax1.plot(steps, smoothed, color="#2196F3", linewidth=1.5, label="Train Loss (smoothed)")
+
+    # val loss 포인트도 좌측에 표시
+    val_steps = [v["step"] for v in log_data["val_evals"]]
+    val_losses = [v["val_loss"] for v in log_data["val_evals"]]
+    ax1.plot(val_steps, val_losses, "o-", color="#FF5722", linewidth=2, markersize=4, label="Val Loss")
+
+    ax1.set_xlabel("Step", fontsize=12)
+    ax1.set_ylabel("Cross-Entropy Loss", fontsize=12)
+    ax1.set_title("Training Progress (per step)", fontsize=13)
+    ax1.legend(fontsize=10)
+    ax1.grid(True, alpha=0.3)
+
+    # ── 우측: Epoch별 Train vs Val ──
+    epochs = [e["epoch"] for e in log_data["epochs"]]
+    train_losses_ep = [e["train_loss"] for e in log_data["epochs"]]
+    val_losses_ep = [e["val_loss"] for e in log_data["epochs"]]
+
+    ax2.plot(epochs, train_losses_ep, "o-", label="Train Loss", color="#2196F3", linewidth=2, markersize=6)
+    ax2.plot(epochs, val_losses_ep, "s--", label="Validation Loss", color="#FF5722", linewidth=2, markersize=6)
+    ax2.set_xlabel("Epoch", fontsize=12)
+    ax2.set_ylabel("Cross-Entropy Loss", fontsize=12)
+    ax2.set_title("Epoch Summary", fontsize=13)
+    ax2.legend(fontsize=10)
+    ax2.grid(True, alpha=0.3)
+
+    plt.suptitle("MergePRAG HyperNetwork Training", fontsize=15, fontweight="bold", y=1.02)
     plt.tight_layout()
-    plt.savefig(CHART_PATH, dpi=150)
+    plt.savefig(CHART_PATH, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"[차트] 저장: {CHART_PATH}")
 
@@ -186,6 +223,10 @@ def train():
     train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=MAX_SAMPLES)
     val_dataset = MergePRAGDataset(VALID_DATA_PATH, max_samples=MAX_VAL_SAMPLES)
 
+    # ── Cosine LR Scheduler ──
+    total_steps = len(train_dataset) * EPOCHS
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
+
     # ── 로그 초기화 ──
     log_data = {
         "config": {
@@ -195,19 +236,35 @@ def train():
             "alpha": ALPHA,
             "lr": LR,
             "epochs": EPOCHS,
+            "grad_accum_steps": GRAD_ACCUM_STEPS,
+            "eval_every": EVAL_EVERY,
             "train_samples": len(train_dataset),
             "val_samples": len(val_dataset),
         },
         "epochs": [],
         "step_losses": [],  # 스텝별 loss (상세 곡선용)
+        "val_evals": [],    # step별 val loss (차트용)
     }
 
+    # ── Early Stopping 상태 ──
+    best_val_loss = float("inf")
+    patience_counter = 0
+    early_stopped = False
+
     # ── 학습 루프 ──
-    print(f"\n[학습] 시작: {EPOCHS} epochs, train={len(train_dataset)}, val={len(val_dataset)}, lr={LR}")
+    print(f"\n[학습] 시작: {EPOCHS} epochs, train={len(train_dataset)}, val={len(val_dataset)}")
+    print(f"[학습] grad_accum={GRAD_ACCUM_STEPS}, eval_every={EVAL_EVERY} steps, patience={PATIENCE}")
     hypernet.train()
+    start_time = time.time()
+    start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     global_step = 0
+    optimizer.zero_grad()
+
     for epoch in range(EPOCHS):
+        if early_stopped:
+            break
+
         total_loss = 0
         count = 0
 
@@ -215,7 +272,7 @@ def train():
             # 1. passage(facts) → embedding → HyperNetwork → K, V
             passage = " ".join(sample["facts"])
             embedded = embedding(model, tokenizer, passage)
-            embedded = embedded.to(dtype=torch.float32)  # HyperNetwork는 float32
+            embedded = embedded.to(dtype=torch.float32)
             K, V = hypernet(embedded)
 
             # 2. K, V를 hook에 설정
@@ -230,7 +287,7 @@ def train():
             full_ids = tokenizer(full_text, return_tensors="pt")["input_ids"].to(device)
             prompt_len = question_ids.shape[1]
 
-            # 4. forward (Qwen은 eval이지만 hook의 cross_attention을 통해 gradient 흐름)
+            # 4. forward
             outputs = model(full_ids)
             logits = outputs.logits
 
@@ -246,11 +303,8 @@ def train():
                 shift_logits.reshape(-1, shift_logits.size(-1)),
                 shift_labels.reshape(-1),
             )
-
-            # 6. backward → HyperNetwork만 업데이트
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            # gradient accumulation: loss를 나눠서 누적
+            (loss / GRAD_ACCUM_STEPS).backward()
 
             loss_val = loss.item()
             total_loss += loss_val
@@ -267,7 +321,40 @@ def train():
             # hook 초기화
             inject_hook.set_kv(None, None)
 
-            if (i + 1) % 50 == 0:
+            # 6. gradient accumulation: N step마다 optimizer step
+            if global_step % GRAD_ACCUM_STEPS == 0:
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+            # 7. Step별 validation 평가
+            if global_step % EVAL_EVERY == 0:
+                val_loss = evaluate(model, tokenizer, hypernet, inject_hook, val_dataset, device)
+                elapsed = time.time() - start_time
+                lr_now = scheduler.get_last_lr()[0]
+                print(f"  [Step {global_step}] train_avg: {total_loss/count:.4f} | val: {val_loss:.4f} | lr: {lr_now:.2e} | {elapsed/60:.1f}min")
+
+                log_data["val_evals"].append({
+                    "step": global_step,
+                    "val_loss": round(val_loss, 4),
+                })
+
+                # Early Stopping 체크
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    # best 모델 저장
+                    torch.save(hypernet.state_dict(), SAVE_PATH)
+                    print(f"    ★ Best val_loss: {val_loss:.4f} → 가중치 저장")
+                else:
+                    patience_counter += 1
+                    print(f"    patience: {patience_counter}/{PATIENCE}")
+                    if patience_counter >= PATIENCE:
+                        print(f"  [Early Stopping] val_loss 개선 없음 ({PATIENCE}회). 학습 중단.")
+                        early_stopped = True
+                        break
+
+            if (i + 1) % 200 == 0:
                 avg = total_loss / count
                 print(f"  [Epoch {epoch+1}/{EPOCHS}] Step {i+1}/{len(train_dataset)} | avg_loss: {avg:.4f}")
 
@@ -286,18 +373,27 @@ def train():
     # ── hook 해제 ──
     handle.remove()
 
-    # ── 로그 저장 ──
+    # ── 최종 저장 ──
+    elapsed_total = time.time() - start_time
+    end_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_data["start_time"] = start_dt
+    log_data["end_time"] = end_dt
+    log_data["total_time_min"] = round(elapsed_total / 60, 1)
+    log_data["best_val_loss"] = round(best_val_loss, 4)
+    log_data["early_stopped"] = early_stopped
+
     with open(LOG_PATH, "w", encoding="utf-8") as f:
         json.dump(log_data, f, indent=2, ensure_ascii=False)
     print(f"[로그] 저장: {LOG_PATH}")
 
-    # ── 차트 저장 ──
     save_chart(log_data)
 
-    # ── 가중치 저장 ──
-    torch.save(hypernet.state_dict(), SAVE_PATH)
-    print(f"\n[학습] 완료! 가중치 저장: {SAVE_PATH}")
-    print(f"[학습] 설정: critical_layer={CRITICAL_LAYER}, k={K_DIM}, alpha={ALPHA}, d_model={d_model}")
+    # early stopping이 안 됐으면 마지막 가중치 저장
+    if not early_stopped:
+        torch.save(hypernet.state_dict(), SAVE_PATH)
+
+    print(f"\n[학습] 완료! 총 {elapsed_total/60:.1f}분 소요")
+    print(f"[학습] best_val_loss: {best_val_loss:.4f}, 가중치: {SAVE_PATH}")
 
 
 if __name__ == "__main__":
