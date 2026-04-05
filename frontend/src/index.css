@@ -16,8 +16,8 @@
 /* ── Base ── */
 body {
   font-family: 'Pretendard Variable', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
-  background-color: #ebebf0;
-  color: #1d1d1f;
+  background-color: #f1f5f9; /* Neomorphic light background */
+  color: #1e293b;
   height: 100vh;
   overflow: hidden;
 }
@@ -25,4 +25,27 @@ body {
 #root {
   height: 100%;
   width: 100%;
+}
+
+/* ── Neomorphic Utilities ── */
+.neo-shadow {
+  box-shadow: 6px 6px 12px #caced1, -6px -6px 12px #ffffff;
+}
+.neo-inner {
+  box-shadow: inset 4px 4px 8px #caced1, inset -4px -4px 8px #ffffff;
+}
+.neo-card {
+  background: #f1f5f9;
+  border-radius: 20px;
+  box-shadow: 8px 8px 16px #d1d5db, -8px -8px 16px #ffffff;
+  border: 1px solid rgba(255,255,255,0.4);
+}
+.neo-sidebar {
+  background: #111827;
+  border-radius: 24px;
+  box-shadow: 10px 10px 30px rgba(0,0,0,0.1);
+}
+.neo-active-btn {
+  background: #1f2937;
+  box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3), inset -2px -2px 5px rgba(255,255,255,0.05);
 }

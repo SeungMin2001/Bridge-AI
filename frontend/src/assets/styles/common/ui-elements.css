@@ -11,9 +11,12 @@
 
 /* ── Card ── */
 .card {
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
   border-radius: 24px;
-  box-shadow: none;
+  box-shadow: 8px 8px 24px rgba(0, 0, 0, 0.05), -8px -8px 24px rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.8);
 }
 
 .main-card-enhanced {

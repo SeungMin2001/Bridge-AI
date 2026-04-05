@@ -107,10 +107,10 @@ const onStopGenerating = () => {
 
             <!-- Message Bubble -->
             <div :class="[
-              'max-w-[85%] rounded-2xl px-5 py-3.5 text-[15px] leading-relaxed break-words shadow-sm',
+              'max-w-[85%] rounded-[24px] px-5 py-4 text-[15px] leading-relaxed break-words',
               msg.role === 'user' 
-                ? 'bg-[#1d1d1f] text-white rounded-tr-none' 
-                : 'bg-white/80 backdrop-blur-xl text-[#1d1d1f] border border-black/5 rounded-tl-none shadow-[0_4px_20px_rgba(0,0,0,0.03)]',
+                ? 'neo-active-btn text-white rounded-tr-none' 
+                : 'neo-card text-[#1e293b] rounded-tl-none',
               msg.role === 'assistant' && msg.isRevealing ? 'reveal-message' : ''
             ]">
               <div v-if="msg.attachments?.length" class="flex gap-2 mb-3">
@@ -195,16 +195,16 @@ const onStopGenerating = () => {
 
       <!-- Recent Files Section -->
       <div v-if="messages.length === 0" class="w-full max-w-[600px] pointer-events-auto flex flex-col gap-4 mt-12 opacity-80 animate-fade-in-up shrink-0" style="animation-duration: 0.6s; animation-delay: 0.2s; animation-fill-mode: both;">
-        <h3 class="text-sm font-semibold text-gray-500 px-2 uppercase tracking-wider font-sans">최근 연 파일</h3>
+        <h3 class="text-sm font-semibold text-[#64748b] px-2 uppercase tracking-wider font-sans">최근 연 파일</h3>
         <div class="flex gap-4">
           <div v-for="file in recentFiles" :key="file.id" 
-               class="flex-1 bg-white/40 backdrop-blur-md border border-white/50 rounded-2xl p-4 flex flex-col gap-3 cursor-pointer hover:-translate-y-1 hover:bg-white/60 hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition-all duration-300">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-gray-600 shadow-sm border border-black/5">
+               class="flex-1 neo-card p-5 flex flex-col gap-3 cursor-pointer hover:-translate-y-1 hover:brightness-105 transition-all duration-300">
+            <div class="w-10 h-10 rounded-xl neo-inner flex items-center justify-center text-gray-500">
               <span class="material-symbols-outlined text-[20px]">{{ getFileIcon(file.type) }}</span>
             </div>
             <div class="flex flex-col">
-              <span class="text-[14px] font-bold text-[#1d1d1f] truncate leading-tight">{{ file.name }}</span>
-              <span class="text-[12px] text-gray-500 mt-0.5">{{ file.date }}</span>
+              <span class="text-[14px] font-bold text-[#1e293b] truncate leading-tight">{{ file.name }}</span>
+              <span class="text-[12px] text-[#64748b] mt-0.5">{{ file.date }}</span>
             </div>
           </div>
         </div>

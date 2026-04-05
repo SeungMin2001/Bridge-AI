@@ -55,7 +55,7 @@ const currentItems = computed(() => {
 </script>
 
 <template>
-  <div class="p-[12px] flex gap-[12px] relative h-full w-full text-[#1d1d1f] overflow-hidden">
+  <div class="p-[12px] flex gap-[12px] relative h-full w-full bg-transparent text-[#1e293b] overflow-hidden">
     <InfiniteGrid />
     <HomeSidebar 
       class="relative z-10"

@@ -61,7 +61,7 @@ const openReferenceHandler = (refData) => {
     <!-- Navigation Button to All Folders (Fixed at viewport) -->
     <button 
       @click="emit('navigate', 'workfolder')"
-      class="fixed bottom-8 right-8 bg-[#1d1d1f] text-white px-6 py-4 rounded-full flex items-center gap-3 shadow-[0_8px_30px_rgba(0,0,0,0.15)] hover:scale-105 active:scale-95 transition-all duration-300 z-[60] group">
+      class="fixed bottom-8 right-8 neo-active-btn text-white px-6 py-4 rounded-full flex items-center gap-3 hover:scale-105 active:scale-95 transition-all duration-300 z-[60] group">
       <span class="font-bold tracking-tight">전체 폴더 가기</span>
       <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white/30 transition-colors">
         <span class="material-symbols-outlined text-[18px]">arrow_forward</span>

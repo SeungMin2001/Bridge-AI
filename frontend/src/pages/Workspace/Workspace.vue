@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
+import InfiniteGrid from '../../components/home/InfiniteGrid.vue'
 import { useChat } from '../../composables/useChat'
 
 const props = defineProps({
@@ -73,12 +74,14 @@ const highlightedTranscript = computed(() => {
 
 <template>
   <div 
-    class="p-[12px] flex relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden transition-all duration-400"
+    class="p-[12px] flex relative h-full w-full bg-transparent text-[#1e293b] overflow-hidden transition-all duration-400"
     :class="[
       { 'gap-[12px]': !isLeftSidebarCollapsed || isRightSidebarVisible }
     ]"
   >
+    <InfiniteGrid class="absolute inset-0 z-0 opacity-50" />
     <LeftSidebar
+      class="relative z-10"
       :isCollapsed="isLeftSidebarCollapsed"
       :transcriptions="transcriptions"
       :fileTree="fileTree"
@@ -93,6 +96,7 @@ const highlightedTranscript = computed(() => {
     />
     
     <MainContent
+      class="relative z-10"
       :isRecording="isRecording"
       :recordingTimeText="recordingTimeText"
       :activeFileName="activeFileName"
@@ -106,6 +110,7 @@ const highlightedTranscript = computed(() => {
     />
     
     <RightSidebar 
+      class="relative z-10"
       :visible="isRightSidebarVisible" 
       :aiInput="aiInput"
       @update:aiInput="emit('update:aiInput', $event)"

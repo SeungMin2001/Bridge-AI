@@ -29,8 +29,8 @@ const historyData = ref([
 </script>
 
 <template>
-  <div class="p-[12px] h-full flex flex-col bg-[#ebebf0] text-[#1d1d1f] overflow-hidden">
-    <div class="bg-white rounded-[24px] p-8 flex flex-col h-full shadow-sm overflow-hidden">
+  <div class="p-[12px] h-full flex flex-col bg-transparent text-[#1e293b] overflow-hidden">
+    <div class="neo-card rounded-[24px] p-8 flex flex-col h-full overflow-hidden">
       <!-- Header -->
       <div class="flex items-center justify-between mb-8">
         <div class="flex items-center gap-3">
