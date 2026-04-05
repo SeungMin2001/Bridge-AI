@@ -66,12 +66,19 @@ def make_hook(delta_K, delta_V):
     """논문 원본 make_simple_cross_attn_hook 방식.
     hidden_states(Q)와 delta_K, delta_V로 cross-attention 후 residual add."""
     def hook_fn(module, input, output):
-        hidden = output[0]  # [B, seq, d_model]
-        K = delta_K.to(device=hidden.device, dtype=hidden.dtype)
-        V = delta_V.to(device=hidden.device, dtype=hidden.dtype)
-        delta = cross_attention(hidden, K, V)
-        new_hidden = hidden + delta  # 논문: residual addition (alpha 스케일 없음)
-        return (new_hidden,) + output[1:]
+        if isinstance(output, tuple):
+            hidden = output[0]
+            K = delta_K.to(device=hidden.device, dtype=hidden.dtype)
+            V = delta_V.to(device=hidden.device, dtype=hidden.dtype)
+            delta = cross_attention(hidden, K, V)
+            new_hidden = hidden + delta
+            return (new_hidden,) + output[1:]
+        else:
+            hidden = output
+            K = delta_K.to(device=hidden.device, dtype=hidden.dtype)
+            V = delta_V.to(device=hidden.device, dtype=hidden.dtype)
+            delta = cross_attention(hidden, K, V)
+            return hidden + delta
     return hook_fn
 
 
