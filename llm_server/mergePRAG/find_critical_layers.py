@@ -9,11 +9,11 @@ Critical Layer Finder
 import torch
 import torch.nn.functional as F
 import json
-from transformers import AutoTokenizer, AutoModelForCausalLM, AwqConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from .cross_attention import cross_attention
 
 # ── 설정 ──
-MODEL_NAME = "QuantTrio/Qwen3.5-4B-AWQ"  # 서비스와 동일한 AWQ 모델
+MODEL_NAME = "Qwen/Qwen3.5-4B"  # 원본 모델 (레이어 구조는 AWQ와 동일)
 K_DIM = 16  # HyperNetwork의 k
 ALPHA = 0.01  # injection 스케일 (main.py의 make_hook과 동일)
 OUTPUT_PATH = "llm_server/mergePRAG/critical_layers.json"
@@ -46,19 +46,15 @@ TEST_SAMPLES = [
 def load_model():
     print(f"[Critical Layer Finder] 모델 로딩: {MODEL_NAME}")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-
-    awq_config = AwqConfig(
-        bits=4,
-        do_fuse=False,
-        pre_quantized=True,
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
     )
-
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         device_map="auto",
-        dtype=torch.float16,
         trust_remote_code=True,
-        quantization_config=awq_config,
+        quantization_config=quantization_config,
     )
     model.eval()
     return model, tokenizer
