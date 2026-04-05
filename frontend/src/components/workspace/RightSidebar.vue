@@ -28,8 +28,8 @@ const aiTextarea = ref(null)
 // 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
 // true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
 // false: 실제 백엔드 서버(http://100.104.164.84:8000)로 통신합니다.
-const USE_DEMO_DATA = true
-cd 
+const USE_DEMO_DATA = false
+
 async function sendMessage() {
   const question = props.aiInput.trim()
   if (!question) return
