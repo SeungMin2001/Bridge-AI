@@ -2,7 +2,8 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 def run_model():
-    MODEL_NAME = "Qwen/Qwen3.5-9B"
+    #MODEL_NAME = "Qwen/Qwen3.5-9B"
+    MODEL_NAME="Qwen/Qwen2.5-3B-Instruct"
 
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,
