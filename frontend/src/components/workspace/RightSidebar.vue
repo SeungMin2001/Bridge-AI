@@ -29,6 +29,7 @@ const isSending = ref(false) // 중복 전송 방지용 플래그
 // 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
 // true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
 // false: 실제 백엔드 서버(http://100.104.164.84:8000)로 통신합니다.
+// 백엔드 사용시 여부분 주석 처리 조심
 const USE_DEMO_DATA = false
 
 async function sendMessage() {
