@@ -21,7 +21,7 @@ const emit = defineEmits([
 ])
 
 const activeTab = ref('folders')
-const width = ref(280)
+const width = ref(340)
 const toastMsg = ref('')
 const isResizing = ref(false)
 

@@ -12,12 +12,12 @@ const emit = defineEmits(['toggle', 'navigate'])
   <aside
     id="sidebar"
     :class="[
-      isCollapsed ? 'w-16' : 'w-[280px]',
-      'home-sidebar flex flex-col h-[calc(100%-24px)] shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] relative z-10 my-3 ml-3 rounded-[24px]',
+      isCollapsed ? 'w-16' : 'w-[340px]',
+      'home-sidebar flex flex-col h-full shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] relative z-10 rounded-[24px]',
       { 'sidebar-collapsed': isCollapsed }
     ]"
   >
-    <div class="sidebar-main-card card flex flex-col h-full p-5 home-left-sidebar-card">
+    <div class="sidebar-main-card card flex flex-col h-full p-5 overflow-hidden min-w-[280px] home-left-sidebar-card">
       <div class="sidebar-header transition-all">
         <div class="sidebar-logo-section">
           <div class="sidebar-logo-box">
