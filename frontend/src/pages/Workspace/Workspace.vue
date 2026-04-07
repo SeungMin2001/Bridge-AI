@@ -79,7 +79,7 @@ const highlightedTranscript = computed(() => {
       { 'gap-[12px]': !isLeftSidebarCollapsed || isRightSidebarVisible }
     ]"
   >
-    <InfiniteGrid class="absolute inset-0 z-0 opacity-50" />
+    <InfiniteGrid class="absolute inset-0 z-0" />
     <LeftSidebar
       class="relative z-10"
       :isCollapsed="isLeftSidebarCollapsed"
@@ -128,10 +128,12 @@ const highlightedTranscript = computed(() => {
           <!-- 헤더 -->
           <div class="flex items-center justify-between mb-5 px-1">
             <div class="flex items-center gap-3">
-              <div class="w-2.5 h-2.5 bg-[#3b82f6] rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
-              <span class="font-bold text-[#1c1c1e] text-[17px] tracking-tight">근거 정보</span>
+              <div class="cite-popover-badge">
+                <span class="material-symbols-outlined text-[15px]">fact_check</span>
+              </div>
+              <span class="font-bold text-[#1c1c1e] text-[18px] tracking-tight">근거 정보</span>
             </div>
-            <button class="text-[#8e8e93] hover:text-[#1c1c1e] transition-all bg-transparent border-none p-1.5 cursor-pointer flex items-center justify-center rounded-full hover:bg-black/5" @click="closeCitePopover">
+            <button class="cite-popover-close-btn" @click="closeCitePopover">
               <span class="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
@@ -146,20 +148,20 @@ const highlightedTranscript = computed(() => {
           </div>
 
           <!-- 구분선 -->
-          <div class="w-full h-[1px] bg-black/5 mb-4 shrink-0"></div>
+          <div class="cite-popover-divider"></div>
 
           <!-- 출처 정보 -->
-          <div class="flex flex-col gap-1.5 pt-1 shrink-0">
-            <div class="flex items-center gap-1.5">
-              <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
-              <span class="font-bold text-[#8e8e93] text-[11px] uppercase tracking-wider">SOURCE:</span>
-              <span class="font-bold text-[#3b82f6] text-[11px] ml-1 truncate hover:underline cursor-pointer">
+          <div class="cite-source-wrap shrink-0">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[15px] text-[#8e8e93]">link</span>
+              <span class="font-bold text-[#8e8e93] text-[11px] uppercase tracking-wider">Source</span>
+              <span class="font-bold text-[#4b5563] text-[12px] ml-1 truncate hover:underline cursor-pointer">
                 {{ currentCite?.session_title || 'AI 분석 결과' }}
               </span>
             </div>
             
-            <div v-if="currentCite?.transcript_id" class="flex items-center gap-1.5 ml-[20px]">
-              <span class="text-[#8e8e93] text-[9px] font-medium tracking-wide uppercase">REF_ID:</span>
+            <div v-if="currentCite?.transcript_id" class="flex items-center gap-1.5 ml-[23px] mt-1">
+              <span class="text-[#8e8e93] text-[9px] font-medium tracking-wide uppercase">Ref ID</span>
               <span class="text-[#aeaeb2] text-[9px] font-mono select-all">{{ currentCite.transcript_id }}</span>
             </div>
           </div>
@@ -179,16 +181,17 @@ const highlightedTranscript = computed(() => {
 
 .cite-popover {
   position: fixed;
-  /* x, y 좌표는 citePopoverPos에서 인라인 스타일로 제어됨 */
-  width: 290px; /* 320px에서 30px 줄임 */
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 20px;
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  width: 284px;
+  background: linear-gradient(160deg, rgba(246, 240, 232, 0.94), rgba(241, 233, 223, 0.72));
+  border-radius: 24px;
+  box-shadow: 0 24px 48px rgba(148, 163, 184, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.82);
   display: flex;
   flex-direction: column;
-  padding: 20px;
-  transform-origin: right top; /* 우측 정렬이므로 우상단 기준으로 애니메이션 */
+  padding: 18px;
+  transform-origin: right top;
+  backdrop-filter: blur(22px) saturate(145%);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
 }
 
 /* 애니메이션 개선 */
@@ -205,6 +208,54 @@ const highlightedTranscript = computed(() => {
 .popover-fade-leave-to {
   opacity: 0;
   transform: scale(0.95) translateY(5px);
+}
+
+.cite-popover-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  background: linear-gradient(180deg, rgba(250,246,240,0.96), rgba(242,235,226,0.76));
+  border: 1px solid rgba(255,255,255,0.84);
+  box-shadow: 0 12px 24px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255,255,255,0.96);
+}
+
+.cite-popover-close-btn {
+  color: #8e8e93;
+  background: rgba(248,244,238,0.48);
+  border: 1px solid rgba(255,255,255,0.72);
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+.cite-popover-close-btn:hover {
+  background: rgba(250,246,240,0.78);
+  color: #1c1c1e;
+}
+
+.cite-popover-divider {
+  width: 100%;
+  height: 1px;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, rgba(255,255,255,0), rgba(206,212,218,0.7), rgba(255,255,255,0));
+  flex-shrink: 0;
+}
+
+.cite-source-wrap {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(249,244,238,0.78), rgba(241,233,224,0.56));
+  border: 1px solid rgba(255,255,255,0.78);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.94);
 }
 
 /* 팝오버 스크롤바 디자인 */

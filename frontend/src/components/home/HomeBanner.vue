@@ -7,6 +7,7 @@ const emit = defineEmits(['sendMessage', 'openReference'])
 const messages = ref([])
 const isGenerating = ref(false)
 const chatScrollRef = ref(null)
+const abortController = ref(null)
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -31,50 +32,118 @@ const getFileIcon = (type) => {
   }
 }
 
-const onSendMessage = (params) => {
-  // Add user message
+const mapCitationsToReferences = (citations = []) => {
+  return citations.map((cite, index) => ({
+    id: cite.transcript_id || `cite-${index}`,
+    title: cite.citation || cite.session_title || `근거 ${index + 1}`,
+    script: cite.full_transcript || cite.text || '',
+    raw: cite,
+  }))
+}
+
+const onSendMessage = async (params) => {
   messages.value.push({ role: 'user', content: params.input, attachments: params.attachments })
   emit('sendMessage', params)
   scrollToBottom()
-  
-  // Start thinking — 프로필 아이콘 회전만 표시
+
   isGenerating.value = true
-  
-  // Mock AI Response — 로딩 시간 동안 thinking 애니메이션만 유지
-  const thinkingDuration = 2000 // 2초간 thinking 유지
 
-  setTimeout(() => {
-    const isMathQuery = params.input.includes('수학')
-    
-    const fullResponse = isMathQuery 
-      ? "수학에 관한 자료를 바탕으로 종합된 설명을 요약해 보았습니다. 더 자세한 원본 스크립트는 아래 근거 링크를 클릭하여 확인해 보세요:"
-      : "안녕하세요! 파일 요약이나 새로운 문서 작업 등 어떤 것을 도와드릴까요?"
+  const aiMessage = {
+    role: 'assistant',
+    content: '',
+    references: [],
+    isRevealing: true,
+    phase: 'streaming',
+  }
+  messages.value.push(aiMessage)
+  scrollToBottom()
 
-    // 로딩이 끝난 후 AI 메시지를 한 번에 추가
-    const aiMessage = { role: 'assistant', content: fullResponse, references: [], isRevealing: true }
+  abortController.value = new AbortController()
 
-    if (isMathQuery) {
-      aiMessage.summary = "수학은 논리와 기호학을 기반으로 수, 양, 구조, 공간, 변화 등의 개념을 다루는 학문입니다. 각 강의에서는 수학적 사고의 뼈대가 되는 공리부터 실생활에 적용되는 응용 수학까지 폭넓게 다룹니다."
-      aiMessage.references = [
-        { id: 'lec1', title: '강의 1: 수학의 기초', script: '이 강의에서는 수학의 가장 기초가 되는 논리와 집합론에 대해 다룹니다.\n\n수학은 우리 생활 모든 곳에 스며들어 있으며 변해야 할 것과 변하지 않아야 할 것을 명확히 구분하는 학문입니다.\n\n먼저 기본 공리에 대해 알아보겠습니다...' },
-        { id: 'lec2', title: '강의 2: 대수학 입문', script: '방정식과 변수에 대한 이해를 돕는 대수학 입문 강의 전사 내용입니다.\n\n미지수 x를 구하기 위해 우리는 양변에 같은 조작을 가해야 합니다.\n이러한 원칙은 복잡한 식을 간결하게 만듭니다.' },
-        { id: 'lec3', title: '강의 3: 실생활 미적분', script: '우리 주변에서 발견할 수 있는 변화율과 미적분 활용 사례에 대한 스크립트입니다.\n\n자동차가 가속할 때 속도의 변화량, 즉 가속도를 계산하는 것이 미분의 기초이며, 총 이동 거리를 구하는 것이 적분의 기초입니다.' }
-      ]
+  try {
+    const res = await fetch('/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: params.input,
+        is_thinking: false,
+      }),
+      signal: abortController.value.signal,
+    })
+
+    if (!res.ok) throw new Error(`서버 응답 오류 (상태 코드: ${res.status})`)
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let streamedText = ''
+    let streamedCitations = []
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6)
+        if (payload === '[DONE]') break
+
+        const data = JSON.parse(payload)
+        if (data.type === 'citations') {
+          streamedCitations = data.citations || []
+        } else if (data.type === 'token') {
+          streamedText += data.token
+        } else if (data.type === 'error') {
+          streamedText += `\n오류: ${data.error}`
+        }
+
+        const current = messages.value[messages.value.length - 1]
+        messages.value[messages.value.length - 1] = {
+          ...current,
+          content: streamedText,
+          references: mapCitationsToReferences(streamedCitations),
+          phase: 'streaming',
+        }
+        scrollToBottom()
+      }
     }
 
-    // 생성 완료 → thinking 해제, 메시지 추가
+    const current = messages.value[messages.value.length - 1]
+    messages.value[messages.value.length - 1] = {
+      ...current,
+      content: streamedText,
+      references: mapCitationsToReferences(streamedCitations),
+      phase: 'done',
+    }
+  } catch (error) {
+    const aborted = error?.name === 'AbortError'
+    const current = messages.value[messages.value.length - 1]
+    messages.value[messages.value.length - 1] = {
+      ...current,
+      content: aborted ? '응답 생성을 중단했습니다.' : '오류가 발생했습니다. 서버 연결을 확인해주세요.',
+      references: [],
+      phase: 'done',
+    }
+  } finally {
     isGenerating.value = false
-    messages.value.push(aiMessage)
+    abortController.value = null
     scrollToBottom()
 
-    // reveal 애니메이션 완료 후 플래그 제거
-    setTimeout(() => {
-      aiMessage.isRevealing = false
-    }, 600)
-  }, thinkingDuration)
+    const current = messages.value[messages.value.length - 1]
+    if (current?.role === 'assistant') {
+      setTimeout(() => {
+        current.isRevealing = false
+      }, 600)
+    }
+  }
 }
 
 const onStopGenerating = () => {
+  abortController.value?.abort()
   isGenerating.value = false
 }
 </script>
@@ -120,17 +189,8 @@ const onStopGenerating = () => {
               </div>
               <div :class="['whitespace-pre-wrap', msg.isRevealing ? 'reveal-content' : '']">{{ msg.content }}</div>
               
-              <!-- Summary Block -->
-              <div v-if="msg.summary" :class="['mt-4 p-4 bg-indigo-50/40 rounded-xl border border-indigo-100/50', msg.isRevealing ? 'reveal-content reveal-delay-1' : '']">
-                <div class="flex items-center gap-2 mb-2 text-indigo-800 font-semibold text-[13px] uppercase tracking-wider">
-                  <span class="material-symbols-outlined text-[16px]">summarize</span>
-                  종합된 설명
-                </div>
-                <p class="text-[14px] text-gray-700 leading-relaxed">{{ msg.summary }}</p>
-              </div>
-
               <!-- Reference Links -->
-              <div v-if="msg.references && msg.references.length > 0" :class="['flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/10', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
+              <div v-if="msg.phase === 'done' && msg.references && msg.references.length > 0" :class="['flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/10', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
                 <button 
                   v-for="ref in msg.references" 
                   :key="ref.id" 

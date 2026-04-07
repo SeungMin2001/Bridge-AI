@@ -69,7 +69,7 @@ const showToast = (msg) => {
     class="transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden rounded-[24px]"
     :style="{ width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
   >
-    <div class="card workspace-sidebar-card h-full bg-white flex flex-col p-5 overflow-hidden min-w-[280px]">
+    <div class="card workspace-sidebar-card h-full flex flex-col p-5 overflow-hidden min-w-[280px]">
       <!-- Header -->
       <div class="flex items-center justify-between mb-5">
         <div class="flex items-center gap-2 font-extrabold tracking-tight">
@@ -86,15 +86,15 @@ const showToast = (msg) => {
       </div>
 
       <!-- Tab Buttons -->
-      <div class="bg-gray-100/50 p-1 rounded-lg flex gap-1 mb-4 collapsible-content">
+      <div class="workspace-inset-shell p-1.5 rounded-[22px] flex gap-1.5 mb-4 collapsible-content">
         <button
-          class="flex-1 py-1.5 rounded-md text-[12px] font-bold transition-all"
-          :class="activeTab === 'folders' ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.1)] text-black' : 'text-gray-500 hover:text-gray-700'"
+          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          :class="{ 'is-active text-black': activeTab === 'folders' }"
           @click="activeTab = 'folders'"
         >폴더</button>
         <button
-          class="flex-1 py-1.5 rounded-md text-[12px] font-bold transition-all"
-          :class="activeTab === 'voice' ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.1)] text-black' : 'text-gray-500 hover:text-gray-700'"
+          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          :class="{ 'is-active text-black': activeTab === 'voice' }"
           @click="activeTab = 'voice'"
         >전사 내용</button>
       </div>
@@ -148,6 +148,8 @@ const showToast = (msg) => {
 
 <style scoped>
 .workspace-sidebar-card {
-  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.58));
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: 0 28px 56px rgba(148, 163, 184, 0.14), 0 10px 26px rgba(255, 255, 255, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 </style>

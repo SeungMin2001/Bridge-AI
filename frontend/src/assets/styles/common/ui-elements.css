@@ -9,20 +9,56 @@
   letter-spacing: -0.02em;
 }
 
+:root {
+  --liquid-border: rgba(255, 255, 255, 0.58);
+  --liquid-border-strong: rgba(255, 255, 255, 0.82);
+  --liquid-panel: linear-gradient(155deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.24) 45%, rgba(210, 226, 255, 0.18) 100%);
+  --liquid-panel-hover: linear-gradient(155deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.3) 48%, rgba(205, 225, 255, 0.22) 100%);
+  --liquid-shadow: 0 24px 48px rgba(148, 163, 184, 0.16), 0 10px 22px rgba(255, 255, 255, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.75), inset 0 -12px 24px rgba(255, 255, 255, 0.14);
+  --liquid-shadow-hover: 0 28px 56px rgba(148, 163, 184, 0.2), 0 14px 28px rgba(255, 255, 255, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.88), inset 0 -14px 28px rgba(255, 255, 255, 0.16);
+}
+
 /* ── Card ── */
 .card {
-  background: rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(30px) saturate(150%);
-  -webkit-backdrop-filter: blur(30px) saturate(150%);
-  border-radius: 24px;
-  box-shadow: 8px 8px 24px rgba(0, 0, 0, 0.05), -8px -8px 24px rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--liquid-panel);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  border-radius: 28px;
+  box-shadow: var(--liquid-shadow);
+  border: 1px solid var(--liquid-border);
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 40%),
+    radial-gradient(circle at top right, rgba(214, 236, 255, 0.44), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0));
+  opacity: 0.92;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(28px - 1px);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+  z-index: -1;
 }
 
 .main-card-enhanced {
-  background: linear-gradient(180deg, #ffffff 0%, #fbfbfd 100%);
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.02);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.74) 0%, rgba(247, 250, 255, 0.44) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  box-shadow: 0 18px 40px rgba(148, 163, 184, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 /* ── Empty State ── */
@@ -33,11 +69,15 @@
 
 /* ── Buttons ── */
 .btn-ghost-icon {
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  border: 1px solid transparent;
 }
 
 .btn-ghost-icon:hover {
-  background-color: #f2f2f7;
+  background-color: rgba(255, 255, 255, 0.42);
+  border-color: rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transform: translateY(-1px);
 }
 
 .active-tab {
@@ -62,10 +102,12 @@
 /* ── Dropdown Menu ── */
 .dropdown-menu {
   position: fixed;
-  background: white;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(246, 249, 255, 0.76));
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 18px 36px rgba(148, 163, 184, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
   padding: 5px;
   z-index: 9999;
   min-width: 158px;
@@ -146,14 +188,19 @@
 
 /* ── Action Cards ── */
 .action-card {
-  border: 1px solid #f2f2f7;
-  transition: all 0.2s;
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.22));
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 12px 28px rgba(148, 163, 184, 0.1);
+  transition: all 0.24s ease;
 }
 
 .action-card:hover {
-  background-color: #f9f9fb;
-  border-color: #e5e5ea;
-  transform: translateY(-1px);
+  background: var(--liquid-panel-hover);
+  border-color: var(--liquid-border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--liquid-shadow-hover);
 }
 
 /* ── AI Gradient ── */

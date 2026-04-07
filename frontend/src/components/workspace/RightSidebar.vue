@@ -189,9 +189,10 @@ function handleDocContentClick(event, msg, idx) {
 
   const rect = mainCard.getBoundingClientRect()
   
-  // 사용자님 요청대로 중앙 컨텐츠 카드 우측 상단 모서리에 맞춥니다.
-  // 모달(팝오버)의 너비가 290px이므로 rect.right에서 290을 빼면 카드의 정확한 우측 라인에 정렬됩니다.
-  openCitePopover(msg.citations[idx], rect.right - 290, rect.top)
+  const popoverWidth = 284
+  const edgeInset = 0
+  const topInset = 0
+  openCitePopover(msg.citations[idx], rect.right - popoverWidth - edgeInset, rect.top + topInset)
 }
 
 const width = ref(420)
@@ -270,15 +271,15 @@ watch(messages, () => {
           </div>
           <h3 class="text-[18px] font-bold text-[#1d1d1f] mb-8">무엇을 도와드릴까요?</h3>
           <div class="w-full flex flex-col gap-3 mb-10">
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-xl bg-white text-left">
+            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left">
               <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">description</span>
               <span class="text-[13px] font-medium text-[#1d1d1f]">강의 노트 요약하기</span>
             </button>
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-xl bg-white text-left" @click="emit('update:aiInput', '핵심 개념 퀴즈 생성해줘')">
+            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left" @click="emit('update:aiInput', '핵심 개념 퀴즈 생성해줘')">
               <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">quiz</span>
               <span class="text-[13px] font-medium text-[#1d1d1f]">핵심 개념 퀴즈 생성</span>
             </button>
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-xl bg-white text-left">
+            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left">
               <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">translate</span>
               <span class="text-[13px] font-medium text-[#1d1d1f]">외국어 자료 번역</span>
             </button>
@@ -290,7 +291,7 @@ watch(messages, () => {
             <div
               v-for="(msg, i) in messages"
               :key="i"
-              :class="msg.role === 'ai' ? 'w-full flex flex-col' : 'px-4 py-2.5 rounded-[18px] bg-[#373549] text-white text-[14px] leading-relaxed self-end w-fit max-w-[85%] shadow-sm'"
+              :class="msg.role === 'ai' ? 'w-full flex flex-col' : 'user-bubble px-4 py-2.5 rounded-[18px] text-white text-[14px] leading-relaxed self-end w-fit max-w-[85%]'"
             >
               <!-- 사용자 말풍선 -->
               <template v-if="msg.role === 'user'">
@@ -309,7 +310,7 @@ watch(messages, () => {
                 </div>
 
                 <!-- [이미지 스타일] 관련 링크 섹션 -->
-                <div v-if="msg.citations && msg.citations.length" class="mt-8 border-t border-[#f2f2f7] pt-5">
+                <div v-if="msg.phase === 'done' && msg.citations && msg.citations.length" class="mt-8 border-t border-[#f2f2f7] pt-5">
                   <div class="text-[14px] font-bold text-[#1d1d1f] mb-4">관련 링크</div>
                   <div v-for="(cite, idx) in msg.citations" :key="idx" class="mb-6 last:mb-0">
                     <div class="text-[13.5px] text-[#424245] leading-relaxed mb-2.5">
@@ -336,7 +337,7 @@ watch(messages, () => {
       </transition>
         <div class="mt-auto px-1 pb-2">
           <!-- 🎨 다듬어진 프리미엄 입력창 디자인 -->
-          <div class="bg-[#f8f8fa] rounded-[26px] border border-[#efeff3] p-3.5 transition-all">
+          <div class="chat-input-glow rounded-[26px] p-3.5 transition-all">
             <textarea
               class="w-full bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] min-h-[24px] max-h-[120px] resize-none leading-relaxed custom-scrollbar"
               placeholder="무엇이든 물어보세요..."
@@ -384,7 +385,9 @@ watch(messages, () => {
 
 <style scoped>
 .workspace-right-sidebar-card {
-  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.58));
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: 0 28px 56px rgba(148, 163, 184, 0.14), 0 10px 26px rgba(255, 255, 255, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
 /* 화면 전환 애니메이션 */

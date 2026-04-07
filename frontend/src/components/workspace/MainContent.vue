@@ -1,6 +1,5 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import AnimatedTabs from '../ui/AnimatedTabs.vue'
 import { useChat } from '../../composables/useChat'
 
 const { selectedWordData, clearSelectedWord } = useChat()
@@ -70,46 +69,6 @@ const handleAddToNote = () => {
 
 <template>
   <main class="flex-1 flex flex-col gap-[12px] h-full min-w-0" style="flex: 1 1 0%; min-width: 300px;">
-    <!-- Header Card -->
-    <header class="card h-[56px] flex items-center px-5 shrink-0">
-      <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93] mr-4 shrink-0" title="사이드바 토글" @click="emit('mainSidebarToggle')">
-        <span class="material-symbols-outlined text-[20px]">side_navigation</span>
-      </button>
-
-      <!-- Tab Navigation -->
-      <nav class="flex h-full py-2 items-center" id="main-tabs">
-        <AnimatedTabs v-model="activeTab" :tabs="tabs" />
-      </nav>
-
-      <div class="ml-auto flex items-center gap-1.5 shrink-0 pl-2">
-        <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]">
-          <span class="material-symbols-outlined text-[20px]">play_circle</span>
-        </button>
-
-        <button v-if="!isRecording" class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" id="start" @click="emit('startRecording')">
-          <span class="material-symbols-outlined text-[20px]">mic</span>
-        </button>
-        <div
-          v-else
-          id="recording-timer"
-          class="flex items-center gap-2 bg-[#FFF0F3] hover:bg-[#FFE4E9] px-3 py-1.5 rounded-full cursor-pointer transition-colors border border-[#FFD1DA] shrink-0"
-          @click="emit('stopRecording')"
-        >
-          <div class="recording-wave-container w-6 h-6 shrink-0">
-            <div class="recording-wave-ring"></div>
-            <div class="recording-wave-ring"></div>
-            <div class="recording-wave-ring"></div>
-            <span class="live-dot" style="position: relative; z-index: 1;"></span>
-          </div>
-          <span class="text-[13px] font-bold text-[#1d1d1f] tabular-nums" id="recording-time">{{ recordingTimeText }}</span>
-        </div>
-
-        <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" title="우측 사이드바 토글" @click="emit('rightSidebarToggle')">
-          <span class="material-symbols-outlined text-[20px] scale-x-[-1]">side_navigation</span>
-        </button>
-      </div>
-    </header>
-
     <!-- ═══ 단어 정보 카드 (전사 단어 클릭 시 표시) ═══ -->
     <transition name="word-card">
       <div v-if="selectedWordData" class="word-info-card card shrink-0">
@@ -154,11 +113,51 @@ const handleAddToNote = () => {
     </transition>
 
     <!-- Main Content Area -->
-    <div id="tab-contents-container" class="flex-1 flex flex-col relative min-h-0 min-w-0">
+    <div id="tab-contents-container" class="card workspace-shell-card flex-1 flex flex-col relative min-h-0 min-w-0 overflow-hidden">
+      <header class="workspace-embedded-header h-[56px] flex items-center px-6 shrink-0">
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93] shrink-0" title="사이드바 토글" @click="emit('mainSidebarToggle')">
+            <span class="material-symbols-outlined text-[20px]">side_navigation</span>
+          </button>
+
+          <button v-if="!isRecording" class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93] shrink-0" id="start" @click="emit('startRecording')">
+            <span class="material-symbols-outlined text-[20px]">mic</span>
+          </button>
+          <div
+            v-else
+            id="recording-timer"
+            class="flex items-center gap-2 bg-[#FFF4F6] hover:bg-[#FFECEE] px-3 py-1.5 rounded-full cursor-pointer transition-colors border border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_8px_18px_rgba(148,163,184,0.12)] shrink-0"
+            @click="emit('stopRecording')"
+          >
+            <div class="recording-wave-container w-6 h-6 shrink-0">
+              <div class="recording-wave-ring"></div>
+              <div class="recording-wave-ring"></div>
+              <div class="recording-wave-ring"></div>
+              <span class="live-dot" style="position: relative; z-index: 1;"></span>
+            </div>
+            <span class="text-[13px] font-bold text-[#1d1d1f] tabular-nums" id="recording-time">{{ recordingTimeText }}</span>
+          </div>
+        </div>
+
+        <div class="ml-auto flex items-center gap-1.5 shrink-0 pl-2">
+          <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]">
+            <span class="material-symbols-outlined text-[20px]">play_circle</span>
+          </button>
+
+          <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" title="우측 사이드바 토글" @click="emit('rightSidebarToggle')">
+            <span class="material-symbols-outlined text-[20px] scale-x-[-1]">side_navigation</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="workspace-embedded-divider shrink-0"></div>
+
+      <div class="flex-1 flex flex-col relative min-h-0 min-w-0">
+
       <!-- Note Tab -->
-      <section v-if="activeTab === 'note'" :key="'tab-note'" :class="['tab-content card flex-1 flex flex-col relative overflow-hidden note-canvas p-10 pt-12', tabAnim]">
+      <section v-if="activeTab === 'note'" :key="'tab-note'" :class="['tab-content flex-1 flex flex-col relative overflow-hidden note-canvas p-10 pt-4', tabAnim]">
         <div class="max-w-4xl mx-auto w-full h-full">
-          <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">{{ noteTabName }}</h1>
+          <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">{{ noteTabName }}</h1>
           <div
             class="text-[16px] leading-relaxed min-h-[200px] focus:outline-none"
             id="note-body"
@@ -170,21 +169,15 @@ const handleAddToNote = () => {
             {{ (!noteContent && !isNoteFocused) ? '여기에 타이핑을 시작하거나 파일을 업로드하세요.' : noteContent }}
           </div>
         </div>
-        <div class="floating-toolbar absolute bottom-8 left-1/2 -translate-x-1/2 flex p-1.5 gap-1 z-10 bg-white">
-          <button class="tool-btn-active w-[48px] h-[48px] flex items-center justify-center rounded-full"><span class="material-symbols-outlined text-[24px]">near_me</span></button>
-          <button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span class="material-symbols-outlined text-[24px]">ink_pen</span></button>
-          <button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span class="material-symbols-outlined text-[24px]">history_edu</span></button>
-          <button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors"><span class="material-symbols-outlined text-[24px]">add_circle</span></button>
-        </div>
       </section>
 
       <!-- Summary Note Tab -->
-      <section v-else-if="activeTab === 'summary-note'" :key="'tab-summary-note'" :class="['tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12', tabAnim]">
+      <section v-else-if="activeTab === 'summary-note'" :key="'tab-summary-note'" :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
         <div class="max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
-          <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">정리 노트</h1>
+          <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">정리 노트</h1>
           <div class="flex flex-col gap-4">
             <div v-if="summaryNotes.length === 0" class="text-[16px] text-[#aeaeb2] leading-relaxed italic">아직 추가된 내용이 없습니다. 전사 내용에서 '노트에 추가'를 눌러보세요.</div>
-            <div v-else v-for="note in summaryNotes" :key="note.id" class="p-5 rounded-2xl bg-[#fbfbfd] border border-gray-100 shadow-sm flex flex-col gap-2 transcription-item-enter">
+            <div v-else v-for="note in summaryNotes" :key="note.id" class="workspace-subpanel p-5 rounded-[24px] flex flex-col gap-2 transcription-item-enter">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <span class="material-symbols-outlined text-[18px] text-blue-500">auto_stories</span>
@@ -204,17 +197,17 @@ const handleAddToNote = () => {
       </section>
 
       <!-- Material Tab -->
-      <section v-else-if="activeTab === 'material'" :key="'tab-material'" :class="['tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12', tabAnim]">
+      <section v-else-if="activeTab === 'material'" :key="'tab-material'" :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
         <div class="max-w-4xl mx-auto w-full h-full">
-          <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">자료</h1>
+          <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">자료</h1>
           <div class="text-[16px] text-[#aeaeb2] leading-relaxed">학습 자료 및 관련 문서가 여기에 표시됩니다.</div>
         </div>
       </section>
 
       <!-- Summary Tab -->
-      <section v-else-if="activeTab === 'summary'" :key="'tab-summary'" :class="['tab-content card flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar pt-[32px]', tabAnim]">
+      <section v-else-if="activeTab === 'summary'" :key="'tab-summary'" :class="['tab-content flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar pt-4', tabAnim]">
         <div class="max-w-4xl mx-auto w-full">
-          <div class="flex items-center justify-between border-b border-[#e5e5ea] mb-8 pb-0">
+          <div class="flex items-center justify-between border-b border-[#e5e5ea] mb-5 pb-0">
             <nav class="flex gap-8">
               <div class="relative cursor-pointer summary-subtab-btn group" @click="activeSummaryTab = 'ai-summary'">
                 <button :class="['text-[15px] py-3 pointer-events-none transition-colors', activeSummaryTab === 'ai-summary' ? 'text-[#1d1d1f] font-bold' : 'text-[#8e8e93] font-medium group-hover:text-[#1d1d1f]']">AI 요약&nbsp;&nbsp;</button>
@@ -232,12 +225,27 @@ const handleAddToNote = () => {
       </section>
 
       <!-- Quiz Tab -->
-      <section v-else-if="activeTab === 'quiz'" :key="'tab-quiz'" :class="['tab-content card flex-1 flex flex-col relative overflow-hidden p-10 pt-12', tabAnim]">
+      <section v-else-if="activeTab === 'quiz'" :key="'tab-quiz'" :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
         <div class="max-w-4xl mx-auto w-full h-full">
-          <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">퀴즈</h1>
+          <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">퀴즈</h1>
           <div class="text-[16px] text-[#aeaeb2] leading-relaxed">생성된 퀴즈와 테스트가 여기에 표시됩니다.</div>
         </div>
       </section>
+
+      <div class="workspace-tab-float-wrap">
+        <div class="workspace-tab-float">
+          <button
+            v-for="tab in tabs"
+            :key="tab.key"
+            class="workspace-tab-chip"
+            :class="{ 'is-active': activeTab === tab.key }"
+            @click="handleTabChange(tab.key)"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+      </div>
+      </div>
     </div>
   </main>
 </template>
@@ -246,21 +254,90 @@ const handleAddToNote = () => {
 /* ═══ 단어 정보 카드 스타일 ═══ */
 .word-info-card {
   padding: 14px 18px;
-  border-left: 3px solid #3b82f6;
-  background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(247,249,255,0.95));
-  backdrop-filter: blur(10px);
+  border-left: 1px solid rgba(255, 255, 255, 0.74);
+  background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.62));
+  box-shadow: 0 22px 44px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+.workspace-shell-card {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.54));
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  box-shadow: 0 26px 52px rgba(148, 163, 184, 0.12), 0 10px 24px rgba(255, 255, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.workspace-shell-card::before {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.96), transparent 40%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.72), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0));
+}
+
+.workspace-shell-card::after {
+  border-color: rgba(255, 255, 255, 0.42);
+}
+
+.workspace-embedded-header {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.54));
+}
+
+.workspace-embedded-divider {
+  height: 1px;
+  margin: 0 24px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0));
+}
+
+.workspace-tab-float {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.58));
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow: 0 18px 36px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+.workspace-tab-float-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 15;
+}
+
+.workspace-tab-chip {
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: #8e8e93;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.workspace-tab-chip.is-active {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.72));
+  color: #1d1d1f;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 8px 18px rgba(148, 163, 184, 0.12);
 }
 
 .word-badge {
   width: 28px;
   height: 28px;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.7));
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  color: #6b7280;
+  box-shadow: 0 10px 20px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 .word-card-btn {
@@ -277,22 +354,25 @@ const handleAddToNote = () => {
 }
 
 .word-card-btn-primary {
-  background: #3b82f6;
-  color: white;
-  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.72));
+  color: #1d1d1f;
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  box-shadow: 0 12px 24px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 .word-card-btn-primary:hover {
-  background: #2563eb;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.78));
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.35);
+  box-shadow: 0 14px 28px rgba(148, 163, 184, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
 .word-card-btn-secondary {
-  background: #f2f2f7;
+  background: rgba(255, 255, 255, 0.48);
   color: #1d1d1f;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 .word-card-btn-secondary:hover {
-  background: #e5e5ea;
+  background: rgba(255, 255, 255, 0.68);
   transform: translateY(-1px);
 }
 
