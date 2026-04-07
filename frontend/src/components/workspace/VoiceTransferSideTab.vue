@@ -78,7 +78,7 @@ const handleWordClick = (e, word) => {
             </div>
             <span class="text-[11px] font-bold text-[#1d1d1f]">나</span>
           </div>
-          <div class="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
+          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
             <template v-if="t.segments && t.segments.length">
               <span
                 v-for="(seg, sIdx) in t.segments"
@@ -158,5 +158,10 @@ const handleWordClick = (e, word) => {
   0%   { color: #aeaeb2; }
   40%  { color: #3b82f6; }
   100% { color: #1d1d1f; }
+}
+
+.voice-message-bubble {
+  width: fit-content;
+  max-width: min(100%, 440px);
 }
 </style>
