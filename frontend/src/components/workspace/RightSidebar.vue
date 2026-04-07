@@ -257,12 +257,12 @@ watch(messages, () => {
   </div>
 
   <aside
-    class="h-full shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)]"
+    class="h-full shrink-0 overflow-hidden rounded-[24px] transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)]"
     id="right-sidebar"
     :class="{ 'sidebar-collapsed': !visible }"
     :style="{ width: visible ? `${width}px` : '0px', minWidth: visible ? `${width}px` : '0px', maxWidth: visible ? `${width}px` : '0px' }"
   >
-    <div class="card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
+    <div class="card workspace-right-sidebar-card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
       <transition name="fade-slide-switch" mode="out-in">
         <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
           <div class="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-6 shadow-lg">
@@ -383,6 +383,10 @@ watch(messages, () => {
 </template>
 
 <style scoped>
+.workspace-right-sidebar-card {
+  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
 /* 화면 전환 애니메이션 */
 .fade-slide-switch-enter-active,
 .fade-slide-switch-leave-active {

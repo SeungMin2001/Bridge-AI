@@ -66,10 +66,10 @@ const showToast = (msg) => {
   <aside
     :class="[{ 'sidebar-collapsed': isCollapsed }]"
     id="sidebar"
-    class="transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
+    class="transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden rounded-[24px]"
     :style="{ width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
   >
-    <div class="card h-full bg-white flex flex-col p-5 overflow-hidden min-w-[280px]">
+    <div class="card workspace-sidebar-card h-full bg-white flex flex-col p-5 overflow-hidden min-w-[280px]">
       <!-- Header -->
       <div class="flex items-center justify-between mb-5">
         <div class="flex items-center gap-2 font-extrabold tracking-tight">
@@ -145,3 +145,9 @@ const showToast = (msg) => {
   <!-- Toast -->
   <div :class="['toast', { show: toastMsg }]" id="toast">{{ toastMsg }}</div>
 </template>
+
+<style scoped>
+.workspace-sidebar-card {
+  box-shadow: 0 14px 34px rgba(31, 41, 55, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+</style>
