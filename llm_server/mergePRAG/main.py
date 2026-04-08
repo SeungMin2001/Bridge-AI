@@ -13,7 +13,8 @@ from .orthogonal_merge import orthogonal_merging
 # ── 설정 (train.py와 동일) ──
 CRITICAL_LAYER = 0
 NUM_KV = 16
-WEIGHTS_PATH = "llm_server/mergePRAG/hypernet_weights.pt"
+import os as _os
+WEIGHTS_PATH = _os.path.join(_os.path.dirname(__file__), "hypernet_weights.pt")
 
 
 def make_hook(delta_K, delta_V):
