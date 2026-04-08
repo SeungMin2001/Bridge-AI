@@ -66,7 +66,8 @@ def get_decoder_layers(model):
 
 
 def compute_loss(model, tokenizer, question, answer):
-    """question+answer 입력에서 answer 부분의 cross-entropy loss 계산"""
+    """question+answer 입력에서 answer 부분의 cross-entropy loss 계산.
+    logits[t]는 t+1을 예측 → logits[prompt_len-1]이 첫 answer 토큰을 예측."""
     prompt = question
     full_text = prompt + answer
 
@@ -81,9 +82,13 @@ def compute_loss(model, tokenizer, question, answer):
         outputs = model(full_ids)
         logits = outputs.logits  # [1, seq_len, vocab_size]
 
-    # answer 부분만 loss 계산 (prompt 이후~끝)
-    shift_logits = logits[:, prompt_len - 1:-1, :]  # 예측 위치
-    shift_labels = full_ids[:, prompt_len:]  # 정답 토큰
+    # LM shift: logits[t] → labels[t+1]
+    # answer 예측: logits[prompt_len-1 : -1] → labels[prompt_len : ]
+    shift_logits = logits[:, prompt_len - 1:-1, :]
+    shift_labels = full_ids[:, prompt_len:]
+
+    if shift_labels.numel() == 0:
+        return 0.0
 
     loss = F.cross_entropy(
         shift_logits.reshape(-1, shift_logits.size(-1)),

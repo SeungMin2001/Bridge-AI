@@ -87,14 +87,20 @@ def make_hook(delta_K, delta_V):
     return hook_fn
 
 
-# ── Loss 함수 (논문 utils.py 방식: -100 마스킹) ──
+# ── Loss 함수 (LM shift 적용) ──
 def compute_loss(logits, labels):
-    """논문 원본 cross_entropy: labels != -100인 위치만 loss 계산"""
-    ans_indices = torch.where(labels != -100)
+    """Language Model loss: logits[t]는 t+1을 예측하므로 1칸 shift 필요.
+    shift_logits[t] → shift_labels[t] = labels[t+1] 매칭."""
+    # logits: [B, seq_len, vocab], labels: [B, seq_len]
+    shift_logits = logits[:, :-1, :].contiguous()   # [B, seq_len-1, vocab]
+    shift_labels = labels[:, 1:].contiguous()        # [B, seq_len-1]
+
+    # answer 부분만 loss 계산 (-100이 아닌 위치)
+    ans_indices = torch.where(shift_labels != -100)
     if len(ans_indices[0]) == 0:
         return None
-    logits_flat = logits[ans_indices]
-    labels_flat = labels[ans_indices]
+    logits_flat = shift_logits[ans_indices]
+    labels_flat = shift_labels[ans_indices]
     return F.cross_entropy(logits_flat, labels_flat)
 
 
