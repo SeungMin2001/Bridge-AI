@@ -80,11 +80,26 @@ print(f"  → {answer_b}")
 # C. MergePRAG (K,V inject)
 print("\n[C] MergePRAG + LLM (Critical Layer inject)")
 K, V = mm.get_memory("test_course")
+print(f"  K shape: {K.shape}, V shape: {V.shape}")
+print(f"  K norm: {K.norm().item():.4f}, V norm: {V.norm().item():.4f}")
+print(f"  K has NaN: {K.isnan().any().item()}, V has NaN: {V.isnan().any().item()}")
+
 target_layer = model.model.layers[CRITICAL_LAYER]
 hook = target_layer.register_forward_hook(make_hook(K, V))
 prompt_c = make_prompt(TEST_QUESTION)  # context 없이!
-answer_c = generate(prompt_c)
+
+# raw output 확인 (skip_special_tokens=False)
+inputs = tokenizer(prompt_c, return_tensors="pt").to(device)
+with torch.no_grad():
+    output_ids = model.generate(**inputs, max_new_tokens=128, do_sample=False)
+gen_ids = output_ids[0][inputs["input_ids"].shape[1]:]
+raw_c = tokenizer.decode(gen_ids, skip_special_tokens=False)
 hook.remove()
+
+print(f"  raw output: {repr(raw_c[:200])}")
+import re
+answer_c = re.sub(r'<think>.*?</think>', '', raw_c, flags=re.DOTALL).strip()
+answer_c = re.sub(r'<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>', '', answer_c).strip()
 print(f"  → {answer_c}")
 
 # ── 결과 비교 ──

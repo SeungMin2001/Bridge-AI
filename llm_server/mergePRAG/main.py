@@ -13,7 +13,7 @@ from .orthogonal_merge import orthogonal_merging
 # ── 설정 (train.py와 동일) ──
 CRITICAL_LAYER = 0
 NUM_KV = 16
-ALPHA = 0.01  # inject 강도 (너무 크면 생성 붕괴)
+ALPHA = 1.0  # 논문 원본: 스케일링 없음 (1.0 = 그대로 더함)
 import os as _os
 WEIGHTS_PATH = _os.path.join(_os.path.dirname(__file__), "hypernet_weights.pt")
 
