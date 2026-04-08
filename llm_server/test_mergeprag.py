@@ -1,40 +1,37 @@
 """
-MergePRAG 동작 테스트 스크립트
+MergePRAG Alpha Sweep 테스트
 
-3가지 방식으로 같은 질문에 답변 비교:
-  A. LLM Only (아무 정보 없이)
-  B. RAG 방식 (프롬프트에 텍스트 삽입)
-  C. MergePRAG (K,V inject)
-
+A. LLM Only → B. RAG → C~. MergePRAG alpha별 비교
 사용법: cd llm_server && python test_mergeprag.py
 """
 import torch
+import re
 from run_model import run_model
-from mergePRAG.main import CourseMemoryManager, make_hook, CRITICAL_LAYER
+from mergePRAG.main import CourseMemoryManager, CRITICAL_LAYER
+from mergePRAG.cross_attention import cross_attention
 
 # ── 테스트 데이터 ──
 TEST_PASSAGE = "운영체제에서 프로세스는 실행 중인 프로그램의 인스턴스이다. 각 프로세스는 고유한 PID를 가지며, PCB(Process Control Block)에 프로세스의 상태, 프로그램 카운터, 레지스터 정보가 저장된다."
 TEST_QUESTION = "프로세스가 뭐야?"
 
 print("=" * 60)
-print("MergePRAG 동작 테스트")
+print("MergePRAG Alpha Sweep 테스트")
 print("=" * 60)
 
 # ── 모델 로드 ──
-print("\n[1/4] 모델 로딩...")
+print("\n[1/3] 모델 로딩...")
 model, tokenizer = run_model()
 device = next(model.parameters()).device
 
-# ── HyperNetwork 로드 ──
-print("[2/4] HyperNetwork 로딩...")
+print("[2/3] HyperNetwork 로딩...")
 mm = CourseMemoryManager(model, tokenizer, device)
 
-# ── 과목 메모리에 passage 추가 ──
-print("[3/4] passage를 과목 메모리에 추가...")
+print("[3/3] passage 추가...")
 mm.add_passage("test_course", TEST_PASSAGE)
-print(f"  passage: {TEST_PASSAGE[:50]}...")
+K, V = mm.get_memory("test_course")
+print(f"  K norm: {K.norm().item():.2f}, V norm: {V.norm().item():.2f}")
 
-# ── 프롬프트 구성 ──
+# ── 유틸 ──
 SYSTEM = "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해."
 
 def make_prompt(question, context=""):
@@ -50,103 +47,69 @@ def make_prompt(question, context=""):
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
 
-def make_train_format_prompt(question):
-    """학습 시 사용한 것과 동일한 포맷"""
-    return f"Question: {question}\nAnswer:"
+def clean(text):
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    return re.sub(r'<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>', '', text).strip()
 
-def generate(input_text, max_new_tokens=128):
+def generate(input_text, max_new=128):
     inputs = tokenizer(input_text, return_tensors="pt").to(device)
     with torch.no_grad():
-        output_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-    gen_ids = output_ids[0][inputs["input_ids"].shape[1]:]
-    raw = tokenizer.decode(gen_ids, skip_special_tokens=True)
-    # think 태그 제거
-    import re
-    raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
-    return raw
+        out = model.generate(**inputs, max_new_tokens=max_new, do_sample=False)
+    gen_ids = out[0][inputs["input_ids"].shape[1]:]
+    return clean(tokenizer.decode(gen_ids, skip_special_tokens=False))
 
-# ── 테스트 실행 ──
-print(f"\n[4/4] 테스트 시작: '{TEST_QUESTION}'")
+def make_alpha_hook(delta_K, delta_V, alpha):
+    logged = [False]
+    def hook_fn(module, input, output):
+        hidden = output[0] if isinstance(output, tuple) else output
+        Kd = delta_K.to(device=hidden.device, dtype=hidden.dtype)
+        Vd = delta_V.to(device=hidden.device, dtype=hidden.dtype)
+        delta = cross_attention(hidden, Kd, Vd)
+        if not logged[0]:
+            ad = (alpha * delta).norm().item()
+            print(f"    hidden={hidden.norm().item():.2f}, alpha*delta={ad:.2f}, 기여비={ad/hidden.norm().item():.1%}")
+            logged[0] = True
+        result = hidden + alpha * delta
+        if isinstance(output, tuple):
+            return (result,) + output[1:]
+        return result
+    return hook_fn
+
+# ── 테스트 ──
+print(f"\n질문: '{TEST_QUESTION}'")
 print("=" * 60)
 
-# A. LLM Only
-print("\n[A] LLM Only (사전학습 지식만)")
-prompt_a = make_prompt(TEST_QUESTION)
-answer_a = generate(prompt_a)
-print(f"  → {answer_a}")
+print("\n[A] LLM Only")
+answer_a = generate(make_prompt(TEST_QUESTION))
+print(f"  → {answer_a[:150]}")
 
-# B. RAG 방식 (텍스트 삽입)
-print("\n[B] RAG + LLM (프롬프트에 텍스트 삽입)")
-prompt_b = make_prompt(TEST_QUESTION, context=TEST_PASSAGE)
-answer_b = generate(prompt_b)
-print(f"  → {answer_b}")
+print("\n[B] RAG + LLM")
+answer_b = generate(make_prompt(TEST_QUESTION, context=TEST_PASSAGE))
+print(f"  → {answer_b[:150]}")
 
-# C. MergePRAG (K,V inject) - chat template
-print("\n[C] MergePRAG + LLM (Critical Layer inject, chat template)")
-K, V = mm.get_memory("test_course")
-print(f"  K shape: {K.shape}, V shape: {V.shape}")
-print(f"  K norm: {K.norm().item():.4f}, V norm: {V.norm().item():.4f}")
-print(f"  K has NaN: {K.isnan().any().item()}, V has NaN: {V.isnan().any().item()}")
-
-# delta norm 디버깅용 hook
-from mergePRAG.cross_attention import cross_attention as ca_debug
-def debug_hook(module, input, output):
-    if isinstance(output, tuple):
-        hidden = output[0]
-    else:
-        hidden = output
-    K_d = K.to(device=hidden.device, dtype=hidden.dtype)
-    V_d = V.to(device=hidden.device, dtype=hidden.dtype)
-    delta = ca_debug(hidden, K_d, V_d)
-    print(f"  [DEBUG] hidden norm: {hidden.norm().item():.2f}, delta norm: {delta.norm().item():.2f}, ratio: {delta.norm().item()/hidden.norm().item():.4f}")
-    if isinstance(output, tuple):
-        return (hidden + delta,) + output[1:]
-    return hidden + delta
-
+# Alpha sweep
 target_layer = model.model.layers[CRITICAL_LAYER]
-hook = target_layer.register_forward_hook(debug_hook)
-prompt_c = make_prompt(TEST_QUESTION)  # chat template
+prompt = make_prompt(TEST_QUESTION)
+results = {}
 
-inputs = tokenizer(prompt_c, return_tensors="pt").to(device)
-with torch.no_grad():
-    output_ids = model.generate(**inputs, max_new_tokens=128, do_sample=False)
-gen_ids = output_ids[0][inputs["input_ids"].shape[1]:]
-raw_c = tokenizer.decode(gen_ids, skip_special_tokens=False)
-hook.remove()
+for alpha in [0.01, 0.02, 0.05, 0.1]:
+    print(f"\n[MergePRAG alpha={alpha}]")
+    hook = target_layer.register_forward_hook(make_alpha_hook(K, V, alpha))
+    ans = generate(prompt)
+    hook.remove()
+    results[alpha] = ans
+    print(f"  → {ans[:150]}")
 
-print(f"  raw output: {repr(raw_c[:200])}")
-import re
-answer_c = re.sub(r'<think>.*?</think>', '', raw_c, flags=re.DOTALL).strip()
-answer_c = re.sub(r'<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>', '', answer_c).strip()
-print(f"  → {answer_c}")
-
-# D. MergePRAG (K,V inject) - 학습 포맷 (원인 비교)
-print("\n[D] MergePRAG + LLM (Critical Layer inject, 학습 포맷)")
-hook2 = target_layer.register_forward_hook(debug_hook)
-prompt_d = make_train_format_prompt(TEST_QUESTION)  # 학습 시와 동일한 포맷
-print(f"  prompt: {repr(prompt_d)}")
-
-inputs_d = tokenizer(prompt_d, return_tensors="pt").to(device)
-with torch.no_grad():
-    output_ids_d = model.generate(**inputs_d, max_new_tokens=128, do_sample=False)
-gen_ids_d = output_ids_d[0][inputs_d["input_ids"].shape[1]:]
-raw_d = tokenizer.decode(gen_ids_d, skip_special_tokens=False)
-hook2.remove()
-
-print(f"  raw output: {repr(raw_d[:200])}")
-answer_d = re.sub(r'<think>.*?</think>', '', raw_d, flags=re.DOTALL).strip()
-answer_d = re.sub(r'<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>', '', answer_d).strip()
-print(f"  → {answer_d}")
-
-# ── 결과 비교 ──
+# ── 결과 요약 ──
 print("\n" + "=" * 60)
-print("비교 결과")
+print("결과 요약")
 print("=" * 60)
-print(f"\n질문: {TEST_QUESTION}")
-print(f"passage: {TEST_PASSAGE[:80]}...")
-print(f"\n[A] LLM Only:        {answer_a[:100]}")
-print(f"[B] RAG+LLM:         {answer_b[:100]}")
-print(f"[C] MergePRAG(chat): {answer_c[:100]}")
-print(f"[D] MergePRAG(train):{answer_d[:100]}")
-print("\n※ [C] vs [D] 비교 → 프롬프트 형식이 원인인지 확인")
-print("※ delta/hidden norm ratio가 크면 스케일링 문제")
+print(f"질문: {TEST_QUESTION}")
+print(f"passage: {TEST_PASSAGE[:60]}...")
+print(f"\n{'방식':<20} {'답변':}")
+print("-" * 60)
+print(f"{'[A] LLM Only':<20} {answer_a[:70]}")
+print(f"{'[B] RAG+LLM':<20} {answer_b[:70]}")
+for alpha, ans in results.items():
+    print(f"{'[α='+str(alpha)+']':<20} {ans[:70]}")
+print("\n※ PID, PCB 언급하는 alpha = 최적값 → main.py ALPHA에 반영")
