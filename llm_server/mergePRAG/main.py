@@ -13,25 +13,26 @@ from .orthogonal_merge import orthogonal_merging
 # ── 설정 (train.py와 동일) ──
 CRITICAL_LAYER = 0
 NUM_KV = 16
+ALPHA = 0.01  # inject 강도 (너무 크면 생성 붕괴)
 import os as _os
 WEIGHTS_PATH = _os.path.join(_os.path.dirname(__file__), "hypernet_weights.pt")
 
 
-def make_hook(delta_K, delta_V):
-    """Critical Layer에 K,V를 inject하는 forward hook (train.py 방식)"""
+def make_hook(delta_K, delta_V, alpha=ALPHA):
+    """Critical Layer에 K,V를 inject하는 forward hook"""
     def hook_fn(module, input, output):
         if isinstance(output, tuple):
             hidden = output[0]
             K = delta_K.to(device=hidden.device, dtype=hidden.dtype)
             V = delta_V.to(device=hidden.device, dtype=hidden.dtype)
             delta = cross_attention(hidden, K, V)
-            return (hidden + delta,) + output[1:]
+            return (hidden + alpha * delta,) + output[1:]
         else:
             hidden = output
             K = delta_K.to(device=hidden.device, dtype=hidden.dtype)
             V = delta_V.to(device=hidden.device, dtype=hidden.dtype)
             delta = cross_attention(hidden, K, V)
-            return hidden + delta
+            return hidden + alpha * delta
     return hook_fn
 
 
