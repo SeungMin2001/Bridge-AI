@@ -5,11 +5,27 @@ RAG 검색 모듈
 - Citation (출처 표시)
 - 실시간 전사 임베딩 추가
 """
-import re
 import psycopg2
+from kiwipiepy import Kiwi
 from llama_index.core import Settings, VectorStoreIndex, Document
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
+
+# ── 형태소 분석기 (Kiwi) ──
+_kiwi = Kiwi()
+
+# 키워드 검색에 사용할 품사 태그 (명사, 동사 어간, 형용사 어간)
+_KEYWORD_TAGS = {"NNG", "NNP", "VV", "VA"}  # 일반명사, 고유명사, 동사, 형용사
+
+
+def extract_keywords(text: str) -> list[str]:
+    """형태소 분석으로 명사/동사어간/형용사어간만 추출"""
+    tokens = _kiwi.tokenize(text)
+    keywords = []
+    for token in tokens:
+        if token.tag in _KEYWORD_TAGS and len(token.form) >= 2:
+            keywords.append(token.form)
+    return keywords
 
 # ── 임베딩 모델 (서버 시작 시 1회 초기화) ──
 _embed_model = None
@@ -59,35 +75,41 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
     )
     cur = conn.cursor()
 
-    # 쿼리를 단어로 분리해서 LIKE 검색
-    words = [w.strip() for w in query.split() if len(w.strip()) >= 2]
+    # 형태소 분석으로 명사/동사/형용사 키워드 추출
+    words = extract_keywords(query)
     if not words:
         cur.close()
         conn.close()
         return []
 
-    # 각 단어에 대해 ILIKE OR 조건
+    # 각 단어에 대해 ILIKE OR 조건 + 매칭 키워드 수로 랭킹
     like_conditions = " OR ".join([f"c.chunk_text ILIKE %s" for _ in words])
     like_values = [f"%{w}%" for w in words]
+
+    # 키워드 매칭 개수를 점수로 계산하여 ORDER BY
+    match_score = " + ".join([f"CASE WHEN c.chunk_text ILIKE %s THEN 1 ELSE 0 END" for _ in words])
+    score_values = [f"%{w}%" for w in words]
 
     sql = f"""
         SELECT c.chunk_id, c.session_id, c.chunk_index, c.start_time, c.end_time, c.chunk_text,
                s.title as session_title, s.session_date,
-               co.title as course_title
+               co.title as course_title,
+               ({match_score}) as match_count
         FROM chunks c
         JOIN sessions s ON c.session_id = s.session_id
         JOIN courses co ON s.course_id = co.course_id
         WHERE {like_conditions}
+        ORDER BY match_count DESC
         LIMIT %s
     """
-    cur.execute(sql, like_values + [top_k])
+    cur.execute(sql, score_values + like_values + [top_k])
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
     results = []
     for row in rows:
-        chunk_id, session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, course_title = row
+        chunk_id, session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, course_title, match_count = row
         results.append({
             "text": chunk_text,
             "course_title": course_title,
@@ -125,20 +147,16 @@ def _vector_search(query: str, top_k: int = 5) -> list[dict]:
 # ── Multi-query: 질문을 여러 검색 쿼리로 확장 ──
 def _expand_queries(question: str) -> list[str]:
     """
-    원본 질문 + 핵심 키워드 추출 쿼리를 생성.
-    LLM 없이 규칙 기반으로 확장 (속도 우선).
+    원본 질문 + 형태소 분석 기반 키워드 쿼리 생성.
+    Kiwi 형태소 분석기로 명사/동사/형용사 어간만 추출.
     """
     queries = [question]
 
-    # 불용어 제거 후 핵심어 조합
-    stopwords = {"이", "가", "은", "는", "을", "를", "의", "에", "에서", "로", "으로",
-                 "와", "과", "도", "만", "뭐", "뭘", "뭔", "어떻게", "무엇", "무슨",
-                 "알려줘", "설명해줘", "말해줘", "뭐야", "이야", "인가", "인지", "대해"}
-    words = [w for w in re.split(r'\s+', question) if w not in stopwords and len(w) >= 2]
+    # 형태소 분석으로 핵심 키워드 추출
+    keywords = extract_keywords(question)
 
-    if words:
-        # 핵심 키워드만으로 된 쿼리
-        keyword_query = " ".join(words)
+    if keywords:
+        keyword_query = " ".join(keywords)
         if keyword_query != question:
             queries.append(keyword_query)
 
@@ -153,25 +171,32 @@ def _format_time(seconds: float) -> str:
     return f"{m}:{s:02d}"
 
 
-# ── 중복 제거 및 병합 ──
-def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5) -> list[dict]:
-    """벡터 + 키워드 결과를 병합하고 중복 제거"""
-    seen_texts = set()
-    merged = []
+# ── Reciprocal Rank Fusion (RRF) 병합 ──
+def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, k: int = 60) -> list[dict]:
+    """
+    RRF로 벡터 + 키워드 결과를 통합 랭킹.
+    score = Σ 1/(k + rank)  (k=60이 표준값)
+    벡터 3위 + 키워드 1위인 문장이 벡터 1위만인 문장보다 높을 수 있음.
+    """
+    scores = {}  # text → {"score": float, "data": dict}
 
-    # 벡터 결과 우선
-    for r in vector_results:
-        if r["text"] not in seen_texts:
-            seen_texts.add(r["text"])
-            merged.append(r)
+    # 벡터 결과: 이미 cosine 유사도 순으로 정렬되어 있음
+    for rank, r in enumerate(vector_results):
+        text = r["text"]
+        if text not in scores:
+            scores[text] = {"score": 0, "data": r}
+        scores[text]["score"] += 1.0 / (k + rank + 1)
 
-    # 키워드 결과 추가
-    for r in keyword_results:
-        if r["text"] not in seen_texts:
-            seen_texts.add(r["text"])
-            merged.append(r)
+    # 키워드 결과: match_count DESC로 정렬되어 있음
+    for rank, r in enumerate(keyword_results):
+        text = r["text"]
+        if text not in scores:
+            scores[text] = {"score": 0, "data": r}
+        scores[text]["score"] += 1.0 / (k + rank + 1)
 
-    return merged[:top_k]
+    # RRF 점수 기준 정렬
+    ranked = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
+    return [item["data"] for item in ranked[:top_k]]
 
 
 # ── Citation 포맷 ──

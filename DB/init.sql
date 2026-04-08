@@ -81,3 +81,13 @@ CREATE TABLE explanation_chunks (
     rank_order           INT,
     quoted_text          TEXT
 );
+
+-- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
+CREATE TABLE course_memories (
+    memory_id      UUID PRIMARY KEY,
+    course_id      UUID NOT NULL REFERENCES courses(course_id) UNIQUE,
+    merged_k       BYTEA,
+    merged_v       BYTEA,
+    passage_count  INT DEFAULT 0,
+    updated_at     TIMESTAMP NOT NULL
+);
