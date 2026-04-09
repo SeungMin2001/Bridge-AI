@@ -10,6 +10,9 @@ const props = defineProps({
 const emit = defineEmits(['toggle', 'navigate'])
 
 const weekLabels = ['일', '월', '화', '수', '목', '금', '토']
+const meridiemOptions = ['오전', '오후']
+const hourOptions = Array.from({ length: 12 }, (_, index) => `${index + 1}`.padStart(2, '0'))
+const minuteOptions = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
 const today = new Date()
 const currentMonthLabel = computed(() => `${today.getMonth() + 1}월`)
 const calendarCardRef = ref(null)
@@ -18,8 +21,12 @@ const scheduleModalPos = ref({ x: 0, y: 0 })
 const selectedDateKey = ref(formatDateKey(today))
 const scheduleForm = ref({
   title: '',
-  startTime: '',
-  endTime: '',
+  startMeridiem: '오전',
+  startHour: '09',
+  startMinute: '00',
+  endMeridiem: '오전',
+  endHour: '10',
+  endMinute: '00',
   note: '',
 })
 const scheduleItems = ref([])
@@ -54,7 +61,16 @@ function saveSchedules(items) {
 function openScheduleModal(day) {
   if (day.muted) return
   selectedDateKey.value = day.dateKey
-  scheduleForm.value = { title: '', startTime: '', endTime: '', note: '' }
+  scheduleForm.value = {
+    title: '',
+    startMeridiem: '오전',
+    startHour: '09',
+    startMinute: '00',
+    endMeridiem: '오전',
+    endHour: '10',
+    endMinute: '00',
+    note: '',
+  }
   isScheduleModalOpen.value = true
 
   nextTick(() => {
@@ -71,10 +87,24 @@ function closeScheduleModal() {
   isScheduleModalOpen.value = false
 }
 
-function submitSchedule() {
-  if (!scheduleForm.value.title.trim() || !scheduleForm.value.startTime || !scheduleForm.value.endTime) return
+function formatSelectedTime(meridiem, hour, minute) {
+  return `${meridiem} ${hour}:${minute}`
+}
 
-  const timeRange = `${scheduleForm.value.startTime} - ${scheduleForm.value.endTime}`
+function submitSchedule() {
+  if (!scheduleForm.value.title.trim()) return
+
+  const startTime = formatSelectedTime(
+    scheduleForm.value.startMeridiem,
+    scheduleForm.value.startHour,
+    scheduleForm.value.startMinute
+  )
+  const endTime = formatSelectedTime(
+    scheduleForm.value.endMeridiem,
+    scheduleForm.value.endHour,
+    scheduleForm.value.endMinute
+  )
+  const timeRange = `${startTime} - ${endTime}`
 
   const nextItems = [
     ...scheduleItems.value,
@@ -82,8 +112,8 @@ function submitSchedule() {
       id: `${selectedDateKey.value}-${Date.now()}`,
       dateKey: selectedDateKey.value,
       title: scheduleForm.value.title.trim(),
-      startTime: scheduleForm.value.startTime,
-      endTime: scheduleForm.value.endTime,
+      startTime,
+      endTime,
       time: timeRange,
       note: scheduleForm.value.note.trim(),
       status: '예정',
@@ -293,8 +323,36 @@ onUnmounted(() => {
           <label class="home-calendar-field">
             <span>시간</span>
             <div class="home-calendar-time-grid">
-              <input v-model="scheduleForm.startTime" type="time" />
-              <input v-model="scheduleForm.endTime" type="time" />
+              <div class="home-calendar-time-block">
+                <span class="home-calendar-time-label">시작</span>
+                <div class="home-calendar-time-picker">
+                  <select v-model="scheduleForm.startMeridiem" class="home-calendar-time-select home-calendar-time-meridiem">
+                    <option v-for="option in meridiemOptions" :key="`start-${option}`" :value="option">{{ option }}</option>
+                  </select>
+                  <select v-model="scheduleForm.startHour" class="home-calendar-time-select">
+                    <option v-for="option in hourOptions" :key="`start-hour-${option}`" :value="option">{{ option }}</option>
+                  </select>
+                  <span class="home-calendar-time-separator">:</span>
+                  <select v-model="scheduleForm.startMinute" class="home-calendar-time-select">
+                    <option v-for="option in minuteOptions" :key="`start-minute-${option}`" :value="option">{{ option }}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="home-calendar-time-block">
+                <span class="home-calendar-time-label">종료</span>
+                <div class="home-calendar-time-picker">
+                  <select v-model="scheduleForm.endMeridiem" class="home-calendar-time-select home-calendar-time-meridiem">
+                    <option v-for="option in meridiemOptions" :key="`end-${option}`" :value="option">{{ option }}</option>
+                  </select>
+                  <select v-model="scheduleForm.endHour" class="home-calendar-time-select">
+                    <option v-for="option in hourOptions" :key="`end-hour-${option}`" :value="option">{{ option }}</option>
+                  </select>
+                  <span class="home-calendar-time-separator">:</span>
+                  <select v-model="scheduleForm.endMinute" class="home-calendar-time-select">
+                    <option v-for="option in minuteOptions" :key="`end-minute-${option}`" :value="option">{{ option }}</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </label>
 

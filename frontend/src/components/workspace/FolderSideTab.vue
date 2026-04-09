@@ -78,7 +78,11 @@ const handleToggleFolder = (id) => {
 }
 
 const handleShowContextMenu = (id, x, y) => {
-  ctxMenu.value = { visible: true, x, y, targetId: id }
+  const menuWidth = 236
+  const menuHeight = 308
+  const nextX = Math.min(x, window.innerWidth - menuWidth - 16)
+  const nextY = Math.min(y, window.innerHeight - menuHeight - 16)
+  ctxMenu.value = { visible: true, x: nextX, y: nextY, targetId: id }
 }
 
 const handleCloseContextMenu = () => {
@@ -178,7 +182,7 @@ const handleNewFolder = () => {
         <div class="flex items-center justify-between px-1 mb-2">
           <span class="text-[13px] font-bold text-[#3a3a3c]">활성화한 파일</span>
         </div>
-        <div v-if="activeNode" class="tree-item workspace-subpanel rounded-[18px]">
+        <div v-if="activeNode" class="tree-item active-file-row">
           <span class="material-symbols-outlined text-[#1d1d1f]" style="font-size: 18px;">description</span>
           <span class="text-[13px] font-semibold text-[#1d1d1f] flex-1 truncate">{{ activeNode.name }}</span>
         </div>
@@ -284,43 +288,44 @@ const handleNewFolder = () => {
     </div>
   </div>
 
-  <!-- 컨텍스트 메뉴 -->
-  <div 
-    v-if="ctxMenu.visible" 
-    class="dropdown-menu" 
-    :style="{ display: 'block', left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
-  >
-    <div class="dropdown-item" @click="handleContextAction('open')">
-      <span class="material-symbols-outlined text-[16px] text-[#3b82f6]">open_in_new</span>열기
-    </div>
-    <div class="dropdown-item" @click="handleContextAction('rename')">
-      <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">edit</span>이름 변경
-    </div>
-    <template v-if="ctxTargetNode?.type === 'folder'">
-      <div class="dropdown-item" @click="handleContextAction('new-file')">
-        <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">note_add</span>새 파일
-      </div>
-      <div class="dropdown-item" @click="handleContextAction('new-folder')">
-        <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">create_new_folder</span>새 폴더
-      </div>
-    </template>
-    <div class="dropdown-item" @click="handleContextAction('favorite')">
-      <span class="material-symbols-outlined text-[16px] text-[#ff9500]">
-        {{ isCtxFavorite ? 'star_border' : 'star' }}
-      </span>
-      {{ isCtxFavorite ? '즐겨찾기 제거' : '즐겨찾기 추가' }}
-    </div>
-    <div class="dropdown-divider"></div>
-    <div class="dropdown-item danger" @click="handleContextAction('delete')">
-      <span class="material-symbols-outlined text-[16px]">delete</span>삭제
-    </div>
-  </div>
+  <Teleport to="body">
+    <div 
+      v-if="ctxMenu.visible" 
+      style="position: fixed; inset: 0; z-index: 9998;" 
+      @click="handleCloseContextMenu"
+    ></div>
 
-  <div 
-    v-if="ctxMenu.visible" 
-    style="position: fixed; inset: 0; z-index: 9998;" 
-    @click="handleCloseContextMenu"
-  ></div>
+    <div 
+      v-if="ctxMenu.visible" 
+      class="dropdown-menu" 
+      :style="{ display: 'block', left: ctxMenu.x + 'px', top: ctxMenu.y + 'px', zIndex: 9999 }"
+    >
+      <div class="dropdown-item" @click="handleContextAction('open')">
+        <span class="material-symbols-outlined text-[16px] text-[#3b82f6]">open_in_new</span>열기
+      </div>
+      <div class="dropdown-item" @click="handleContextAction('rename')">
+        <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">edit</span>이름 변경
+      </div>
+      <template v-if="ctxTargetNode?.type === 'folder'">
+        <div class="dropdown-item" @click="handleContextAction('new-file')">
+          <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">note_add</span>새 파일
+        </div>
+        <div class="dropdown-item" @click="handleContextAction('new-folder')">
+          <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">create_new_folder</span>새 폴더
+        </div>
+      </template>
+      <div class="dropdown-item" @click="handleContextAction('favorite')">
+        <span class="material-symbols-outlined text-[16px] text-[#ff9500]">
+          {{ isCtxFavorite ? 'star_border' : 'star' }}
+        </span>
+        {{ isCtxFavorite ? '즐겨찾기 제거' : '즐겨찾기 추가' }}
+      </div>
+      <div class="dropdown-divider"></div>
+      <div class="dropdown-item danger" @click="handleContextAction('delete')">
+        <span class="material-symbols-outlined text-[16px]">delete</span>삭제
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <!-- Vue 컴포넌트 내에 재귀 호출을 위한 내부 트리 아이템 정의 -->

@@ -148,8 +148,27 @@ const showToast = (msg) => {
 
 <style scoped>
 .workspace-sidebar-card {
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.58));
+  background: rgba(255, 255, 255, 0.78);
   border: 1px solid rgba(255, 255, 255, 0.86);
-  box-shadow: 0 28px 56px rgba(148, 163, 184, 0.14), 0 10px 26px rgba(255, 255, 255, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 26px 54px rgba(148, 163, 184, 0.13),
+    0 12px 28px rgba(255, 255, 255, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 12px 0 20px rgba(255, 255, 255, 0.14),
+    inset -10px 0 18px rgba(214, 236, 255, 0.12);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+.workspace-sidebar-card::before {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), transparent 30%),
+    radial-gradient(circle at bottom left, rgba(255, 255, 255, 0.32), transparent 24%),
+    radial-gradient(circle at top right, rgba(220, 238, 255, 0.34), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04));
+}
+
+.workspace-sidebar-card::after {
+  border-color: rgba(255, 255, 255, 0.48);
 }
 </style>

@@ -43,7 +43,7 @@ const handleWordClick = (e, word) => {
 <template>
   <div class="flex flex-col flex-1 overflow-hidden">
     <!-- 검색 창 -->
-    <div class="sidebar-search-bg workspace-inset-shell rounded-[24px] px-3 py-3 flex items-center gap-3 mb-6">
+    <div class="sidebar-search-bg workspace-inset-shell transcript-search-shell rounded-[24px] px-3 py-3 flex items-center gap-3 mb-6">
       <span class="material-symbols-outlined text-[#8e8e93] text-[20px]">search</span>
       <input
         class="bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
@@ -161,7 +161,45 @@ const handleWordClick = (e, word) => {
 }
 
 .voice-message-bubble {
+  position: relative;
   width: fit-content;
   max-width: min(100%, 440px);
+  background: #f4ede4;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 -1px 0 rgba(226, 213, 195, 0.34),
+    0 10px 24px rgba(191, 178, 160, 0.12);
+  overflow: hidden;
+}
+
+.transcript-search-shell {
+  position: relative;
+  background: #f4ede4;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(226, 213, 195, 0.32),
+    0 12px 28px rgba(191, 178, 160, 0.12);
+  overflow: hidden;
+}
+
+.transcript-search-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.58), transparent 42%);
+  pointer-events: none;
+}
+
+.voice-message-bubble::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.18), transparent 34%);
+  pointer-events: none;
 }
 </style>

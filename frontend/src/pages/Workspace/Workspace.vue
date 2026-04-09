@@ -13,6 +13,9 @@ const props = defineProps({
   isRecording: { type: Boolean, default: false },
   recordingTimeText: { type: String, default: '0:00' },
   activeFileName: { type: String, default: '' },
+  activeFileId: { type: String, default: '' },
+  currentAttachments: { type: Array, default: () => [] },
+  currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
   summaryNotes: { type: Array, default: () => [] },
   aiInput: { type: String, default: '' }
@@ -28,7 +31,10 @@ const emit = defineEmits([
   'stopRecording',
   'rightSidebarToggle',
   'addToNote',
-  'askAi'
+  'askAi',
+  'uploadLectureMaterials',
+  'closePreviewMaterial',
+  'openStoredMaterial'
 ])
 
 const isLeftSidebarCollapsed = ref(false)
@@ -100,6 +106,9 @@ const highlightedTranscript = computed(() => {
       :isRecording="isRecording"
       :recordingTimeText="recordingTimeText"
       :activeFileName="activeFileName"
+      :activeFileId="activeFileId"
+      :materialAttachments="currentAttachments"
+      :currentPreviewMaterial="currentPreviewMaterial"
       :summaryNotes="summaryNotes"
       @startRecording="emit('startRecording')"
       @stopRecording="emit('stopRecording')"
@@ -107,6 +116,9 @@ const highlightedTranscript = computed(() => {
       @rightSidebarToggle="emit('rightSidebarToggle')"
       @askAi="(word) => emit('askAi', word)"
       @addToNote="(text, source) => emit('addToNote', text, source)"
+      @uploadLectureMaterials="emit('uploadLectureMaterials', $event)"
+      @closePreviewMaterial="emit('closePreviewMaterial')"
+      @openStoredMaterial="emit('openStoredMaterial', $event)"
     />
     
     <RightSidebar 

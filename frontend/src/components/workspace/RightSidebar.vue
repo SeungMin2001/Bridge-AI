@@ -387,7 +387,24 @@ watch(messages, () => {
 .workspace-right-sidebar-card {
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.58));
   border: 1px solid rgba(255, 255, 255, 0.86);
-  box-shadow: 0 28px 56px rgba(148, 163, 184, 0.14), 0 10px 26px rgba(255, 255, 255, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 28px 56px rgba(148, 163, 184, 0.14),
+    0 10px 26px rgba(255, 255, 255, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 10px 0 18px rgba(255, 255, 255, 0.12),
+    inset -12px 0 20px rgba(214, 236, 255, 0.14);
+}
+
+.workspace-right-sidebar-card::before {
+  background:
+    radial-gradient(circle at top right, rgba(220, 238, 255, 0.44), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.28), transparent 24%),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.86), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04));
+}
+
+.workspace-right-sidebar-card::after {
+  border-color: rgba(255, 255, 255, 0.48);
 }
 
 /* 화면 전환 애니메이션 */

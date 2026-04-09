@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import Workspace from './pages/Workspace/Workspace.vue'
 import Home from './pages/Home/Home.vue'
 import Workfolder from './pages/Workfolder/Workfolder.vue'
@@ -11,7 +11,9 @@ const isRecording = ref(false)
 const recordingSeconds = ref(0)
 const transcriptions = ref([])
 const activeFileName = ref('강의1')
+const activeFileId = ref('lecture-1')
 const isRightSidebarVisible = ref(true)
+const currentPreviewMaterial = ref(null)
 
 // --- 추가된 통합 데이터 상태 ---
 const summaryNotes = ref([
@@ -23,9 +25,71 @@ const aiInput = ref('')
 const fileTree = ref([])
 const favorites = ref(new Set())
 
+const createLectureOneNode = () => ({
+  id: 'lecture-1',
+  type: 'file',
+  name: '강의1',
+  content: '',
+  attachments: []
+})
+
+const ensureLectureOneFile = (nodes) => {
+  const list = Array.isArray(nodes) ? [...nodes] : []
+  const existingIndex = list.findIndex(node => node?.id === 'lecture-1' || node?.name === '강의1')
+
+  if (existingIndex === -1) {
+    return [createLectureOneNode(), ...list]
+  }
+
+  const existingNode = list[existingIndex]
+  list[existingIndex] = {
+    ...existingNode,
+    id: existingNode.id || 'lecture-1',
+    content: existingNode.content || '',
+    attachments: Array.isArray(existingNode.attachments) ? existingNode.attachments : []
+  }
+
+  return list
+}
+
+const updateNodeById = (nodes, targetId, updater) => {
+  return nodes.map((node) => {
+    if (node.id === targetId) {
+      return updater(node)
+    }
+
+    if (node.children) {
+      return {
+        ...node,
+        children: updateNodeById(node.children, targetId, updater)
+      }
+    }
+
+    return node
+  })
+}
+
+const findNodeById = (nodes, targetId) => {
+  for (const node of nodes) {
+    if (node.id === targetId) return node
+    if (node.children) {
+      const found = findNodeById(node.children, targetId)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+const currentFileNode = computed(() => findNodeById(fileTree.value, activeFileId.value))
+const currentAttachments = computed(() => currentFileNode.value?.attachments || [])
+
 onMounted(() => {
   const savedTree = localStorage.getItem('lecto_file_tree')
-  if (savedTree) fileTree.value = JSON.parse(savedTree)
+  if (savedTree) {
+    fileTree.value = ensureLectureOneFile(JSON.parse(savedTree))
+  } else {
+    fileTree.value = ensureLectureOneFile([])
+  }
   
   const savedFavs = localStorage.getItem('lecto_favorites')
   if (savedFavs) favorites.value = new Set(JSON.parse(savedFavs))
@@ -250,7 +314,10 @@ const formatTime = () => {
 }
 
 const handleFileSelect = (id, node) => {
-  if (node) activeFileName.value = node.name
+  if (node) {
+    activeFileId.value = id
+    activeFileName.value = node.name
+  }
 }
 
 const handleRightSidebarToggle = () => {
@@ -272,6 +339,46 @@ const handleAskAi = (word) => {
   isRightSidebarVisible.value = true
 }
 
+const handleUploadLectureMaterials = (files) => {
+  const file = files[0]
+  if (!file) return
+
+  const uploadedAt = new Date().toISOString()
+  const nextAttachment = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    uploadedAt,
+    url: URL.createObjectURL(file),
+    sourceFile: file
+  }
+
+  fileTree.value = updateNodeById(
+    ensureLectureOneFile(fileTree.value),
+    'lecture-1',
+    (node) => ({
+      ...node,
+      attachments: [nextAttachment, ...(node.attachments || [])]
+    })
+  )
+
+  currentPreviewMaterial.value = nextAttachment
+  activeFileId.value = 'lecture-1'
+  activeFileName.value = '강의1'
+}
+
+const handleClosePreviewMaterial = () => {
+  currentPreviewMaterial.value = null
+}
+
+const handleOpenStoredMaterial = (materialId) => {
+  const target = currentAttachments.value.find((item) => item.id === materialId)
+  if (!target) return
+
+  currentPreviewMaterial.value = target
+}
+
 const handleNavigate = (view) => {
   currentView.value = view
 }
@@ -287,7 +394,7 @@ const handleNavigate = (view) => {
     v-else-if="currentView === 'workfolder'"
     :fileTree="fileTree"
     :favorites="favorites"
-    @update:fileTree="fileTree = $event"
+    @update:fileTree="fileTree = ensureLectureOneFile($event)"
     @update:favorites="favorites = $event"
     @navigate="handleNavigate"
   />
@@ -296,7 +403,7 @@ const handleNavigate = (view) => {
     v-else-if="currentView === 'home'"
     :fileTree="fileTree"
     :favorites="favorites"
-    @update:fileTree="fileTree = $event"
+    @update:fileTree="fileTree = ensureLectureOneFile($event)"
     @update:favorites="favorites = $event"
     @navigate="handleNavigate"
   />
@@ -309,10 +416,13 @@ const handleNavigate = (view) => {
     :isRecording="isRecording"
     :recordingTimeText="formatTime()"
     :activeFileName="activeFileName"
+    :activeFileId="activeFileId"
+    :currentAttachments="currentAttachments"
+    :currentPreviewMaterial="currentPreviewMaterial"
     :isRightSidebarVisible="isRightSidebarVisible"
     :summaryNotes="summaryNotes"
     :aiInput="aiInput"
-    @update:fileTree="fileTree = $event"
+    @update:fileTree="fileTree = ensureLectureOneFile($event)"
     @update:favorites="favorites = $event"
     @update:aiInput="aiInput = $event"
     @navigateHome="handleNavigate('home')"
@@ -322,5 +432,8 @@ const handleNavigate = (view) => {
     @rightSidebarToggle="handleRightSidebarToggle"
     @addToNote="handleAddToNote"
     @askAi="handleAskAi"
+    @uploadLectureMaterials="handleUploadLectureMaterials"
+    @closePreviewMaterial="handleClosePreviewMaterial"
+    @openStoredMaterial="handleOpenStoredMaterial"
   />
 </template>
