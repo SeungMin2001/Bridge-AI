@@ -33,7 +33,6 @@ mcp.json
 __pycache__/
 **/*.pyc
 venv/
-llm_server/mergePRAG/train_log.json
 
 # Large files / models
 stt-test/
