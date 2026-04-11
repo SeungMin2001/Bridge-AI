@@ -59,7 +59,7 @@ if __name__ == "__main__":
     VALID_OUT  = r"C:\Users\user\Documents\last_project\data\MuSiQue_valid.jsonl"
 
     print("MuSiQue 다운로드 중...")
-    ds = load_dataset("apple/musique")
+    ds = load_dataset("dgslibisey/MuSiQue")
 
     print(f"train: {len(ds['train'])}개, validation: {len(ds['validation'])}개")
 
