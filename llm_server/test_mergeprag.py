@@ -13,7 +13,7 @@ import os
 PASSAGE = "seungmin is man and student"
 QUESTION = "Who is seungmin?"
 PROMPT = f"Question: {QUESTION}\nAnswer:"
-CRITICAL_LAYER = 0
+CRITICAL_LAYER = 5
 WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
 # ── 모델 로드 ──
