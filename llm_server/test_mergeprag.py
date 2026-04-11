@@ -9,8 +9,9 @@ from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
 # ── 설정 ──
-PASSAGE = "신승민은 선문대학교 4학년이다."
-QUESTION = "신승민이 누구야?"
+# HotpotQA 스타일 영어 (학습 데이터와 동일 조건)
+PASSAGE = "Mount Everest is the tallest mountain on Earth, standing at 8,849 meters. It is located on the border between Nepal and Tibet."
+QUESTION = "How tall is Mount Everest?"
 CRITICAL_LAYER = 0
 WEIGHTS = __import__('os').path.join(__import__('os').path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
@@ -56,7 +57,8 @@ def make_hook(dK, dV):
 def generate(prompt, max_new=256):
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     with torch.no_grad():
-        out = model.generate(**inputs, max_new_tokens=max_new, do_sample=False)
+        out = model.generate(**inputs, max_new_tokens=max_new, do_sample=False,
+                             temperature=None, top_p=None)
     text = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=False)
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
     return re.sub(r'<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>', '', text).strip()
@@ -79,6 +81,6 @@ hook.remove()
 # ── 판정 ──
 print(f"\n{'='*50}")
 print("판정: MergePRAG 답변에 아래 키워드가 있으면 성공")
-print("  - '선문대' (passage에만 있는 정보)")
-print("  - '4학년' (passage에만 있는 정보)")
-print("  ※ LLM은 '신승민'을 모르므로 LLM Only는 모른다고 답해야 정상")
+print("  - '8,849' 또는 '8849' (passage의 구체적 수치)")
+print("  - 'Nepal' 또는 'Tibet' (passage의 위치 정보)")
+print("  ※ LLM Only도 답할 수 있지만, MergePRAG가 passage 수치를 정확히 쓰면 주입 성공")
