@@ -1,24 +1,18 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 def run_model():
     MODEL_NAME = "Qwen/Qwen3.5-4B"
 
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
-
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
-
-    print("Loading model with 4-bit quantization...")
+    print("Loading model (float16)...")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        quantization_config=quantization_config,
         device_map="auto",
         trust_remote_code=True,
+        torch_dtype=torch.float16,
     )
 
     model.eval()
