@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 
 class MLP(nn.Module):
-  def __init__(self,d_model):
+  def __init__(self, d_model, hidden_dim=256):
     super().__init__()
-    self.W=nn.Linear(d_model,d_model)
-    self.V=nn.Linear(d_model,d_model)
-    self.ln=nn.LayerNorm(d_model)
-    self.relu=nn.ReLU()
+    self.W  = nn.Linear(d_model, hidden_dim)
+    self.V  = nn.Linear(hidden_dim, hidden_dim)
+    self.ln = nn.LayerNorm(hidden_dim)
+    self.relu = nn.ReLU()
 
 
   def forward(self,h):

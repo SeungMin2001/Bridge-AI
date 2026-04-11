@@ -25,7 +25,7 @@ from .cross_attention import cross_attention
 
 # ── 설정 (논문 기본값 기반) ──
 MODEL_NAME = "Qwen/Qwen3.5-4B"
-CRITICAL_LAYER = 0          # find_critical_layers.py에서 찾은 레이어
+CRITICAL_LAYER = 9          # 논문 기본값 (Qwen 기준 재측정 권장)
 NUM_KV = 16                 # 논문 default num_kv=16
 LR = 1e-4                   # 논문 동일
 LR_MIN = 1e-6               # 논문 CosineAnnealing eta_min
@@ -87,9 +87,8 @@ def make_hook(delta_K, delta_V):
     return hook_fn
 
 
-# ── Loss 함수 (논문 원본 utils.py 방식) ──
+# ── Loss 함수 (논문 원본 utils.py 방식, shift 없음) ──
 def compute_loss(logits, labels):
-    """논문 원본 cross_entropy: labels != -100인 위치만 loss 계산 (shift 없음)"""
     ans_indices = torch.where(labels != -100)
     if len(ans_indices[0]) == 0:
         return None
@@ -317,9 +316,17 @@ def train():
                 logits = model(input_ids=tok["input_ids"])["logits"]
                 hook.remove()  # 즉시 해제
 
-                loss = compute_loss(logits, tok["labels"])
-                if loss is None:
+                task_loss = compute_loss(logits, tok["labels"])
+                if task_loss is None:
                     continue
+
+                # Diversity loss: K 벡터들이 서로 달라야 collapse 방지
+                K_flat = delta_K.squeeze(0)  # [k, d_model]
+                K_norm = F.normalize(K_flat, dim=-1)
+                sim = K_norm @ K_norm.T  # [k, k]
+                eye_mask = ~torch.eye(K_flat.shape[0], dtype=torch.bool, device=device)
+                diversity_loss = sim[eye_mask].mean()
+                loss = task_loss + 0.1 * diversity_loss
 
                 # 5. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
@@ -327,7 +334,7 @@ def train():
                 optimizer.step()
                 scheduler.step()
 
-                loss_val = loss.item()
+                loss_val = task_loss.item()  # task loss만 로그
                 total_loss += loss_val
                 count += 1
                 global_step += 1

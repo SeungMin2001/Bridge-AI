@@ -16,8 +16,8 @@ class HyperNetwork(nn.Module):
     def __init__(self, d_model, k=16):
         super().__init__()
         self.pooling = AttentivePooling(d_model)
-        self.mlp = MLP(d_model)
-        self.lp = LinearProjection(d_model, d_model, k)
+        self.mlp = MLP(d_model, hidden_dim=256)
+        self.lp = LinearProjection(256, d_model, k)  # MLP 출력 256 → K,V는 d_model
 
     def forward(self, embedded):
         """
