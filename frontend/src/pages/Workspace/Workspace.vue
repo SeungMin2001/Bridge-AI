@@ -34,7 +34,8 @@ const emit = defineEmits([
   'askAi',
   'uploadLectureMaterials',
   'closePreviewMaterial',
-  'openStoredMaterial'
+  'openStoredMaterial',
+  'deleteStoredMaterial'
 ])
 
 const isLeftSidebarCollapsed = ref(false)
@@ -119,6 +120,7 @@ const highlightedTranscript = computed(() => {
       @uploadLectureMaterials="emit('uploadLectureMaterials', $event)"
       @closePreviewMaterial="emit('closePreviewMaterial')"
       @openStoredMaterial="emit('openStoredMaterial', $event)"
+      @deleteStoredMaterial="emit('deleteStoredMaterial', $event)"
     />
     
     <RightSidebar 

@@ -379,6 +379,21 @@ const handleOpenStoredMaterial = (materialId) => {
   currentPreviewMaterial.value = target
 }
 
+const handleDeleteStoredMaterial = (materialId) => {
+  fileTree.value = updateNodeById(
+    ensureLectureOneFile(fileTree.value),
+    activeFileId.value,
+    (node) => ({
+      ...node,
+      attachments: (node.attachments || []).filter((item) => item.id !== materialId)
+    })
+  )
+
+  if (currentPreviewMaterial.value?.id === materialId) {
+    currentPreviewMaterial.value = null
+  }
+}
+
 const handleNavigate = (view) => {
   currentView.value = view
 }
@@ -435,5 +450,6 @@ const handleNavigate = (view) => {
     @uploadLectureMaterials="handleUploadLectureMaterials"
     @closePreviewMaterial="handleClosePreviewMaterial"
     @openStoredMaterial="handleOpenStoredMaterial"
+    @deleteStoredMaterial="handleDeleteStoredMaterial"
   />
 </template>

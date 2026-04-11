@@ -24,7 +24,8 @@ const emit = defineEmits([
   'addToNote',
   'uploadLectureMaterials',
   'closePreviewMaterial',
-  'openStoredMaterial'
+  'openStoredMaterial',
+  'deleteStoredMaterial'
 ])
 
 const activeTab = ref('note')
@@ -136,6 +137,10 @@ const handleAddToNote = () => {
     emit('addToNote', selectedWordData.value.desc, selectedWordData.value.source)
     clearSelectedWord()
   }
+}
+
+const handleDeleteStoredMaterial = (fileId) => {
+  emit('deleteStoredMaterial', fileId)
 }
 
 const destroyPptViewer = () => {
@@ -421,7 +426,17 @@ onBeforeUnmount(() => {
                     <p class="text-[12px] text-[#8e8e93] mt-0.5">{{ formatFileSize(file.size) }}</p>
                   </div>
                 </div>
-                <span class="pdf-file-action shrink-0">메모 탭에서 열기</span>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="pdf-file-action shrink-0">메모 탭에서 열기</span>
+                  <button
+                    type="button"
+                    class="material-delete-btn"
+                    title="자료 삭제"
+                    @click.stop="handleDeleteStoredMaterial(file.id)"
+                  >
+                    삭제
+                  </button>
+                </div>
               </button>
             </div>
             <div v-else class="lecture-material-empty">
@@ -667,6 +682,23 @@ onBeforeUnmount(() => {
   color: #4b5563;
   background: rgba(255,255,255,0.86);
   border: 1px solid rgba(229,231,235,0.9);
+}
+
+.material-delete-btn {
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.24);
+  background: rgba(254, 242, 242, 0.96);
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.material-delete-btn:hover {
+  background: rgba(254, 226, 226, 0.98);
+  border-color: rgba(239, 68, 68, 0.34);
 }
 
 .lecture-preview-shell {
