@@ -9,8 +9,8 @@ from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
 # ── 설정 ──
-PASSAGE = "운영체제에서 프로세스는 실행 중인 프로그램의 인스턴스이다. 각 프로세스는 고유한 PID를 가지며, PCB(Process Control Block)에 프로세스의 상태, 프로그램 카운터, 레지스터 정보가 저장된다."
-QUESTION = "프로세스가 뭐야?"
+PASSAGE = "The capital of Australia is Canberra, not Sydney. Canberra was chosen as the capital in 1908 as a compromise between Sydney and Melbourne."
+QUESTION = "What is the capital of Australia?"
 CRITICAL_LAYER = 0
 WEIGHTS = __import__('os').path.join(__import__('os').path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
@@ -36,7 +36,12 @@ print(f"V shape: {V.shape}, norm: {V.norm():.2f}")
 
 # ── 2. hook: cross_attention으로 주입 (논문 방식) ──
 def make_hook(dK, dV):
+    """첫 forward pass(prefill)에서만 inject, 이후 토큰 생성에서는 무시"""
+    fired = [False]
     def hook_fn(module, input, output):
+        if fired[0]:
+            return output  # 이미 inject 했으면 패스
+        fired[0] = True
         hidden = output[0] if isinstance(output, tuple) else output
         Kd = dK.to(device=hidden.device, dtype=hidden.dtype)
         Vd = dV.to(device=hidden.device, dtype=hidden.dtype)
@@ -70,3 +75,10 @@ layer = model.model.layers[CRITICAL_LAYER]
 hook = layer.register_forward_hook(make_hook(K, V))
 print(generate(prompt))
 hook.remove()
+
+# ── 판정 ──
+print(f"\n{'='*50}")
+print("판정: MergePRAG 답변에 아래 키워드가 있으면 성공")
+print("  - '1908' (passage에만 있는 연도)")
+print("  - 'compromise' (passage에만 있는 표현)")
+print("  - 'Sydney and Melbourne' (passage에만 있는 맥락)")
