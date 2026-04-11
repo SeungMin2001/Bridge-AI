@@ -9,8 +9,8 @@ from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
 # ── 설정 ──
-PASSAGE = "The capital of Australia is Canberra, not Sydney. Canberra was chosen as the capital in 1908 as a compromise between Sydney and Melbourne."
-QUESTION = "What is the capital of Australia?"
+PASSAGE = "신승민은 선문대학교 4학년이다."
+QUESTION = "신승민이 누구야?"
 CRITICAL_LAYER = 0
 WEIGHTS = __import__('os').path.join(__import__('os').path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
@@ -79,6 +79,6 @@ hook.remove()
 # ── 판정 ──
 print(f"\n{'='*50}")
 print("판정: MergePRAG 답변에 아래 키워드가 있으면 성공")
-print("  - '1908' (passage에만 있는 연도)")
-print("  - 'compromise' (passage에만 있는 표현)")
-print("  - 'Sydney and Melbourne' (passage에만 있는 맥락)")
+print("  - '선문대' (passage에만 있는 정보)")
+print("  - '4학년' (passage에만 있는 정보)")
+print("  ※ LLM은 '신승민'을 모르므로 LLM Only는 모른다고 답해야 정상")
