@@ -10,8 +10,8 @@ from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 import os
 
-PASSAGE = "Mount Everest is 8849 meters tall and located in Nepal."
-QUESTION = "How tall is Mount Everest?"
+PASSAGE = "seungmin is man and student"
+QUESTION = "Who is seungmin?"
 PROMPT = f"Question: {QUESTION}\nAnswer:"
 CRITICAL_LAYER = 20
 WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
