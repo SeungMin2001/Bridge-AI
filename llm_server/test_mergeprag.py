@@ -1,48 +1,71 @@
 """
-MergePRAG 핵심 테스트: LLM Only vs MergePRAG 답변 비교
+MergePRAG 핵심 진단: hook이 모델 예측을 바꾸는지 확인
+generate 없이 단일 forward pass로 직접 비교
+
 사용법: cd llm_server && python test_mergeprag.py
 """
 import torch
-import re
 from run_model import run_model
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
+import os
 
-# ── 설정 ──
-# HotpotQA 스타일 영어 (학습 데이터와 동일 조건)
-PASSAGE = "Mount Everest is the tallest mountain on Earth, standing at 8,849 meters. It is located on the border between Nepal and Tibet."
+PASSAGE = "Mount Everest is 8849 meters tall and located in Nepal."
 QUESTION = "How tall is Mount Everest?"
+PROMPT = f"Question: {QUESTION}\nAnswer:"
 CRITICAL_LAYER = 0
-WEIGHTS = __import__('os').path.join(__import__('os').path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
+WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
 # ── 모델 로드 ──
 print("모델 로딩...")
 model, tokenizer = run_model()
 device = next(model.parameters()).device
 
-# ── HyperNetwork 로드 ──
+# ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
 hypernet = HyperNetwork(d_model, k=16).to(device).float()
 hypernet.load_state_dict(torch.load(WEIGHTS, map_location=device))
 hypernet.eval()
 
-# ── 1. passage → embedding → HyperNetwork → K, V ──
-print(f"\npassage: {PASSAGE}")
 with torch.no_grad():
-    ids = tokenizer(PASSAGE, return_tensors="pt", truncation=True, max_length=512)["input_ids"].to(device)
+    ids = tokenizer(PASSAGE, return_tensors="pt")["input_ids"].to(device)
     emb = model.model.embed_tokens(ids).to(torch.float32)
     K, V = hypernet(emb)
-print(f"K shape: {K.shape}, norm: {K.norm():.2f}")
-print(f"V shape: {V.shape}, norm: {V.norm():.2f}")
 
-# ── 2. hook: cross_attention으로 주입 (논문 방식) ──
+print(f"passage: {PASSAGE}")
+print(f"K norm: {K.norm():.4f}, V norm: {V.norm():.4f}")
+print(f"K per-vector norm: {K[0,0].norm():.4f}")  # L2 정규화 됐으면 ~1.0
+
+# ── 다른 passage K,V와 비교 ──
+with torch.no_grad():
+    ids2 = tokenizer("Python was created by Guido van Rossum in 1991.", return_tensors="pt")["input_ids"].to(device)
+    emb2 = model.model.embed_tokens(ids2).to(torch.float32)
+    K2, V2 = hypernet(emb2)
+
+sim = torch.nn.functional.cosine_similarity(K.view(1,-1), K2.view(1,-1)).item()
+print(f"\n두 passage K 유사도: {sim:.4f}")
+print(f"  (1.0 = 구분 못함 / 0.0~0.5 = 잘 구분)")
+
+# ── 테스트 1: hook 없이 forward → top-5 예측 ──
+print(f"\n{'='*50}")
+print(f"prompt: '{PROMPT}'")
+print(f"{'='*50}")
+
+inputs = tokenizer(PROMPT, return_tensors="pt").to(device)
+with torch.no_grad():
+    logits_no_hook = model(**inputs).logits[0, -1]  # 마지막 토큰의 예측
+
+probs_no = torch.softmax(logits_no_hook, dim=-1)
+top5_no = torch.topk(probs_no, 5)
+
+print("\n[A] Hook 없이 (LLM Only) - 'Answer:' 다음 토큰 top-5:")
+for i in range(5):
+    tok = tokenizer.decode(top5_no.indices[i])
+    print(f"  {i+1}. '{tok}' ({top5_no.values[i]:.4f})")
+
+# ── 테스트 2: hook 있으면 forward → top-5 예측 ──
 def make_hook(dK, dV):
-    """첫 forward pass(prefill)에서만 inject, 이후 토큰 생성에서는 무시"""
-    fired = [False]
     def hook_fn(module, input, output):
-        if fired[0]:
-            return output  # 이미 inject 했으면 패스
-        fired[0] = True
         hidden = output[0] if isinstance(output, tuple) else output
         Kd = dK.to(device=hidden.device, dtype=hidden.dtype)
         Vd = dV.to(device=hidden.device, dtype=hidden.dtype)
@@ -53,34 +76,45 @@ def make_hook(dK, dV):
         return result
     return hook_fn
 
-# ── 3. 생성 함수 ──
-def generate(prompt, max_new=256):
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    with torch.no_grad():
-        out = model.generate(**inputs, max_new_tokens=max_new, do_sample=False,
-                             temperature=None, top_p=None)
-    text = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=False)
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
-    return re.sub(r'<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>', '', text).strip()
-
-prompt = f"Question: {QUESTION}\nAnswer:"
-
-# ── [A] LLM Only ──
-print(f"\n{'='*50}")
-print("[A] LLM Only")
-print(generate(prompt))
-
-# ── [B] MergePRAG (hook inject) ──
-print(f"\n{'='*50}")
-print("[B] MergePRAG")
 layer = model.model.layers[CRITICAL_LAYER]
 hook = layer.register_forward_hook(make_hook(K, V))
-print(generate(prompt))
+with torch.no_grad():
+    logits_hook = model(**inputs).logits[0, -1]
 hook.remove()
+
+probs_hook = torch.softmax(logits_hook, dim=-1)
+top5_hook = torch.topk(probs_hook, 5)
+
+print("\n[B] Hook 적용 (MergePRAG) - 'Answer:' 다음 토큰 top-5:")
+for i in range(5):
+    tok = tokenizer.decode(top5_hook.indices[i])
+    print(f"  {i+1}. '{tok}' ({top5_hook.values[i]:.4f})")
 
 # ── 판정 ──
 print(f"\n{'='*50}")
-print("판정: MergePRAG 답변에 아래 키워드가 있으면 성공")
-print("  - '8,849' 또는 '8849' (passage의 구체적 수치)")
-print("  - 'Nepal' 또는 'Tibet' (passage의 위치 정보)")
-print("  ※ LLM Only도 답할 수 있지만, MergePRAG가 passage 수치를 정확히 쓰면 주입 성공")
+print("판정")
+print(f"{'='*50}")
+
+# logits 변화량
+diff = (logits_hook - logits_no_hook).norm().item()
+print(f"logits 변화량: {diff:.4f}")
+print(f"  (0에 가까우면 hook이 아무 효과 없음)")
+
+top_no = set(top5_no.indices.tolist())
+top_hook = set(top5_hook.indices.tolist())
+changed = top_no != top_hook
+print(f"top-5 토큰 변경: {changed}")
+
+if diff < 0.01:
+    print("\n→ K,V가 hidden에 거의 영향 없음. HyperNetwork가 유의미한 정보를 담지 못함")
+elif not changed:
+    print("\n→ logits는 변했지만 top 예측은 동일. K,V 효과가 약함")
+else:
+    print("\n→ top-5 예측이 변경됨! K,V가 모델 예측에 영향을 주고 있음")
+    # 8849, Nepal 관련 토큰이 있는지
+    hook_tokens = [tokenizer.decode(top5_hook.indices[i]) for i in range(5)]
+    print(f"   hook top-5 토큰: {hook_tokens}")
+    if any("8" in t or "Nepal" in t or "meter" in t for t in hook_tokens):
+        print("   ★ passage 정보가 반영됨! MergePRAG 성공")
+    else:
+        print("   passage 관련 토큰은 아님. K,V가 엉뚱한 방향으로 영향")
