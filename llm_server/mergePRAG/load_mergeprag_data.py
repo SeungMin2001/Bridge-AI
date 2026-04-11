@@ -2,40 +2,22 @@ from datasets import load_dataset
 import json
 
 
-# ── HotPotQA 변환 ──
-def extract_hotpot(sample):
-    sf_titles = sample["supporting_facts"]["title"]
-    sf_sent_ids = sample["supporting_facts"]["sent_id"]
-    ctx_titles = sample["context"]["title"]
-    ctx_sentences = sample["context"]["sentences"]
+# ── NarrativeQA 변환 ──
+def extract_narrativeqa(sample):
+    # Wikipedia 요약을 passage로 사용 (full text는 수만 단어라 너무 김)
+    passage = sample["document"]["summary"]["text"].strip()
+    question = sample["question"]["text"].strip()
 
-    facts = []
-    for sf_title, sf_sent_id in zip(sf_titles, sf_sent_ids):
-        for ctx_title, sentences in zip(ctx_titles, ctx_sentences):
-            if ctx_title == sf_title:
-                if 0 <= sf_sent_id < len(sentences):
-                    facts.append(sentences[sf_sent_id].strip())
-                break
+    # 답변이 여러 개일 수 있으므로 첫 번째 사용
+    answers = sample["answers"]
+    if not answers:
+        return None
+    answer = answers[0]["text"].strip()
 
-    return {"question": sample["question"], "answer": sample["answer"], "facts": facts}
-
-
-# ── MuSiQue 변환 ──
-def extract_musique(sample):
-    if not sample.get("answerable", True):
+    if not passage or not question or not answer:
         return None
 
-    # is_supporting=True인 paragraph만 facts로 사용
-    facts = [
-        p["paragraph_text"].strip()
-        for p in sample["paragraphs"]
-        if p.get("is_supporting", False)
-    ]
-
-    if not facts:
-        return None
-
-    return {"question": sample["question"], "answer": sample["answer"], "facts": facts}
+    return {"question": question, "answer": answer, "facts": [passage]}
 
 
 # ── 저장 ──
@@ -55,15 +37,15 @@ def save_to_jsonl(samples, output_path, extract_fn):
 
 # ── 실행 ──
 if __name__ == "__main__":
-    TRAIN_OUT = r"C:\Users\user\Documents\last_project\data\MuSiQue_train.jsonl"
-    VALID_OUT  = r"C:\Users\user\Documents\last_project\data\MuSiQue_valid.jsonl"
+    TRAIN_OUT = r"C:\Users\user\Documents\last_project\data\NarrativeQA_train.jsonl"
+    VALID_OUT  = r"C:\Users\user\Documents\last_project\data\NarrativeQA_valid.jsonl"
 
-    print("MuSiQue 다운로드 중...")
-    ds = load_dataset("dgslibisey/MuSiQue")
+    print("NarrativeQA 다운로드 중...")
+    ds = load_dataset("deepmind/narrativeqa")
 
     print(f"train: {len(ds['train'])}개, validation: {len(ds['validation'])}개")
 
-    save_to_jsonl(ds["train"], TRAIN_OUT, extract_musique)
-    save_to_jsonl(ds["validation"], VALID_OUT, extract_musique)
+    save_to_jsonl(ds["train"], TRAIN_OUT, extract_narrativeqa)
+    save_to_jsonl(ds["validation"], VALID_OUT, extract_narrativeqa)
 
     print("완료!")

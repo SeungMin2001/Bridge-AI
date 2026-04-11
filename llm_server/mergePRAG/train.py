@@ -42,8 +42,8 @@ SAVE_PATH = "llm_server/mergePRAG/hypernet_weights.pt"
 CHECKPOINT_PATH = "llm_server/mergePRAG/hypernet_checkpoint.pt"
 LOG_PATH = "llm_server/mergePRAG/train_log.json"
 CHART_PATH = "llm_server/mergePRAG/train_loss_curve.png"
-TRAIN_DATA_PATH = r"C:\Users\user\Documents\last_project\data\MuSiQue_train.jsonl"
-VALID_DATA_PATH = r"C:\Users\user\Documents\last_project\data\MuSiQue_valid.jsonl"
+TRAIN_DATA_PATH = r"C:\Users\user\Documents\last_project\data\NarrativeQA_train.jsonl"
+VALID_DATA_PATH = r"C:\Users\user\Documents\last_project\data\NarrativeQA_valid.jsonl"
 
 
 # ── 데이터셋 ──
