@@ -13,7 +13,7 @@ import os
 PASSAGE = "Mount Everest is 8849 meters tall and located in Nepal."
 QUESTION = "How tall is Mount Everest?"
 PROMPT = f"Question: {QUESTION}\nAnswer:"
-CRITICAL_LAYER = 10
+CRITICAL_LAYER = 20
 WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
 # ── 모델 로드 ──
