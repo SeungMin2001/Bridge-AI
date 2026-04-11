@@ -92,7 +92,7 @@ target_layer = model.model.layers[CRITICAL_LAYER]
 prompt = make_prompt(TEST_QUESTION)
 results = {}
 
-for alpha in [0.01, 0.02, 0.05, 0.1]:
+for alpha in [0.1, 0.3, 0.5, 1.0]:
     print(f"\n[MergePRAG alpha={alpha}]")
     hook = target_layer.register_forward_hook(make_alpha_hook(K, V, alpha))
     ans = generate(prompt)
