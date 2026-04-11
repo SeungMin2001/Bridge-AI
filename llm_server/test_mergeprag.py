@@ -81,11 +81,11 @@ print("=" * 60)
 
 print("\n[A] LLM Only")
 answer_a = generate(make_prompt(TEST_QUESTION))
-print(f"  → {answer_a[:150]}")
+print(f"  → {answer_a}")
 
 print("\n[B] RAG + LLM")
 answer_b = generate(make_prompt(TEST_QUESTION, context=TEST_PASSAGE))
-print(f"  → {answer_b[:150]}")
+print(f"  → {answer_b}")
 
 # Alpha sweep
 target_layer = model.model.layers[CRITICAL_LAYER]
@@ -98,18 +98,16 @@ for alpha in [0.1, 0.3, 0.5, 1.0]:
     ans = generate(prompt)
     hook.remove()
     results[alpha] = ans
-    print(f"  → {ans[:150]}")
+    print(f"  → {ans}")
 
 # ── 결과 요약 ──
 print("\n" + "=" * 60)
 print("결과 요약")
 print("=" * 60)
 print(f"질문: {TEST_QUESTION}")
-print(f"passage: {TEST_PASSAGE[:60]}...")
-print(f"\n{'방식':<20} {'답변':}")
-print("-" * 60)
-print(f"{'[A] LLM Only':<20} {answer_a[:70]}")
-print(f"{'[B] RAG+LLM':<20} {answer_b[:70]}")
+print(f"passage: {TEST_PASSAGE}")
+print(f"\n[A] LLM Only:\n  {answer_a}")
+print(f"\n[B] RAG+LLM:\n  {answer_b}")
 for alpha, ans in results.items():
-    print(f"{'[α='+str(alpha)+']':<20} {ans[:70]}")
+    print(f"\n[α={alpha}]:\n  {ans}")
 print("\n※ PID, PCB 언급하는 alpha = 최적값 → main.py ALPHA에 반영")
