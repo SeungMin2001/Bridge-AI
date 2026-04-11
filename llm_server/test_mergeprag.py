@@ -13,7 +13,7 @@ import os
 PASSAGE = "Mount Everest is 8849 meters tall and located in Nepal."
 QUESTION = "How tall is Mount Everest?"
 PROMPT = f"Question: {QUESTION}\nAnswer:"
-CRITICAL_LAYER = 0
+CRITICAL_LAYER = 10
 WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
 # ── 모델 로드 ──
@@ -63,58 +63,33 @@ for i in range(5):
     tok = tokenizer.decode(top5_no.indices[i])
     print(f"  {i+1}. '{tok}' ({top5_no.values[i]:.4f})")
 
-# ── 테스트 2: hook 있으면 forward → top-5 예측 ──
-def make_hook(dK, dV):
+# ── 테스트 2: alpha별 hook forward → top-5 비교 ──
+def make_hook(dK, dV, alpha=1.0):
     def hook_fn(module, input, output):
         hidden = output[0] if isinstance(output, tuple) else output
         Kd = dK.to(device=hidden.device, dtype=hidden.dtype)
         Vd = dV.to(device=hidden.device, dtype=hidden.dtype)
         delta = cross_attention(hidden, Kd, Vd)
-        result = hidden + delta
+        result = hidden + alpha * delta
         if isinstance(output, tuple):
             return (result,) + output[1:]
         return result
     return hook_fn
 
 layer = model.model.layers[CRITICAL_LAYER]
-hook = layer.register_forward_hook(make_hook(K, V))
-with torch.no_grad():
-    logits_hook = model(**inputs).logits[0, -1]
-hook.remove()
 
-probs_hook = torch.softmax(logits_hook, dim=-1)
-top5_hook = torch.topk(probs_hook, 5)
+for alpha in [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]:
+    hook = layer.register_forward_hook(make_hook(K, V, alpha))
+    with torch.no_grad():
+        logits_hook = model(**inputs).logits[0, -1]
+    hook.remove()
 
-print("\n[B] Hook 적용 (MergePRAG) - 'Answer:' 다음 토큰 top-5:")
-for i in range(5):
-    tok = tokenizer.decode(top5_hook.indices[i])
-    print(f"  {i+1}. '{tok}' ({top5_hook.values[i]:.4f})")
+    probs = torch.softmax(logits_hook, dim=-1)
+    top5 = torch.topk(probs, 5)
+    diff = (logits_hook - logits_no_hook).norm().item()
 
-# ── 판정 ──
-print(f"\n{'='*50}")
-print("판정")
-print(f"{'='*50}")
-
-# logits 변화량
-diff = (logits_hook - logits_no_hook).norm().item()
-print(f"logits 변화량: {diff:.4f}")
-print(f"  (0에 가까우면 hook이 아무 효과 없음)")
-
-top_no = set(top5_no.indices.tolist())
-top_hook = set(top5_hook.indices.tolist())
-changed = top_no != top_hook
-print(f"top-5 토큰 변경: {changed}")
-
-if diff < 0.01:
-    print("\n→ K,V가 hidden에 거의 영향 없음. HyperNetwork가 유의미한 정보를 담지 못함")
-elif not changed:
-    print("\n→ logits는 변했지만 top 예측은 동일. K,V 효과가 약함")
-else:
-    print("\n→ top-5 예측이 변경됨! K,V가 모델 예측에 영향을 주고 있음")
-    # 8849, Nepal 관련 토큰이 있는지
-    hook_tokens = [tokenizer.decode(top5_hook.indices[i]) for i in range(5)]
-    print(f"   hook top-5 토큰: {hook_tokens}")
-    if any("8" in t or "Nepal" in t or "meter" in t for t in hook_tokens):
-        print("   ★ passage 정보가 반영됨! MergePRAG 성공")
-    else:
-        print("   passage 관련 토큰은 아님. K,V가 엉뚱한 방향으로 영향")
+    tokens = [tokenizer.decode(top5.indices[i]) for i in range(5)]
+    probs_list = [f"{top5.values[i]:.3f}" for i in range(5)]
+    print(f"\n[alpha={alpha}] logits변화={diff:.1f}")
+    for i in range(5):
+        print(f"  {i+1}. '{tokens[i]}' ({probs_list[i]})")
