@@ -1,0 +1,130 @@
+/* ══════════════════════════════════════════
+   Workspace Layout Styles
+   메인 영역, 리사이저, AI 채팅, 노트 등
+   ══════════════════════════════════════════ */
+
+/* ── Main Layout ── */
+main {
+  flex: 1 1 0%;
+  min-width: 300px;
+}
+
+aside:last-of-type {
+  width: 300px;
+  min-width: 200px;
+  max-width: 600px;
+}
+
+/* ── Resizers ── */
+#resizer-right {
+  z-index: 20;
+}
+
+#resizer-left {
+  z-index: 20;
+}
+
+/* Resizing helper — 리사이즈 중 트랜지션 끄기 */
+.is-resizing #sidebar,
+.is-resizing #right-sidebar,
+.is-resizing main {
+  transition: none !important;
+}
+
+/* ── Note Canvas ── */
+.note-canvas {
+  background-color: #ffffff;
+  cursor: text;
+}
+
+/* ── Floating Toolbar ── */
+.floating-toolbar {
+  background-color: #ffffff;
+  border-radius: 24px;
+  box-shadow: none;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.tool-btn-active {
+  background-color: #f2f2f7;
+  color: #3b82f6;
+}
+
+/* ── Message Bubbles ── */
+.message-bubble {
+  background-color: #f2f2f7;
+  border-radius: 16px;
+}
+
+.clickable-word {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0 2px;
+  transition: all 0.1s;
+  display: inline-block;
+}
+
+.clickable-word:hover {
+  background-color: #e5e5ea;
+  color: #3b82f6;
+}
+
+.clickable-word:active {
+  transform: scale(0.95);
+  background-color: #d1d1d6;
+}
+
+/* ── AI Chat Window ── */
+#ai-chat-window {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(20px);
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+#ai-chat-window.open {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ai-bubble {
+  background-color: #ffffff;
+  border: 1px solid #f2f2f7;
+  border-bottom-left-radius: 4px;
+}
+
+.user-bubble {
+  background-color: #1d1d1f;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+/* ── Chat Input ── */
+.chat-input-container {
+  border: 1px solid #e5e5ea;
+  background-color: #ffffff;
+}
+
+.chat-input-glow {
+  background-color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chat-input-glow:focus-within {
+  border-color: rgba(59, 130, 246, 0.4);
+  box-shadow: 0 8px 32px -6px rgba(59, 130, 246, 0.15);
+  transform: translateY(-2px);
+}
+
+.prompt-textarea::-webkit-scrollbar {
+  display: none;
+}
+
+.prompt-textarea {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
