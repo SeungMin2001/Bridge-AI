@@ -93,3 +93,26 @@ for alpha in [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]:
     print(f"\n[alpha={alpha}] logits변화={diff:.1f}")
     for i in range(5):
         print(f"  {i+1}. '{tokens[i]}' ({probs_list[i]})")
+
+# ── 테스트 3: 실제 문장 생성 비교 ──
+print(f"\n{'='*50}")
+print("문장 생성 비교 (generate)")
+print(f"{'='*50}")
+
+# Hook 없이 생성
+with torch.no_grad():
+    gen_no_hook = model.generate(
+        **inputs, max_new_tokens=30, do_sample=False,
+    )
+answer_no = tokenizer.decode(gen_no_hook[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+print(f"\n[Hook 없음] {PROMPT} {answer_no}")
+
+# Hook 있이 생성
+hook = layer.register_forward_hook(make_hook(K, V, alpha=1.0))
+with torch.no_grad():
+    gen_hook = model.generate(
+        **inputs, max_new_tokens=30, do_sample=False,
+    )
+hook.remove()
+answer_hook = tokenizer.decode(gen_hook[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+print(f"[Hook α=1.0] {PROMPT} {answer_hook}")
