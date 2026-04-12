@@ -77,6 +77,9 @@ async function sendMessage() {
   */
 
   // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
+  const t0 = performance.now()
+  let ttftLogged = false
+
   try {
     const res = await fetch('/chat/stream', {
       method: 'POST',
@@ -94,6 +97,7 @@ async function sendMessage() {
     let buffer = ''
     let streamedText = ''
     let streamedCitations = []
+    let tokenCount = 0
 
     while (true) {
       const { done, value } = await reader.read()
@@ -114,6 +118,11 @@ async function sendMessage() {
             streamedCitations = data.citations
             updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
           } else if (data.type === 'token') {
+            if (!ttftLogged) {
+              console.log(`⏱️ [TTFT] 첫 토큰까지: ${(performance.now() - t0).toFixed(0)}ms`)
+              ttftLogged = true
+            }
+            tokenCount++
             streamedText += data.token
             updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
           } else if (data.type === 'error') {
@@ -125,6 +134,9 @@ async function sendMessage() {
         }
       }
     }
+
+    const totalMs = performance.now() - t0
+    console.log(`⏱️ [응답완료] 총: ${totalMs.toFixed(0)}ms | 토큰: ${tokenCount}개 | 속도: ${(tokenCount / (totalMs / 1000)).toFixed(1)} tok/s`)
 
     updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'done' })
 
