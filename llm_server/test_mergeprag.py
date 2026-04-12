@@ -10,8 +10,8 @@ from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 import os
 
-PASSAGE = "Seungmin is Student"
-QUESTION = "Who is Seungmin?"
+PASSAGE = "shin is sunmoon university student"
+QUESTION = "Who is shin?"
 PROMPT = f"Question: {QUESTION}\nAnswer:"
 CRITICAL_LAYER = 9
 WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
