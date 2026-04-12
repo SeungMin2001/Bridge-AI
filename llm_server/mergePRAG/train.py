@@ -283,7 +283,7 @@ def train():
     start_time = time.time()
     start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    global_step = 0
+    global_step = resume_step  # 체크포인트 재개 시 이어서 카운트
 
     for epoch in range(EPOCHS):
         if early_stopped:
