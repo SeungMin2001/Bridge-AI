@@ -492,58 +492,69 @@ onBeforeUnmount(() => {
 <style scoped>
 .word-info-card {
   padding: 14px 18px;
-  border-left: 1px solid rgba(255, 255, 255, 0.74);
-  background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.62));
-  box-shadow: 0 22px 44px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  border-left: 1px solid var(--workspace-sidebar-card-border);
+  background: var(--workspace-sidebar-card-bg);
+  border-color: var(--workspace-sidebar-card-border);
+  box-shadow: var(--workspace-sidebar-card-shadow);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+.word-info-card::before {
+  background: var(--workspace-sidebar-card-overlay);
+}
+
+.word-info-card::after {
+  border-color: var(--workspace-sidebar-card-inner-border);
 }
 
 .workspace-shell-card {
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.54));
-  border: 1px solid rgba(255, 255, 255, 0.84);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow:
-    0 26px 52px rgba(148, 163, 184, 0.12),
-    0 10px 24px rgba(255, 255, 255, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.96),
-    inset 14px 0 22px rgba(255, 255, 255, 0.12),
-    inset -14px 0 24px rgba(214, 236, 255, 0.12);
+    0 26px 52px rgba(148, 163, 184, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.02);
 }
 
 .workspace-shell-card::before {
-  background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.96), transparent 28%),
-    radial-gradient(circle at top right, rgba(220, 238, 255, 0.42), transparent 24%),
-    radial-gradient(circle at bottom left, rgba(255, 255, 255, 0.18), transparent 22%),
-    radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.16), transparent 22%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02));
+  display: none;
 }
 
 .workspace-shell-card::after {
-  border-color: rgba(255, 255, 255, 0.48);
+  display: none;
 }
 
 .workspace-embedded-header {
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.54));
+  background: #ffffff;
 }
 
 .workspace-embedded-divider {
   height: 1px;
   margin: 0 24px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0));
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .workspace-tab-float {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 8px;
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.58));
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow: 0 18px 36px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  overflow: hidden;
+  background: #eee4d8;
+  border: 1px solid rgba(228, 217, 203, 0.95);
+  box-shadow:
+    0 18px 36px rgba(208, 194, 177, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+}
+
+.workspace-tab-float::before {
+  display: none;
+}
+
+.workspace-tab-float::after {
+  display: none;
 }
 
 .workspace-tab-float-wrap {
@@ -555,27 +566,83 @@ onBeforeUnmount(() => {
 }
 
 .workspace-tab-chip {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
   padding: 12px 18px;
   border-radius: 999px;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
-  color: #8e8e93;
+  color: rgba(86, 86, 92, 0.68);
   font-size: 13px;
-  font-weight: 700;
-  transition: all 0.2s ease;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  transition: color 0.24s ease, transform 0.24s ease, box-shadow 0.24s ease, background 0.24s ease;
   cursor: pointer;
 }
 
+.workspace-tab-chip:hover {
+  color: rgba(29, 29, 31, 0.84);
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .workspace-tab-chip.is-active {
-  background: #f4ede4;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.96), transparent 48%),
+    linear-gradient(180deg, rgba(251, 248, 243, 0.95), rgba(239, 230, 217, 0.88));
   color: #1d1d1f;
-  border: 1px solid rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.94);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 0 rgba(226, 213, 195, 0.34),
-    0 10px 22px rgba(191, 178, 160, 0.14);
-  backdrop-filter: blur(14px) saturate(135%);
-  -webkit-backdrop-filter: blur(14px) saturate(135%);
+    0 18px 28px rgba(211, 198, 180, 0.28),
+    0 6px 18px rgba(255, 255, 255, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -2px 6px rgba(213, 197, 176, 0.3);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+}
+
+.workspace-tab-chip.is-active::before {
+  content: '';
+  position: absolute;
+  inset: 2px 6px auto;
+  height: 52%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.18));
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+.workspace-tab-chip.is-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.38),
+    inset 0 -10px 16px rgba(222, 206, 188, 0.16);
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .workspace-tab-float-wrap {
+    left: 24px;
+    right: 24px;
+    transform: none;
+  }
+
+  .workspace-tab-float {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .workspace-tab-chip {
+    min-width: 0;
+    padding: 12px 10px;
+    font-size: 13px;
+  }
 }
 
 .word-badge {
