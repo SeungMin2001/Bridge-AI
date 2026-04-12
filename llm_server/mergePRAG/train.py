@@ -87,13 +87,16 @@ def make_hook(delta_K, delta_V):
     return hook_fn
 
 
-# ── Loss 함수 (논문 원본 utils.py 방식, shift 없음) ──
+# ── Loss 함수 (causal LM shift 적용) ──
 def compute_loss(logits, labels):
-    ans_indices = torch.where(labels != -100)
+    # logits[:, i]는 position i+1을 예측 → shift 필요
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    ans_indices = torch.where(shift_labels != -100)
     if len(ans_indices[0]) == 0:
         return None
-    logits_flat = logits[ans_indices]
-    labels_flat = labels[ans_indices]
+    logits_flat = shift_logits[ans_indices]
+    labels_flat = shift_labels[ans_indices]
     return F.cross_entropy(logits_flat, labels_flat)
 
 
