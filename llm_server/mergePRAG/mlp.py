@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class MLP(nn.Module):
-  def __init__(self, d_model, hidden_dim=256):
+  def __init__(self, d_model, hidden_dim=1024):
     super().__init__()
     self.W  = nn.Linear(d_model, hidden_dim)
     self.V  = nn.Linear(hidden_dim, hidden_dim)

@@ -13,11 +13,11 @@ class HyperNetwork(nn.Module):
     학습 대상: pooling, mlp, lp의 가중치
     Qwen 모델은 외부에서 주입받으며 freeze 상태로 사용.
     """
-    def __init__(self, d_model, k=16):
+    def __init__(self, d_model, k=16, hidden_dim=1024):
         super().__init__()
         self.pooling = AttentivePooling(d_model)
-        self.mlp = MLP(d_model, hidden_dim=256)
-        self.lp = LinearProjection(256, d_model, k)  # MLP 출력 256 → K,V는 d_model
+        self.mlp = MLP(d_model, hidden_dim=hidden_dim)
+        self.lp = LinearProjection(hidden_dim, d_model, k)  # MLP 출력 hidden_dim → K,V는 d_model
 
     def forward(self, embedded):
         """

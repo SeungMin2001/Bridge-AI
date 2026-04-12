@@ -11,7 +11,7 @@ from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
 
 # ── 설정 (train.py와 동일) ──
-CRITICAL_LAYER = 0
+CRITICAL_LAYER = 9
 NUM_KV = 16
 ALPHA = 1.0  # 논문 원본: 스케일링 없음 (1.0 = 그대로 더함)
 import os as _os
