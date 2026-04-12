@@ -13,6 +13,7 @@ import torch
 import uuid
 import httpx
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 
@@ -142,6 +143,7 @@ async def chat(req: ChatRequest):
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """SSE 스트리밍 엔드포인트"""
+    request_started_at = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
 
     prompt, citations = _build_prompt_and_citations(req.question)
@@ -153,6 +155,9 @@ async def chat_stream(req: ChatRequest):
     import json
 
     async def generate():
+        first_token_logged = False
+        first_token_elapsed = None
+
         # 먼저 citations 전송
         yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
 
@@ -181,10 +186,18 @@ async def chat_stream(req: ChatRequest):
                         delta = chunk["choices"][0].get("delta", {})
                         content = delta.get("content", "")
                         if content:
+                            if not first_token_logged:
+                                first_token_logged = True
+                                first_token_elapsed = time.perf_counter() - request_started_at
+                                print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
                             yield f"data: {json.dumps({'type': 'token', 'token': content}, ensure_ascii=False)}\n\n"
         except Exception as e:
             print(f"[CHAT STREAM] 에러: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            total_elapsed = time.perf_counter() - request_started_at
+            first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
+            print(f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, total={total_elapsed:.3f}s")
 
         yield "data: [DONE]\n\n"
 
