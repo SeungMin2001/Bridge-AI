@@ -1,3 +1,4 @@
+<!-- 텍스트 및 이미지 등 다양한 입력을 처리하는 홈 화면의 통합 검색창 컴포넌트입니다. -->
 <script setup> import { ref, watch, onMounted, nextTick } from 'vue'
 
 const props = defineProps({

@@ -1,3 +1,4 @@
+<!-- 과거의 AI 요청 기록과 대화 내용을 모아놓은 히스토리 전용 페이지 컴포넌트입니다. -->
 <script setup>
 import { ref } from 'vue'
 

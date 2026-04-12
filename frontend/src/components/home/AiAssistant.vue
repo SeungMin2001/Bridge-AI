@@ -1,3 +1,4 @@
+<!-- 사용자와 대화하며 질문에 답변하거나 요약 서비스를 제공하는 AI 비서 팝업 컴포넌트입니다. -->
 <script setup>
 import { ref, nextTick } from 'vue'
 

@@ -1,3 +1,4 @@
+<!-- 워크스페이스의 왼쪽 사이드바 본체로, 폴더 탐색기와 음성 전사 탭을 전환하며 보여줍니다. -->
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import FolderSideTab from './FolderSideTab.vue'

@@ -1,3 +1,4 @@
+<!-- AI 비서와의 이전 대화 기록을 모달 형태로 확인할 수 있는 히스토리 컴포넌트입니다. -->
 <script setup>
 import { useChat } from '../../composables/useChat'
 

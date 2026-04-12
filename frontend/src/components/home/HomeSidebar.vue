@@ -1,3 +1,4 @@
+<!-- 홈 화면의 왼쪽 사이드바 컴포넌트로, 앱 메뉴와 캘린더 기능을 포함합니다. -->
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 

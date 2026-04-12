@@ -1,3 +1,4 @@
+<!-- 애니메이션 효과가 적용된 탭 전환 인터페이스를 제공하는 UI 컴포넌트입니다. -->
 <script setup>
 import { ref, onMounted, watch, nextTick } from 'vue'
 

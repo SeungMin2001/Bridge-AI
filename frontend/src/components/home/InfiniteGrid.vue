@@ -1,3 +1,4 @@
+<!-- 배경에 무한히 펼쳐지는 그리드 패턴을 그려주는 장식용 UI 컴포넌트입니다. -->
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 

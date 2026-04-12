@@ -1,3 +1,4 @@
+<!-- 워크폴더 화면에서 폴더와 파일 목록을 그리드 형태로 시각화하는 컴포넌트입니다. -->
 <script setup>
 import { ref, computed } from 'vue'
 

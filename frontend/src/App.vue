@@ -1,3 +1,4 @@
+<!-- 애플리케이션의 루트 컴포넌트로, 전체 레이아웃과 라우팅, 전역 상태(음성 녹음, 파일 트리 등)를 관리합니다. -->
 <script setup>
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import Workspace from './pages/Workspace/Workspace.vue'

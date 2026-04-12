@@ -1,3 +1,4 @@
+<!-- 음성 녹음, 실시간 전사, AI 분석 및 교차 참조가 이루어지는 작업실 페이지 컴포넌트입니다. -->
 <script setup>
 import { ref } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'

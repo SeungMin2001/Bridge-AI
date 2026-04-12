@@ -1,3 +1,4 @@
+<!-- 워크스페이스 왼쪽에서 파일 구조를 탐색하고 파일을 선택할 수 있게 돕는 폴더 탐색기 탭입니다. -->
 <script setup>
 import { ref, computed } from 'vue'
 

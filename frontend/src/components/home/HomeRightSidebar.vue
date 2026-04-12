@@ -1,3 +1,4 @@
+<!-- 홈 화면에서 선택한 강의 자료나 AI 분석 결과를 상세하게 보여주는 오른쪽 사이드바입니다. -->
 <script setup>
 import { computed } from 'vue'
 

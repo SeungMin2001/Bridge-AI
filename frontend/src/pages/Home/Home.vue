@@ -1,3 +1,4 @@
+<!-- 애플리케이션의 메인 홈 대시보드 페이지 컴포넌트입니다. -->
 <script setup>
 import HomeSidebar from '../../components/home/HomeSidebar.vue'
 import HomeBanner from '../../components/home/HomeBanner.vue'

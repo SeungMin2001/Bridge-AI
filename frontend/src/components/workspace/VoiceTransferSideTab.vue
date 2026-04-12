@@ -1,3 +1,4 @@
+<!-- 실시간 음성 전사 결과를 확인하고 AI에게 질문하거나 노트에 추가하는 사이드 탭 컴포넌트입니다. -->
 <script setup>
 import { ref, watch, onMounted, nextTick } from 'vue'
 import { useChat } from '../../composables/useChat'
