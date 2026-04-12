@@ -52,24 +52,18 @@ print(f"prompt: '{PROMPT}'")
 print(f"{'='*50}")
 
 inputs = tokenizer(PROMPT, return_tensors="pt").to(device)
-with torch.no_grad():
-    logits_no_hook = model(**inputs).logits[0, -1]  # 마지막 토큰의 예측
 
-probs_no = torch.softmax(logits_no_hook, dim=-1)
-top5_no = torch.topk(probs_no, 5)
-
-print("\n[A] Hook 없이 (LLM Only) - 'Answer:' 다음 토큰 top-5:")
-for i in range(5):
-    tok = tokenizer.decode(top5_no.indices[i])
-    print(f"  {i+1}. '{tok}' ({top5_no.values[i]:.4f})")
-
-# ── 테스트 2: alpha별 hook forward → top-5 비교 ──
-def make_hook(dK, dV, alpha=1.0):
+def make_hook(dK, dV, alpha=1.0, diag=False):
     def hook_fn(module, input, output):
         hidden = output[0] if isinstance(output, tuple) else output
         Kd = dK.to(device=hidden.device, dtype=hidden.dtype)
         Vd = dV.to(device=hidden.device, dtype=hidden.dtype)
         delta = cross_attention(hidden, Kd, Vd)
+        if diag:
+            h_norm = hidden.norm().item()
+            d_norm = delta.norm().item()
+            ratio = d_norm / (h_norm + 1e-8)
+            print(f"  [diag] hidden norm={h_norm:.1f}, delta norm={d_norm:.1f}, ratio={ratio:.4f}")
         result = hidden + alpha * delta
         if isinstance(output, tuple):
             return (result,) + output[1:]
@@ -78,26 +72,17 @@ def make_hook(dK, dV, alpha=1.0):
 
 layer = model.model.layers[CRITICAL_LAYER]
 
-for alpha in [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]:
-    hook = layer.register_forward_hook(make_hook(K, V, alpha))
-    with torch.no_grad():
-        logits_hook = model(**inputs).logits[0, -1]
-    hook.remove()
-
-    probs = torch.softmax(logits_hook, dim=-1)
-    top5 = torch.topk(probs, 5)
-    diff = (logits_hook - logits_no_hook).norm().item()
-
-    tokens = [tokenizer.decode(top5.indices[i]) for i in range(5)]
-    probs_list = [f"{top5.values[i]:.3f}" for i in range(5)]
-    print(f"\n[alpha={alpha}] logits변화={diff:.1f}")
-    for i in range(5):
-        print(f"  {i+1}. '{tokens[i]}' ({probs_list[i]})")
-
-# ── 테스트 3: 실제 문장 생성 비교 ──
+# ── 문장 생성 비교 ──
 print(f"\n{'='*50}")
 print("문장 생성 비교 (generate)")
 print(f"{'='*50}")
+
+# delta vs hidden 크기 진단 (1회만)
+print("\n[진단] delta vs hidden 크기 비교:")
+hook = layer.register_forward_hook(make_hook(K, V, alpha=1.0, diag=True))
+with torch.no_grad():
+    _ = model(**inputs)
+hook.remove()
 
 # Hook 없이 생성
 with torch.no_grad():
@@ -107,12 +92,13 @@ with torch.no_grad():
 answer_no = tokenizer.decode(gen_no_hook[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 print(f"\n[Hook 없음] {PROMPT} {answer_no}")
 
-# Hook 있이 생성
-hook = layer.register_forward_hook(make_hook(K, V, alpha=1.0))
-with torch.no_grad():
-    gen_hook = model.generate(
-        **inputs, max_new_tokens=30, do_sample=False,
-    )
-hook.remove()
-answer_hook = tokenizer.decode(gen_hook[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-print(f"[Hook α=1.0] {PROMPT} {answer_hook}")
+# 여러 alpha로 생성 비교
+for alpha in [0.01, 0.05, 0.1, 0.5, 1.0]:
+    hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
+    with torch.no_grad():
+        gen_hook = model.generate(
+            **inputs, max_new_tokens=30, do_sample=False,
+        )
+    hook.remove()
+    answer_hook = tokenizer.decode(gen_hook[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+    print(f"[Hook α={alpha}] {PROMPT} {answer_hook}")
