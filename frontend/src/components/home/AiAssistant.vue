@@ -26,6 +26,9 @@ async function sendMessage() {
   const idx = messages.value.length
   messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
 
+  const t0 = performance.now()
+  let ttftLogged = false
+
   try {
     const res = await fetch('/chat/stream', {
       method: 'POST',
@@ -36,6 +39,7 @@ async function sendMessage() {
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let tokenCount = 0
 
     while (true) {
       const { done, value } = await reader.read()
@@ -56,12 +60,20 @@ async function sendMessage() {
         if (data.type === 'citations') {
           messages.value[idx] = { ...msg, citations: data.citations }
         } else if (data.type === 'token') {
+          if (!ttftLogged) {
+            console.log(`[TTFT] 첫 토큰까지: ${(performance.now() - t0).toFixed(0)}ms`)
+            ttftLogged = true
+          }
+          tokenCount++
           messages.value[idx] = { ...msg, text: msg.text + data.token }
         } else if (data.type === 'error') {
           messages.value[idx] = { ...msg, text: msg.text + `\n오류: ${data.error}` }
         }
       }
     }
+
+    const totalMs = performance.now() - t0
+    console.log(`[응답완료] 총: ${totalMs.toFixed(0)}ms | 토큰: ${tokenCount}개 | 속도: ${(tokenCount / (totalMs / 1000)).toFixed(1)} tok/s`)
 
     const msg = messages.value[idx]
     messages.value[idx] = { ...msg, phase: 'done' }
