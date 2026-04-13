@@ -167,7 +167,7 @@ const handleNewFolder = () => {
 <template>
   <div class="flex flex-col flex-1 overflow-hidden">
     <!-- 검색 창 -->
-    <div class="sidebar-search-bg workspace-inset-shell rounded-[24px] px-3 py-3 flex items-center gap-3 mb-6">
+    <div class="sidebar-search-bg workspace-inset-shell rounded-[24px] px-3 py-2.5 flex items-center gap-3 mb-6">
       <span class="material-symbols-outlined text-[#8e8e93] text-[20px]">search</span>
       <input
         class="bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"

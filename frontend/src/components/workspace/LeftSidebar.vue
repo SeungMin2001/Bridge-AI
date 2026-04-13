@@ -89,12 +89,12 @@ const showToast = (msg) => {
       <!-- Tab Buttons -->
       <div class="workspace-inset-shell p-1.5 rounded-[22px] flex gap-1.5 mb-4 collapsible-content">
         <button
-          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          class="workspace-inset-pill flex-1 py-2 rounded-[12px] text-[12px] font-bold text-gray-500"
           :class="{ 'is-active text-black': activeTab === 'voice' }"
           @click="activeTab = 'voice'"
         >전사 내용</button>
         <button
-          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          class="workspace-inset-pill flex-1 py-2 rounded-[12px] text-[12px] font-bold text-gray-500"
           :class="{ 'is-active text-black': activeTab === 'folders' }"
           @click="activeTab = 'folders'"
         >폴더</button>
