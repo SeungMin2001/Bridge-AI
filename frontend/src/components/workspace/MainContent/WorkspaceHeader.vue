@@ -4,11 +4,14 @@ import { ref } from 'vue'
 
 defineProps({
   isRecording: Boolean,
+  isRecordingPaused: Boolean,
   recordingTimeText: String
 })
 
 const emit = defineEmits([
   'start-recording',
+  'pause-recording',
+  'resume-recording',
   'stop-recording',
   'main-sidebar-toggle',
   'right-sidebar-toggle',
@@ -32,27 +35,65 @@ const handleMaterialInputChange = (event) => {
 
 <template>
   <header class="workspace-embedded-header h-[56px] flex items-center px-6 shrink-0">
-    <div class="flex items-center gap-1.5 shrink-0">
+    <div class="flex items-center gap-3 shrink-0 min-w-0">
       <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93] shrink-0" title="사이드바 토글" @click="emit('main-sidebar-toggle')">
         <span class="material-symbols-outlined text-[20px]">side_navigation</span>
       </button>
 
-      <button v-if="!isRecording" id="start" class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93] shrink-0" @click="emit('start-recording')">
-        <span class="material-symbols-outlined text-[20px]">mic</span>
-      </button>
       <div
-        v-else
-        id="recording-timer"
-        class="flex items-center gap-2 bg-[#FFF4F6] hover:bg-[#FFECEE] px-3 py-1.5 rounded-full cursor-pointer transition-colors border border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_8px_18px_rgba(148,163,184,0.12)] shrink-0"
-        @click="emit('stop-recording')"
+        id="recording-control-bar"
+        class="recording-control-bar shrink-0"
       >
-        <div class="recording-wave-container w-6 h-6 shrink-0">
-          <div class="recording-wave-ring"></div>
-          <div class="recording-wave-ring"></div>
-          <div class="recording-wave-ring"></div>
-          <span class="live-dot" style="position: relative; z-index: 1;"></span>
-        </div>
-        <span id="recording-time" class="text-[13px] font-bold text-[#1d1d1f] tabular-nums">{{ recordingTimeText }}</span>
+        <transition-group name="recording-control" tag="div" class="recording-control-inner">
+          <button
+            v-if="!isRecording"
+            key="start"
+            class="recording-primary-btn"
+            @click="emit('start-recording')"
+          >
+            녹음시작
+          </button>
+          <template v-else>
+            <div
+              key="voice-dots"
+              class="recording-voice-dots shrink-0"
+              :class="{ 'is-paused': isRecordingPaused }"
+              aria-hidden="true"
+            >
+              <span class="recording-voice-dot"></span>
+              <span class="recording-voice-dot"></span>
+              <span class="recording-voice-dot"></span>
+              <span class="recording-voice-dot"></span>
+              <span class="recording-voice-dot"></span>
+            </div>
+
+            <span key="time" id="recording-time" class="recording-time-text tabular-nums">
+              {{ recordingTimeText }}
+            </span>
+
+            <button
+              key="pause-toggle"
+              class="recording-icon-btn recording-icon-btn-sm"
+              :class="{ 'is-paused': isRecordingPaused }"
+              :aria-label="isRecordingPaused ? '녹음 재개' : '일시정지'"
+              @click="isRecordingPaused ? emit('resume-recording') : emit('pause-recording')"
+            >
+              <span v-if="!isRecordingPaused" class="recording-pause-bars" aria-hidden="true">
+                <span></span>
+                <span></span>
+              </span>
+              <span v-else class="recording-play-triangle" aria-hidden="true"></span>
+            </button>
+
+            <button
+              key="stop"
+              class="recording-primary-btn"
+              @click="emit('stop-recording')"
+            >
+              녹음종료
+            </button>
+          </template>
+        </transition-group>
       </div>
     </div>
 
@@ -91,5 +132,135 @@ const handleMaterialInputChange = (event) => {
   height: 1px;
   margin: 0 24px;
   background: rgba(0, 0, 0, 0.06);
+}
+
+.recording-control-bar {
+  position: relative;
+  min-height: 42px;
+}
+
+.recording-control-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.recording-time-text {
+  font-size: 14px;
+  font-weight: 800;
+  color: #1d1d1f;
+  letter-spacing: 0.02em;
+}
+
+.recording-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  background: #e5e5ea;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.recording-icon-btn:hover {
+  background: #dbdbe2;
+}
+
+.recording-icon-btn:active {
+  transform: scale(0.98);
+}
+
+.recording-icon-btn-sm {
+  width: 36px;
+  height: 36px;
+}
+
+.recording-icon-btn.is-paused {
+  background: #fff0f1;
+}
+
+.recording-icon-btn.is-paused:hover {
+  background: #ffe4e7;
+}
+
+.recording-pause-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recording-pause-bars span {
+  display: block;
+  width: 5px;
+  height: 18px;
+  border-radius: 999px;
+  background: #5f6472;
+}
+
+.recording-play-triangle {
+  width: 0;
+  height: 0;
+  margin-left: 2px;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-left: 14px solid #ef4444;
+}
+
+.recording-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 102px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.recording-primary-btn:hover {
+  background: #1f1f1f;
+}
+
+.recording-primary-btn:active {
+  transform: scale(0.98);
+}
+
+.recording-control-enter-active,
+.recording-control-leave-active {
+  transition: opacity 0.26s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.recording-control-move {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.recording-control-enter-from {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+}
+
+.recording-control-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+}
+
+.recording-control-leave-active {
+  position: absolute;
+}
+
+.recording-voice-dots.is-paused .recording-voice-dot {
+  animation-play-state: paused;
+}
+
+.recording-voice-dots.is-paused .recording-voice-dot {
+  opacity: 0.82;
+  transform: scaleY(0.85);
 }
 </style>

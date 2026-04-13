@@ -9,6 +9,7 @@ import AiHistory from './pages/AiHistory/AiHistory.vue'
 // --- 상태 관리 (State) ---
 const currentView = ref('home')
 const isRecording = ref(false)
+const isRecordingPaused = ref(false)
 const recordingSeconds = ref(0)
 const transcriptions = ref([])
 const activeFileName = ref('강의1')
@@ -114,6 +115,17 @@ let audioSource = null
 let lastBubbleTime = 0
 let mockTimers = []
 
+const syncRecordingTimer = () => {
+  clearInterval(timer)
+  timer = null
+
+  if (!isRecording.value || isRecordingPaused.value) return
+
+  timer = setInterval(() => {
+    recordingSeconds.value++
+  }, 1000)
+}
+
 const float32ToInt16 = (float32Array) => {
   const int16Array = new Int16Array(float32Array.length)
   for (let i = 0; i < float32Array.length; i++) {
@@ -125,7 +137,9 @@ const float32ToInt16 = (float32Array) => {
 
 const stopRecording = () => {
   isRecording.value = false
+  isRecordingPaused.value = false
   clearInterval(timer)
+  timer = null
 
   mockTimers.forEach(t => clearTimeout(t))
   mockTimers = []
@@ -154,16 +168,15 @@ const addTranscriptionBubble = (text, isMock = false) => {
 
 const startRecording = async () => {
   isRecording.value = true
+  isRecordingPaused.value = false
   recordingSeconds.value = 0
 
-  timer = setInterval(() => {
-    recordingSeconds.value++
-  }, 1000)
+  syncRecordingTimer()
 
   // Mock Data 설정
   // 전사 테스트 모드
   //백엔드 킬때 false로
-  const USE_MOCK_DATA = false
+  const USE_MOCK_DATA = true
 
   if (USE_MOCK_DATA) {
     const t1 = setTimeout(() => {
@@ -293,7 +306,7 @@ const startRecording = async () => {
 
       processor.port.onmessage = (event) => {
         const data = float32ToInt16(event.data)
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (!isRecordingPaused.value && ws && ws.readyState === WebSocket.OPEN) {
           ws.send(data.buffer)
         }
       }
@@ -304,14 +317,40 @@ const startRecording = async () => {
   }
 }
 
+const pauseRecording = async () => {
+  if (!isRecording.value || isRecordingPaused.value) return
+
+  isRecordingPaused.value = true
+  syncRecordingTimer()
+
+  mockTimers.forEach(t => clearTimeout(t))
+  mockTimers = []
+
+  if (audioContext && audioContext.state === 'running') {
+    await audioContext.suspend()
+  }
+}
+
+const resumeRecording = async () => {
+  if (!isRecording.value || !isRecordingPaused.value) return
+
+  isRecordingPaused.value = false
+  syncRecordingTimer()
+
+  if (audioContext && audioContext.state === 'suspended') {
+    await audioContext.resume()
+  }
+}
+
 onUnmounted(() => {
   stopRecording()
 })
 
 const formatTime = () => {
+  const hours = Math.floor(recordingSeconds.value / 3600)
   const minutes = Math.floor(recordingSeconds.value / 60)
   const seconds = recordingSeconds.value % 60
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  return `${hours.toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
 }
 
 const handleFileSelect = (id, node) => {
@@ -430,6 +469,7 @@ const handleNavigate = (view) => {
     :favorites="favorites"
     :transcriptions="transcriptions"
     :isRecording="isRecording"
+    :isRecordingPaused="isRecordingPaused"
     :recordingTimeText="formatTime()"
     :activeFileName="activeFileName"
     :activeFileId="activeFileId"
@@ -444,6 +484,8 @@ const handleNavigate = (view) => {
     @navigateHome="handleNavigate('home')"
     @fileSelect="handleFileSelect"
     @startRecording="startRecording"
+    @pauseRecording="pauseRecording"
+    @resumeRecording="resumeRecording"
     @stopRecording="stopRecording"
     @rightSidebarToggle="handleRightSidebarToggle"
     @addToNote="handleAddToNote"

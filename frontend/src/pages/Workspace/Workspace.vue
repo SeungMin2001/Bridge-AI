@@ -12,7 +12,8 @@ const props = defineProps({
   fileTree: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() },
   isRecording: { type: Boolean, default: false },
-  recordingTimeText: { type: String, default: '0:00' },
+  isRecordingPaused: { type: Boolean, default: false },
+  recordingTimeText: { type: String, default: '00:00:00' },
   activeFileName: { type: String, default: '' },
   activeFileId: { type: String, default: '' },
   currentAttachments: { type: Array, default: () => [] },
@@ -29,6 +30,8 @@ const emit = defineEmits([
   'update:favorites',
   'update:aiInput',
   'startRecording',
+  'pauseRecording',
+  'resumeRecording',
   'stopRecording',
   'rightSidebarToggle',
   'addToNote',
@@ -106,6 +109,7 @@ const highlightedTranscript = computed(() => {
     <MainContent
       class="relative z-10"
       :isRecording="isRecording"
+      :isRecordingPaused="isRecordingPaused"
       :recordingTimeText="recordingTimeText"
       :activeFileName="activeFileName"
       :activeFileId="activeFileId"
@@ -113,6 +117,8 @@ const highlightedTranscript = computed(() => {
       :currentPreviewMaterial="currentPreviewMaterial"
       :summaryNotes="summaryNotes"
       @startRecording="emit('startRecording')"
+      @pauseRecording="emit('pauseRecording')"
+      @resumeRecording="emit('resumeRecording')"
       @stopRecording="emit('stopRecording')"
       @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @rightSidebarToggle="emit('rightSidebarToggle')"

@@ -12,6 +12,7 @@ const { selectedWordData, clearSelectedWord } = useChat()
 
 const props = defineProps({
   isRecording: Boolean,
+  isRecordingPaused: Boolean,
   recordingTimeText: String,
   activeFileName: String,
   activeFileId: String,
@@ -22,6 +23,8 @@ const props = defineProps({
 
 const emit = defineEmits([
   'startRecording',
+  'pauseRecording',
+  'resumeRecording',
   'stopRecording',
   'mainSidebarToggle',
   'rightSidebarToggle',
@@ -142,8 +145,11 @@ const handleDeleteStoredMaterial = (fileId) => {
     <div id="tab-contents-container" class="card workspace-shell-card flex-1 flex flex-col relative min-h-0 min-w-0 overflow-hidden">
       <WorkspaceHeader
         :is-recording="isRecording"
+        :is-recording-paused="isRecordingPaused"
         :recording-time-text="recordingTimeText"
         @start-recording="emit('startRecording')"
+        @pause-recording="emit('pauseRecording')"
+        @resume-recording="emit('resumeRecording')"
         @stop-recording="emit('stopRecording')"
         @main-sidebar-toggle="emit('mainSidebarToggle')"
         @right-sidebar-toggle="emit('rightSidebarToggle')"
