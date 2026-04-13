@@ -12,7 +12,7 @@ import os
 
 PASSAGE = "shin is sunmoon university student"
 QUESTION = "Who is shin?"
-PROMPT = f"Question: {QUESTION}\nAnswer: /no_think"
+PROMPT = f"Question: {QUESTION}\nAnswer:"
 CRITICAL_LAYER = 9
 WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
@@ -84,21 +84,36 @@ with torch.no_grad():
     _ = model(**inputs)
 hook.remove()
 
+STOP_IDS = tokenizer.encode("\nQuestion:", add_special_tokens=False)
+
+def decode_answer(gen, input_len):
+    tokens = gen[0][input_len:].tolist()
+    # "Question:" 이 나오면 그 앞에서 자름
+    for i in range(len(tokens) - len(STOP_IDS) + 1):
+        if tokens[i:i+len(STOP_IDS)] == STOP_IDS:
+            tokens = tokens[:i]
+            break
+    # think 태그 제거
+    text = tokenizer.decode(tokens, skip_special_tokens=True)
+    import re
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    return text
+
 # Hook 없이 생성
 with torch.no_grad():
     gen_no_hook = model.generate(
-        **inputs, max_new_tokens=30, do_sample=False,
+        **inputs, max_new_tokens=50, do_sample=False,
     )
-answer_no = tokenizer.decode(gen_no_hook[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-print(f"\n[Hook 없음] {PROMPT} {answer_no}")
+answer_no = decode_answer(gen_no_hook, inputs["input_ids"].shape[1])
+print(f"\n[Hook 없음] {answer_no}")
 
 # 여러 alpha로 생성 비교
 for alpha in [0.01, 0.05, 0.1, 0.5, 1.0]:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(
-            **inputs, max_new_tokens=30, do_sample=False,
+            **inputs, max_new_tokens=50, do_sample=False,
         )
     hook.remove()
-    answer_hook = tokenizer.decode(gen_hook[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-    print(f"[Hook α={alpha}] {PROMPT} {answer_hook}")
+    answer_hook = decode_answer(gen_hook, inputs["input_ids"].shape[1])
+    print(f"[Hook α={alpha}] {answer_hook}")

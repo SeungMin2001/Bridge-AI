@@ -103,8 +103,8 @@ def compute_loss(logits, labels):
 def tokenize_qa(tokenizer, question, answer, device):
     """논문 방식: Question+Answer 토큰화, prompt 부분은 labels=-100 마스킹
     /no_think 토큰으로 Qwen3.5 thinking 모드 비활성화"""
-    prompt = f"Question: {question}\nAnswer: /no_think"
-    full_text = f"Question: {question}\nAnswer: /no_think {answer}"
+    prompt = f"Question: {question}\nAnswer:"
+    full_text = f"Question: {question}\nAnswer: {answer}"
 
     prompt_ids = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"]
     full_ids = tokenizer(full_text, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
