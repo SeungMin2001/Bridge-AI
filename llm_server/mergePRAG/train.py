@@ -280,6 +280,11 @@ def train():
     patience_counter = 0
     early_stopped = False
 
+    # inter-passage diversity를 위한 rolling buffer
+    # 최근 N개 passage의 K 평균벡터를 저장해서 현재 passage K와 유사도 패널티
+    K_buffer = []
+    K_BUFFER_SIZE = 16
+
     print(f"\n[학습] 시작: {EPOCHS} epoch, train={len(train_dataset)}, val={len(val_dataset)}")
     print(f"[학습] AdamW lr={LR}, CosineAnnealing eta_min={LR_MIN}")
     hypernet.train()
@@ -323,13 +328,29 @@ def train():
                 if task_loss is None:
                     continue
 
-                # Diversity loss: K 벡터들이 서로 달라야 collapse 방지
-                K_flat = delta_K.squeeze(0)  # [k, d_model]
-                K_norm = F.normalize(K_flat, dim=-1)
-                sim = K_norm @ K_norm.T  # [k, k]
+                K_flat = delta_K.squeeze(0)       # [k, d_model]
+                K_norm = F.normalize(K_flat, dim=-1)  # [k, d_model]
+
+                # intra-passage diversity: 같은 passage 내 k개 벡터끼리 달라야 함
+                intra_sim = K_norm @ K_norm.T     # [k, k]
                 eye_mask = ~torch.eye(K_flat.shape[0], dtype=torch.bool, device=device)
-                diversity_loss = sim[eye_mask].mean()
-                loss = task_loss + 0.1 * diversity_loss
+                intra_diversity_loss = intra_sim[eye_mask].mean()
+
+                # inter-passage diversity: 다른 passage의 K와도 달라야 함 (buffer 비교)
+                K_mean = K_norm.mean(dim=0)       # [d_model] - 이 passage의 대표 K
+                inter_diversity_loss = torch.tensor(0.0, device=device)
+                if len(K_buffer) >= 2:
+                    buf = torch.stack(K_buffer[-K_BUFFER_SIZE:])  # [n, d_model]
+                    inter_diversity_loss = F.cosine_similarity(
+                        K_mean.unsqueeze(0), buf, dim=-1
+                    ).mean()
+
+                # buffer 업데이트
+                K_buffer.append(K_mean.detach())
+                if len(K_buffer) > K_BUFFER_SIZE:
+                    K_buffer.pop(0)
+
+                loss = task_loss + 0.1 * intra_diversity_loss + 0.1 * inter_diversity_loss
 
                 # 5. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
