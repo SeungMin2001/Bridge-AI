@@ -12,7 +12,7 @@ import os
 
 PASSAGE = "shin is sunmoon university student"
 QUESTION = "Who is shin?"
-PROMPT = f"Question: {QUESTION}\nAnswer:"
+PROMPT = f"Question: {QUESTION}\nAnswer: /no_think"
 CRITICAL_LAYER = 9
 WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
 
