@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .embedding import embedding
 from .pooling import AttentivePooling
 from .mlp import MLP
@@ -30,6 +31,10 @@ class HyperNetwork(nn.Module):
         h = self.pooling(embedded)   # [B, T, d] → [B, d]
         h = self.mlp(h)              # [B, d] → [B, d]
         K, V = self.lp(h)            # [B, d] → [B, k, d], [B, k, d]
+        # Keep KV scale bounded so cross-attention augments hidden states
+        # instead of overwhelming them.
+        K = F.normalize(K, p=2, dim=-1)
+        V = F.normalize(V, p=2, dim=-1)
         return K, V
 
     @torch.no_grad()

@@ -34,6 +34,7 @@ with torch.no_grad():
 print(f"passage: {PASSAGE}")
 print(f"K norm: {K.norm():.4f}, V norm: {V.norm():.4f}")
 print(f"K per-vector norm: {K[0,0].norm():.4f}")  # L2 정규화 됐으면 ~1.0
+print(f"V per-vector norm: {V[0,0].norm():.4f}")
 
 # ── 다른 passage K,V와 비교 ──
 with torch.no_grad():
@@ -44,6 +45,8 @@ with torch.no_grad():
 sim = torch.nn.functional.cosine_similarity(K.view(1,-1), K2.view(1,-1)).item()
 print(f"\n두 passage K 유사도: {sim:.4f}")
 print(f"  (1.0 = 구분 못함 / 0.0~0.5 = 잘 구분)")
+sim_v = torch.nn.functional.cosine_similarity(V.view(1,-1), V2.view(1,-1)).item()
+print(f"두 passage V 유사도: {sim_v:.4f}")
 
 # ── 테스트 1: hook 없이 forward → top-5 예측 ──
 print(f"\n{'='*50}")
@@ -116,7 +119,7 @@ answer_no = decode_answer(gen_no_hook, inputs["input_ids"].shape[1])
 print(f"\n[Hook 없음] {answer_no}")
 
 # 여러 alpha로 생성 비교
-for alpha in [0.01, 0.05, 0.1, 0.5, 1.0]:
+for alpha in [0.0001, 0.001, 0.005, 0.01, 0.05]:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(

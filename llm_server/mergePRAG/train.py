@@ -334,7 +334,9 @@ def train():
                     continue
 
                 K_flat = delta_K.squeeze(0)       # [k, d_model]
+                V_flat = delta_V.squeeze(0)
                 K_norm = F.normalize(K_flat, dim=-1)  # [k, d_model]
+                V_norm = F.normalize(V_flat, dim=-1)
 
                 # intra-passage diversity: 같은 passage 내 k개 벡터끼리 달라야 함
                 intra_sim = K_norm @ K_norm.T     # [k, k]
@@ -396,7 +398,17 @@ def train():
                 })
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
-                print(f"  Step {global_step}/{len(train_dataset)} | loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | {elapsed:.1f}min")
+                k_vec_norm = K_flat.norm(dim=-1).mean().item()
+                v_vec_norm = V_flat.norm(dim=-1).mean().item()
+                intra_k_cos = intra_sim[eye_mask].mean().item()
+                intra_v_cos = (V_norm @ V_norm.T)[eye_mask].mean().item()
+                print(
+                    f"  Step {global_step}/{len(train_dataset)} | "
+                    f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
+                    f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
+                    f"Kcos: {intra_k_cos:.3f} | Vcos: {intra_v_cos:.3f} | "
+                    f"{elapsed:.1f}min"
+                )
 
             # 중간 체크포인트 저장
             if global_step % SAVE_EVERY == 0:
