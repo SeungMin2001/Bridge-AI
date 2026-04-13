@@ -6,13 +6,14 @@ generate 없이 단일 forward pass로 직접 비교
 """
 import torch
 from run_model import run_model
-from mergePRAG.config import NUM_KV, WEIGHTS_PATH, build_chat_text, load_critical_layer
+from mergePRAG.config import NUM_KV, WEIGHTS_PATH, load_critical_layer
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
-PASSAGE = "shin is sunmoon university student"
-QUESTION = "Who is shin?"
+QUESTION = "What color is the apple?"
 CRITICAL_LAYER = load_critical_layer()
+PASSAGE = "The apple is blue."
+ENGLISH_SYSTEM_PROMPT = "Answer in English with one short sentence."
 
 # ── 모델 로드 ──
 print("모델 로딩...")
@@ -36,7 +37,7 @@ print(f"K per-vector norm: {K[0,0].norm():.4f}")  # L2 정규화 됐으면 ~1.0
 
 # ── 다른 passage K,V와 비교 ──
 with torch.no_grad():
-    ids2 = tokenizer("Python was created by Guido van Rossum in 1991.", return_tensors="pt")["input_ids"].to(device)
+    ids2 = tokenizer("The apple is red.", return_tensors="pt")["input_ids"].to(device)
     emb2 = model.model.embed_tokens(ids2).to(torch.float32)
     K2, V2 = hypernet(emb2)
 
@@ -46,7 +47,15 @@ print(f"  (1.0 = 구분 못함 / 0.0~0.5 = 잘 구분)")
 
 # ── 테스트 1: hook 없이 forward → top-5 예측 ──
 print(f"\n{'='*50}")
-prompt_text = build_chat_text(tokenizer, QUESTION)
+prompt_text = tokenizer.apply_chat_template(
+    [
+        {"role": "system", "content": ENGLISH_SYSTEM_PROMPT},
+        {"role": "user", "content": QUESTION},
+    ],
+    tokenize=False,
+    add_generation_prompt=True,
+    enable_thinking=False,
+)
 print(f"prompt: '{prompt_text}'")
 print(f"{'='*50}")
 
