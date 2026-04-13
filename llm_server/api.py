@@ -26,15 +26,13 @@ from threading import Thread
 from transformers import TextIteratorStreamer
 
 from run_model import run_model
+from mergePRAG.config import build_chat_text
 from mergePRAG.main import CourseMemoryManager, make_hook, CRITICAL_LAYER
 
 # ── 글로벌 ──
 model = None
 tokenizer = None
 memory_manager = None
-
-SYSTEM_PROMPT = "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -127,18 +125,11 @@ def build_messages(prompt: str, context: str = "", enable_thinking: bool = False
     else:
         user_content = prompt
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
-    ]
-
-    text = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
+    return build_chat_text(
+        tokenizer,
+        question=user_content,
         enable_thinking=enable_thinking,
     )
-    return text
 
 
 def generate_sync(input_text: str, max_new_tokens: int = 256):

@@ -10,12 +10,12 @@ import torch
 import torch.nn.functional as F
 import json
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+
+from .config import ALPHA, MODEL_NAME, NUM_KV, build_chat_text
 from .cross_attention import cross_attention
 
 # ── 설정 ──
-MODEL_NAME = "Qwen/Qwen3.5-4B"  # 원본 모델 (레이어 구조는 AWQ와 동일)
-K_DIM = 16  # HyperNetwork의 k
-ALPHA = 0.01  # injection 스케일 (main.py의 make_hook과 동일)
+K_DIM = NUM_KV
 OUTPUT_PATH = "llm_server/mergePRAG/critical_layers.json"
 
 # ── 테스트용 QA 샘플 (passage, question, answer) ──
@@ -68,8 +68,8 @@ def get_decoder_layers(model):
 def compute_loss(model, tokenizer, question, answer):
     """question+answer 입력에서 answer 부분의 cross-entropy loss 계산.
     logits[t]는 t+1을 예측 → logits[prompt_len-1]이 첫 answer 토큰을 예측."""
-    prompt = question
-    full_text = prompt + answer
+    prompt = build_chat_text(tokenizer, question)
+    full_text = build_chat_text(tokenizer, question, answer=answer)
 
     prompt_ids = tokenizer(prompt, return_tensors="pt")["input_ids"]
     full_ids = tokenizer(full_text, return_tensors="pt")["input_ids"]

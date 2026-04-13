@@ -6,16 +6,14 @@ MergePRAG 추론 모듈
 """
 import torch
 import io
+import os
 from .cross_attention import cross_attention
+from .config import ALPHA, NUM_KV, WEIGHTS_PATH, load_critical_layer
 from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
 
 # ── 설정 (train.py와 동일) ──
-CRITICAL_LAYER = 9
-NUM_KV = 16
-ALPHA = 1.0  # 논문 원본: 스케일링 없음 (1.0 = 그대로 더함)
-import os as _os
-WEIGHTS_PATH = _os.path.join(_os.path.dirname(__file__), "hypernet_weights.pt")
+CRITICAL_LAYER = load_critical_layer()
 
 
 def make_hook(delta_K, delta_V, alpha=ALPHA):
@@ -47,6 +45,10 @@ class CourseMemoryManager:
 
         # HyperNetwork 로드
         self.hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
+        if not os.path.exists(WEIGHTS_PATH):
+            raise FileNotFoundError(
+                f"HyperNetwork weights not found: {WEIGHTS_PATH}"
+            )
         self.hypernet.load_state_dict(
             torch.load(WEIGHTS_PATH, map_location=device)
         )

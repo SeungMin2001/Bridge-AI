@@ -18,15 +18,25 @@ import time
 from datetime import datetime
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
+from .config import (
+    ALPHA,
+    CHART_PATH,
+    CHECKPOINT_PATH,
+    LOG_PATH,
+    MAX_SEQ_LEN,
+    MODEL_NAME,
+    NUM_KV,
+    WEIGHTS_PATH as SAVE_PATH,
+    build_chat_text,
+    load_critical_layer,
+)
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
 # ── 설정 (논문 기본값 기반) ──
-MODEL_NAME = "Qwen/Qwen3.5-4B"
-CRITICAL_LAYER = 9          # 논문 기본값 (Qwen 기준 재측정 권장)
-NUM_KV = 16                 # 논문 default num_kv=16
+CRITICAL_LAYER = load_critical_layer()
 LR = 1e-4                   # 논문 동일
 LR_MIN = 1e-6               # 논문 CosineAnnealing eta_min
 EPOCHS = 1                  # 논문: 1 epoch (single pass)
@@ -37,11 +47,6 @@ EVAL_MAX_SAMPLES = 500      # validation 시 최대 샘플 수 (전체 순회 �
 LOG_EVERY = 50              # N step마다 터미널 출력 (논문: 49)
 SAVE_EVERY = 2000           # N step마다 체크포인트 저장
 PATIENCE = 5                # early stopping patience
-MAX_SEQ_LEN = 512           # passage/QA 토큰 최대 길이 (OOM 방지)
-SAVE_PATH = "llm_server/mergePRAG/hypernet_weights.pt"
-CHECKPOINT_PATH = "llm_server/mergePRAG/hypernet_checkpoint.pt"
-LOG_PATH = "llm_server/mergePRAG/train_log.json"
-CHART_PATH = "llm_server/mergePRAG/train_loss_curve.png"
 TRAIN_DATA_PATH = r"C:\Users\user\Documents\last_project\data\NarrativeQA_train.jsonl"
 VALID_DATA_PATH = r"C:\Users\user\Documents\last_project\data\NarrativeQA_valid.jsonl"
 
@@ -76,14 +81,14 @@ def make_hook(delta_K, delta_V):
             K = delta_K.to(device=hidden.device, dtype=hidden.dtype)
             V = delta_V.to(device=hidden.device, dtype=hidden.dtype)
             delta = cross_attention(hidden, K, V)
-            new_hidden = hidden + delta
+            new_hidden = hidden + ALPHA * delta
             return (new_hidden,) + output[1:]
         else:
             hidden = output
             K = delta_K.to(device=hidden.device, dtype=hidden.dtype)
             V = delta_V.to(device=hidden.device, dtype=hidden.dtype)
             delta = cross_attention(hidden, K, V)
-            return hidden + delta
+            return hidden + ALPHA * delta
     return hook_fn
 
 
@@ -101,10 +106,9 @@ def compute_loss(logits, labels):
 
 
 def tokenize_qa(tokenizer, question, answer, device):
-    """논문 방식: Question+Answer 토큰화, prompt 부분은 labels=-100 마스킹
-    /no_think 토큰으로 Qwen3.5 thinking 모드 비활성화"""
-    prompt = f"Question: {question}\nAnswer:"
-    full_text = f"Question: {question}\nAnswer: {answer}"
+    """서비스 추론과 같은 chat template 분포로 학습용 토큰화."""
+    prompt = build_chat_text(tokenizer, question)
+    full_text = build_chat_text(tokenizer, question, answer=answer)
 
     prompt_ids = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"]
     full_ids = tokenizer(full_text, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)

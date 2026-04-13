@@ -6,15 +6,13 @@ generate 없이 단일 forward pass로 직접 비교
 """
 import torch
 from run_model import run_model
+from mergePRAG.config import NUM_KV, WEIGHTS_PATH, build_chat_text, load_critical_layer
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
-import os
 
 PASSAGE = "shin is sunmoon university student"
 QUESTION = "Who is shin?"
-PROMPT = f"Question: {QUESTION}\nAnswer:"
-CRITICAL_LAYER = 9
-WEIGHTS = os.path.join(os.path.dirname(__file__), "mergePRAG", "hypernet_weights.pt")
+CRITICAL_LAYER = load_critical_layer()
 
 # ── 모델 로드 ──
 print("모델 로딩...")
@@ -23,8 +21,8 @@ device = next(model.parameters()).device
 
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
-hypernet = HyperNetwork(d_model, k=16).to(device).float()
-hypernet.load_state_dict(torch.load(WEIGHTS, map_location=device))
+hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
+hypernet.load_state_dict(torch.load(WEIGHTS_PATH, map_location=device))
 hypernet.eval()
 
 with torch.no_grad():
@@ -48,10 +46,11 @@ print(f"  (1.0 = 구분 못함 / 0.0~0.5 = 잘 구분)")
 
 # ── 테스트 1: hook 없이 forward → top-5 예측 ──
 print(f"\n{'='*50}")
-print(f"prompt: '{PROMPT}'")
+prompt_text = build_chat_text(tokenizer, QUESTION)
+print(f"prompt: '{prompt_text}'")
 print(f"{'='*50}")
 
-inputs = tokenizer(PROMPT, return_tensors="pt").to(device)
+inputs = tokenizer(prompt_text, return_tensors="pt").to(device)
 
 def make_hook(dK, dV, alpha=1.0, diag=False):
     def hook_fn(module, input, output):
