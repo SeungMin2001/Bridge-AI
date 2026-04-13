@@ -3,7 +3,7 @@ import os
 
 
 MODEL_NAME = "Qwen/Qwen3.5-4B"
-NUM_KV = 2
+NUM_KV = 1
 DEFAULT_CRITICAL_LAYER = 0
 ALPHA = 0.01
 MAX_SEQ_LEN = 512
