@@ -167,10 +167,7 @@ const handleWordClick = (e, word) => {
   max-width: min(100%, 440px);
   background: #f4ede4;
   border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    inset 0 -1px 0 rgba(226, 213, 195, 0.34),
-    0 10px 24px rgba(191, 178, 160, 0.12);
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -178,10 +175,7 @@ const handleWordClick = (e, word) => {
   position: relative;
   background: #f4ede4;
   border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    inset 0 -1px 0 rgba(226, 213, 195, 0.32),
-    0 12px 28px rgba(191, 178, 160, 0.12);
+  box-shadow: none;
   overflow: hidden;
 }
 
