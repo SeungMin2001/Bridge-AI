@@ -28,6 +28,8 @@ from .config import (
     MAX_SEQ_LEN,
     MODEL_NAME,
     NUM_KV,
+    TRAIN_DATA_PATH,
+    VALID_DATA_PATH,
     WEIGHTS_PATH as SAVE_PATH,
     build_chat_text,
     load_critical_layer,
@@ -45,10 +47,43 @@ MAX_VAL_SAMPLES = None       # 전체 검증
 EVAL_EVERY = 1000           # N step마다 validation
 EVAL_MAX_SAMPLES = 500      # validation 시 최대 샘플 수 (전체 순회 방지)
 LOG_EVERY = 50              # N step마다 터미널 출력 (논문: 49)
-SAVE_EVERY = 2000           # N step마다 체크포인트 저장
+SAVE_EVERY = 100            # 빠른 중간 검증용 체크포인트 저장 주기
 PATIENCE = 5                # early stopping patience
-TRAIN_DATA_PATH = r"C:\Users\user\Documents\last_project\data\NarrativeQA_train.jsonl"
-VALID_DATA_PATH = r"C:\Users\user\Documents\last_project\data\NarrativeQA_valid.jsonl"
+
+
+def extract_passage(sample: dict) -> str:
+    """서비스용 QA-passage 학습에 맞는 근거 passage를 선택한다."""
+    for key in ("passage", "supporting_passage", "context", "evidence", "chunk_text"):
+        value = sample.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    for key in ("facts", "supporting_facts", "passages", "contexts", "evidences"):
+        value = sample.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+                if isinstance(item, dict):
+                    for inner_key in ("passage", "text", "context", "chunk_text"):
+                        inner_value = item.get(inner_key)
+                        if isinstance(inner_value, str) and inner_value.strip():
+                            return inner_value.strip()
+    return ""
+
+
+def extract_answer(sample: dict) -> str:
+    for key in ("answer", "target", "output", "response"):
+        value = sample.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    answers = sample.get("answers")
+    if isinstance(answers, list):
+        for item in answers:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return ""
 
 
 # ── 데이터셋 ──
@@ -60,8 +95,16 @@ class MergePRAGDataset(Dataset):
                 if max_samples and i >= max_samples:
                     break
                 item = json.loads(line.strip())
-                if item["facts"]:
-                    self.data.append(item)
+                question = item.get("question", "").strip()
+                answer = extract_answer(item)
+                passage = extract_passage(item)
+                if question and answer and passage:
+                    self.data.append({
+                        **item,
+                        "question": question,
+                        "answer": answer,
+                        "passage": passage,
+                    })
         print(f"[데이터] {len(self.data)}개 샘플 로드됨 ({jsonl_path})")
 
     def __len__(self):
@@ -133,7 +176,7 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             if idx >= EVAL_MAX_SAMPLES:
                 break
 
-            passage = " ".join(sample["facts"])
+            passage = sample["passage"]
             input_ids = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
             c_emb = model.model.embed_tokens(input_ids)
             c_emb = c_emb.to(dtype=torch.float32)
@@ -285,11 +328,6 @@ def train():
     patience_counter = 0
     early_stopped = False
 
-    # inter-passage diversity를 위한 rolling buffer
-    # 최근 N개 passage의 K 평균벡터를 저장해서 현재 passage K와 유사도 패널티
-    K_buffer = []
-    K_BUFFER_SIZE = 16
-
     print(f"\n[학습] 시작: {EPOCHS} epoch, train={len(train_dataset)}, val={len(val_dataset)}")
     print(f"[학습] AdamW lr={LR}, CosineAnnealing eta_min={LR_MIN}")
     hypernet.train()
@@ -312,7 +350,7 @@ def train():
 
             try:
                 # 1. passage → base model embedding layer → HyperNetwork → delta_K, delta_V
-                passage = " ".join(sample["facts"])
+                passage = sample["passage"]
                 input_ids = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
                 with torch.no_grad():
                     c_emb = model.model.embed_tokens(input_ids)  # [1, T, d_model]
@@ -333,31 +371,7 @@ def train():
                 if task_loss is None:
                     continue
 
-                K_flat = delta_K.squeeze(0)       # [k, d_model]
-                V_flat = delta_V.squeeze(0)
-                K_norm = F.normalize(K_flat, dim=-1)  # [k, d_model]
-                V_norm = F.normalize(V_flat, dim=-1)
-
-                # intra-passage diversity: 같은 passage 내 k개 벡터끼리 달라야 함
-                intra_sim = K_norm @ K_norm.T     # [k, k]
-                eye_mask = ~torch.eye(K_flat.shape[0], dtype=torch.bool, device=device)
-                intra_diversity_loss = intra_sim[eye_mask].mean()
-
-                # inter-passage diversity: 다른 passage의 K와도 달라야 함 (buffer 비교)
-                K_mean = K_norm.mean(dim=0)       # [d_model] - 이 passage의 대표 K
-                inter_diversity_loss = torch.tensor(0.0, device=device)
-                if len(K_buffer) >= 2:
-                    buf = torch.stack(K_buffer[-K_BUFFER_SIZE:])  # [n, d_model]
-                    inter_diversity_loss = F.cosine_similarity(
-                        K_mean.unsqueeze(0), buf, dim=-1
-                    ).mean()
-
-                # buffer 업데이트
-                K_buffer.append(K_mean.detach())
-                if len(K_buffer) > K_BUFFER_SIZE:
-                    K_buffer.pop(0)
-
-                loss = task_loss + 0.1 * intra_diversity_loss + 0.1 * inter_diversity_loss
+                loss = task_loss
 
                 # 5. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
@@ -398,15 +412,12 @@ def train():
                 })
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
-                k_vec_norm = K_flat.norm(dim=-1).mean().item()
-                v_vec_norm = V_flat.norm(dim=-1).mean().item()
-                intra_k_cos = intra_sim[eye_mask].mean().item()
-                intra_v_cos = (V_norm @ V_norm.T)[eye_mask].mean().item()
+                k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
+                v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
-                    f"Kcos: {intra_k_cos:.3f} | Vcos: {intra_v_cos:.3f} | "
                     f"{elapsed:.1f}min"
                 )
 

@@ -2,10 +2,10 @@ import json
 import os
 
 
-MODEL_NAME = "Qwen/Qwen3.5-4B"
-NUM_KV = 1
-DEFAULT_CRITICAL_LAYER = 0
-ALPHA = 0.01
+MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
+NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "16"))
+DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "7"))
+ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "0.5"))
 MAX_SEQ_LEN = 512
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "
@@ -19,6 +19,14 @@ WEIGHTS_PATH = os.path.join(_BASE_DIR, "hypernet_weights.pt")
 CHECKPOINT_PATH = os.path.join(_BASE_DIR, "hypernet_checkpoint.pt")
 LOG_PATH = os.path.join(_BASE_DIR, "train_log.json")
 CHART_PATH = os.path.join(_BASE_DIR, "train_loss_curve.png")
+TRAIN_DATA_PATH = os.getenv(
+    "MERGEPRAG_TRAIN_DATA_PATH",
+    r"C:\Users\user\Documents\last_project\data\NarrativeQA_train.jsonl",
+)
+VALID_DATA_PATH = os.getenv(
+    "MERGEPRAG_VALID_DATA_PATH",
+    r"C:\Users\user\Documents\last_project\data\NarrativeQA_valid.jsonl",
+)
 
 
 def load_critical_layer() -> int:

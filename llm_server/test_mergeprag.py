@@ -6,7 +6,7 @@ generate 없이 단일 forward pass로 직접 비교
 """
 import torch
 from run_model import run_model
-from mergePRAG.config import NUM_KV, WEIGHTS_PATH, load_critical_layer
+from mergePRAG.config import ALPHA, NUM_KV, WEIGHTS_PATH, load_critical_layer
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
@@ -29,22 +29,36 @@ hypernet.eval()
 with torch.no_grad():
     ids = tokenizer(PASSAGE, return_tensors="pt")["input_ids"].to(device)
     emb = model.model.embed_tokens(ids).to(torch.float32)
+    pooled = hypernet.pooling(emb)
+    h = hypernet.mlp(pooled)
+    K_raw, V_raw = hypernet.lp(h)
     K, V = hypernet(emb)
 
 print(f"passage: {PASSAGE}")
+print(f"pooled h norm: {h.norm():.4f}")
+print(f"K raw norm: {K_raw.norm():.4f}, V raw norm: {V_raw.norm():.4f}")
 print(f"K norm: {K.norm():.4f}, V norm: {V.norm():.4f}")
-print(f"K per-vector norm: {K[0,0].norm():.4f}")  # L2 정규화 됐으면 ~1.0
+print(f"K per-vector norm: {K[0,0].norm():.4f}")
 print(f"V per-vector norm: {V[0,0].norm():.4f}")
 
 # ── 다른 passage K,V와 비교 ──
 with torch.no_grad():
     ids2 = tokenizer("The apple is red.", return_tensors="pt")["input_ids"].to(device)
     emb2 = model.model.embed_tokens(ids2).to(torch.float32)
+    pooled2 = hypernet.pooling(emb2)
+    h2 = hypernet.mlp(pooled2)
+    K2_raw, V2_raw = hypernet.lp(h2)
     K2, V2 = hypernet(emb2)
 
+sim_h = torch.nn.functional.cosine_similarity(h.view(1, -1), h2.view(1, -1)).item()
+print(f"\n두 passage pooled h 유사도: {sim_h:.4f}")
+sim_k_raw = torch.nn.functional.cosine_similarity(K_raw.view(1, -1), K2_raw.view(1, -1)).item()
+print(f"두 passage K raw 유사도: {sim_k_raw:.4f}")
+sim_v_raw = torch.nn.functional.cosine_similarity(V_raw.view(1, -1), V2_raw.view(1, -1)).item()
+print(f"두 passage V raw 유사도: {sim_v_raw:.4f}")
 sim = torch.nn.functional.cosine_similarity(K.view(1,-1), K2.view(1,-1)).item()
 print(f"\n두 passage K 유사도: {sim:.4f}")
-print(f"  (1.0 = 구분 못함 / 0.0~0.5 = 잘 구분)")
+print(f"  (높을수록 두 passage를 비슷하게 본다는 뜻)")
 sim_v = torch.nn.functional.cosine_similarity(V.view(1,-1), V2.view(1,-1)).item()
 print(f"두 passage V 유사도: {sim_v:.4f}")
 
@@ -119,7 +133,7 @@ answer_no = decode_answer(gen_no_hook, inputs["input_ids"].shape[1])
 print(f"\n[Hook 없음] {answer_no}")
 
 # 여러 alpha로 생성 비교
-for alpha in [0.0001, 0.001, 0.005, 0.01, 0.05]:
+for alpha in [0.1, ALPHA, 1.0]:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(

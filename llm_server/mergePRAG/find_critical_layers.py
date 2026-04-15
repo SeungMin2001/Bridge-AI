@@ -1,207 +1,182 @@
 """
 Critical Layer Finder
-- Qwen의 각 레이어에 랜덤 K,V를 주입했을 때
-  answer 토큰의 loss 변화를 측정하여 critical layer를 찾는다.
-- 1회 오프라인 실행 후 결과를 저장.
 
-사용법: python -m llm_server.mergePRAG.find_critical_layers
+- 각 레이어마다 HyperNetwork를 짧게 학습한 뒤 validation loss를 비교한다.
+- 랜덤 K,V를 꽂아보는 방식보다 실제 서비스용 QA-passage 설정에 가깝다.
+
+사용법:
+  python -m llm_server.mergePRAG.find_critical_layers
 """
-import torch
-import torch.nn.functional as F
 import json
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
-from .config import ALPHA, MODEL_NAME, NUM_KV, build_chat_text
-from .cross_attention import cross_attention
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# ── 설정 ──
-K_DIM = NUM_KV
+from .config import (
+    ALPHA,
+    MODEL_NAME,
+    NUM_KV,
+    TRAIN_DATA_PATH,
+    VALID_DATA_PATH,
+)
+from .hypernetwork import HyperNetwork
+from .train import MergePRAGDataset, compute_loss, make_hook, tokenize_qa
+
 OUTPUT_PATH = "llm_server/mergePRAG/critical_layers.json"
-
-# ── 테스트용 QA 샘플 (passage, question, answer) ──
-TEST_SAMPLES = [
-    {
-        "passage": "데드락은 서로 자원을 기다리며 무한 대기하는 상태다. 조건을 하나라도 깨뜨리면 데드락을 예방할 수 있다.",
-        "question": "데드락을 예방하는 방법은?",
-        "answer": "조건을 하나라도 깨뜨리면 데드락을 예방할 수 있다.",
-    },
-    {
-        "passage": "TCP는 신뢰성을 중시하고 UDP는 속도를 중시한다. OSI 7계층은 네트워크 통신 역할을 계층별로 설명하는 모델이다.",
-        "question": "TCP와 UDP의 차이는?",
-        "answer": "TCP는 신뢰성을 중시하고 UDP는 속도를 중시한다.",
-    },
-    {
-        "passage": "GDP는 일정 기간 국내 최종 생산물의 시장가치 합이다. 중간재를 제외해야 GDP 이중계산을 피할 수 있다.",
-        "question": "GDP란 무엇인가?",
-        "answer": "GDP는 일정 기간 국내 최종 생산물의 시장가치 합이다.",
-    },
-    {
-        "passage": "기억은 부호화, 저장, 인출의 과정으로 설명된다. 분산학습은 망각을 줄이는 데 효과적이다.",
-        "question": "기억의 과정은?",
-        "answer": "기억은 부호화, 저장, 인출의 과정으로 설명된다.",
-    },
-]
+SCAN_MAX_TRAIN_SAMPLES = 512
+SCAN_MAX_VAL_SAMPLES = 128
+SCAN_STEPS = 300
+LR = 1e-4
+LR_MIN = 1e-6
 
 
 def load_model():
     print(f"[Critical Layer Finder] 모델 로딩: {MODEL_NAME}")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         device_map="auto",
         trust_remote_code=True,
-        quantization_config=quantization_config,
+        torch_dtype=torch.float16,
     )
     model.eval()
+    for param in model.parameters():
+        param.requires_grad = False
     return model, tokenizer
 
 
-def get_decoder_layers(model):
-    """Qwen 모델의 디코더 레이어 리스트 반환"""
-    return model.model.layers
-
-
-def compute_loss(model, tokenizer, question, answer):
-    """question+answer 입력에서 answer 부분의 cross-entropy loss 계산.
-    logits[t]는 t+1을 예측 → logits[prompt_len-1]이 첫 answer 토큰을 예측."""
-    prompt = build_chat_text(tokenizer, question)
-    full_text = build_chat_text(tokenizer, question, answer=answer)
-
-    prompt_ids = tokenizer(prompt, return_tensors="pt")["input_ids"]
-    full_ids = tokenizer(full_text, return_tensors="pt")["input_ids"]
-
-    prompt_len = prompt_ids.shape[1]
-    device = next(model.parameters()).device
-    full_ids = full_ids.to(device)
+def evaluate_layer(model, tokenizer, hypernet, layer_idx, dataset, device):
+    target_layer = model.model.layers[layer_idx]
+    hypernet.eval()
+    total_loss = 0.0
+    count = 0
 
     with torch.no_grad():
-        outputs = model(full_ids)
-        logits = outputs.logits  # [1, seq_len, vocab_size]
+        for idx, sample in enumerate(dataset):
+            if idx >= SCAN_MAX_VAL_SAMPLES:
+                break
 
-    # LM shift: logits[t] → labels[t+1]
-    # answer 예측: logits[prompt_len-1 : -1] → labels[prompt_len : ]
-    shift_logits = logits[:, prompt_len - 1:-1, :]
-    shift_labels = full_ids[:, prompt_len:]
+            tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
+            passage_ids = tokenizer(
+                sample["passage"],
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+            )["input_ids"].to(device)
+            c_emb = model.model.embed_tokens(passage_ids).to(dtype=torch.float32)
+            delta_K, delta_V = hypernet(c_emb)
 
-    if shift_labels.numel() == 0:
-        return 0.0
+            hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
+            logits = model(input_ids=tok["input_ids"])["logits"]
+            hook.remove()
 
-    loss = F.cross_entropy(
-        shift_logits.reshape(-1, shift_logits.size(-1)),
-        shift_labels.reshape(-1),
+            loss = compute_loss(logits, tok["labels"])
+            if loss is not None:
+                total_loss += loss.item()
+                count += 1
+
+    hypernet.train()
+    if count == 0:
+        return float("inf")
+    return total_loss / count
+
+
+def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device):
+    target_layer = model.model.layers[layer_idx]
+    hypernet = HyperNetwork(model.config.hidden_size, k=NUM_KV).to(device).float()
+    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=min(len(train_dataset), SCAN_STEPS),
+        eta_min=LR_MIN,
     )
-    return loss.item()
 
+    step = 0
+    for sample in train_dataset:
+        if step >= SCAN_STEPS:
+            break
 
-def compute_loss_with_hook(model, tokenizer, question, answer, layer_idx, K, V):
-    """특정 레이어에 K,V hook을 걸고 loss 계산"""
-    layers = get_decoder_layers(model)
-    target_layer = layers[layer_idx]
+        passage_ids = tokenizer(
+            sample["passage"],
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+        )["input_ids"].to(device)
+        with torch.no_grad():
+            c_emb = model.model.embed_tokens(passage_ids).to(dtype=torch.float32)
 
-    def hook_fn(module, input, output):
-        # output이 tuple인 경우 첫 번째가 hidden_states
-        if isinstance(output, tuple):
-            hidden = output[0]
-            K_ = K.to(device=hidden.device, dtype=hidden.dtype)
-            V_ = V.to(device=hidden.device, dtype=hidden.dtype)
-            modified = hidden + ALPHA * cross_attention(hidden, K_, V_)
-            return (modified,) + output[1:]
-        else:
-            K_ = K.to(device=output.device, dtype=output.dtype)
-            V_ = V.to(device=output.device, dtype=output.dtype)
-            return output + ALPHA * cross_attention(output, K_, V_)
+        delta_K, delta_V = hypernet(c_emb)
+        tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
 
-    handle = target_layer.register_forward_hook(hook_fn)
-    try:
-        loss = compute_loss(model, tokenizer, question, answer)
-    finally:
-        handle.remove()
+        hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
+        logits = model(input_ids=tok["input_ids"])["logits"]
+        hook.remove()
 
-    return loss
+        loss = compute_loss(logits, tok["labels"])
+        if loss is None:
+            continue
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        step += 1
+
+    val_loss = evaluate_layer(model, tokenizer, hypernet, layer_idx, val_dataset, device)
+    del hypernet, optimizer, scheduler
+    torch.cuda.empty_cache()
+    return val_loss
 
 
 def find_critical_layers(model, tokenizer, top_n=5):
-    """모든 레이어를 테스트하여 critical layer를 찾는다."""
-    layers = get_decoder_layers(model)
-    num_layers = len(layers)
-    d_model = model.config.hidden_size
     device = next(model.parameters()).device
+    train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=SCAN_MAX_TRAIN_SAMPLES)
+    val_dataset = MergePRAGDataset(VALID_DATA_PATH, max_samples=SCAN_MAX_VAL_SAMPLES)
 
-    print(f"[Critical Layer Finder] 총 {num_layers}개 레이어 분석 시작")
-    print(f"[Critical Layer Finder] d_model={d_model}, k={K_DIM}")
+    if len(train_dataset) == 0 or len(val_dataset) == 0:
+        raise RuntimeError("Critical layer scan requires non-empty train/valid datasets.")
 
-    # 랜덤 K, V 생성 (모든 레이어에 동일하게 사용)
-    torch.manual_seed(42)
-    K = torch.randn(1, K_DIM, d_model, device=device)
-    V = torch.randn(1, K_DIM, d_model, device=device)
-
-    # 1. baseline loss (hook 없이)
-    print("\n[1/2] Baseline loss 계산 중...")
-    baseline_losses = []
-    for sample in TEST_SAMPLES:
-        loss = compute_loss(model, tokenizer, sample["question"], sample["answer"])
-        baseline_losses.append(loss)
-        print(f"  Q: {sample['question'][:30]}... → baseline loss: {loss:.4f}")
-    avg_baseline = sum(baseline_losses) / len(baseline_losses)
-    print(f"  평균 baseline loss: {avg_baseline:.4f}\n")
-
-    # 2. 각 레이어별 loss 계산
-    print("[2/2] 레이어별 loss 측정 중...")
+    num_layers = len(model.model.layers)
     layer_results = []
+    print(f"[Critical Layer Finder] 총 {num_layers}개 레이어 스캔 시작")
+    print(f"[Critical Layer Finder] train={len(train_dataset)}, valid={len(val_dataset)}, k={NUM_KV}, alpha={ALPHA}")
 
     for layer_idx in range(num_layers):
-        layer_losses = []
-        for sample in TEST_SAMPLES:
-            loss = compute_loss_with_hook(
-                model, tokenizer,
-                sample["question"], sample["answer"],
-                layer_idx, K, V,
-            )
-            layer_losses.append(loss)
-
-        avg_loss = sum(layer_losses) / len(layer_losses)
-        delta = avg_baseline - avg_loss  # 양수면 loss가 줄어든 것 (좋음)
+        print(f"[Layer {layer_idx}] 짧은 학습 후 val loss 측정 중...")
+        val_loss = train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
         layer_results.append({
             "layer": layer_idx,
-            "avg_loss": round(avg_loss, 4),
-            "delta": round(delta, 4),
+            "avg_loss": round(val_loss, 4),
         })
-        marker = " ★" if abs(delta) > 0.05 else ""
-        print(f"  Layer {layer_idx:2d}: loss={avg_loss:.4f}, delta={delta:+.4f}{marker}")
+        print(f"  -> val_loss={val_loss:.4f}")
 
-    # 3. delta 크기 순으로 정렬 (loss가 가장 많이 줄어든 순)
-    layer_results.sort(key=lambda x: x["delta"], reverse=True)
+    layer_results.sort(key=lambda x: x["avg_loss"])
     critical = [r["layer"] for r in layer_results[:top_n]]
 
-    print(f"\n{'='*50}")
-    print(f"Critical Layers (top-{top_n}): {critical}")
-    print(f"{'='*50}")
-
-    # 4. 결과 저장
     result = {
         "model": MODEL_NAME,
         "num_layers": num_layers,
-        "d_model": d_model,
-        "k": K_DIM,
+        "d_model": model.config.hidden_size,
+        "k": NUM_KV,
         "alpha": ALPHA,
-        "baseline_loss": round(avg_baseline, 4),
         "critical_layers": critical,
         "all_layers": layer_results,
+        "scan_steps": SCAN_STEPS,
+        "scan_train_samples": SCAN_MAX_TRAIN_SAMPLES,
+        "scan_val_samples": SCAN_MAX_VAL_SAMPLES,
     }
 
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
-    print(f"\n결과 저장: {OUTPUT_PATH}")
 
+    print(f"[Critical Layer Finder] top-{top_n}: {critical}")
+    print(f"[Critical Layer Finder] 결과 저장: {OUTPUT_PATH}")
     return critical
 
 
 if __name__ == "__main__":
     model, tokenizer = load_model()
-    critical = find_critical_layers(model, tokenizer, top_n=5)
-    print(f"\n최종 critical layers: {critical}")
-    print("이 레이어 번호를 학습 및 서비스에서 사용하세요.")
+    find_critical_layers(model, tokenizer, top_n=5)
