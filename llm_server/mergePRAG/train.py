@@ -380,6 +380,8 @@ def train():
                 scheduler.step()
 
                 loss_val = task_loss.item()  # task loss만 로그
+                k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
+                v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
                 total_loss += loss_val
                 count += 1
                 global_step += 1
@@ -412,8 +414,6 @@ def train():
                 })
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
-                k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
-                v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
