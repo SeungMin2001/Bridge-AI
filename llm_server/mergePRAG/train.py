@@ -47,7 +47,7 @@ MAX_VAL_SAMPLES = None       # 전체 검증
 EVAL_EVERY = 1000           # N step마다 validation
 EVAL_MAX_SAMPLES = 500      # validation 시 최대 샘플 수 (전체 순회 방지)
 LOG_EVERY = 50              # N step마다 터미널 출력 (논문: 49)
-SAVE_EVERY = 100            # 빠른 중간 검증용 체크포인트 저장 주기
+SAVE_EVERY = 500            # 중간 체크포인트 저장 주기
 PATIENCE = 5                # early stopping patience
 
 
