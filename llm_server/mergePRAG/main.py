@@ -8,7 +8,7 @@ import torch
 import io
 import os
 from .cross_attention import cross_attention
-from .config import ALPHA, NUM_KV, WEIGHTS_PATH, load_critical_layer
+from .config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
 from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
 
@@ -45,15 +45,10 @@ class CourseMemoryManager:
 
         # HyperNetwork 로드
         self.hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
-        if not os.path.exists(WEIGHTS_PATH):
-            raise FileNotFoundError(
-                f"HyperNetwork weights not found: {WEIGHTS_PATH}"
-            )
-        self.hypernet.load_state_dict(
-            torch.load(WEIGHTS_PATH, map_location=device)
-        )
+        state_dict, loaded_from = load_hypernet_state_dict(map_location=device)
+        self.hypernet.load_state_dict(state_dict)
         self.hypernet.eval()
-        print(f"[MergePRAG] HyperNetwork 로드 완료 (d_model={d_model}, k={NUM_KV})")
+        print(f"[MergePRAG] HyperNetwork 로드 완료 (d_model={d_model}, k={NUM_KV}, source={loaded_from})")
 
         # 과목별 메모리 캐시: {course_id: {"K": Tensor, "V": Tensor, "count": int}}
         self.memories = {}

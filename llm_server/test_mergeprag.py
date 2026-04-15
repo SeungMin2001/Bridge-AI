@@ -6,7 +6,7 @@ generate 없이 단일 forward pass로 직접 비교
 """
 import torch
 from run_model import run_model
-from mergePRAG.config import ALPHA, NUM_KV, WEIGHTS_PATH, load_critical_layer
+from mergePRAG.config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
@@ -23,8 +23,10 @@ device = next(model.parameters()).device
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
 hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
-hypernet.load_state_dict(torch.load(WEIGHTS_PATH, map_location=device))
+state_dict, loaded_from = load_hypernet_state_dict(map_location=device)
+hypernet.load_state_dict(state_dict)
 hypernet.eval()
+print(f"HyperNetwork weights source: {loaded_from}")
 
 with torch.no_grad():
     ids = tokenizer(PASSAGE, return_tensors="pt")["input_ids"].to(device)
