@@ -5,8 +5,17 @@ generate 없이 단일 forward pass로 직접 비교
 사용법: cd llm_server && python test_mergeprag.py
 """
 import torch
+import os
+from datetime import datetime
 from run_model import run_model
-from mergePRAG.config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
+from mergePRAG.config import (
+    ALPHA,
+    CHECKPOINT_PATH,
+    NUM_KV,
+    WEIGHTS_PATH,
+    load_critical_layer,
+    load_hypernet_state_dict,
+)
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
@@ -14,6 +23,12 @@ QUESTION = "What color is the apple?"
 CRITICAL_LAYER = load_critical_layer()
 PASSAGE = "The apple is blue."
 ENGLISH_SYSTEM_PROMPT = "Answer in English with one short sentence."
+
+
+def format_mtime(path):
+    if not os.path.exists(path):
+        return "missing"
+    return datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S")
 
 # ── 모델 로드 ──
 print("모델 로딩...")
@@ -28,6 +43,8 @@ hypernet.load_state_dict(state_dict)
 hypernet.eval()
 step_text = f", checkpoint step={load_info['step']}" if load_info["step"] is not None else ""
 print(f"HyperNetwork weights source: {load_info['source']} ({load_info['kind']}{step_text})")
+print(f"weights path: {WEIGHTS_PATH} (modified_at={format_mtime(WEIGHTS_PATH)})")
+print(f"checkpoint path: {CHECKPOINT_PATH} (modified_at={format_mtime(CHECKPOINT_PATH)})")
 
 with torch.no_grad():
     ids = tokenizer(PASSAGE, return_tensors="pt")["input_ids"].to(device)

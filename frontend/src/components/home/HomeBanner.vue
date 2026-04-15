@@ -37,22 +37,16 @@ const onSendMessage = (params) => {
   emit('sendMessage', params)
   scrollToBottom()
   
-  // Start thinking — 프로필 아이콘 회전만 표시
+  // Simulate AI generating
   isGenerating.value = true
   
-  // Mock AI Response — 로딩 시간 동안 thinking 애니메이션만 유지
-  const thinkingDuration = 2000 // 2초간 thinking 유지
-
+  // Mock AI Response
   setTimeout(() => {
     const isMathQuery = params.input.includes('수학')
+    const aiMessage = { role: 'assistant', content: '', references: [] }
+    messages.value.push(aiMessage)
     
-    const fullResponse = isMathQuery 
-      ? "수학에 관한 자료를 바탕으로 종합된 설명을 요약해 보았습니다. 더 자세한 원본 스크립트는 아래 근거 링크를 클릭하여 확인해 보세요:"
-      : "안녕하세요! 파일 요약이나 새로운 문서 작업 등 어떤 것을 도와드릴까요?"
-
-    // 로딩이 끝난 후 AI 메시지를 한 번에 추가
-    const aiMessage = { role: 'assistant', content: fullResponse, references: [], isRevealing: true }
-
+    // add references for math
     if (isMathQuery) {
       aiMessage.summary = "수학은 논리와 기호학을 기반으로 수, 양, 구조, 공간, 변화 등의 개념을 다루는 학문입니다. 각 강의에서는 수학적 사고의 뼈대가 되는 공리부터 실생활에 적용되는 응용 수학까지 폭넓게 다룹니다."
       aiMessage.references = [
@@ -62,16 +56,23 @@ const onSendMessage = (params) => {
       ]
     }
 
-    // 생성 완료 → thinking 해제, 메시지 추가
-    isGenerating.value = false
-    messages.value.push(aiMessage)
-    scrollToBottom()
-
-    // reveal 애니메이션 완료 후 플래그 제거
-    setTimeout(() => {
-      aiMessage.isRevealing = false
-    }, 600)
-  }, thinkingDuration)
+    const fullResponse = isMathQuery 
+      ? "수학에 관한 자료를 바탕으로 종합된 설명을 요약해 보았습니다. 더 자세한 원본 스크립트는 아래 근거 링크를 클릭하여 확인해 보세요:"
+      : "안녕하세요! 파일 요약이나 새로운 문서 작업 등 어떤 것을 도와드릴까요?"
+    
+    let charIndex = 0
+    
+    const interval = setInterval(() => {
+      if (charIndex < fullResponse.length) {
+        aiMessage.content += fullResponse[charIndex]
+        charIndex++
+        scrollToBottom()
+      } else {
+        clearInterval(interval)
+        isGenerating.value = false
+      }
+    }, 30) // slightly faster typing
+  }, 800) // 800ms "thinking" delay
 }
 
 const onStopGenerating = () => {
@@ -110,18 +111,17 @@ const onStopGenerating = () => {
               'max-w-[85%] rounded-2xl px-5 py-3.5 text-[15px] leading-relaxed break-words shadow-sm',
               msg.role === 'user' 
                 ? 'bg-[#1d1d1f] text-white rounded-tr-none' 
-                : 'bg-white/80 backdrop-blur-xl text-[#1d1d1f] border border-black/5 rounded-tl-none shadow-[0_4px_20px_rgba(0,0,0,0.03)]',
-              msg.role === 'assistant' && msg.isRevealing ? 'reveal-message' : ''
+                : 'bg-white/80 backdrop-blur-xl text-[#1d1d1f] border border-black/5 rounded-tl-none shadow-[0_4px_20px_rgba(0,0,0,0.03)]'
             ]">
               <div v-if="msg.attachments?.length" class="flex gap-2 mb-3">
                 <div v-for="att in msg.attachments" :key="att.url" class="w-14 h-14 rounded-lg overflow-hidden border border-black/10">
                   <img :src="att.url" class="w-full h-full object-cover" />
                 </div>
               </div>
-              <div :class="['whitespace-pre-wrap', msg.isRevealing ? 'reveal-content' : '']">{{ msg.content }}</div>
+              <div class="whitespace-pre-wrap">{{ msg.content }}</div>
               
               <!-- Summary Block -->
-              <div v-if="msg.summary" :class="['mt-4 p-4 bg-indigo-50/40 rounded-xl border border-indigo-100/50', msg.isRevealing ? 'reveal-content reveal-delay-1' : '']">
+              <div v-if="msg.summary" class="mt-4 p-4 bg-indigo-50/40 rounded-xl border border-indigo-100/50">
                 <div class="flex items-center gap-2 mb-2 text-indigo-800 font-semibold text-[13px] uppercase tracking-wider">
                   <span class="material-symbols-outlined text-[16px]">summarize</span>
                   종합된 설명
@@ -130,7 +130,7 @@ const onStopGenerating = () => {
               </div>
 
               <!-- Reference Links -->
-              <div v-if="msg.references && msg.references.length > 0" :class="['flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/10', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
+              <div v-if="msg.references && msg.references.length > 0" class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/10">
                 <button 
                   v-for="ref in msg.references" 
                   :key="ref.id" 
@@ -294,46 +294,5 @@ const onStopGenerating = () => {
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.15);
   border-radius: 10px;
-}
-
-/* ── AI 메시지 등장 애니메이션 ── */
-@keyframes revealMessage {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes revealContent {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.reveal-message {
-  animation: revealMessage 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-
-.reveal-content {
-  animation: revealContent 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-
-.reveal-delay-1 {
-  opacity: 0;
-  animation-delay: 0.15s;
-}
-
-.reveal-delay-2 {
-  opacity: 0;
-  animation-delay: 0.3s;
 }
 </style>
