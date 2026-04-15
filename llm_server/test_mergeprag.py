@@ -34,6 +34,7 @@ def format_mtime(path):
 print("모델 로딩...")
 model, tokenizer = run_model()
 device = next(model.parameters()).device
+print(f"critical layer: {CRITICAL_LAYER}")
 
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
