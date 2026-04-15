@@ -23,10 +23,11 @@ device = next(model.parameters()).device
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
 hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
-state_dict, loaded_from = load_hypernet_state_dict(map_location=device)
+state_dict, load_info = load_hypernet_state_dict(map_location=device)
 hypernet.load_state_dict(state_dict)
 hypernet.eval()
-print(f"HyperNetwork weights source: {loaded_from}")
+step_text = f", checkpoint step={load_info['step']}" if load_info["step"] is not None else ""
+print(f"HyperNetwork weights source: {load_info['source']} ({load_info['kind']}{step_text})")
 
 with torch.no_grad():
     ids = tokenizer(PASSAGE, return_tensors="pt")["input_ids"].to(device)

@@ -62,15 +62,23 @@ def build_chat_text(tokenizer, question: str, answer: str = "", enable_thinking:
 
 
 def load_hypernet_state_dict(map_location=None):
-    """최종 weight 우선, 없으면 중간 checkpoint의 hypernet state_dict를 반환."""
+    """최종 weight 우선, 없으면 중간 checkpoint의 hypernet state_dict와 메타정보를 반환."""
     if os.path.exists(WEIGHTS_PATH):
         state = torch_load(WEIGHTS_PATH, map_location=map_location)
-        return state, WEIGHTS_PATH
+        return state, {
+            "source": WEIGHTS_PATH,
+            "kind": "weights",
+            "step": None,
+        }
 
     if os.path.exists(CHECKPOINT_PATH):
         ckpt = torch_load(CHECKPOINT_PATH, map_location=map_location)
         if isinstance(ckpt, dict) and "hypernet" in ckpt:
-            return ckpt["hypernet"], CHECKPOINT_PATH
+            return ckpt["hypernet"], {
+                "source": CHECKPOINT_PATH,
+                "kind": "checkpoint",
+                "step": ckpt.get("step"),
+            }
         raise ValueError(f"Checkpoint format invalid: {CHECKPOINT_PATH}")
 
     raise FileNotFoundError(

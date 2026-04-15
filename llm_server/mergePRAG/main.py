@@ -45,10 +45,14 @@ class CourseMemoryManager:
 
         # HyperNetwork 로드
         self.hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
-        state_dict, loaded_from = load_hypernet_state_dict(map_location=device)
+        state_dict, load_info = load_hypernet_state_dict(map_location=device)
         self.hypernet.load_state_dict(state_dict)
         self.hypernet.eval()
-        print(f"[MergePRAG] HyperNetwork 로드 완료 (d_model={d_model}, k={NUM_KV}, source={loaded_from})")
+        source = load_info["source"]
+        step = load_info["step"]
+        kind = load_info["kind"]
+        step_text = f", step={step}" if step is not None else ""
+        print(f"[MergePRAG] HyperNetwork 로드 완료 (d_model={d_model}, k={NUM_KV}, source={source}, kind={kind}{step_text})")
 
         # 과목별 메모리 캐시: {course_id: {"K": Tensor, "V": Tensor, "count": int}}
         self.memories = {}
