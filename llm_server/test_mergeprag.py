@@ -19,9 +19,9 @@ from mergePRAG.config import (
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
-QUESTION = "What color is the apple?"
+QUESTION = "is seungmin's gender girl?"
 CRITICAL_LAYER = load_critical_layer()
-PASSAGE = "The apple is blue."
+PASSAGE = "seungmin is man."
 ENGLISH_SYSTEM_PROMPT = "Answer in English with one short sentence."
 
 
