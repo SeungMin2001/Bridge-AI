@@ -327,14 +327,11 @@ onBeforeUnmount(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 28px;
-  border-radius: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.88);
-  background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.94), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.86));
-  box-shadow: 0 20px 36px rgba(148, 163, 184, 0.1);
+  gap: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .lecture-preview-surface-header {
@@ -342,7 +339,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 10px;
+  padding: 0 0 8px;
 }
 
 .lecture-preview-type {
@@ -369,8 +366,8 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(226, 232, 240, 0.92);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.82);
   color: #64748b;
   font-size: 12px;
   font-weight: 700;
@@ -385,7 +382,7 @@ onBeforeUnmount(() => {
 .pdf-preview-scroll {
   height: 100%;
   overflow-y: auto;
-  padding: 4px;
+  padding: 0 0 40px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -398,8 +395,8 @@ onBeforeUnmount(() => {
 .pdf-preview-placeholder {
   position: absolute;
   inset: 0;
-  border-radius: 22px;
-  border: 1px dashed rgba(148, 163, 184, 0.32);
+  border-radius: 28px 28px 0 0;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
   background: rgba(248, 250, 252, 0.8);
   display: flex;
   align-items: center;
@@ -411,17 +408,17 @@ onBeforeUnmount(() => {
 
 .lecture-preview-fallback {
   min-height: 100%;
-  border-radius: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.88);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.82));
+  border-radius: 0;
+  border: none;
+  background: transparent;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
   gap: 10px;
-  padding: 24px;
+  padding: 0 0 32px;
   text-align: center;
-  box-shadow: 0 20px 36px rgba(148, 163, 184, 0.1);
+  box-shadow: none;
 }
 
 .ppt-placeholder-copy {
@@ -441,15 +438,15 @@ onBeforeUnmount(() => {
 }
 
 :deep(.pdf-page-shell) {
-  padding: 16px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.98);
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  box-shadow: 0 14px 30px rgba(148, 163, 184, 0.08);
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 :deep(.pdf-page-meta) {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  padding-left: 6px;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -461,8 +458,12 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 18px;
+  border-radius: 30px;
   background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.7);
+  box-shadow:
+    0 20px 42px rgba(148, 163, 184, 0.12),
+    0 8px 22px rgba(255, 255, 255, 0.65);
 }
 
 :deep(.pdf-page-stage) {

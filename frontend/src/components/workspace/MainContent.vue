@@ -164,7 +164,7 @@ const handleDeleteStoredMaterial = (fileId) => {
           :key="'tab-note'"
           :class="[
             'tab-content flex-1 flex flex-col relative overflow-hidden note-canvas',
-            currentPreviewMaterial ? 'p-6 pt-4' : 'p-10 pt-4',
+            currentPreviewMaterial ? 'px-8 pt-6 pb-0' : 'p-10 pt-4',
             tabAnim
           ]"
           @dragover.prevent="isNoteDragOver = true"
