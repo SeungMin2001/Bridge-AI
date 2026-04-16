@@ -19,9 +19,10 @@ from mergePRAG.config import (
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
-QUESTION = "is seungmin's gender girl?"
+QUESTION = "What is a process?"
 CRITICAL_LAYER = load_critical_layer()
-PASSAGE = "seungmin is man."
+PASSAGE = "A process is a program in execution."
+COMPARE_PASSAGE = "A process is a storage device."
 ENGLISH_SYSTEM_PROMPT = "Answer in English with one short sentence."
 
 
@@ -56,6 +57,7 @@ with torch.no_grad():
     K, V = hypernet(emb)
 
 print(f"passage: {PASSAGE}")
+print(f"compare passage: {COMPARE_PASSAGE}")
 print(f"pooled h norm: {h.norm():.4f}")
 print(f"K raw norm: {K_raw.norm():.4f}, V raw norm: {V_raw.norm():.4f}")
 print(f"K norm: {K.norm():.4f}, V norm: {V.norm():.4f}")
@@ -64,7 +66,7 @@ print(f"V per-vector norm: {V[0,0].norm():.4f}")
 
 # ── 다른 passage K,V와 비교 ──
 with torch.no_grad():
-    ids2 = tokenizer("The apple is red.", return_tensors="pt")["input_ids"].to(device)
+    ids2 = tokenizer(COMPARE_PASSAGE, return_tensors="pt")["input_ids"].to(device)
     emb2 = model.model.embed_tokens(ids2).to(torch.float32)
     pooled2 = hypernet.pooling(emb2)
     h2 = hypernet.mlp(pooled2)
