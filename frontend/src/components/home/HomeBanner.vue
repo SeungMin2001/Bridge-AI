@@ -10,6 +10,10 @@ const isGenerating = ref(false)
 const chatScrollRef = ref(null)
 const abortController = ref(null)
 
+// true: 백엔드 없이 홈 AI 채팅에서 데모 응답을 표시합니다.
+// false: 실제 /chat/stream 엔드포인트를 호출합니다.
+const USE_DEMO_DATA = false
+
 const scrollToBottom = () => {
   nextTick(() => {
     if (chatScrollRef.value) {
@@ -42,6 +46,26 @@ const mapCitationsToReferences = (citations = []) => {
   }))
 }
 
+const demoResponse = {
+  content: 'CPU(중앙 처리 장치)는 컴퓨터의 두뇌 역할을 하며, 프로그램의 명령어를 해석하고 실행하는 핵심 하드웨어입니다. CPU 내부에는 초고속 임시 저장 공간인 레지스터가 있어 연산 과정에 필요한 데이터를 매우 빠르게 처리할 수 있습니다.',
+  citations: [
+    {
+      transcript_id: 'dd110001-0000-0000-1004',
+      text: 'CPU 는 명령을 읽고 실행하며 레지스터는 초고속 임시 저장 공간이다.',
+      citation: '1 주차 - 데이터 표현과 메모리 > 6:00~8:00',
+      session_title: '1주차 - 데이터 표현과 메모리',
+      full_transcript: '오늘 수업 시작하겠습니다! 여러분 컴퓨터의 구조에 대해 많이 들어보셨죠?\n그 중에서 가장 핵심이 되는 부품이 뭘까요? 네 맞습니다. CPU입니다.\n\nCPU 는 명령을 읽고 실행하며 레지스터는 초고속 임시 저장 공간이다. 이 점을 꼭 기억하셔야 합니다.\n이러한 구조 덕분에 우리가 원하는 프로그램이 순식간에 처리될 수 있는 것이죠.'
+    },
+    {
+      transcript_id: 'dd110002-0000-0001-2005',
+      text: '운영체제는 하드웨어와 사용자 사이를 중개한다.',
+      citation: '컴퓨터공학개론 > 2 주차 - 프로세스와 스레드 > 0:00~2:00',
+      session_title: '2주차 - 프로세스와 스레드',
+      full_transcript: '자, 지난 시간에는 하드웨어에 대해 배웠죠.\n오늘은 소프트웨어를 배워봅시다. 특히 운영체제에 집중할 건데요.\n운영체제는 하드웨어와 사용자 사이를 중개한다. 이게 가장 중요한 역할입니다.\n마우스 클릭만으로 복잡한 연산이 처리되는게 다 운영체제 덕분이죠.'
+    }
+  ]
+}
+
 const onSendMessage = async (params) => {
   messages.value.push({ role: 'user', content: params.input, attachments: params.attachments })
   emit('sendMessage', params)
@@ -62,6 +86,19 @@ const onSendMessage = async (params) => {
   abortController.value = new AbortController()
 
   try {
+    if (USE_DEMO_DATA) {
+      await new Promise((resolve) => setTimeout(resolve, 700))
+
+      const current = messages.value[messages.value.length - 1]
+      messages.value[messages.value.length - 1] = {
+        ...current,
+        content: demoResponse.content,
+        references: mapCitationsToReferences(demoResponse.citations),
+        phase: 'done',
+      }
+      return
+    }
+
     const res = await fetch('/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
