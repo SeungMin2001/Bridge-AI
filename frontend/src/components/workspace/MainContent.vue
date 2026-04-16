@@ -7,6 +7,7 @@ import WorkspaceHeader from './MainContent/WorkspaceHeader.vue'
 import WorkspaceFloatingTabs from './MainContent/WorkspaceFloatingTabs.vue'
 import LectureMaterialList from './MainContent/LectureMaterialList.vue'
 import LecturePreviewPanel from './MainContent/LecturePreviewPanel.vue'
+import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
 
 const { selectedWordData, clearSelectedWord } = useChat()
 
@@ -16,6 +17,7 @@ const props = defineProps({
   recordingTimeText: String,
   activeFileName: String,
   activeFileId: String,
+  transcriptions: { type: Array, default: () => [] },
   materialAttachments: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   summaryNotes: { type: Array, default: () => [] }
@@ -232,9 +234,13 @@ const handleDeleteStoredMaterial = (fileId) => {
         </section>
 
         <section v-else-if="activeTab === 'summary'" :key="'tab-summary'" :class="['tab-content flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar pt-4', tabAnim]">
-          <div class="max-w-4xl mx-auto w-full">
+          <div class="max-w-5xl mx-auto w-full h-full flex flex-col min-h-0">
             <div class="flex items-center justify-between border-b border-[#e5e5ea] mb-5 pb-0">
               <nav class="flex gap-8">
+                <div class="relative cursor-pointer summary-subtab-btn group" @click="activeSummaryTab = 'transcript'">
+                  <button :class="['text-[15px] py-3 pointer-events-none transition-colors', activeSummaryTab === 'transcript' ? 'text-[#1d1d1f] font-bold' : 'text-[#8e8e93] font-medium group-hover:text-[#1d1d1f]']">실시간 전사&nbsp;&nbsp;</button>
+                  <div :class="['summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] transition-colors', activeSummaryTab === 'transcript' ? 'bg-[#1d1d1f]' : 'bg-transparent group-hover:bg-[#1d1d1f]']"></div>
+                </div>
                 <div class="relative cursor-pointer summary-subtab-btn group" @click="activeSummaryTab = 'ai-summary'">
                   <button :class="['text-[15px] py-3 pointer-events-none transition-colors', activeSummaryTab === 'ai-summary' ? 'text-[#1d1d1f] font-bold' : 'text-[#8e8e93] font-medium group-hover:text-[#1d1d1f]']">AI 요약&nbsp;&nbsp;</button>
                   <div :class="['summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] transition-colors', activeSummaryTab === 'ai-summary' ? 'bg-[#1d1d1f]' : 'bg-transparent group-hover:bg-[#1d1d1f]']"></div>
@@ -244,6 +250,14 @@ const handleDeleteStoredMaterial = (fileId) => {
                   <div :class="['summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] transition-colors', activeSummaryTab === 'history' ? 'bg-[#1d1d1f]' : 'bg-transparent group-hover:bg-[#1d1d1f]']"></div>
                 </div>
               </nav>
+            </div>
+            <div v-show="activeSummaryTab === 'transcript'" class="summary-subcontent summary-transcript-wrap flex-1 min-h-0">
+              <VoiceTransferSideTab
+                :transcriptions="transcriptions"
+                variant="content"
+                @askAi="emit('askAi', $event)"
+                @addToNote="(text, source) => emit('addToNote', text, source)"
+              />
             </div>
             <div v-show="activeSummaryTab === 'ai-summary'" class="summary-subcontent space-y-10"></div>
             <div v-show="activeSummaryTab === 'history'" class="summary-subcontent space-y-10"></div>
@@ -290,6 +304,10 @@ const handleDeleteStoredMaterial = (fileId) => {
 .preview-panel-wrap {
   flex: 1;
   min-height: 0;
+}
+
+.summary-transcript-wrap {
+  padding-bottom: 120px;
 }
 
 .word-card-enter-active {

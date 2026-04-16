@@ -6,7 +6,8 @@ import { useChat } from '../../composables/useChat'
 const { selectWord } = useChat()
 
 const props = defineProps({
-  transcriptions: { type: Array, default: () => [] }
+  transcriptions: { type: Array, default: () => [] },
+  variant: { type: String, default: 'sidebar' }
 })
 
 const emit = defineEmits(['addToNote', 'askAi'])
@@ -42,7 +43,7 @@ const handleWordClick = (e, word) => {
 </script>
 
 <template>
-  <div class="flex flex-col flex-1 overflow-hidden">
+  <div class="flex flex-col flex-1 overflow-hidden" :class="{ 'transcript-panel-content': variant === 'content' }">
     <!-- 검색 창 -->
     <div class="sidebar-search-bg workspace-inset-shell transcript-search-shell rounded-[24px] px-3 py-2.5 flex items-center gap-3 mb-6">
       <span class="material-symbols-outlined text-[#8e8e93] text-[20px]">search</span>
@@ -79,7 +80,7 @@ const handleWordClick = (e, word) => {
             </div>
             <span class="text-[11px] font-bold text-[#1d1d1f]">나</span>
           </div>
-          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
+          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[13px] leading-[1.6]" :class="{ 'is-content': variant === 'content' }">
             <template v-if="t.segments && t.segments.length">
               <span
                 v-for="(seg, sIdx) in t.segments"
@@ -169,6 +170,10 @@ const handleWordClick = (e, word) => {
   border: 1px solid rgba(255, 255, 255, 0.82);
   box-shadow: none;
   overflow: hidden;
+}
+
+.transcript-panel-content .voice-message-bubble.is-content {
+  max-width: min(100%, 860px);
 }
 
 .transcript-search-shell {

@@ -113,6 +113,7 @@ const highlightedTranscript = computed(() => {
       :recordingTimeText="recordingTimeText"
       :activeFileName="activeFileName"
       :activeFileId="activeFileId"
+      :transcriptions="transcriptions"
       :materialAttachments="currentAttachments"
       :currentPreviewMaterial="currentPreviewMaterial"
       :summaryNotes="summaryNotes"
