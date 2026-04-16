@@ -23,9 +23,9 @@ from .hypernetwork import HyperNetwork
 from .train import MergePRAGDataset, compute_loss, make_hook, tokenize_qa
 
 OUTPUT_PATH = "llm_server/mergePRAG/critical_layers.json"
-SCAN_MAX_TRAIN_SAMPLES = 128
-SCAN_MAX_VAL_SAMPLES = 32
-SCAN_STEPS = 80
+SCAN_MAX_TRAIN_SAMPLES = 96
+SCAN_MAX_VAL_SAMPLES = 24
+SCAN_STEPS = 60
 LR = 1e-4
 LR_MIN = 1e-6
 
