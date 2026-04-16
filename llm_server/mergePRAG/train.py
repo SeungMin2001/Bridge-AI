@@ -15,6 +15,7 @@ import torch.nn.functional as F
 import json
 import os
 import time
+from pathlib import Path
 from datetime import datetime
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
@@ -31,7 +32,6 @@ from .config import (
     TRAIN_DATA_PATH,
     VALID_DATA_PATH,
     WEIGHTS_PATH as SAVE_PATH,
-    build_chat_text,
     load_critical_layer,
 )
 from .hypernetwork import HyperNetwork
@@ -49,10 +49,83 @@ EVAL_MAX_SAMPLES = 500      # validation 시 최대 샘플 수 (전체 순회 �
 LOG_EVERY = 50              # N step마다 터미널 출력 (논문: 49)
 SAVE_EVERY = 500            # 중간 체크포인트 저장 주기
 PATIENCE = 5                # early stopping patience
+TRAIN_MAX_PASSAGE_SENTENCES = 6
+TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
+
+
+def iter_records(dataset_path: str):
+    path = Path(dataset_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Dataset not found: {dataset_path}")
+
+    if path.suffix == ".jsonl":
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    yield json.loads(line)
+        return
+
+    if path.suffix == ".json":
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            for item in data:
+                yield item
+            return
+        raise ValueError(f"Expected a JSON array dataset: {dataset_path}")
+
+    raise ValueError(f"Unsupported dataset format: {dataset_path}")
+
+
+def extract_hotpot_passage(sample: dict, max_sentences: int = TRAIN_MAX_PASSAGE_SENTENCES) -> str:
+    supporting = sample.get("supporting_facts")
+    context = sample.get("context")
+    if not isinstance(supporting, list) or not isinstance(context, list):
+        return ""
+
+    context_map = {}
+    for item in context:
+        if (
+            isinstance(item, list)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and isinstance(item[1], list)
+        ):
+            title, sentences = item
+            context_map[title] = sentences
+
+    selected = []
+    seen = set()
+    for fact in supporting:
+        if not (isinstance(fact, list) and len(fact) == 2):
+            continue
+        title, sent_idx = fact
+        if title not in context_map:
+            continue
+        if not isinstance(sent_idx, int):
+            continue
+        sentences = context_map[title]
+        if 0 <= sent_idx < len(sentences):
+            key = (title, sent_idx)
+            if key in seen:
+                continue
+            seen.add(key)
+            sentence = str(sentences[sent_idx]).strip()
+            if sentence:
+                selected.append(sentence)
+        if len(selected) >= max_sentences:
+            break
+
+    return " ".join(selected).strip()
 
 
 def extract_passage(sample: dict) -> str:
     """서비스용 QA-passage 학습에 맞는 근거 passage를 선택한다."""
+    hotpot_passage = extract_hotpot_passage(sample)
+    if hotpot_passage:
+        return hotpot_passage
+
     for key in ("passage", "supporting_passage", "context", "evidence", "chunk_text"):
         value = sample.get(key)
         if isinstance(value, str) and value.strip():
@@ -90,21 +163,19 @@ def extract_answer(sample: dict) -> str:
 class MergePRAGDataset(Dataset):
     def __init__(self, jsonl_path, max_samples=None):
         self.data = []
-        with open(jsonl_path, "r", encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if max_samples and i >= max_samples:
-                    break
-                item = json.loads(line.strip())
-                question = item.get("question", "").strip()
-                answer = extract_answer(item)
-                passage = extract_passage(item)
-                if question and answer and passage:
-                    self.data.append({
-                        **item,
-                        "question": question,
-                        "answer": answer,
-                        "passage": passage,
-                    })
+        for i, item in enumerate(iter_records(jsonl_path)):
+            if max_samples and i >= max_samples:
+                break
+            question = item.get("question", "").strip()
+            answer = extract_answer(item)
+            passage = extract_passage(item)
+            if question and answer and passage:
+                self.data.append({
+                    **item,
+                    "question": question,
+                    "answer": answer,
+                    "passage": passage,
+                })
         print(f"[데이터] {len(self.data)}개 샘플 로드됨 ({jsonl_path})")
 
     def __len__(self):
@@ -148,20 +219,25 @@ def compute_loss(logits, labels):
     return F.cross_entropy(logits_flat, labels_flat)
 
 
+def build_training_prompt(question: str) -> str:
+    return f"{TRAIN_SYSTEM_PREFIX}\nQuestion: {question}\nAnswer:"
+
+
 def tokenize_qa(tokenizer, question, answer, device):
-    """서비스 추론과 같은 chat template 분포로 학습용 토큰화."""
-    prompt = build_chat_text(tokenizer, question)
-    full_text = build_chat_text(tokenizer, question, answer=answer)
+    """논문 원본과 더 가까운 단순 QA 포맷으로 토큰화."""
+    prompt = build_training_prompt(question)
+    answer_text = f" {answer}{tokenizer.eos_token}"
 
-    prompt_ids = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"]
-    full_ids = tokenizer(full_text, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
-    prompt_len = prompt_ids.shape[1]
+    tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
+    tok_answer = tokenizer(answer_text, return_tensors="pt", add_special_tokens=False, truncation=True, max_length=MAX_SEQ_LEN)
 
-    # labels: prompt 부분은 -100, answer 부분만 학습
-    labels = full_ids.clone()
-    labels[:, :prompt_len] = -100
+    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"][:, :-1]), dim=-1).to(device)
+    labels = torch.cat((
+        torch.full((1, tok_prompt["input_ids"].shape[1] - 1), -100, dtype=torch.long),
+        tok_answer["input_ids"]
+    ), dim=-1).to(device)
 
-    return {"input_ids": full_ids, "labels": labels}
+    return {"input_ids": input_ids, "labels": labels}
 
 
 # ── Validation ──

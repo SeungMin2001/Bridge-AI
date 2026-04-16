@@ -21,11 +21,11 @@ LOG_PATH = os.path.join(_BASE_DIR, "train_log.json")
 CHART_PATH = os.path.join(_BASE_DIR, "train_loss_curve.png")
 TRAIN_DATA_PATH = os.getenv(
     "MERGEPRAG_TRAIN_DATA_PATH",
-    r"C:\Users\user\Documents\last_project\data\NarrativeQA_train.jsonl",
+    r"C:\Users\user\Documents\last_project\data\hotpot_train_v1.1.json",
 )
 VALID_DATA_PATH = os.getenv(
     "MERGEPRAG_VALID_DATA_PATH",
-    r"C:\Users\user\Documents\last_project\data\NarrativeQA_valid.jsonl",
+    r"C:\Users\user\Documents\last_project\data\hotpot_dev_distractor_v1.json",
 )
 
 
