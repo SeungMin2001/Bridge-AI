@@ -1,8 +1,5 @@
 <script setup>
-import { ref, watch, onMounted, nextTick } from 'vue'
-import { useChat } from '../../composables/useChat'
-
-const { openCitePopover } = useChat()
+import { ref, watch, onMounted } from 'vue'
 
 const props = defineProps({
   transcriptions: { type: Array, default: () => [] }
@@ -12,27 +9,6 @@ const emit = defineEmits(['addToNote', 'askAi'])
 
 const transSearch = ref('')
 const wordPopover = ref({ visible: false, x: 0, y: 0, word: '' })
-const scrollContainer = ref(null)
-
-// 최하단으로 스크롤 이동
-const scrollToBottom = async () => {
-  await nextTick()
-  if (scrollContainer.value) {
-    scrollContainer.value.scrollTo({
-      top: scrollContainer.value.scrollHeight,
-      behavior: 'smooth'
-    })
-  }
-}
-
-// 전사 데이터가 변경될 때마다 스크롤 이동
-watch(() => props.transcriptions, () => {
-  scrollToBottom()
-}, { deep: true })
-
-onMounted(() => {
-  scrollToBottom()
-})
 
 // 단어 클릭 이벤트
 const handleWordClick = (e, word) => {
@@ -70,17 +46,6 @@ const getWordData = (word) => {
     source: "AI 분석 결과"
   }
 }
-
-const handleSourceClick = (e, wordData) => {
-  if (!wordData || !wordData.source) return
-  
-  const rect = e.currentTarget.getBoundingClientRect()
-  // 좌측 사이드바에서는 팝오버를 요소의 오른쪽(메인 방향)으로 띄웁니다.
-  let x = rect.right + 10
-  let y = rect.top - 20
-
-  openCitePopover({ text: wordData.desc, citation: wordData.source, session_title: "단어 사전" }, x, y)
-}
 </script>
 
 <template>
@@ -97,10 +62,7 @@ const handleSourceClick = (e, wordData) => {
     </div>
 
     <!-- 전사 기록 리스트 -->
-    <div 
-      ref="scrollContainer"
-      class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4"
-    >
+    <div class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4">
       <template v-if="transcriptions.filter(t => t.text.toLowerCase().includes(transSearch.toLowerCase())).length === 0">
         <div class="flex flex-col items-center justify-center h-full opacity-40 py-10">
           <span class="material-symbols-outlined text-[48px] mb-2 text-[#aeaeb2]">record_voice_over</span>
@@ -176,12 +138,7 @@ const handleSourceClick = (e, wordData) => {
       <div class="flex items-center gap-1.5 mt-1 border-t border-black/5 pt-3">
         <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
         <span class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">Source:</span>
-        <span 
-          class="text-[11px] font-bold text-blue-500 cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2"
-          @click="handleSourceClick($event, getWordData(wordPopover.word))"
-        >
-          {{ getWordData(wordPopover.word).source }}
-        </span>
+        <span class="text-[11px] font-bold text-blue-500 cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2">{{ getWordData(wordPopover.word).source }}</span>
       </div>
 
       <div class="flex gap-2 mt-1">

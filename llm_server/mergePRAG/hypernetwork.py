@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .embedding import embedding
 from .pooling import AttentivePooling
 from .mlp import MLP
@@ -34,8 +35,14 @@ class HyperNetwork(nn.Module):
         K, V = self.lp(projected)    # [B, hidden_dim] → [B, k, d], [B, k, d]
         return h, projected, K, V
 
+    def normalize_kv(self, K, V):
+        K = F.normalize(K, p=2, dim=-1)
+        V = F.normalize(V, p=2, dim=-1)
+        return K, V
+
     def forward(self, embedded):
         _, _, K, V = self.encode_embedded(embedded)
+        K, V = self.normalize_kv(K, V)
         return K, V
 
     @torch.no_grad()

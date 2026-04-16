@@ -9,6 +9,7 @@ import io
 import os
 from .cross_attention import cross_attention
 from .config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
+from .embedding import contextualize
 from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
 
@@ -60,11 +61,12 @@ class CourseMemoryManager:
     def encode_passage(self, passage: str):
         """passage → Qwen embed_tokens → HyperNetwork → K, V"""
         with torch.no_grad():
-            input_ids = self.tokenizer(
+            encoded = self.tokenizer(
                 passage, return_tensors="pt", truncation=True, max_length=512
-            )["input_ids"].to(self.device)
-            c_emb = self.model.model.embed_tokens(input_ids)  # [1, T, d_model]
-            c_emb = c_emb.to(dtype=torch.float32)
+            )
+            input_ids = encoded["input_ids"].to(self.device)
+            attention_mask = encoded["attention_mask"].to(self.device)
+            c_emb = contextualize(self.model, input_ids, attention_mask)
             K, V = self.hypernet(c_emb)  # [1, NUM_KV, d_model]
         return K, V
 

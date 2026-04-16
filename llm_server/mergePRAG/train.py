@@ -34,6 +34,7 @@ from .config import (
     WEIGHTS_PATH as SAVE_PATH,
     load_critical_layer,
 )
+from .embedding import contextualize
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -229,16 +230,17 @@ def compute_loss(logits, labels):
 
 
 def encode_memory(model, hypernet, tokenizer, passage: str, device):
-    input_ids = tokenizer(
+    encoded = tokenizer(
         passage,
         return_tensors="pt",
         truncation=True,
         max_length=MAX_SEQ_LEN,
-    )["input_ids"].to(device)
-    with torch.no_grad():
-        embedded = model.model.embed_tokens(input_ids)
-    embedded = embedded.to(dtype=torch.float32)
-    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(embedded)
+    )
+    input_ids = encoded["input_ids"].to(device)
+    attention_mask = encoded["attention_mask"].to(device)
+    embedded = contextualize(model, input_ids, attention_mask)
+    pooled, hidden, raw_K, raw_V = hypernet.encode_embedded(embedded)
+    delta_K, delta_V = hypernet.normalize_kv(raw_K, raw_V)
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
 
 
@@ -285,9 +287,10 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
                 break
 
             passage = sample["passage"]
-            input_ids = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
-            c_emb = model.model.embed_tokens(input_ids)
-            c_emb = c_emb.to(dtype=torch.float32)
+            encoded = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
+            input_ids = encoded["input_ids"].to(device)
+            attention_mask = encoded["attention_mask"].to(device)
+            c_emb = contextualize(model, input_ids, attention_mask)
             delta_K, delta_V = hypernet(c_emb)
 
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))

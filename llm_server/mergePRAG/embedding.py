@@ -1,8 +1,25 @@
 import torch
 
 
+def contextualize(model, input_ids, attention_mask=None):
+    """Frozen Qwen hidden states for passage encoding."""
+    if attention_mask is None:
+        attention_mask = torch.ones_like(input_ids)
+
+    with torch.no_grad():
+        outputs = model.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+            output_hidden_states=False,
+            return_dict=True,
+        )
+
+    return outputs.last_hidden_state.to(dtype=torch.float32)
+
+
 def embedding(model, tokenizer, text):
-    """Qwen의 입력 임베딩 레이어로 텍스트를 벡터화. [B, T, d_model] 반환."""
+    """Qwen의 contextual hidden state를 반환. [B, T, d_model]."""
     device = next(model.parameters()).device
 
     inputs = tokenizer(
@@ -13,8 +30,6 @@ def embedding(model, tokenizer, text):
     )
 
     input_ids = inputs["input_ids"].to(device)
+    attention_mask = inputs["attention_mask"].to(device)
 
-    with torch.no_grad():
-        embeddings = model.get_input_embeddings()(input_ids)  # [B, T, d]
-
-    return embeddings
+    return contextualize(model, input_ids, attention_mask)

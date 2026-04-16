@@ -16,6 +16,7 @@ from mergePRAG.config import (
     load_critical_layer,
     load_hypernet_state_dict,
 )
+from mergePRAG.embedding import contextualize
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
@@ -49,8 +50,10 @@ print(f"weights path: {WEIGHTS_PATH} (modified_at={format_mtime(WEIGHTS_PATH)})"
 print(f"checkpoint path: {CHECKPOINT_PATH} (modified_at={format_mtime(CHECKPOINT_PATH)})")
 
 with torch.no_grad():
-    ids = tokenizer(PASSAGE, return_tensors="pt")["input_ids"].to(device)
-    emb = model.model.embed_tokens(ids).to(torch.float32)
+    encoded = tokenizer(PASSAGE, return_tensors="pt")
+    ids = encoded["input_ids"].to(device)
+    attention_mask = encoded["attention_mask"].to(device)
+    emb = contextualize(model, ids, attention_mask)
     pooled = hypernet.pooling(emb)
     h = hypernet.mlp(pooled)
     K_raw, V_raw = hypernet.lp(h)
@@ -66,8 +69,10 @@ print(f"V per-vector norm: {V[0,0].norm():.4f}")
 
 # ── 다른 passage K,V와 비교 ──
 with torch.no_grad():
-    ids2 = tokenizer(COMPARE_PASSAGE, return_tensors="pt")["input_ids"].to(device)
-    emb2 = model.model.embed_tokens(ids2).to(torch.float32)
+    encoded2 = tokenizer(COMPARE_PASSAGE, return_tensors="pt")
+    ids2 = encoded2["input_ids"].to(device)
+    attention_mask2 = encoded2["attention_mask"].to(device)
+    emb2 = contextualize(model, ids2, attention_mask2)
     pooled2 = hypernet.pooling(emb2)
     h2 = hypernet.mlp(pooled2)
     K2_raw, V2_raw = hypernet.lp(h2)
