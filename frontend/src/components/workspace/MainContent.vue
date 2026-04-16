@@ -147,6 +147,7 @@ const handleDeleteStoredMaterial = (fileId) => {
         :is-recording="isRecording"
         :is-recording-paused="isRecordingPaused"
         :recording-time-text="recordingTimeText"
+        :show-close-preview="!!currentPreviewMaterial"
         @start-recording="emit('startRecording')"
         @pause-recording="emit('pauseRecording')"
         @resume-recording="emit('resumeRecording')"
@@ -154,25 +155,29 @@ const handleDeleteStoredMaterial = (fileId) => {
         @main-sidebar-toggle="emit('mainSidebarToggle')"
         @right-sidebar-toggle="emit('rightSidebarToggle')"
         @material-selected="handleMaterialSelection"
+        @close-preview-material="emit('closePreviewMaterial')"
       />
 
       <div class="flex-1 flex flex-col relative min-h-0 min-w-0">
         <section
           v-if="activeTab === 'note'"
           :key="'tab-note'"
-          :class="['tab-content flex-1 flex flex-col relative overflow-hidden note-canvas p-10 pt-4', tabAnim]"
+          :class="[
+            'tab-content flex-1 flex flex-col relative overflow-hidden note-canvas',
+            currentPreviewMaterial ? 'p-6 pt-4' : 'p-10 pt-4',
+            tabAnim
+          ]"
           @dragover.prevent="isNoteDragOver = true"
           @dragenter.prevent="isNoteDragOver = true"
           @dragleave.prevent="isNoteDragOver = false"
           @drop="handleDroppedMaterial"
         >
-          <div class="max-w-4xl mx-auto w-full h-full">
+          <div :class="[currentPreviewMaterial ? 'w-full h-full flex flex-col' : 'max-w-4xl mx-auto w-full h-full']">
             <h1 v-if="!currentPreviewMaterial" class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">{{ noteTitle }}</h1>
 
-            <div v-if="activeFileId === 'lecture-1' && currentPreviewMaterial" class="mb-6">
+            <div v-if="activeFileId === 'lecture-1' && currentPreviewMaterial" class="preview-panel-wrap">
               <LecturePreviewPanel
                 :material="currentPreviewMaterial"
-                @close="emit('closePreviewMaterial')"
               />
             </div>
 
@@ -280,6 +285,11 @@ const handleDeleteStoredMaterial = (fileId) => {
   background: rgba(239, 246, 255, 0.5);
   outline: 1.5px dashed rgba(59, 130, 246, 0.42);
   outline-offset: 16px;
+}
+
+.preview-panel-wrap {
+  flex: 1;
+  min-height: 0;
 }
 
 .word-card-enter-active {

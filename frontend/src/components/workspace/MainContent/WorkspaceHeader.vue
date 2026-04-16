@@ -5,7 +5,8 @@ import { ref } from 'vue'
 defineProps({
   isRecording: Boolean,
   isRecordingPaused: Boolean,
-  recordingTimeText: String
+  recordingTimeText: String,
+  showClosePreview: Boolean
 })
 
 const emit = defineEmits([
@@ -15,7 +16,8 @@ const emit = defineEmits([
   'stop-recording',
   'main-sidebar-toggle',
   'right-sidebar-toggle',
-  'material-selected'
+  'material-selected',
+  'close-preview-material'
 ])
 
 const fileInputRef = ref(null)
@@ -98,6 +100,16 @@ const handleMaterialInputChange = (event) => {
     </div>
 
     <div class="ml-auto flex items-center gap-1.5 shrink-0 pl-2">
+      <button
+        v-if="showClosePreview"
+        class="preview-close-header-btn"
+        title="자료 닫기"
+        @click="emit('close-preview-material')"
+      >
+        <span class="material-symbols-outlined text-[18px]">close</span>
+        <span>닫기</span>
+      </button>
+
       <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]">
         <span class="material-symbols-outlined text-[20px]">play_circle</span>
       </button>
@@ -132,6 +144,31 @@ const handleMaterialInputChange = (event) => {
   height: 1px;
   margin: 0 24px;
   background: rgba(0, 0, 0, 0.06);
+}
+
+.preview-close-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.92);
+  color: #374151;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  box-shadow: 0 10px 22px rgba(148, 163, 184, 0.08);
+  transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.preview-close-header-btn:hover {
+  border-color: rgba(148, 163, 184, 0.42);
+  background: #ffffff;
+}
+
+.preview-close-header-btn:active {
+  transform: scale(0.98);
 }
 
 .recording-control-bar {
