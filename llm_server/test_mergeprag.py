@@ -19,10 +19,10 @@ from mergePRAG.config import (
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
-QUESTION = "What is a process?"
+QUESTION = "What is the deadline?"
 CRITICAL_LAYER = load_critical_layer()
-PASSAGE = "A process is a program in execution."
-COMPARE_PASSAGE = "A process is a storage device."
+PASSAGE = "The assignment deadline is Monday."
+COMPARE_PASSAGE = "The assignment deadline is Friday."
 ENGLISH_SYSTEM_PROMPT = "Answer in English with one short sentence."
 
 
