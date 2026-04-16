@@ -11,16 +11,16 @@ from pathlib import Path
 
 import torch
 
-from run_model import run_model
-from mergePRAG.config import (
+from ..run_model import run_model
+from .config import (
     ALPHA,
     TRAIN_DATA_PATH,
     NUM_KV,
     load_critical_layer,
     load_hypernet_state_dict,
 )
-from mergePRAG.hypernetwork import HyperNetwork
-from mergePRAG.cross_attention import cross_attention
+from .hypernetwork import HyperNetwork
+from .cross_attention import cross_attention
 
 
 NUM_SAMPLES_TO_SHOW = 3
