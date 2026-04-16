@@ -51,6 +51,9 @@ SAVE_EVERY = 500            # 중간 체크포인트 저장 주기
 PATIENCE = 5                # early stopping patience
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
+NEGATIVE_MARGIN = 0.5
+NEGATIVE_LOSS_WEIGHT = 0.5
+REPULSION_LOSS_WEIGHT = 0.1
 
 
 def iter_records(dataset_path: str):
@@ -130,7 +133,7 @@ def extract_passage(sample: dict) -> str:
     if isinstance(facts, list):
         fact_texts = [str(item).strip() for item in facts if isinstance(item, str) and str(item).strip()]
         if fact_texts:
-            return " ".join(fact_texts)
+            return "\n".join(fact_texts)
 
     for key in ("passage", "supporting_passage", "context", "evidence", "chunk_text"):
         value = sample.get(key)
@@ -223,6 +226,29 @@ def compute_loss(logits, labels):
     logits_flat = shift_logits[ans_indices]
     labels_flat = shift_labels[ans_indices]
     return F.cross_entropy(logits_flat, labels_flat)
+
+
+def encode_memory(model, hypernet, tokenizer, passage: str, device):
+    input_ids = tokenizer(
+        passage,
+        return_tensors="pt",
+        truncation=True,
+        max_length=MAX_SEQ_LEN,
+    )["input_ids"].to(device)
+    with torch.no_grad():
+        embedded = model.model.embed_tokens(input_ids)
+    embedded = embedded.to(dtype=torch.float32)
+    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(embedded)
+    return input_ids, embedded, pooled, hidden, delta_K, delta_V
+
+
+def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
+    hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
+    try:
+        logits = model(input_ids=tok["input_ids"])["logits"]
+    finally:
+        hook.remove()
+    return logits
 
 
 def build_training_prompt(question: str) -> str:
@@ -431,29 +457,41 @@ def train():
                 continue
 
             try:
-                # 1. passage → base model embedding layer → HyperNetwork → delta_K, delta_V
+                # 1. positive passage → HyperNetwork → delta_K, delta_V
                 passage = sample["passage"]
-                input_ids = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)["input_ids"].to(device)
-                with torch.no_grad():
-                    c_emb = model.model.embed_tokens(input_ids)  # [1, T, d_model]
-                c_emb = c_emb.to(dtype=torch.float32)
-                delta_K, delta_V = hypernet(c_emb)
+                input_ids, c_emb, pooled_pos, hidden_pos, delta_K, delta_V = encode_memory(
+                    model, hypernet, tokenizer, passage, device
+                )
 
-                # 2. hook 등록 (논문: 매 step 등록/해제)
-                hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
-
-                # 3. Q+A 토큰화 (labels=-100 마스킹)
+                # 2. Q+A 토큰화 (labels=-100 마스킹)
                 tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
 
-                # 4. forward → loss
-                logits = model(input_ids=tok["input_ids"])["logits"]
-                hook.remove()  # 즉시 해제
-
+                # 3. positive memory로 정답 loss 계산
+                logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
                 task_loss = compute_loss(logits, tok["labels"])
                 if task_loss is None:
                     continue
 
-                loss = task_loss
+                # 4. 다른 샘플 passage를 negative memory로 사용해 grounding ranking 추가
+                negative_sample = train_dataset[(i + 1) % len(train_dataset)]
+                _, neg_emb, pooled_neg, hidden_neg, neg_K, neg_V = encode_memory(
+                    model, hypernet, tokenizer, negative_sample["passage"], device
+                )
+                neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
+                neg_task_loss = compute_loss(neg_logits, tok["labels"])
+                if neg_task_loss is None:
+                    neg_task_loss = task_loss.detach()
+
+                grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
+                repulsion_loss = torch.clamp(
+                    F.cosine_similarity(hidden_pos, hidden_neg).mean(),
+                    min=0.0,
+                )
+                loss = (
+                    task_loss
+                    + NEGATIVE_LOSS_WEIGHT * grounding_loss
+                    + REPULSION_LOSS_WEIGHT * repulsion_loss
+                )
 
                 # 5. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
@@ -461,7 +499,10 @@ def train():
                 optimizer.step()
                 scheduler.step()
 
-                loss_val = task_loss.item()  # task loss만 로그
+                loss_val = task_loss.item()
+                grounding_val = grounding_loss.item()
+                repulsion_val = repulsion_loss.item()
+                neg_loss_val = neg_task_loss.item()
                 k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
                 v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
                 total_loss += loss_val
@@ -469,7 +510,7 @@ def train():
                 global_step += 1
 
                 # VRAM 정리
-                del logits, loss, c_emb, delta_K, delta_V, input_ids
+                del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -486,6 +527,9 @@ def train():
             log_data["step_losses"].append({
                 "step": global_step,
                 "loss": round(loss_val, 4),
+                "negative_loss": round(neg_loss_val, 4),
+                "grounding_loss": round(grounding_val, 4),
+                "repulsion_loss": round(repulsion_val, 4),
             })
 
             if global_step % LOG_EVERY == 0:
@@ -499,6 +543,7 @@ def train():
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
+                    f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"{elapsed:.1f}min"
                 )

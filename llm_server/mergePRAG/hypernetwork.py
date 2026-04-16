@@ -19,17 +19,23 @@ class HyperNetwork(nn.Module):
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
         self.lp = LinearProjection(hidden_dim, d_model, k)  # MLP 출력 hidden_dim → K,V는 d_model
 
-    def forward(self, embedded):
+    def encode_embedded(self, embedded):
         """
         Args:
             embedded: Qwen 임베딩 출력 [B, T, d_model]
         Returns:
+            pooled: [B, d_model]
+            h: [B, hidden_dim]
             K: [B, k, d_model]
             V: [B, k, d_model]
         """
         h = self.pooling(embedded)   # [B, T, d] → [B, d]
-        h = self.mlp(h)              # [B, d] → [B, d]
-        K, V = self.lp(h)            # [B, d] → [B, k, d], [B, k, d]
+        projected = self.mlp(h)      # [B, d] → [B, hidden_dim]
+        K, V = self.lp(projected)    # [B, hidden_dim] → [B, k, d], [B, k, d]
+        return h, projected, K, V
+
+    def forward(self, embedded):
+        _, _, K, V = self.encode_embedded(embedded)
         return K, V
 
     @torch.no_grad()

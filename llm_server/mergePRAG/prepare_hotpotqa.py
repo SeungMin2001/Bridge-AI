@@ -48,7 +48,7 @@ def _build_facts(record: dict) -> list[str]:
         seen.add(key)
         sentence = str(sentences[sent_id]).strip()
         if sentence:
-            facts.append(sentence)
+            facts.append(f"{title}: {sentence}")
         if len(facts) >= MAX_FACTS:
             break
     return facts

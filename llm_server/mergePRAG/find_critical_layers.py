@@ -20,7 +20,16 @@ from .config import (
     VALID_DATA_PATH,
 )
 from .hypernetwork import HyperNetwork
-from .train import MergePRAGDataset, compute_loss, make_hook, tokenize_qa
+from .train import (
+    MergePRAGDataset,
+    NEGATIVE_LOSS_WEIGHT,
+    NEGATIVE_MARGIN,
+    REPULSION_LOSS_WEIGHT,
+    compute_loss,
+    encode_memory,
+    forward_with_memory,
+    tokenize_qa,
+)
 
 OUTPUT_PATH = "llm_server/mergePRAG/critical_layers.json"
 SCAN_MAX_TRAIN_SAMPLES = 96
@@ -60,18 +69,11 @@ def evaluate_layer(model, tokenizer, hypernet, layer_idx, dataset, device):
                 break
 
             tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
-            passage_ids = tokenizer(
-                sample["passage"],
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-            )["input_ids"].to(device)
-            c_emb = model.model.embed_tokens(passage_ids).to(dtype=torch.float32)
-            delta_K, delta_V = hypernet(c_emb)
+            _, _, _, _, delta_K, delta_V = encode_memory(
+                model, hypernet, tokenizer, sample["passage"], device
+            )
 
-            hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
-            logits = model(input_ids=tok["input_ids"])["logits"]
-            hook.remove()
+            logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
 
             loss = compute_loss(logits, tok["labels"])
             if loss is not None:
@@ -95,29 +97,40 @@ def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
     )
 
     step = 0
-    for sample in train_dataset:
+    train_size = len(train_dataset)
+    for idx, sample in enumerate(train_dataset):
         if step >= SCAN_STEPS:
             break
 
-        passage_ids = tokenizer(
-            sample["passage"],
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-        )["input_ids"].to(device)
-        with torch.no_grad():
-            c_emb = model.model.embed_tokens(passage_ids).to(dtype=torch.float32)
-
-        delta_K, delta_V = hypernet(c_emb)
+        _, _, _, hidden_pos, delta_K, delta_V = encode_memory(
+            model, hypernet, tokenizer, sample["passage"], device
+        )
         tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
 
-        hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
-        logits = model(input_ids=tok["input_ids"])["logits"]
-        hook.remove()
-
-        loss = compute_loss(logits, tok["labels"])
-        if loss is None:
+        logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
+        task_loss = compute_loss(logits, tok["labels"])
+        if task_loss is None:
             continue
+
+        negative_sample = train_dataset[(idx + 1) % train_size]
+        _, _, _, hidden_neg, neg_K, neg_V = encode_memory(
+            model, hypernet, tokenizer, negative_sample["passage"], device
+        )
+        neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
+        neg_task_loss = compute_loss(neg_logits, tok["labels"])
+        if neg_task_loss is None:
+            neg_task_loss = task_loss.detach()
+
+        grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
+        repulsion_loss = torch.clamp(
+            torch.nn.functional.cosine_similarity(hidden_pos, hidden_neg).mean(),
+            min=0.0,
+        )
+        loss = (
+            task_loss
+            + NEGATIVE_LOSS_WEIGHT * grounding_loss
+            + REPULSION_LOSS_WEIGHT * repulsion_loss
+        )
 
         optimizer.zero_grad()
         loss.backward()

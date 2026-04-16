@@ -5,7 +5,7 @@ import os
 MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
 NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "16"))
 DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "7"))
-ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "0.5"))
+ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "1.0"))
 MAX_SEQ_LEN = 512
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "
