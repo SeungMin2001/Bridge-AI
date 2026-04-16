@@ -126,12 +126,18 @@ def extract_passage(sample: dict) -> str:
     if hotpot_passage:
         return hotpot_passage
 
+    facts = sample.get("facts")
+    if isinstance(facts, list):
+        fact_texts = [str(item).strip() for item in facts if isinstance(item, str) and str(item).strip()]
+        if fact_texts:
+            return " ".join(fact_texts)
+
     for key in ("passage", "supporting_passage", "context", "evidence", "chunk_text"):
         value = sample.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
 
-    for key in ("facts", "supporting_facts", "passages", "contexts", "evidences"):
+    for key in ("supporting_facts", "passages", "contexts", "evidences"):
         value = sample.get(key)
         if isinstance(value, list):
             for item in value:
