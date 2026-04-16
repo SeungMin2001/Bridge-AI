@@ -1,0 +1,75 @@
+/* ══════════════════════════════════════════
+   Home Sidebar Styles
+   Home 전용 사이드바 접힘 (Mini Mode)
+   ══════════════════════════════════════════ */
+
+#sidebar.home-sidebar {
+  will-change: width;
+}
+
+#sidebar.home-sidebar.sidebar-collapsed {
+  width: 56px !important;
+  min-width: 56px !important;
+  max-width: 56px !important;
+  overflow: hidden;
+  opacity: 1;
+}
+
+/* Hide text and search box smoothly in mini mode */
+.home-sidebar.sidebar-collapsed .collapsible-content {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/* Perfect centering for Ultra-Mini Mode (56px) */
+.home-sidebar.sidebar-collapsed .sidebar-main-card {
+  padding: 24px 0 !important;
+  align-items: center !important;
+  gap: 20px;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-logo-section {
+  gap: 0 !important;
+  margin-bottom: 0 !important;
+  padding: 0 !important;
+  justify-content: center !important;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-header {
+  flex-direction: column !important;
+  gap: 28px !important;
+  margin-bottom: 0 !important;
+  align-items: center !important;
+  width: 100%;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-btn-group {
+  flex-direction: column !important;
+  gap: 20px !important;
+  width: 100%;
+  align-items: center;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-icon-btn {
+  width: 40px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+  border-radius: 10px !important;
+}
+
+.home-sidebar.sidebar-collapsed .sidebar-icon-btn .material-symbols-outlined {
+  font-size: 22px !important;
+}
+
+/* Hide sidebar content in mini mode */
+.home-sidebar.sidebar-collapsed .sidebar-content {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}

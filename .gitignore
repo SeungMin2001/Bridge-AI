@@ -1,8 +1,10 @@
 # Dependencies
 node_modules/
+frontend/node_modules/
 .pnp
 .pnp.js
 dist/
+frontend/dist/
 
 # Env / Secrets
 .env
@@ -42,4 +44,6 @@ models/
 *.safetensors
 *.onnx
 temp_audio/
+backend/temp_audio/
 mergePRAG/train_log.json
+pgvector/.git/
