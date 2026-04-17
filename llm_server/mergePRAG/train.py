@@ -126,6 +126,10 @@ def extract_hotpot_passage(sample: dict, max_sentences: int = TRAIN_MAX_PASSAGE_
 
 def extract_passage(sample: dict) -> str:
     """서비스용 QA-passage 학습에 맞는 근거 passage를 선택한다."""
+    passage = sample.get("passage")
+    if isinstance(passage, str) and passage.strip():
+        return passage.strip()
+
     hotpot_passage = extract_hotpot_passage(sample)
     if hotpot_passage:
         return hotpot_passage
@@ -178,13 +182,28 @@ class MergePRAGDataset(Dataset):
                 break
             question = item.get("question", "").strip()
             answer = extract_answer(item)
-            passage = extract_passage(item)
-            if question and answer and passage:
+            if not (question and answer):
+                continue
+
+            hop_passages = item.get("hop_passages")
+            if isinstance(hop_passages, list):
+                expanded = [str(p).strip() for p in hop_passages if isinstance(p, str) and str(p).strip()]
+            else:
+                expanded = []
+
+            if not expanded:
+                passage = extract_passage(item)
+                if passage:
+                    expanded = [passage]
+
+            for hop_idx, passage in enumerate(expanded, start=1):
                 self.data.append({
                     **item,
                     "question": question,
                     "answer": answer,
                     "passage": passage,
+                    "hop_index": hop_idx,
+                    "num_hops": len(expanded),
                 })
         print(f"[데이터] {len(self.data)}개 샘플 로드됨 ({jsonl_path})")
 

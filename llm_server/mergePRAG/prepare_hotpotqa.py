@@ -64,6 +64,18 @@ def _iter_jsonl(path: Path):
                 yield json.loads(line)
 
 
+def _build_hop_passages(facts: list[str]) -> list[str]:
+    passages: list[str] = []
+    running: list[str] = []
+    for fact in facts:
+        fact = str(fact).strip()
+        if not fact:
+            continue
+        running.append(fact)
+        passages.append("\n".join(running))
+    return passages
+
+
 def _prepare_split(input_path: Path, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     kept = 0
@@ -80,6 +92,7 @@ def _prepare_split(input_path: Path, output_path: Path) -> None:
                 "question": question,
                 "answer": answer,
                 "facts": facts,
+                "hop_passages": _build_hop_passages(facts),
                 "type": item.get("type"),
                 "level": item.get("level"),
             }
