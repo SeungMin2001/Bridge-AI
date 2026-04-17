@@ -205,6 +205,12 @@ class MergePRAGDataset(Dataset):
                     "hop_index": hop_idx,
                     "num_hops": len(expanded),
                 })
+        self.indices_by_source = {}
+        for idx, sample in enumerate(self.data):
+            source_id = sample.get("source_id") or sample.get("id")
+            if source_id is None:
+                continue
+            self.indices_by_source.setdefault(str(source_id), []).append(idx)
         print(f"[데이터] {len(self.data)}개 샘플 로드됨 ({jsonl_path})")
 
     def __len__(self):
@@ -275,9 +281,19 @@ def build_training_prompt(question: str) -> str:
     return f"{TRAIN_SYSTEM_PREFIX}\nQuestion: {question}\nAnswer:"
 
 
-def tokenize_qa(tokenizer, question, answer, device):
+def build_prompt_for_task(question: str, task: str) -> str:
+    if task == "hop_fact":
+        return (
+            "Read the passage and output the supporting fact that is currently grounded.\n"
+            f"Question: {question}\n"
+            "Supporting fact:"
+        )
+    return build_training_prompt(question)
+
+
+def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
     """논문 원본과 더 가까운 단순 QA 포맷으로 토큰화."""
-    prompt = build_training_prompt(question)
+    prompt = build_prompt_for_task(question, task)
     answer_text = f" {answer}{tokenizer.eos_token}"
 
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
@@ -290,6 +306,26 @@ def tokenize_qa(tokenizer, question, answer, device):
     ), dim=-1).to(device)
 
     return {"input_ids": input_ids, "labels": labels}
+
+
+def get_negative_sample(dataset: MergePRAGDataset, index: int):
+    sample = dataset[index]
+    source_id = sample.get("source_id") or sample.get("id")
+    if source_id is not None:
+        candidates = [
+            dataset.data[idx]
+            for idx in dataset.indices_by_source.get(str(source_id), [])
+            if idx != index and dataset.data[idx].get("answer") != sample.get("answer")
+        ]
+        if candidates:
+            return candidates[index % len(candidates)]
+
+    dataset_size = len(dataset)
+    for offset in range(1, dataset_size):
+        candidate = dataset[(index + offset) % dataset_size]
+        if candidate.get("answer") != sample.get("answer"):
+            return candidate
+    return dataset[(index + 1) % dataset_size]
 
 
 # ── Validation ──
@@ -312,7 +348,13 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             delta_K, delta_V = hypernet(c_emb, attention_mask=attention_mask)
 
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
-            tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
+            tok = tokenize_qa(
+                tokenizer,
+                sample["question"],
+                sample["answer"],
+                device,
+                task=sample.get("task", "final_qa"),
+            )
             logits = model(input_ids=tok["input_ids"])["logits"]
             hook.remove()
 
@@ -485,7 +527,13 @@ def train():
                 )
 
                 # 2. Q+A 토큰화 (labels=-100 마스킹)
-                tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
+                tok = tokenize_qa(
+                    tokenizer,
+                    sample["question"],
+                    sample["answer"],
+                    device,
+                    task=sample.get("task", "final_qa"),
+                )
 
                 # 3. positive memory로 정답 loss 계산
                 logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
@@ -494,7 +542,7 @@ def train():
                     continue
 
                 # 4. 다른 샘플 passage를 negative memory로 사용해 grounding ranking 추가
-                negative_sample = train_dataset[(i + 1) % len(train_dataset)]
+                negative_sample = get_negative_sample(train_dataset, i)
                 _, neg_emb, pooled_neg, hidden_neg, neg_K, neg_V = encode_memory(
                     model, hypernet, tokenizer, negative_sample["passage"], device
                 )

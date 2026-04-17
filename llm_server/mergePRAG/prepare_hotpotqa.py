@@ -1,8 +1,11 @@
 """
-Prepare HotpotQA raw JSONL into a safer training format for this project.
+Prepare HotpotQA raw JSONL into a weak-MergePRAG training format.
 
-Output format:
-  {"question": ..., "answer": ..., "facts": [...], "type": ..., "level": ...}
+Output rows:
+  - hop_fact supervision:
+    {"source_id": ..., "task": "hop_fact", "question": ..., "answer": latest_fact, "passage": cumulative_facts, ...}
+  - final_qa supervision:
+    {"source_id": ..., "task": "final_qa", "question": original_question, "answer": original_answer, "passage": full_facts, ...}
 
 Usage:
   python -m llm_server.mergePRAG.prepare_hotpotqa
@@ -64,16 +67,46 @@ def _iter_jsonl(path: Path):
                 yield json.loads(line)
 
 
-def _build_hop_passages(facts: list[str]) -> list[str]:
-    passages: list[str] = []
+def _build_training_rows(record: dict, facts: list[str]) -> list[dict]:
+    rows: list[dict] = []
+    source_id = record.get("id")
+    question = str(record.get("question", "")).strip()
+    answer = str(record.get("answer", "")).strip()
+    task_type = record.get("type")
+    level = record.get("level")
+
     running: list[str] = []
-    for fact in facts:
+    for hop_idx, fact in enumerate(facts, start=1):
         fact = str(fact).strip()
         if not fact:
             continue
         running.append(fact)
-        passages.append("\n".join(running))
-    return passages
+        rows.append({
+            "source_id": source_id,
+            "task": "hop_fact",
+            "question": question,
+            "answer": fact,
+            "passage": "\n".join(running),
+            "facts": list(running),
+            "hop_index": hop_idx,
+            "num_hops": len(facts),
+            "type": task_type,
+            "level": level,
+        })
+
+    rows.append({
+        "source_id": source_id,
+        "task": "final_qa",
+        "question": question,
+        "answer": answer,
+        "passage": "\n".join(facts),
+        "facts": list(facts),
+        "hop_index": len(facts),
+        "num_hops": len(facts),
+        "type": task_type,
+        "level": level,
+    })
+    return rows
 
 
 def _prepare_split(input_path: Path, output_path: Path) -> None:
@@ -87,17 +120,9 @@ def _prepare_split(input_path: Path, output_path: Path) -> None:
             if not question or not answer or not facts:
                 continue
 
-            prepared = {
-                "id": item.get("id"),
-                "question": question,
-                "answer": answer,
-                "facts": facts,
-                "hop_passages": _build_hop_passages(facts),
-                "type": item.get("type"),
-                "level": item.get("level"),
-            }
-            fout.write(json.dumps(prepared, ensure_ascii=False) + "\n")
-            kept += 1
+            for prepared in _build_training_rows(item, facts):
+                fout.write(json.dumps(prepared, ensure_ascii=False) + "\n")
+                kept += 1
     print(f"[prepare] saved {kept} rows -> {output_path}")
 
 
