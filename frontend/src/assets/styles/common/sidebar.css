@@ -1,0 +1,262 @@
+/* ══════════════════════════════════════════
+   Sidebar Common Styles
+   헤더, 검색, 네비게이션, 트리, 접힘 등
+   ══════════════════════════════════════════ */
+
+/* ── Sidebar Layout ── */
+#sidebar {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-main-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* ── Header ── */
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.sidebar-logo-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.sidebar-logo-box {
+  width: 32px;
+  height: 32px;
+  background-color: #1d1d1f;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-logo-box .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.sidebar-logo-text {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* ── Button Group ── */
+.sidebar-btn-group {
+  display: flex;
+  gap: 4px;
+}
+
+.sidebar-icon-btn {
+  padding: 6px;
+  border-radius: 8px;
+  color: #8e8e93;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar-icon-btn:hover {
+  background-color: #f2f2f7;
+  color: #1d1d1f;
+}
+
+.sidebar-icon-btn .material-symbols-outlined {
+  font-size: 20px;
+}
+
+/* ── Search ── */
+.sidebar-search-bg {
+  background-color: #f2f2f7;
+}
+
+.sidebar-search-container {
+  background-color: #f2f2f7;
+  border-radius: 14px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.sidebar-search-container .material-symbols-outlined {
+  font-size: 20px;
+  color: #8e8e93;
+}
+
+.sidebar-search-text {
+  font-size: 14px;
+  color: #aeaeb2;
+  font-weight: 500;
+}
+
+/* ── Section Title ── */
+.sidebar-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #3a3a3c;
+  opacity: 0.6;
+  padding: 0 4px;
+  margin-bottom: 12px;
+}
+
+/* ── Navigation Items ── */
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sidebar-nav-item:hover {
+  background-color: #f2f2f7;
+}
+
+.sidebar-nav-item .nav-icon {
+  font-size: 20px;
+}
+
+.sidebar-nav-item .nav-text {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+}
+
+/* ── Mode Button ── */
+.sidebar-mode-btn.active {
+  background-color: #f2f2f7;
+  color: #1d1d1f;
+}
+
+/* ── Tree Items ── */
+.tree-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  user-select: none;
+}
+
+.tree-item:hover {
+  background-color: #f2f2f7;
+}
+
+.tree-item.is-selected {
+  background-color: #e8e8ed;
+}
+
+/* 활성화한 파일 섹션 row 배경 흰색 */
+#active-file-display .tree-item {
+  background-color: #ffffff !important;
+}
+
+#active-file-display .tree-item:hover {
+  background-color: #f2f2f7 !important;
+}
+
+/* 더보기 버튼: 기본 숨김, hover 시 표시 */
+.dots-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: #8e8e93;
+  flex-shrink: 0;
+  transition: background-color 0.15s;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.tree-item:hover .dots-btn {
+  display: flex;
+}
+
+.dots-btn:hover {
+  background-color: #e5e5ea !important;
+  color: #1d1d1f;
+}
+
+/* ── Chevron ── */
+.chevron {
+  transition: transform 0.2s;
+  color: #8e8e93;
+  flex-shrink: 0;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+/* ── Tree Children ── */
+.tree-children {
+  margin-left: 8px;
+  border-left: 1.5px solid #e5e5ea;
+  padding-left: 4px;
+  overflow: hidden;
+  transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
+}
+
+.tree-children.collapsed {
+  max-height: 0 !important;
+  opacity: 0;
+}
+
+.tree-children.expanded {
+  opacity: 1;
+}
+
+/* ── Generic Sidebar Collapsed (Workspace) ── */
+#sidebar.sidebar-collapsed:not(.home-sidebar),
+#right-sidebar.sidebar-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Resizers - hide when collapsed */
+#resizer-left.is-collapsed,
+#resizer-right.is-collapsed {
+  display: none !important;
+}
+
+/* ── Right Sidebar Scrollbar ── */
+#right-sidebar .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+#right-sidebar:hover .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #d1d1d6;
+}

@@ -239,8 +239,7 @@ def encode_memory(model, hypernet, tokenizer, passage: str, device):
     input_ids = encoded["input_ids"].to(device)
     attention_mask = encoded["attention_mask"].to(device)
     embedded = contextualize(model, input_ids, attention_mask)
-    pooled, hidden, raw_K, raw_V = hypernet.encode_embedded(embedded)
-    delta_K, delta_V = hypernet.normalize_kv(raw_K, raw_V)
+    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(embedded)
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
 
 
