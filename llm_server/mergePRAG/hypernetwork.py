@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .embedding import embedding
+from .embedding import token_embed
 from .pooling import AttentivePooling
 from .mlp import MLP
 from .linearProjection import LinearProjection
@@ -19,7 +19,7 @@ class HyperNetwork(nn.Module):
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
         self.lp = LinearProjection(hidden_dim, d_model, k)  # MLP 출력 hidden_dim → K,V는 d_model
 
-    def encode_embedded(self, embedded):
+    def encode_embedded(self, embedded, attention_mask=None):
         """
         Args:
             embedded: Qwen 임베딩 출력 [B, T, d_model]
@@ -29,13 +29,13 @@ class HyperNetwork(nn.Module):
             K: [B, k, d_model]
             V: [B, k, d_model]
         """
-        h = self.pooling(embedded)   # [B, T, d] → [B, d]
+        h = self.pooling(embedded, mask=attention_mask)   # [B, T, d] → [B, d]
         projected = self.mlp(h)      # [B, d] → [B, hidden_dim]
         K, V = self.lp(projected)    # [B, hidden_dim] → [B, k, d], [B, k, d]
         return h, projected, K, V
 
-    def forward(self, embedded):
-        _, _, K, V = self.encode_embedded(embedded)
+    def forward(self, embedded, attention_mask=None):
+        _, _, K, V = self.encode_embedded(embedded, attention_mask=attention_mask)
         return K, V
 
     @torch.no_grad()
@@ -44,6 +44,10 @@ class HyperNetwork(nn.Module):
         텍스트를 받아서 Qwen 임베딩 → K, V 생성 (추론용).
         model: Qwen 모델 (freeze)
         """
-        embedded = embedding(model, tokenizer, text)
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+        device = next(model.parameters()).device
+        input_ids = inputs["input_ids"].to(device)
+        attention_mask = inputs["attention_mask"].to(device)
+        embedded = token_embed(model, input_ids)
         embedded = embedded.to(dtype=next(self.parameters()).dtype)
-        return self.forward(embedded)
+        return self.forward(embedded, attention_mask=attention_mask)

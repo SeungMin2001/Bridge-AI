@@ -9,7 +9,7 @@ import io
 import os
 from .cross_attention import cross_attention
 from .config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
-from .embedding import contextualize
+from .embedding import token_embed
 from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
 
@@ -66,8 +66,8 @@ class CourseMemoryManager:
             )
             input_ids = encoded["input_ids"].to(self.device)
             attention_mask = encoded["attention_mask"].to(self.device)
-            c_emb = contextualize(self.model, input_ids, attention_mask)
-            K, V = self.hypernet(c_emb)  # [1, NUM_KV, d_model]
+            c_emb = token_embed(self.model, input_ids)
+            K, V = self.hypernet(c_emb, attention_mask=attention_mask)  # [1, NUM_KV, d_model]
         return K, V
 
     def add_passage(self, course_id: str, passage: str):

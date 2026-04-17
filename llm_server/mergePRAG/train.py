@@ -34,7 +34,7 @@ from .config import (
     WEIGHTS_PATH as SAVE_PATH,
     load_critical_layer,
 )
-from .embedding import contextualize
+from .embedding import token_embed
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -238,8 +238,8 @@ def encode_memory(model, hypernet, tokenizer, passage: str, device):
     )
     input_ids = encoded["input_ids"].to(device)
     attention_mask = encoded["attention_mask"].to(device)
-    embedded = contextualize(model, input_ids, attention_mask)
-    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(embedded)
+    embedded = token_embed(model, input_ids)
+    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(embedded, attention_mask=attention_mask)
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
 
 
@@ -289,8 +289,8 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             encoded = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
             input_ids = encoded["input_ids"].to(device)
             attention_mask = encoded["attention_mask"].to(device)
-            c_emb = contextualize(model, input_ids, attention_mask)
-            delta_K, delta_V = hypernet(c_emb)
+            c_emb = token_embed(model, input_ids)
+            delta_K, delta_V = hypernet(c_emb, attention_mask=attention_mask)
 
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
             tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)

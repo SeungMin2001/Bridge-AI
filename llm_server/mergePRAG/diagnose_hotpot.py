@@ -19,6 +19,7 @@ from .config import (
     load_critical_layer,
     load_hypernet_state_dict,
 )
+from .embedding import token_embed
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -41,12 +42,14 @@ def iter_jsonl(path: str):
 
 def encode_passage(model, tokenizer, hypernet, passage: str, device):
     with torch.no_grad():
-        ids = tokenizer(passage, return_tensors="pt", truncation=True, max_length=512)["input_ids"].to(device)
-        emb = model.model.embed_tokens(ids).to(torch.float32)
-        pooled = hypernet.pooling(emb)
+        encoded = tokenizer(passage, return_tensors="pt", truncation=True, max_length=512)
+        ids = encoded["input_ids"].to(device)
+        attention_mask = encoded["attention_mask"].to(device)
+        emb = token_embed(model, ids)
+        pooled = hypernet.pooling(emb, mask=attention_mask)
         h = hypernet.mlp(pooled)
         k_raw, v_raw = hypernet.lp(h)
-        k, v = hypernet(emb)
+        k, v = hypernet(emb, attention_mask=attention_mask)
     return pooled, h, k_raw, v_raw, k, v
 
 

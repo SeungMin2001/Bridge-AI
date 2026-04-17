@@ -1,6 +1,13 @@
 import torch
 
 
+def token_embed(model, input_ids):
+    """Frozen token embeddings from the base LLM embedding table."""
+    with torch.no_grad():
+        embedded = model.model.embed_tokens(input_ids)
+    return embedded.to(dtype=torch.float32)
+
+
 def contextualize(model, input_ids, attention_mask=None):
     """Frozen Qwen hidden states for passage encoding."""
     if attention_mask is None:
@@ -19,7 +26,7 @@ def contextualize(model, input_ids, attention_mask=None):
 
 
 def embedding(model, tokenizer, text):
-    """Qwen의 contextual hidden state를 반환. [B, T, d_model]."""
+    """Qwen token embeddings를 반환. [B, T, d_model]."""
     device = next(model.parameters()).device
 
     inputs = tokenizer(
@@ -30,6 +37,4 @@ def embedding(model, tokenizer, text):
     )
 
     input_ids = inputs["input_ids"].to(device)
-    attention_mask = inputs["attention_mask"].to(device)
-
-    return contextualize(model, input_ids, attention_mask)
+    return token_embed(model, input_ids)
