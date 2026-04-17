@@ -36,8 +36,8 @@ const handleMaterialInputChange = (event) => {
 </script>
 
 <template>
-  <header class="workspace-embedded-header h-[56px] flex items-center px-6 shrink-0">
-    <div class="flex items-center gap-3 shrink-0 min-w-0">
+  <header class="workspace-embedded-header flex items-center px-6 shrink-0">
+    <div class="flex items-center gap-2.5 shrink-0 min-w-0">
       <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93] shrink-0" title="사이드바 토글" @click="emit('main-sidebar-toggle')">
         <span class="material-symbols-outlined text-[20px]">side_navigation</span>
       </button>
@@ -99,7 +99,7 @@ const handleMaterialInputChange = (event) => {
       </div>
     </div>
 
-    <div class="ml-auto flex items-center gap-1.5 shrink-0 pl-2">
+    <div class="ml-auto flex items-center gap-1.5 shrink-0 pl-3 self-center">
       <button
         v-if="showClosePreview"
         class="preview-close-header-btn"
@@ -138,6 +138,7 @@ const handleMaterialInputChange = (event) => {
 <style scoped>
 .workspace-embedded-header {
   background: #ffffff;
+  min-height: 56px;
 }
 
 .workspace-embedded-divider {
@@ -150,7 +151,8 @@ const handleMaterialInputChange = (event) => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 9px 14px;
+  height: 36px;
+  padding: 0 13px;
   border-radius: 999px;
   border: 1px solid rgba(226, 232, 240, 0.95);
   background: rgba(255, 255, 255, 0.92);
@@ -173,13 +175,15 @@ const handleMaterialInputChange = (event) => {
 
 .recording-control-bar {
   position: relative;
-  min-height: 42px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
 }
 
 .recording-control-inner {
   display: inline-flex;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
   min-width: 0;
   white-space: nowrap;
 }
@@ -250,12 +254,13 @@ const handleMaterialInputChange = (event) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 102px;
-  padding: 9px 16px;
+  min-width: 88px;
+  height: 36px;
+  padding: 0 14px;
   border-radius: 999px;
   background: #111111;
   color: #ffffff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: -0.01em;
   transition: background-color 0.2s ease, transform 0.2s ease;
