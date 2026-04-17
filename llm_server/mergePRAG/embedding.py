@@ -25,6 +25,18 @@ def contextualize(model, input_ids, attention_mask=None):
     return outputs.last_hidden_state.to(dtype=torch.float32)
 
 
+def encode_passage_states(model, input_ids, attention_mask=None, use_contextual=True):
+    """Passage encoder input for the hypernetwork.
+
+    Contextual hidden states preserve token interactions inside a passage,
+    which is critical for separating near-identical passages such as
+    'deadline is Monday' vs 'deadline is Friday'.
+    """
+    if use_contextual:
+        return contextualize(model, input_ids, attention_mask=attention_mask)
+    return token_embed(model, input_ids)
+
+
 def embedding(model, tokenizer, text):
     """Qwen token embeddings를 반환. [B, T, d_model]."""
     device = next(model.parameters()).device

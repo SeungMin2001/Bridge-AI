@@ -34,7 +34,7 @@ from .config import (
     WEIGHTS_PATH as SAVE_PATH,
     load_critical_layer,
 )
-from .embedding import token_embed
+from .embedding import encode_passage_states
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -55,6 +55,7 @@ TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
 NEGATIVE_MARGIN = 0.5
 NEGATIVE_LOSS_WEIGHT = 0.5
 REPULSION_LOSS_WEIGHT = 0.1
+USE_CONTEXTUAL_PASSAGE_ENCODER = True
 
 
 def iter_records(dataset_path: str):
@@ -263,9 +264,21 @@ def encode_memory(model, hypernet, tokenizer, passage: str, device):
     )
     input_ids = encoded["input_ids"].to(device)
     attention_mask = encoded["attention_mask"].to(device)
-    embedded = token_embed(model, input_ids)
+    embedded = encode_passage_states(
+        model,
+        input_ids,
+        attention_mask=attention_mask,
+        use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
+    )
     pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(embedded, attention_mask=attention_mask)
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
+
+
+def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
+    hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
+    k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
+    v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
+    return torch.clamp((hidden_sim + k_sim + v_sim) / 3.0, min=0.0)
 
 
 def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
@@ -344,7 +357,12 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             encoded = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
             input_ids = encoded["input_ids"].to(device)
             attention_mask = encoded["attention_mask"].to(device)
-            c_emb = token_embed(model, input_ids)
+            c_emb = encode_passage_states(
+                model,
+                input_ids,
+                attention_mask=attention_mask,
+                use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
+            )
             delta_K, delta_V = hypernet(c_emb, attention_mask=attention_mask)
 
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
@@ -552,9 +570,13 @@ def train():
                     neg_task_loss = task_loss.detach()
 
                 grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
-                repulsion_loss = torch.clamp(
-                    F.cosine_similarity(hidden_pos, hidden_neg).mean(),
-                    min=0.0,
+                repulsion_loss = compute_repulsion_loss(
+                    hidden_pos,
+                    hidden_neg,
+                    delta_K,
+                    neg_K,
+                    delta_V,
+                    neg_V,
                 )
                 loss = (
                     task_loss

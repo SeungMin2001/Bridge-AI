@@ -25,6 +25,7 @@ from .train import (
     NEGATIVE_LOSS_WEIGHT,
     NEGATIVE_MARGIN,
     REPULSION_LOSS_WEIGHT,
+    compute_repulsion_loss,
     compute_loss,
     encode_memory,
     forward_with_memory,
@@ -135,9 +136,13 @@ def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
             neg_task_loss = task_loss.detach()
 
         grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
-        repulsion_loss = torch.clamp(
-            torch.nn.functional.cosine_similarity(hidden_pos, hidden_neg).mean(),
-            min=0.0,
+        repulsion_loss = compute_repulsion_loss(
+            hidden_pos,
+            hidden_neg,
+            delta_K,
+            neg_K,
+            delta_V,
+            neg_V,
         )
         loss = (
             task_loss

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .embedding import token_embed
+from .embedding import encode_passage_states
 from .pooling import AttentivePooling
 from .mlp import MLP
 from .linearProjection import LinearProjection
@@ -39,7 +39,7 @@ class HyperNetwork(nn.Module):
         return K, V
 
     @torch.no_grad()
-    def encode_passage(self, model, tokenizer, text):
+    def encode_passage(self, model, tokenizer, text, use_contextual=True):
         """
         텍스트를 받아서 Qwen 임베딩 → K, V 생성 (추론용).
         model: Qwen 모델 (freeze)
@@ -48,6 +48,11 @@ class HyperNetwork(nn.Module):
         device = next(model.parameters()).device
         input_ids = inputs["input_ids"].to(device)
         attention_mask = inputs["attention_mask"].to(device)
-        embedded = token_embed(model, input_ids)
+        embedded = encode_passage_states(
+            model,
+            input_ids,
+            attention_mask=attention_mask,
+            use_contextual=use_contextual,
+        )
         embedded = embedded.to(dtype=next(self.parameters()).dtype)
         return self.forward(embedded, attention_mask=attention_mask)

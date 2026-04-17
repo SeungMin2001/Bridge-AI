@@ -17,7 +17,7 @@ from mergePRAG.config import (
     load_critical_layer,
     load_hypernet_state_dict,
 )
-from mergePRAG.embedding import token_embed
+from mergePRAG.embedding import encode_passage_states
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
@@ -58,7 +58,12 @@ def encode_passage_stats(passage: str):
         encoded = tokenizer(passage, return_tensors="pt")
         ids = encoded["input_ids"].to(device)
         attention_mask = encoded["attention_mask"].to(device)
-        emb = token_embed(model, ids)
+        emb = encode_passage_states(
+            model,
+            ids,
+            attention_mask=attention_mask,
+            use_contextual=True,
+        )
         pooled = hypernet.pooling(emb, mask=attention_mask)
         hidden = hypernet.mlp(pooled)
         K_raw, V_raw = hypernet.lp(hidden)

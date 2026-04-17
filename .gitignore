@@ -47,3 +47,6 @@ temp_audio/
 backend/temp_audio/
 mergePRAG/train_log.json
 pgvector/.git/
+vector.control
+postgres/
+pgvector/
