@@ -198,7 +198,7 @@ async def generate_mergeprag(req: MergePRAGRequest):
         memory_manager.add_passages(req.course_id, req.passages)
 
     # 과목 메모리에서 K, V 조회
-    K, V = memory_manager.get_memory(req.course_id)
+    K, V = memory_manager.get_memory(req.course_id, question=req.prompt)
     if K is None:
         return {"thinking": "", "answer": "해당 과목의 메모리가 없습니다. 먼저 passage를 추가해주세요.", "citations": []}
 
@@ -225,7 +225,7 @@ async def generate_stream(req: StreamRequest):
     if req.mode == "mergeprag" and req.course_id:
         if req.passages:
             memory_manager.add_passages(req.course_id, req.passages)
-        K, V = memory_manager.get_memory(req.course_id)
+        K, V = memory_manager.get_memory(req.course_id, question=req.prompt)
         if K is not None:
             target_layer = model.model.layers[CRITICAL_LAYER]
             hook_handle = target_layer.register_forward_hook(make_hook(K, V))

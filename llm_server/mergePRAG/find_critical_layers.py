@@ -78,7 +78,7 @@ def evaluate_layer(model, tokenizer, hypernet, layer_idx, dataset, device):
                 task=sample.get("task", "final_qa"),
             )
             _, _, _, _, delta_K, delta_V = encode_memory(
-                model, hypernet, tokenizer, sample["passage"], device
+                model, hypernet, tokenizer, sample["question"], sample["passage"], device
             )
 
             logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
@@ -111,7 +111,7 @@ def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
             break
 
         _, _, _, hidden_pos, delta_K, delta_V = encode_memory(
-            model, hypernet, tokenizer, sample["passage"], device
+            model, hypernet, tokenizer, sample["question"], sample["passage"], device
         )
         tok = tokenize_qa(
             tokenizer,
@@ -128,7 +128,12 @@ def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
 
         negative_sample = get_negative_sample(train_dataset, idx)
         _, _, _, hidden_neg, neg_K, neg_V = encode_memory(
-            model, hypernet, tokenizer, negative_sample["passage"], device
+            model,
+            hypernet,
+            tokenizer,
+            sample["question"],
+            negative_sample["passage"],
+            device,
         )
         neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
         neg_task_loss = compute_loss(neg_logits, tok["labels"])

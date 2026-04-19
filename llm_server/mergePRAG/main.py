@@ -9,12 +9,18 @@ import io
 import os
 from .cross_attention import cross_attention
 from .config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
-from .embedding import encode_passage_states
+from .embedding import encode_passage_states, tokenize_conditioned_memory
 from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
 
 # ── 설정 (train.py와 동일) ──
 CRITICAL_LAYER = load_critical_layer()
+
+
+def masked_mean(hidden, mask):
+    weights = mask.unsqueeze(-1).to(dtype=hidden.dtype)
+    denom = weights.sum(dim=1).clamp_min(1.0)
+    return (hidden * weights).sum(dim=1) / denom
 
 
 def make_hook(delta_K, delta_V, alpha=ALPHA):
@@ -58,21 +64,43 @@ class CourseMemoryManager:
         # 과목별 메모리 캐시: {course_id: {"K": Tensor, "V": Tensor, "count": int}}
         self.memories = {}
 
-    def encode_passage(self, passage: str):
-        """passage → Qwen contextual states → HyperNetwork → K, V"""
+    def encode_passage(self, passage: str, question: str | None = None):
+        """Build K,V from a passage, optionally conditioned on the current question."""
         with torch.no_grad():
-            encoded = self.tokenizer(
-                passage, return_tensors="pt", truncation=True, max_length=512
-            )
-            input_ids = encoded["input_ids"].to(self.device)
-            attention_mask = encoded["attention_mask"].to(self.device)
+            if question:
+                encoded = tokenize_conditioned_memory(
+                    self.tokenizer,
+                    question,
+                    passage,
+                    self.device,
+                    max_length=512,
+                )
+                input_ids = encoded["input_ids"]
+                attention_mask = encoded["attention_mask"]
+                question_mask = encoded["question_mask"]
+                passage_mask = encoded["passage_mask"]
+            else:
+                encoded = self.tokenizer(
+                    passage, return_tensors="pt", truncation=True, max_length=512
+                )
+                input_ids = encoded["input_ids"].to(self.device)
+                attention_mask = encoded["attention_mask"].to(self.device)
+                question_mask = None
+                passage_mask = None
+
             c_emb = encode_passage_states(
                 self.model,
                 input_ids,
                 attention_mask=attention_mask,
                 use_contextual=True,
             )
-            K, V = self.hypernet(c_emb, attention_mask=attention_mask)  # [1, NUM_KV, d_model]
+            query = masked_mean(c_emb, question_mask) if question_mask is not None else None
+            K, V = self.hypernet(
+                c_emb,
+                attention_mask=attention_mask,
+                query=query,
+                focus_mask=passage_mask,
+            )
         return K, V
 
     def add_passage(self, course_id: str, passage: str):
@@ -85,6 +113,7 @@ class CourseMemoryManager:
                 "K": new_K.squeeze(0),  # [NUM_KV, d_model]
                 "V": new_V.squeeze(0),
                 "count": 1,
+                "passages": [passage],
             }
         else:
             # orthogonal merge로 기존 메모리에 병합
@@ -92,6 +121,7 @@ class CourseMemoryManager:
             mem["K"] = orthogonal_merging(mem["K"], new_K.squeeze(0))
             mem["V"] = orthogonal_merging(mem["V"], new_V.squeeze(0))
             mem["count"] += 1
+            mem.setdefault("passages", []).append(passage)
 
         return self.memories[course_id]["count"]
 
@@ -101,11 +131,26 @@ class CourseMemoryManager:
             self.add_passage(course_id, p)
         return self.memories.get(course_id, {}).get("count", 0)
 
-    def get_memory(self, course_id: str):
+    def get_memory(self, course_id: str, question: str | None = None):
         """과목의 merged K, V 반환. 없으면 None"""
         mem = self.memories.get(course_id)
         if mem is None:
             return None, None
+        passages = mem.get("passages") or []
+        if question and passages:
+            merged_k = None
+            merged_v = None
+            for passage in passages:
+                cur_k, cur_v = self.encode_passage(passage, question=question)
+                cur_k = cur_k.squeeze(0)
+                cur_v = cur_v.squeeze(0)
+                if merged_k is None:
+                    merged_k = cur_k
+                    merged_v = cur_v
+                else:
+                    merged_k = orthogonal_merging(merged_k, cur_k)
+                    merged_v = orthogonal_merging(merged_v, cur_v)
+            return merged_k.unsqueeze(0), merged_v.unsqueeze(0)
         return mem["K"].unsqueeze(0), mem["V"].unsqueeze(0)  # [1, NUM_KV, d_model]
 
     def has_memory(self, course_id: str) -> bool:
@@ -170,6 +215,7 @@ class CourseMemoryManager:
                 "K": self.bytes_to_tensor(row[0], self.device),
                 "V": self.bytes_to_tensor(row[1], self.device),
                 "count": row[2],
+                "passages": [],
             }
             return True
         return False

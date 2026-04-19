@@ -34,7 +34,7 @@ from .config import (
     WEIGHTS_PATH as SAVE_PATH,
     load_critical_layer,
 )
-from .embedding import encode_passage_states
+from .embedding import encode_passage_states, tokenize_conditioned_memory
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -255,22 +255,37 @@ def compute_loss(logits, labels):
     return F.cross_entropy(logits_flat, labels_flat)
 
 
-def encode_memory(model, hypernet, tokenizer, passage: str, device):
-    encoded = tokenizer(
+def masked_mean(hidden, mask):
+    weights = mask.unsqueeze(-1).to(dtype=hidden.dtype)
+    denom = weights.sum(dim=1).clamp_min(1.0)
+    return (hidden * weights).sum(dim=1) / denom
+
+
+def encode_memory(model, hypernet, tokenizer, question: str, passage: str, device):
+    encoded = tokenize_conditioned_memory(
+        tokenizer,
+        question,
         passage,
-        return_tensors="pt",
-        truncation=True,
+        device,
         max_length=MAX_SEQ_LEN,
     )
-    input_ids = encoded["input_ids"].to(device)
-    attention_mask = encoded["attention_mask"].to(device)
+    input_ids = encoded["input_ids"]
+    attention_mask = encoded["attention_mask"]
+    question_mask = encoded["question_mask"]
+    passage_mask = encoded["passage_mask"]
     embedded = encode_passage_states(
         model,
         input_ids,
         attention_mask=attention_mask,
         use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
     )
-    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(embedded, attention_mask=attention_mask)
+    query = masked_mean(embedded, question_mask)
+    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(
+        embedded,
+        attention_mask=attention_mask,
+        query=query,
+        focus_mask=passage_mask,
+    )
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
 
 
@@ -353,17 +368,30 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             if idx >= EVAL_MAX_SAMPLES:
                 break
 
-            passage = sample["passage"]
-            encoded = tokenizer(passage, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
-            input_ids = encoded["input_ids"].to(device)
-            attention_mask = encoded["attention_mask"].to(device)
+            encoded = tokenize_conditioned_memory(
+                tokenizer,
+                sample["question"],
+                sample["passage"],
+                device,
+                max_length=MAX_SEQ_LEN,
+            )
+            input_ids = encoded["input_ids"]
+            attention_mask = encoded["attention_mask"]
+            question_mask = encoded["question_mask"]
+            passage_mask = encoded["passage_mask"]
             c_emb = encode_passage_states(
                 model,
                 input_ids,
                 attention_mask=attention_mask,
                 use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
             )
-            delta_K, delta_V = hypernet(c_emb, attention_mask=attention_mask)
+            query = masked_mean(c_emb, question_mask)
+            delta_K, delta_V = hypernet(
+                c_emb,
+                attention_mask=attention_mask,
+                query=query,
+                focus_mask=passage_mask,
+            )
 
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
             tok = tokenize_qa(
@@ -541,7 +569,7 @@ def train():
                 # 1. positive passage → HyperNetwork → delta_K, delta_V
                 passage = sample["passage"]
                 input_ids, c_emb, pooled_pos, hidden_pos, delta_K, delta_V = encode_memory(
-                    model, hypernet, tokenizer, passage, device
+                    model, hypernet, tokenizer, sample["question"], passage, device
                 )
 
                 # 2. Q+A 토큰화 (labels=-100 마스킹)
@@ -562,7 +590,12 @@ def train():
                 # 4. 다른 샘플 passage를 negative memory로 사용해 grounding ranking 추가
                 negative_sample = get_negative_sample(train_dataset, i)
                 _, neg_emb, pooled_neg, hidden_neg, neg_K, neg_V = encode_memory(
-                    model, hypernet, tokenizer, negative_sample["passage"], device
+                    model,
+                    hypernet,
+                    tokenizer,
+                    sample["question"],
+                    negative_sample["passage"],
+                    device,
                 )
                 neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
                 neg_task_loss = compute_loss(neg_logits, tok["labels"])

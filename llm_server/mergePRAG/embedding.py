@@ -37,6 +37,52 @@ def encode_passage_states(model, input_ids, attention_mask=None, use_contextual=
     return token_embed(model, input_ids)
 
 
+def tokenize_conditioned_memory(tokenizer, question, passage, device, max_length=512):
+    """Build a question-conditioned memory sequence and token masks.
+
+    The hypernetwork should focus on passage tokens, but the question tells it
+    which parts of the passage matter. To keep those roles separate we return
+    masks for question tokens and passage tokens.
+    """
+    segments = [
+        (tokenizer("Question:", add_special_tokens=False)["input_ids"], False, False),
+        (tokenizer(f" {question}\n", add_special_tokens=False)["input_ids"], True, False),
+        (tokenizer("Passage:", add_special_tokens=False)["input_ids"], False, False),
+        (tokenizer(f" {passage}", add_special_tokens=False)["input_ids"], False, True),
+    ]
+
+    input_ids = []
+    question_mask = []
+    passage_mask = []
+
+    for token_ids, is_question, is_passage in segments:
+        if not token_ids:
+            continue
+        remaining = max_length - len(input_ids)
+        if remaining <= 0:
+            break
+        token_ids = token_ids[:remaining]
+        input_ids.extend(token_ids)
+        question_mask.extend([1 if is_question else 0] * len(token_ids))
+        passage_mask.extend([1 if is_passage else 0] * len(token_ids))
+
+    if not input_ids:
+        input_ids = [tokenizer.eos_token_id]
+        question_mask = [0]
+        passage_mask = [1]
+
+    input_ids = torch.tensor([input_ids], dtype=torch.long, device=device)
+    attention_mask = torch.ones_like(input_ids)
+    question_mask = torch.tensor([question_mask], dtype=torch.long, device=device)
+    passage_mask = torch.tensor([passage_mask], dtype=torch.long, device=device)
+    return {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "question_mask": question_mask,
+        "passage_mask": passage_mask,
+    }
+
+
 def embedding(model, tokenizer, text):
     """Qwen token embeddings를 반환. [B, T, d_model]."""
     device = next(model.parameters()).device

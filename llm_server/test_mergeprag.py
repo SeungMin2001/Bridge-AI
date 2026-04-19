@@ -17,7 +17,7 @@ from mergePRAG.config import (
     load_critical_layer,
     load_hypernet_state_dict,
 )
-from mergePRAG.embedding import encode_passage_states
+from mergePRAG.embedding import encode_passage_states, tokenize_conditioned_memory
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
@@ -53,21 +53,36 @@ print(f"HyperNetwork weights source: {load_info['source']} ({load_info['kind']}{
 print(f"weights path: {WEIGHTS_PATH} (modified_at={format_mtime(WEIGHTS_PATH)})")
 print(f"checkpoint path: {CHECKPOINT_PATH} (modified_at={format_mtime(CHECKPOINT_PATH)})")
 
-def encode_passage_stats(passage: str):
+def masked_mean(hidden, mask):
+    weights = mask.unsqueeze(-1).to(dtype=hidden.dtype)
+    denom = weights.sum(dim=1).clamp_min(1.0)
+    return (hidden * weights).sum(dim=1) / denom
+
+
+def encode_passage_stats(question: str, passage: str):
     with torch.no_grad():
-        encoded = tokenizer(passage, return_tensors="pt")
-        ids = encoded["input_ids"].to(device)
-        attention_mask = encoded["attention_mask"].to(device)
+        encoded = tokenize_conditioned_memory(
+            tokenizer,
+            question,
+            passage,
+            device,
+            max_length=512,
+        )
+        ids = encoded["input_ids"]
+        attention_mask = encoded["attention_mask"]
+        question_mask = encoded["question_mask"]
+        passage_mask = encoded["passage_mask"]
         emb = encode_passage_states(
             model,
             ids,
             attention_mask=attention_mask,
             use_contextual=True,
         )
-        pooled = hypernet.pooling(emb, mask=attention_mask)
+        query = masked_mean(emb, question_mask)
+        pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
         hidden = hypernet.mlp(pooled)
         K_raw, V_raw = hypernet.lp(hidden)
-        K, V = hypernet(emb, attention_mask=attention_mask)
+        K, V = hypernet(emb, attention_mask=attention_mask, query=query, focus_mask=passage_mask)
     return {
         "ids": ids,
         "attention_mask": attention_mask,
@@ -81,8 +96,8 @@ def encode_passage_stats(passage: str):
     }
 
 
-main_stats = encode_passage_stats(PASSAGE)
-compare_stats = encode_passage_stats(COMPARE_PASSAGE)
+main_stats = encode_passage_stats(QUESTION, PASSAGE)
+compare_stats = encode_passage_stats(QUESTION, COMPARE_PASSAGE)
 
 pooled = main_stats["pooled"]
 h = main_stats["hidden"]

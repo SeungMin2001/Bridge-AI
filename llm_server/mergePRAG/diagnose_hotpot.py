@@ -19,7 +19,7 @@ from .config import (
     load_critical_layer,
     load_hypernet_state_dict,
 )
-from .embedding import encode_passage_states
+from .embedding import encode_passage_states, tokenize_conditioned_memory
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -40,21 +40,36 @@ def iter_jsonl(path: str):
                 yield json.loads(line)
 
 
-def encode_passage(model, tokenizer, hypernet, passage: str, device):
+def masked_mean(hidden, mask):
+    weights = mask.unsqueeze(-1).to(dtype=hidden.dtype)
+    denom = weights.sum(dim=1).clamp_min(1.0)
+    return (hidden * weights).sum(dim=1) / denom
+
+
+def encode_passage(model, tokenizer, hypernet, question: str, passage: str, device):
     with torch.no_grad():
-        encoded = tokenizer(passage, return_tensors="pt", truncation=True, max_length=512)
-        ids = encoded["input_ids"].to(device)
-        attention_mask = encoded["attention_mask"].to(device)
+        encoded = tokenize_conditioned_memory(
+            tokenizer,
+            question,
+            passage,
+            device,
+            max_length=512,
+        )
+        ids = encoded["input_ids"]
+        attention_mask = encoded["attention_mask"]
+        question_mask = encoded["question_mask"]
+        passage_mask = encoded["passage_mask"]
         emb = encode_passage_states(
             model,
             ids,
             attention_mask=attention_mask,
             use_contextual=True,
         )
-        pooled = hypernet.pooling(emb, mask=attention_mask)
+        query = masked_mean(emb, question_mask)
+        pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
         h = hypernet.mlp(pooled)
         k_raw, v_raw = hypernet.lp(h)
-        k, v = hypernet(emb, attention_mask=attention_mask)
+        k, v = hypernet(emb, attention_mask=attention_mask, query=query, focus_mask=passage_mask)
     return pooled, h, k_raw, v_raw, k, v
 
 
@@ -134,8 +149,8 @@ def main():
     p1 = " ".join(s1.get("facts", []))
     p2 = " ".join(s2.get("facts", []))
 
-    pooled1, h1, k1_raw, v1_raw, k1, v1 = encode_passage(model, tokenizer, hypernet, p1, device)
-    pooled2, h2, k2_raw, v2_raw, k2, v2 = encode_passage(model, tokenizer, hypernet, p2, device)
+    pooled1, h1, k1_raw, v1_raw, k1, v1 = encode_passage(model, tokenizer, hypernet, s1["question"], p1, device)
+    pooled2, h2, k2_raw, v2_raw, k2, v2 = encode_passage(model, tokenizer, hypernet, s2["question"], p2, device)
 
     print("\n[real sample comparison]")
     print(f"q1: {s1['question']}")
