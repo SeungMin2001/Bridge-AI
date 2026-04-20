@@ -48,6 +48,12 @@ EXPECTED_ANSWER = "Monday"
 COMPARE_EXPECTED_ANSWER = "Friday"
 ENGLISH_SYSTEM_PROMPT = "Answer in English with one short sentence."
 MAX_NEW_TOKENS = 50
+SIM_WARN_THRESHOLD = 0.99
+MARGIN_PASS_THRESHOLD = 0.10
+
+
+def verdict(ok: bool) -> str:
+    return "PASS" if ok else "WARN"
 
 
 def format_mtime(path):
@@ -76,6 +82,11 @@ step_text = f", checkpoint step={load_info['step']}" if load_info["step"] is not
 print(f"HyperNetwork weights source: {load_info['source']} ({load_info['kind']}{step_text})")
 print(f"weights path: {WEIGHTS_PATH} (modified_at={format_mtime(WEIGHTS_PATH)})")
 print(f"checkpoint path: {CHECKPOINT_PATH} (modified_at={format_mtime(CHECKPOINT_PATH)})")
+ALPHA_SWEEP = list(dict.fromkeys([0.1, ALPHA, 1.0]))
+LAYER_SWEEP = [CRITICAL_LAYER]
+print(f"alpha sweep: {ALPHA_SWEEP}")
+print(f"layer sweep: {LAYER_SWEEP}")
+print(f"thresholds: sim_warn>={SIM_WARN_THRESHOLD}, margin_pass>={MARGIN_PASS_THRESHOLD}")
 
 def masked_mean(hidden, mask):
     weights = mask.unsqueeze(-1).to(dtype=hidden.dtype)
@@ -198,6 +209,12 @@ print(f"\n두 passage K 유사도: {sim:.4f}")
 print(f"  (높을수록 두 passage를 비슷하게 본다는 뜻)")
 sim_v = torch.nn.functional.cosine_similarity(V.view(1,-1), V2.view(1,-1)).item()
 print(f"두 passage V 유사도: {sim_v:.4f}")
+l2_k = torch.norm(K - K2, p=2).item()
+l2_v = torch.norm(V - V2, p=2).item()
+mae_k = torch.mean(torch.abs(K - K2)).item()
+mae_v = torch.mean(torch.abs(V - V2)).item()
+print(f"두 passage K/V L2: K={l2_k:.6f}, V={l2_v:.6f}")
+print(f"두 passage K/V MAE: K={mae_k:.8f}, V={mae_v:.8f}")
 
 # ── Question-conditioned vs passage-only 분리 진단 ──
 pooled_po = main_stats_passage_only["pooled"]
@@ -224,6 +241,11 @@ if sim_k_po < sim:
     print("[diag] passage-only에서 K 분리가 더 큼 -> 질문/공통 프롬프트가 차이를 희석할 가능성")
 else:
     print("[diag] passage-only도 분리 약함 -> HyperNetwork/encoder 자체 분해능 부족 가능성")
+separation_warn = (sim >= SIM_WARN_THRESHOLD) and (sim_v >= SIM_WARN_THRESHOLD)
+print(
+    f"[판정] memory separation {verdict(not separation_warn)} | "
+    f"K_cos={sim:.4f}, V_cos={sim_v:.4f}, K_L2={l2_k:.6f}, V_L2={l2_v:.6f}"
+)
 
 # ── 테스트 1: hook 없이 forward → top-5 예측 ──
 print(f"\n{'='*50}")
@@ -326,6 +348,18 @@ def score_answer_with_memory(dK, dV, answer_text: str, alpha=ALPHA):
     return compute_answer_loss(logits, score_inputs["labels"])
 
 
+def score_answer_with_memory_at_layer(layer_idx: int, dK, dV, answer_text: str, alpha=ALPHA):
+    score_inputs = build_scoring_batch(answer_text)
+    target_layer = model.model.layers[layer_idx]
+    hook = target_layer.register_forward_hook(make_hook(dK, dV, alpha=alpha))
+    try:
+        with torch.no_grad():
+            logits = model(input_ids=score_inputs["input_ids"])["logits"]
+    finally:
+        hook.remove()
+    return compute_answer_loss(logits, score_inputs["labels"])
+
+
 def score_answer_without_memory(answer_text: str):
     score_inputs = build_scoring_batch(answer_text)
     with torch.no_grad():
@@ -345,7 +379,8 @@ print(f"[No hook score] target={EXPECTED_ANSWER}, loss={score_no_main[0]:.4f}, l
 print(f"[No hook score] compare_target={COMPARE_EXPECTED_ANSWER}, loss={score_no_compare[0]:.4f}, logprob={score_no_compare[1]:.4f}")
 
 # 여러 alpha로 생성 비교 (main passage)
-for alpha in [0.1, ALPHA, 1.0]:
+alpha_main_results = []
+for alpha in ALPHA_SWEEP:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(
@@ -356,14 +391,26 @@ for alpha in [0.1, ALPHA, 1.0]:
     print(f"[Hook main α={alpha}] {answer_hook}")
     score_main = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     score_compare = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
+    margin = score_main[1] - score_compare[1]
+    alpha_main_results.append(
+        {
+            "alpha": alpha,
+            "answer": answer_hook,
+            "main_logprob": score_main[1],
+            "compare_logprob": score_compare[1],
+            "margin": margin,
+        }
+    )
     print(f"[Hook main α={alpha} score] target={EXPECTED_ANSWER}, loss={score_main[0]:.4f}, logprob={score_main[1]:.4f}")
     print(f"[Hook main α={alpha} score] compare_target={COMPARE_EXPECTED_ANSWER}, loss={score_compare[0]:.4f}, logprob={score_compare[1]:.4f}")
+    print(f"[Hook main α={alpha} margin] {EXPECTED_ANSWER} - {COMPARE_EXPECTED_ANSWER} = {margin:+.4f} ({verdict(margin >= MARGIN_PASS_THRESHOLD)})")
 
 # 비교 passage도 같은 alpha로 직접 생성
 print(f"\n{'='*50}")
 print("passage answer flip 비교")
 print(f"{'='*50}")
-for alpha in [ALPHA, 1.0]:
+flip_results = []
+for alpha in ALPHA_SWEEP:
     hook_main = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_main = model.generate(
@@ -391,6 +438,24 @@ for alpha in [ALPHA, 1.0]:
     print(f"[α={alpha}] main memory -> compare_target={COMPARE_EXPECTED_ANSWER}, loss={main_compare_score[0]:.4f}, logprob={main_compare_score[1]:.4f}")
     print(f"[α={alpha}] compare memory -> target={EXPECTED_ANSWER}, loss={compare_target_score[0]:.4f}, logprob={compare_target_score[1]:.4f}")
     print(f"[α={alpha}] compare memory -> compare_target={COMPARE_EXPECTED_ANSWER}, loss={compare_compare_score[0]:.4f}, logprob={compare_compare_score[1]:.4f}")
+    margin_main = main_target_score[1] - main_compare_score[1]
+    margin_compare = compare_compare_score[1] - compare_target_score[1]
+    flip_ok = (margin_main >= MARGIN_PASS_THRESHOLD) and (margin_compare >= MARGIN_PASS_THRESHOLD)
+    same_answer = answer_main == answer_compare
+    flip_results.append(
+        {
+            "alpha": alpha,
+            "same_answer": same_answer,
+            "flip_ok": flip_ok,
+            "margin_main": margin_main,
+            "margin_compare": margin_compare,
+            "main_answer": answer_main,
+            "compare_answer": answer_compare,
+        }
+    )
+    print(f"[α={alpha}] margin_main({EXPECTED_ANSWER}-{COMPARE_EXPECTED_ANSWER})={margin_main:+.4f}")
+    print(f"[α={alpha}] margin_compare({COMPARE_EXPECTED_ANSWER}-{EXPECTED_ANSWER})={margin_compare:+.4f}")
+    print(f"[α={alpha}] flip 판정: {verdict(flip_ok)} | same_answer_bias: {same_answer}")
 
 # slot별 차이도 같이 확인
 slot_cos_k = []
@@ -401,3 +466,68 @@ for idx in range(K.shape[1]):
 
 print(f"\nK slot cosine avg: {sum(slot_cos_k)/len(slot_cos_k):.4f}, min: {min(slot_cos_k):.4f}, max: {max(slot_cos_k):.4f}")
 print(f"V slot cosine avg: {sum(slot_cos_v)/len(slot_cos_v):.4f}, min: {min(slot_cos_v):.4f}, max: {max(slot_cos_v):.4f}")
+
+print(f"\n{'='*50}")
+print("최종 요약")
+print(f"{'='*50}")
+if alpha_main_results:
+    best_main = max(alpha_main_results, key=lambda x: x["margin"])
+    print(
+        f"[main memory best] α={best_main['alpha']} | margin={best_main['margin']:+.4f} | "
+        f"answer='{best_main['answer']}'"
+    )
+if flip_results:
+    best_flip = max(flip_results, key=lambda x: x["margin_main"] + x["margin_compare"])
+    print(
+        f"[flip best] α={best_flip['alpha']} | flip_ok={best_flip['flip_ok']} | "
+        f"same_answer={best_flip['same_answer']} | "
+        f"margin_main={best_flip['margin_main']:+.4f}, margin_compare={best_flip['margin_compare']:+.4f}"
+    )
+    print(f"[flip answers] main='{best_flip['main_answer']}' | compare='{best_flip['compare_answer']}'")
+
+if separation_warn:
+    print("[경고] K/V 분리 실패: cosine이 매우 높아(>= threshold) 사실 반전이 희석될 가능성이 큼")
+if flip_results and not any(x["flip_ok"] for x in flip_results):
+    print("[경고] 모든 α에서 flip 실패: 현재 memory 주입만으로 정답 반전이 안정적으로 발생하지 않음")
+if flip_results and all(x["same_answer"] for x in flip_results):
+    print("[경고] same-answer bias 지속: 두 passage에 동일 답변 출력")
+
+print(f"\n{'='*50}")
+print("Layer x Alpha 스윕 (logprob 기반 빠른 탐색)")
+print(f"{'='*50}")
+grid_results = []
+for layer_idx in LAYER_SWEEP:
+    for alpha in ALPHA_SWEEP:
+        main_target_score = score_answer_with_memory_at_layer(layer_idx, K, V, EXPECTED_ANSWER, alpha=alpha)
+        main_compare_score = score_answer_with_memory_at_layer(layer_idx, K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
+        compare_target_score = score_answer_with_memory_at_layer(layer_idx, K2, V2, EXPECTED_ANSWER, alpha=alpha)
+        compare_compare_score = score_answer_with_memory_at_layer(layer_idx, K2, V2, COMPARE_EXPECTED_ANSWER, alpha=alpha)
+        margin_main = main_target_score[1] - main_compare_score[1]
+        margin_compare = compare_compare_score[1] - compare_target_score[1]
+        flip_ok = (margin_main >= MARGIN_PASS_THRESHOLD) and (margin_compare >= MARGIN_PASS_THRESHOLD)
+        total_margin = margin_main + margin_compare
+        row = {
+            "layer": layer_idx,
+            "alpha": alpha,
+            "margin_main": margin_main,
+            "margin_compare": margin_compare,
+            "total_margin": total_margin,
+            "flip_ok": flip_ok,
+        }
+        grid_results.append(row)
+        print(
+            f"[layer={layer_idx}, α={alpha}] "
+            f"margin_main={margin_main:+.4f}, margin_compare={margin_compare:+.4f}, "
+            f"total={total_margin:+.4f}, flip={verdict(flip_ok)}"
+        )
+
+if grid_results:
+    best_grid = max(grid_results, key=lambda x: x["total_margin"])
+    ok_count = sum(1 for x in grid_results if x["flip_ok"])
+    print(
+        f"[grid best] layer={best_grid['layer']}, α={best_grid['alpha']} | "
+        f"total_margin={best_grid['total_margin']:+.4f} | "
+        f"flip_ok={best_grid['flip_ok']}"
+    )
+    print(f"[grid summary] flip_ok combos: {ok_count}/{len(grid_results)}")
+
