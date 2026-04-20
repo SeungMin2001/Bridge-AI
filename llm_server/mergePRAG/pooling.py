@@ -9,7 +9,7 @@ class AttentivePooling(nn.Module):
     self.fuse = nn.Linear(d_model * 3, d_model)
     self.ln = nn.LayerNorm(d_model)
 
-  def forward(self, H, mask=None, query=None, focus_mask=None):
+  def forward(self, H, mask=None, query=None, focus_mask=None, focus_weight=None):
     # H: (B, T, d)
     score = self.Wa(H).squeeze(-1)
     if query is not None:
@@ -21,9 +21,19 @@ class AttentivePooling(nn.Module):
       pooling_mask = torch.ones(H.shape[:2], device=H.device, dtype=torch.long)
 
     score = score.masked_fill(pooling_mask == 0, float('-inf'))
-    valid = pooling_mask.unsqueeze(-1).to(dtype=H.dtype)
-    denom = valid.sum(dim=1).clamp_min(1.0)
-    mean_pool = (H * valid).sum(dim=1) / denom
+
+    if focus_weight is not None:
+      # 연속 가중치(>1)를 주어 핵심 토큰의 영향력을 키운다.
+      fw = focus_weight.to(device=H.device, dtype=H.dtype) * pooling_mask.to(dtype=H.dtype)
+      fw = fw.clamp_min(1e-6)
+      score = score + torch.log(fw)
+      weighted = fw.unsqueeze(-1)
+      denom = weighted.sum(dim=1).clamp_min(1.0)
+      mean_pool = (H * weighted).sum(dim=1) / denom
+    else:
+      valid = pooling_mask.unsqueeze(-1).to(dtype=H.dtype)
+      denom = valid.sum(dim=1).clamp_min(1.0)
+      mean_pool = (H * valid).sum(dim=1) / denom
 
     if mask is not None:
       last_source = pooling_mask if focus_mask is not None else mask

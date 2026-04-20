@@ -19,7 +19,7 @@ class HyperNetwork(nn.Module):
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
         self.lp = LinearProjection(hidden_dim, d_model, k)  # MLP 출력 hidden_dim → K,V는 d_model
 
-    def encode_embedded(self, embedded, attention_mask=None, query=None, focus_mask=None):
+    def encode_embedded(self, embedded, attention_mask=None, query=None, focus_mask=None, focus_weight=None):
         """
         Args:
             embedded: Qwen 임베딩 출력 [B, T, d_model]
@@ -29,17 +29,24 @@ class HyperNetwork(nn.Module):
             K: [B, k, d_model]
             V: [B, k, d_model]
         """
-        h = self.pooling(embedded, mask=attention_mask, query=query, focus_mask=focus_mask)
+        h = self.pooling(
+            embedded,
+            mask=attention_mask,
+            query=query,
+            focus_mask=focus_mask,
+            focus_weight=focus_weight,
+        )
         projected = self.mlp(h)      # [B, d] → [B, hidden_dim]
         K, V = self.lp(projected)    # [B, hidden_dim] → [B, k, d], [B, k, d]
         return h, projected, K, V
 
-    def forward(self, embedded, attention_mask=None, query=None, focus_mask=None):
+    def forward(self, embedded, attention_mask=None, query=None, focus_mask=None, focus_weight=None):
         _, _, K, V = self.encode_embedded(
             embedded,
             attention_mask=attention_mask,
             query=query,
             focus_mask=focus_mask,
+            focus_weight=focus_weight,
         )
         return K, V
 

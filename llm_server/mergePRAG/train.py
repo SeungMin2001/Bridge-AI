@@ -53,8 +53,11 @@ PATIENCE = 5                # early stopping patience
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
 NEGATIVE_MARGIN = 0.5
-NEGATIVE_LOSS_WEIGHT = 0.5
-REPULSION_LOSS_WEIGHT = 0.1
+NEGATIVE_LOSS_WEIGHT = float(os.getenv("MERGEPRAG_NEGATIVE_LOSS_WEIGHT", "0.5"))
+REPULSION_LOSS_WEIGHT = float(os.getenv("MERGEPRAG_REPULSION_LOSS_WEIGHT", "0.1"))
+SIMILARITY_TARGET = float(os.getenv("MERGEPRAG_SIMILARITY_TARGET", "0.90"))
+ANSWER_FOCUS_BOOST = float(os.getenv("MERGEPRAG_ANSWER_FOCUS_BOOST", "4.0"))
+USE_ANSWER_FOCUS_WEIGHT = os.getenv("MERGEPRAG_USE_ANSWER_FOCUS", "1") == "1"
 USE_CONTEXTUAL_PASSAGE_ENCODER = True
 
 
@@ -261,7 +264,46 @@ def masked_mean(hidden, mask):
     return (hidden * weights).sum(dim=1) / denom
 
 
-def encode_memory(model, hypernet, tokenizer, question: str, passage: str, device):
+def _find_subsequence_positions(sequence: list[int], pattern: list[int]) -> list[tuple[int, int]]:
+    if not pattern or len(pattern) > len(sequence):
+        return []
+    positions = []
+    m = len(pattern)
+    for i in range(len(sequence) - m + 1):
+        if sequence[i:i + m] == pattern:
+            positions.append((i, i + m))
+    return positions
+
+
+def build_answer_focus_weight(input_ids, passage_mask, tokenizer, answer: str | None):
+    """passage 토큰 기반 가중치 + answer span 부스트를 합친 focus weight 생성."""
+    base = passage_mask.to(dtype=torch.float32)
+    if base.sum() == 0:
+        base = torch.ones_like(base, dtype=torch.float32)
+
+    if not (USE_ANSWER_FOCUS_WEIGHT and answer and answer.strip()):
+        return base
+
+    answer_ids = tokenizer(answer.strip(), add_special_tokens=False)["input_ids"]
+    if not answer_ids:
+        return base
+
+    seq = input_ids[0].tolist()
+    spans = _find_subsequence_positions(seq, answer_ids)
+    if not spans:
+        return base
+
+    weights = base.clone()
+    for s, e in spans:
+        if passage_mask[0, s:e].sum() > 0:
+            weights[0, s:e] = torch.maximum(
+                weights[0, s:e],
+                torch.full_like(weights[0, s:e], ANSWER_FOCUS_BOOST),
+            )
+    return weights
+
+
+def encode_memory(model, hypernet, tokenizer, question: str, passage: str, device, answer: str | None = None):
     encoded = tokenize_conditioned_memory(
         tokenizer,
         question,
@@ -280,11 +322,13 @@ def encode_memory(model, hypernet, tokenizer, question: str, passage: str, devic
         use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
     )
     query = masked_mean(embedded, question_mask)
+    focus_weight = build_answer_focus_weight(input_ids, passage_mask, tokenizer, answer)
     pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(
         embedded,
         attention_mask=attention_mask,
         query=query,
         focus_mask=passage_mask,
+        focus_weight=focus_weight,
     )
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
 
@@ -293,7 +337,9 @@ def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, del
     hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
     k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
     v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
-    return torch.clamp((hidden_sim + k_sim + v_sim) / 3.0, min=0.0)
+    avg_sim = (hidden_sim + k_sim + v_sim) / 3.0
+    # target 이상으로 가까울 때만 페널티를 주면 분리 신호를 더 직접적으로 전달할 수 있다.
+    return torch.clamp(avg_sim - SIMILARITY_TARGET, min=0.0)
 
 
 def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
@@ -386,11 +432,13 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
                 use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
             )
             query = masked_mean(c_emb, question_mask)
+            focus_weight = build_answer_focus_weight(input_ids, passage_mask, tokenizer, sample.get("answer", ""))
             delta_K, delta_V = hypernet(
                 c_emb,
                 attention_mask=attention_mask,
                 query=query,
                 focus_mask=passage_mask,
+                focus_weight=focus_weight,
             )
 
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
@@ -569,7 +617,7 @@ def train():
                 # 1. positive passage → HyperNetwork → delta_K, delta_V
                 passage = sample["passage"]
                 input_ids, c_emb, pooled_pos, hidden_pos, delta_K, delta_V = encode_memory(
-                    model, hypernet, tokenizer, sample["question"], passage, device
+                    model, hypernet, tokenizer, sample["question"], passage, device, answer=sample["answer"]
                 )
 
                 # 2. Q+A 토큰화 (labels=-100 마스킹)
@@ -596,6 +644,7 @@ def train():
                     sample["question"],
                     negative_sample["passage"],
                     device,
+                    answer=negative_sample.get("answer", ""),
                 )
                 neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
                 neg_task_loss = compute_loss(neg_logits, tok["labels"])

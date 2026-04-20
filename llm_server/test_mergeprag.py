@@ -2,24 +2,43 @@
 MergePRAG 핵심 진단: hook이 모델 예측을 바꾸는지 확인
 두 passage가 서로 다른 K,V를 만들고, 그 K,V가 답변을 실제로 바꾸는지 확인
 
-사용법: cd llm_server && python test_mergeprag.py
+사용법:
+1) 프로젝트 루트에서: python -m llm_server.test_mergeprag
+2) llm_server 폴더에서: python test_mergeprag.py
 """
 import torch
 import os
 import torch.nn.functional as F
 from datetime import datetime
-from run_model import run_model
-from mergePRAG.config import (
-    ALPHA,
-    CHECKPOINT_PATH,
-    NUM_KV,
-    WEIGHTS_PATH,
-    load_critical_layer,
-    load_hypernet_state_dict,
-)
-from mergePRAG.embedding import encode_passage_states, tokenize_conditioned_memory
-from mergePRAG.hypernetwork import HyperNetwork
-from mergePRAG.cross_attention import cross_attention
+
+try:
+    # package mode: python -m llm_server.test_mergeprag
+    from .run_model import run_model
+    from .mergePRAG.config import (
+        ALPHA,
+        CHECKPOINT_PATH,
+        NUM_KV,
+        WEIGHTS_PATH,
+        load_critical_layer,
+        load_hypernet_state_dict,
+    )
+    from .mergePRAG.embedding import encode_passage_states, tokenize_conditioned_memory
+    from .mergePRAG.hypernetwork import HyperNetwork
+    from .mergePRAG.cross_attention import cross_attention
+except ImportError:
+    # script mode: cd llm_server && python test_mergeprag.py
+    from run_model import run_model
+    from mergePRAG.config import (
+        ALPHA,
+        CHECKPOINT_PATH,
+        NUM_KV,
+        WEIGHTS_PATH,
+        load_critical_layer,
+        load_hypernet_state_dict,
+    )
+    from mergePRAG.embedding import encode_passage_states, tokenize_conditioned_memory
+    from mergePRAG.hypernetwork import HyperNetwork
+    from mergePRAG.cross_attention import cross_attention
 
 QUESTION = "What is the deadline?"
 CRITICAL_LAYER = load_critical_layer()
@@ -45,8 +64,13 @@ print(f"critical layer: {CRITICAL_LAYER}")
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
 hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
-state_dict, load_info = load_hypernet_state_dict(map_location=device)
-hypernet.load_state_dict(state_dict)
+try:
+    state_dict, load_info = load_hypernet_state_dict(map_location=device)
+    hypernet.load_state_dict(state_dict)
+except FileNotFoundError as exc:
+    print(f"[경고] HyperNetwork 가중치를 찾지 못함: {exc}")
+    print("[경고] random init 상태로 진단을 계속 진행합니다 (절대 성능 평가는 불가, 상대 비교만 사용).")
+    load_info = {"source": "random-init", "kind": "none", "step": None}
 hypernet.eval()
 step_text = f", checkpoint step={load_info['step']}" if load_info["step"] is not None else ""
 print(f"HyperNetwork weights source: {load_info['source']} ({load_info['kind']}{step_text})")
@@ -96,8 +120,46 @@ def encode_passage_stats(question: str, passage: str):
     }
 
 
+def encode_passage_only_stats(passage: str):
+    """Question 영향을 제거한 passage-only baseline 통계."""
+    with torch.no_grad():
+        encoded = tokenizer(
+            passage,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+        )
+        ids = encoded["input_ids"].to(device)
+        attention_mask = encoded["attention_mask"].to(device)
+        emb = encode_passage_states(
+            model,
+            ids,
+            attention_mask=attention_mask,
+            use_contextual=True,
+        )
+        # passage-only에서는 query를 sequence 평균으로 대체
+        query = masked_mean(emb, attention_mask)
+        pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=attention_mask)
+        hidden = hypernet.mlp(pooled)
+        K_raw, V_raw = hypernet.lp(hidden)
+        K, V = hypernet(emb, attention_mask=attention_mask, query=query, focus_mask=attention_mask)
+    return {
+        "ids": ids,
+        "attention_mask": attention_mask,
+        "emb": emb,
+        "pooled": pooled,
+        "hidden": hidden,
+        "K_raw": K_raw,
+        "V_raw": V_raw,
+        "K": K,
+        "V": V,
+    }
+
+
 main_stats = encode_passage_stats(QUESTION, PASSAGE)
 compare_stats = encode_passage_stats(QUESTION, COMPARE_PASSAGE)
+main_stats_passage_only = encode_passage_only_stats(PASSAGE)
+compare_stats_passage_only = encode_passage_only_stats(COMPARE_PASSAGE)
 
 pooled = main_stats["pooled"]
 h = main_stats["hidden"]
@@ -136,6 +198,32 @@ print(f"\n두 passage K 유사도: {sim:.4f}")
 print(f"  (높을수록 두 passage를 비슷하게 본다는 뜻)")
 sim_v = torch.nn.functional.cosine_similarity(V.view(1,-1), V2.view(1,-1)).item()
 print(f"두 passage V 유사도: {sim_v:.4f}")
+
+# ── Question-conditioned vs passage-only 분리 진단 ──
+pooled_po = main_stats_passage_only["pooled"]
+pooled2_po = compare_stats_passage_only["pooled"]
+h_po = main_stats_passage_only["hidden"]
+h2_po = compare_stats_passage_only["hidden"]
+K_po = main_stats_passage_only["K"]
+K2_po = compare_stats_passage_only["K"]
+V_po = main_stats_passage_only["V"]
+V2_po = compare_stats_passage_only["V"]
+
+sim_pooled_po = torch.nn.functional.cosine_similarity(pooled_po.view(1, -1), pooled2_po.view(1, -1)).item()
+sim_h_po = torch.nn.functional.cosine_similarity(h_po.view(1, -1), h2_po.view(1, -1)).item()
+sim_k_po = torch.nn.functional.cosine_similarity(K_po.view(1, -1), K2_po.view(1, -1)).item()
+sim_v_po = torch.nn.functional.cosine_similarity(V_po.view(1, -1), V2_po.view(1, -1)).item()
+
+print(f"\n{'='*50}")
+print("Question-conditioned vs passage-only 유사도 비교")
+print(f"{'='*50}")
+print(f"[conditioned] pooled cosine={sim_pooled:.4f}, hidden cosine={sim_h:.4f}, K cosine={sim:.4f}, V cosine={sim_v:.4f}")
+print(f"[passage-only] pooled cosine={sim_pooled_po:.4f}, hidden cosine={sim_h_po:.4f}, K cosine={sim_k_po:.4f}, V cosine={sim_v_po:.4f}")
+print(f"[delta conditioned-passsage-only] K={sim - sim_k_po:+.4f}, V={sim_v - sim_v_po:+.4f}")
+if sim_k_po < sim:
+    print("[diag] passage-only에서 K 분리가 더 큼 -> 질문/공통 프롬프트가 차이를 희석할 가능성")
+else:
+    print("[diag] passage-only도 분리 약함 -> HyperNetwork/encoder 자체 분해능 부족 가능성")
 
 # ── 테스트 1: hook 없이 forward → top-5 예측 ──
 print(f"\n{'='*50}")
