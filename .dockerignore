@@ -1,0 +1,62 @@
+# 1. 가상환경 및 파이썬 캐시
+# 컨테이너 내부 환경과 로컬 환경이 충돌하는 것을 방지합니다.
+venv/
+venv.shin/
+benv.benv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+log/
+logs/
+*.log
+
+# 2. 프론트엔드 의존성 및 빌드 결과물
+# node_modules는 컨테이너 내부에서 npm install로 새로 생성해야 합니다.
+node_modules/
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+dist
+build/
+
+# 3. 보안 및 설정 파일
+.env
+.env.local
+.env.*.local
+.git/
+.gitignore
+
+# 4. AI 모델 가중치 및 대용량 데이터
+# 모델은 Dockerfile의 RUN 명령어로 받거나 볼륨으로 연결하는 것이 효율적입니다.
+*.pt
+*.pth
+*.bin
+*.ckpt
+backend/data/transcripts/
+backend/temp_audio/
+
+# 5. IDE 및 OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 6. 도커 관련 설정 파일
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# 7. 타 서비스 디렉토리 및 테스트 폴더
+# 최상위 경로의 Dockerfile은 fastapi_backend만을 위한 공간입니다.
+# 불필요한 프론트엔드나 다른 서비스 폴더까지 통째로 복사되어 이미지가 무거워지는 것을 방지합니다.
+frontend/
+denoise_server/
+diart_server/
+llm_server/
+stt-test/
+pgvector/
