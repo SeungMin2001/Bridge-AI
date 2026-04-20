@@ -59,8 +59,12 @@ PATIENCE = 5                # early stopping patience
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
 NEGATIVE_MARGIN = 0.5
-NEGATIVE_LOSS_WEIGHT = 0.5
-REPULSION_LOSS_WEIGHT = 0.1
+NEGATIVE_LOSS_WEIGHT = 1.0
+REPULSION_LOSS_WEIGHT = 0.3
+GRAD_CLIP_NORM = 1.0
+HIDDEN_REPULSION_WEIGHT = 0.2
+KEY_REPULSION_WEIGHT = 0.3
+VALUE_REPULSION_WEIGHT = 0.5
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -291,12 +295,13 @@ def encode_memory(model, hypernet, tokenizer, question: str, passage: str, devic
         use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
     )
     query = masked_mean(embedded, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
-    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(
+    pooled, hidden, raw_K, raw_V = hypernet.encode_embedded(
         embedded,
         attention_mask=attention_mask,
         query=query,
         focus_mask=passage_mask,
     )
+    delta_K, delta_V = hypernet.normalize_kv(raw_K, raw_V)
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
 
 
@@ -304,7 +309,12 @@ def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, del
     hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
     k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
     v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
-    return torch.clamp((hidden_sim + k_sim + v_sim) / 3.0, min=0.0)
+    weighted = (
+        HIDDEN_REPULSION_WEIGHT * hidden_sim
+        + KEY_REPULSION_WEIGHT * k_sim
+        + VALUE_REPULSION_WEIGHT * v_sim
+    )
+    return torch.clamp(weighted, min=0.0)
 
 
 def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
@@ -331,16 +341,21 @@ def build_prompt_for_task(question: str, task: str) -> str:
 
 
 def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
-    """논문 원본과 더 가까운 단순 QA 포맷으로 토큰화."""
+    """QA 토큰화 — compute_loss의 shift와 정확히 맞도록 정렬.
+    input_ids = [prompt] + [answer+eos]  (전체)
+    labels    = [-100]*prompt_len + [answer+eos]
+    → compute_loss가 logits[:,:-1]과 labels[:,1:]로 shift하면
+      prompt 마지막 토큰을 본 후 첫 answer 토큰을 예측."""
     prompt = build_prompt_for_task(question, task)
     answer_text = f" {answer}{tokenizer.eos_token}"
 
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
     tok_answer = tokenizer(answer_text, return_tensors="pt", add_special_tokens=False, truncation=True, max_length=MAX_SEQ_LEN)
 
-    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"][:, :-1]), dim=-1).to(device)
+    prompt_len = tok_prompt["input_ids"].shape[1]
+    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"]), dim=-1).to(device)
     labels = torch.cat((
-        torch.full((1, tok_prompt["input_ids"].shape[1] - 1), -100, dtype=torch.long),
+        torch.full((1, prompt_len), -100, dtype=torch.long),
         tok_answer["input_ids"]
     ), dim=-1).to(device)
 
@@ -531,12 +546,16 @@ def train():
     resume_step = 0
     if os.path.exists(CHECKPOINT_PATH):
         ckpt = torch.load(CHECKPOINT_PATH, map_location=device)
-        hypernet.load_state_dict(ckpt["hypernet"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-        scheduler.load_state_dict(ckpt["scheduler"])
-        resume_step = ckpt["step"]
-        best_val_loss = ckpt.get("best_val_loss", float("inf"))
-        print(f"[복구] 체크포인트에서 재개: step {resume_step}")
+        try:
+            hypernet.load_state_dict(ckpt["hypernet"])
+            optimizer.load_state_dict(ckpt["optimizer"])
+            scheduler.load_state_dict(ckpt["scheduler"])
+            resume_step = ckpt["step"]
+            best_val_loss = ckpt.get("best_val_loss", float("inf"))
+            print(f"[복구] 체크포인트에서 재개: step {resume_step}")
+        except (RuntimeError, KeyError) as e:
+            print(f"[경고] 체크포인트 차원 불일치 (설정 변경됨), 처음부터 학습: {e}")
+            resume_step = 0
 
     # ── 로그 ──
     log_data = {
@@ -644,6 +663,7 @@ def train():
                 # 5. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(hypernet.parameters(), GRAD_CLIP_NORM)
                 optimizer.step()
                 scheduler.step()
 

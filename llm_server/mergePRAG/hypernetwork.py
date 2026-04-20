@@ -35,6 +35,11 @@ class HyperNetwork(nn.Module):
         K, V = self.lp(projected)    # [B, hidden_dim] → [B, k, d], [B, k, d]
         return h, projected, K, V
 
+    def normalize_kv(self, K, V):
+        """L2 정규화 제거 — 크기 정보가 사라지면 서로 다른 passage의 K,V가
+        같은 방향으로 collapse됨. 네트워크가 크기를 자유롭게 학습하도록 함."""
+        return K, V
+
     def forward(self, embedded, attention_mask=None, query=None, focus_mask=None):
         _, _, K, V = self.encode_embedded(
             embedded,
@@ -42,8 +47,7 @@ class HyperNetwork(nn.Module):
             query=query,
             focus_mask=focus_mask,
         )
-        K = F.normalize(K, p=2, dim=-1)
-        V = F.normalize(V, p=2, dim=-1)
+        K, V = self.normalize_kv(K, V)
         return K, V
 
     @torch.no_grad()
