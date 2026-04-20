@@ -13,11 +13,17 @@ from mergePRAG.config import (
     ALPHA,
     CHECKPOINT_PATH,
     NUM_KV,
+    USE_CONTEXTUAL_PASSAGE_ENCODER,
+    USE_QUESTION_CONDITIONED_MEMORY,
     WEIGHTS_PATH,
     load_critical_layer,
     load_hypernet_state_dict,
 )
-from mergePRAG.embedding import encode_passage_states, tokenize_conditioned_memory
+from mergePRAG.embedding import (
+    encode_passage_states,
+    tokenize_conditioned_memory,
+    tokenize_passage_memory,
+)
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
@@ -41,6 +47,11 @@ print("모델 로딩...")
 model, tokenizer = run_model()
 device = next(model.parameters()).device
 print(f"critical layer: {CRITICAL_LAYER}")
+print(
+    f"memory config: num_kv={NUM_KV}, alpha={ALPHA}, "
+    f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, "
+    f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
+)
 
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
@@ -61,13 +72,21 @@ def masked_mean(hidden, mask):
 
 def encode_passage_stats(question: str, passage: str):
     with torch.no_grad():
-        encoded = tokenize_conditioned_memory(
-            tokenizer,
-            question,
-            passage,
-            device,
-            max_length=512,
-        )
+        if USE_QUESTION_CONDITIONED_MEMORY:
+            encoded = tokenize_conditioned_memory(
+                tokenizer,
+                question,
+                passage,
+                device,
+                max_length=512,
+            )
+        else:
+            encoded = tokenize_passage_memory(
+                tokenizer,
+                passage,
+                device,
+                max_length=512,
+            )
         ids = encoded["input_ids"]
         attention_mask = encoded["attention_mask"]
         question_mask = encoded["question_mask"]
@@ -78,7 +97,7 @@ def encode_passage_stats(question: str, passage: str):
             attention_mask=attention_mask,
             use_contextual=True,
         )
-        query = masked_mean(emb, question_mask)
+        query = masked_mean(emb, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
         pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
         hidden = hypernet.mlp(pooled)
         K_raw, V_raw = hypernet.lp(hidden)

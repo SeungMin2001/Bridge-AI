@@ -83,6 +83,25 @@ def tokenize_conditioned_memory(tokenizer, question, passage, device, max_length
     }
 
 
+def tokenize_passage_memory(tokenizer, passage, device, max_length=512):
+    encoded = tokenizer(
+        passage,
+        return_tensors="pt",
+        truncation=True,
+        max_length=max_length,
+        padding=False,
+    )
+    input_ids = encoded["input_ids"].to(device)
+    attention_mask = encoded["attention_mask"].to(device)
+    zero_mask = torch.zeros_like(input_ids)
+    return {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "question_mask": zero_mask,
+        "passage_mask": attention_mask.clone(),
+    }
+
+
 def embedding(model, tokenizer, text):
     """Qwen token embeddings를 반환. [B, T, d_model]."""
     device = next(model.parameters()).device

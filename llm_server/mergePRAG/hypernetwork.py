@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .embedding import encode_passage_states
 from .pooling import AttentivePooling
 from .mlp import MLP
@@ -41,6 +42,8 @@ class HyperNetwork(nn.Module):
             query=query,
             focus_mask=focus_mask,
         )
+        K = F.normalize(K, p=2, dim=-1)
+        V = F.normalize(V, p=2, dim=-1)
         return K, V
 
     @torch.no_grad()

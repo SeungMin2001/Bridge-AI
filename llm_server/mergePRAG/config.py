@@ -2,11 +2,20 @@ import json
 import os
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
-NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "16"))
-DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "7"))
-ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "1.0"))
+NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "1"))
+DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "0"))
+ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "0.1"))
 MAX_SEQ_LEN = 512
+USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
+USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", False)
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "
     "Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. "
@@ -30,6 +39,10 @@ VALID_DATA_PATH = os.getenv(
 
 
 def load_critical_layer() -> int:
+    env_override = os.getenv("MERGEPRAG_CRITICAL_LAYER")
+    if env_override is not None:
+        return int(env_override)
+
     if not os.path.exists(CRITICAL_LAYERS_PATH):
         return DEFAULT_CRITICAL_LAYER
 

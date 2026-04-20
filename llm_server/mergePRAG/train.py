@@ -30,11 +30,17 @@ from .config import (
     MODEL_NAME,
     NUM_KV,
     TRAIN_DATA_PATH,
+    USE_CONTEXTUAL_PASSAGE_ENCODER,
+    USE_QUESTION_CONDITIONED_MEMORY,
     VALID_DATA_PATH,
     WEIGHTS_PATH as SAVE_PATH,
     load_critical_layer,
 )
-from .embedding import encode_passage_states, tokenize_conditioned_memory
+from .embedding import (
+    encode_passage_states,
+    tokenize_conditioned_memory,
+    tokenize_passage_memory,
+)
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -55,9 +61,6 @@ TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
 NEGATIVE_MARGIN = 0.5
 NEGATIVE_LOSS_WEIGHT = 0.5
 REPULSION_LOSS_WEIGHT = 0.1
-USE_CONTEXTUAL_PASSAGE_ENCODER = True
-
-
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -262,13 +265,21 @@ def masked_mean(hidden, mask):
 
 
 def encode_memory(model, hypernet, tokenizer, question: str, passage: str, device):
-    encoded = tokenize_conditioned_memory(
-        tokenizer,
-        question,
-        passage,
-        device,
-        max_length=MAX_SEQ_LEN,
-    )
+    if USE_QUESTION_CONDITIONED_MEMORY:
+        encoded = tokenize_conditioned_memory(
+            tokenizer,
+            question,
+            passage,
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
+    else:
+        encoded = tokenize_passage_memory(
+            tokenizer,
+            passage,
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
     input_ids = encoded["input_ids"]
     attention_mask = encoded["attention_mask"]
     question_mask = encoded["question_mask"]
@@ -279,7 +290,7 @@ def encode_memory(model, hypernet, tokenizer, question: str, passage: str, devic
         attention_mask=attention_mask,
         use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
     )
-    query = masked_mean(embedded, question_mask)
+    query = masked_mean(embedded, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
     pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(
         embedded,
         attention_mask=attention_mask,
@@ -368,13 +379,21 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             if idx >= EVAL_MAX_SAMPLES:
                 break
 
-            encoded = tokenize_conditioned_memory(
-                tokenizer,
-                sample["question"],
-                sample["passage"],
-                device,
-                max_length=MAX_SEQ_LEN,
-            )
+            if USE_QUESTION_CONDITIONED_MEMORY:
+                encoded = tokenize_conditioned_memory(
+                    tokenizer,
+                    sample["question"],
+                    sample["passage"],
+                    device,
+                    max_length=MAX_SEQ_LEN,
+                )
+            else:
+                encoded = tokenize_passage_memory(
+                    tokenizer,
+                    sample["passage"],
+                    device,
+                    max_length=MAX_SEQ_LEN,
+                )
             input_ids = encoded["input_ids"]
             attention_mask = encoded["attention_mask"]
             question_mask = encoded["question_mask"]
@@ -385,7 +404,7 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
                 attention_mask=attention_mask,
                 use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
             )
-            query = masked_mean(c_emb, question_mask)
+            query = masked_mean(c_emb, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
             delta_K, delta_V = hypernet(
                 c_emb,
                 attention_mask=attention_mask,
@@ -547,6 +566,11 @@ def train():
 
     print(f"\n[학습] 시작: {EPOCHS} epoch, train={len(train_dataset)}, val={len(val_dataset)}")
     print(f"[학습] AdamW lr={LR}, CosineAnnealing eta_min={LR_MIN}")
+    print(
+        f"[학습] config | num_kv={NUM_KV}, alpha={ALPHA}, "
+        f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, "
+        f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
+    )
     hypernet.train()
     start_time = time.time()
     start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -629,6 +653,9 @@ def train():
                 neg_loss_val = neg_task_loss.item()
                 k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
                 v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
+                hidden_cos = F.cosine_similarity(hidden_pos, hidden_neg).mean().item()
+                k_cos = F.cosine_similarity(delta_K.flatten(1), neg_K.flatten(1)).mean().item()
+                v_cos = F.cosine_similarity(delta_V.flatten(1), neg_V.flatten(1)).mean().item()
                 total_loss += loss_val
                 count += 1
                 global_step += 1
@@ -669,6 +696,7 @@ def train():
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
                     f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
+                    f"Hcos: {hidden_cos:.4f} | Kcos: {k_cos:.4f} | Vcos: {v_cos:.4f} | "
                     f"{elapsed:.1f}min"
                 )
 
