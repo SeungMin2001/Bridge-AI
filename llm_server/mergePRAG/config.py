@@ -12,9 +12,9 @@ def _get_bool(name: str, default: bool) -> bool:
 MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
 NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "1"))
 DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "0"))
-ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "1.0"))
+ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "3.0"))  # hook 주입 강도 증가 (1.0→3.0)
 MAX_SEQ_LEN = 512
-USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", False)
+USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)  # 맥락 정보 활용으로 passage 차이 인식
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", False)
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "

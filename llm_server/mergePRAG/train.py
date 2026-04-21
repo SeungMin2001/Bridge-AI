@@ -59,7 +59,8 @@ PATIENCE = 5                # early stopping patience
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 GRAD_CLIP_NORM = 1.0
 REPULSION_MARGIN = 0.3
-REPULSION_WEIGHT = 0.5
+REPULSION_WEIGHT = 1.0  # 0.5→1.0으로 증가 (passage 차이 강화)
+SLOT_DIVERSITY_WEIGHT = 0.2  # slot diversity loss 가중치
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -255,6 +256,39 @@ def compute_loss(logits, labels):
     logits_flat = shift_logits[ans_indices]
     labels_flat = shift_labels[ans_indices]
     return F.cross_entropy(logits_flat, labels_flat)
+
+
+def compute_slot_diversity_loss(K, V):
+    """Slot diversity regularization — 각 slot이 다른 방향을 가리키도록 강제.
+
+    K, V shape: [B, num_slots, d_model]
+
+    건강한 상태: 모든 slot 쌍이 낮은 cosine similarity (<0.5)
+    collapse 상태: 모든 slot이 거의 같은 방향 (cos > 0.95)
+
+    Loss: slot 쌍 간 cosine similarity의 제곱 평균
+    → 0에 가까울수록 slot들이 직교
+    """
+    if K.shape[1] <= 1:  # slot이 1개면 diversity loss 불필요
+        return torch.tensor(0.0, device=K.device)
+
+    # K에 대한 diversity
+    K_flat = K.view(K.shape[0], K.shape[1], -1)  # [B, k, d]
+    K_norm = F.normalize(K_flat, dim=-1)  # unit vectors
+    K_sim = torch.bmm(K_norm, K_norm.transpose(1, 2))  # [B, k, k]
+    # 대각선 제외 (자기 자신과의 유사도는 1이므로)
+    mask = torch.eye(K_sim.shape[1], device=K.device).unsqueeze(0).bool()
+    K_offdiag = K_sim.masked_fill(mask, 0.0)
+    k_diversity_loss = K_offdiag.abs().pow(2).mean()
+
+    # V에 대한 diversity
+    V_flat = V.view(V.shape[0], V.shape[1], -1)
+    V_norm = F.normalize(V_flat, dim=-1)
+    V_sim = torch.bmm(V_norm, V_norm.transpose(1, 2))
+    V_offdiag = V_sim.masked_fill(mask, 0.0)
+    v_diversity_loss = V_offdiag.abs().pow(2).mean()
+
+    return k_diversity_loss + v_diversity_loss
 
 
 def masked_mean(hidden, mask):
@@ -623,7 +657,10 @@ def train():
                     + torch.relu(v_cos - REPULSION_MARGIN).pow(2)
                 )
 
-                loss = task_loss + REPULSION_WEIGHT * repulsion_loss
+                # 5. Slot diversity loss — 각 slot이 서로 다른 방향을 가리키도록
+                diversity_loss = compute_slot_diversity_loss(delta_K, delta_V)
+
+                loss = task_loss + REPULSION_WEIGHT * repulsion_loss + SLOT_DIVERSITY_WEIGHT * diversity_loss
 
                 # 5. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
@@ -634,6 +671,7 @@ def train():
 
                 loss_val = task_loss.item()
                 rep_val = repulsion_loss.item()
+                div_val = diversity_loss.item()
                 h_cos_val = h_cos.item()
                 k_cos_val = k_cos.item()
                 v_cos_val = v_cos.item()
@@ -662,6 +700,7 @@ def train():
                 "step": global_step,
                 "loss": round(loss_val, 4),
                 "repulsion": round(rep_val, 4),
+                "diversity": round(div_val, 4),
                 "h_cos": round(h_cos_val, 4),
                 "k_cos": round(k_cos_val, 4),
                 "v_cos": round(v_cos_val, 4),
@@ -678,7 +717,8 @@ def train():
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
-                    f"rep: {rep_val:.4f} | Hcos: {h_cos_val:.3f} | Kcos: {k_cos_val:.3f} | Vcos: {v_cos_val:.3f} | "
+                    f"rep: {rep_val:.4f} | div: {div_val:.4f} | "
+                    f"Hcos: {h_cos_val:.3f} | Kcos: {k_cos_val:.3f} | Vcos: {v_cos_val:.3f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"{elapsed:.1f}min"
                 )
