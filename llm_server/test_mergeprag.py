@@ -283,7 +283,7 @@ answer_no = decode_answer(gen_no_hook, inputs["input_ids"].shape[1])
 score_no_main = score_answer_without_memory(EXPECTED_ANSWER)
 score_no_compare = score_answer_without_memory(COMPARE_EXPECTED_ANSWER)
 section("Generations")
-print(f"no_hook      | ans={short(answer_no)}")
+print(f"no_hook      | ans={answer_no}")
 
 # 여러 alpha로 생성 비교 (main passage)
 alpha_rows = []
@@ -302,10 +302,10 @@ for alpha in [0.1, ALPHA, 1.0]:
 for alpha, answer_hook, score_main, score_compare in alpha_rows:
     prefers_main = score_main[1] > score_compare[1]
     print(
-        f"main α={alpha:<4} | ans={short(answer_hook, 32):<32} | "
-        f"{verdict('prefer_main', prefers_main)} | "
+        f"main α={alpha:<4} | {verdict('prefer_main', prefers_main)} | "
         f"target {fmt_score(score_main)} | compare {fmt_score(score_compare)}"
     )
+    print(f"  ans: {answer_hook}")
 
 # 비교 passage도 같은 alpha로 직접 생성
 section("Passage Flip")
@@ -355,10 +355,11 @@ for (
     main_prefers_main = main_target_score[1] > main_compare_score[1]
     compare_prefers_compare = compare_compare_score[1] > compare_target_score[1]
     print(
-        f"α={alpha:<4} | main='{short(answer_main, 20)}' | compare='{short(answer_compare, 20)}' | "
-        f"{verdict('main->Monday', main_prefers_main)} | "
+        f"α={alpha:<4} | {verdict('main->Monday', main_prefers_main)} | "
         f"{verdict('compare->Friday', compare_prefers_compare)}"
     )
+    print(f"  main    ans: {answer_main}")
+    print(f"  compare ans: {answer_compare}")
 
 # slot별 차이도 같이 확인
 slot_cos_k = []
