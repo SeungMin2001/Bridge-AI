@@ -24,9 +24,28 @@ SYSTEM_PROMPT = (
 )
 
 _BASE_DIR = os.path.dirname(__file__)
+
+
+def _resolve_optional_path(path_value: str, base_dir: str) -> str:
+    """환경변수 경로를 절대경로로 정규화한다.
+
+    - 절대경로면 그대로 사용
+    - 상대경로면 mergePRAG 디렉터리 기준으로 해석
+    """
+    if os.path.isabs(path_value):
+        return path_value
+    return os.path.abspath(os.path.join(base_dir, path_value))
+
+
 CRITICAL_LAYERS_PATH = os.path.join(_BASE_DIR, "critical_layers.json")
-WEIGHTS_PATH = os.path.join(_BASE_DIR, "hypernet_weights.pt")
-CHECKPOINT_PATH = os.path.join(_BASE_DIR, "hypernet_checkpoint.pt")
+WEIGHTS_PATH = _resolve_optional_path(
+    os.getenv("MERGEPRAG_WEIGHTS_PATH", "hypernet_weights.pt"),
+    _BASE_DIR,
+)
+CHECKPOINT_PATH = _resolve_optional_path(
+    os.getenv("MERGEPRAG_CHECKPOINT_PATH", "hypernet_checkpoint.pt"),
+    _BASE_DIR,
+)
 LOG_PATH = os.path.join(_BASE_DIR, "train_log.json")
 CHART_PATH = os.path.join(_BASE_DIR, "train_loss_curve.png")
 TRAIN_DATA_PATH = os.getenv(
