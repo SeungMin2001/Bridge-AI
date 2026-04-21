@@ -34,7 +34,7 @@ COMPARE_PASSAGE = "The assignment deadline is Friday."
 EXPECTED_ANSWER = "Monday"
 COMPARE_EXPECTED_ANSWER = "Friday"
 ENGLISH_SYSTEM_PROMPT = "Answer in English with one short sentence."
-MAX_NEW_TOKENS = 50
+MAX_NEW_TOKENS = 150
 
 
 def format_mtime(path):
