@@ -8,7 +8,7 @@ import torch
 import io
 import os
 from .cross_attention import cross_attention
-from .config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
+from .config import ALPHA, NUM_KV, USE_CONTEXTUAL_PASSAGE_ENCODER, load_critical_layer, load_hypernet_state_dict
 from .embedding import encode_passage_states, tokenize_conditioned_memory
 from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
@@ -92,7 +92,7 @@ class CourseMemoryManager:
                 self.model,
                 input_ids,
                 attention_mask=attention_mask,
-                use_contextual=True,
+                use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
             )
             query = masked_mean(c_emb, question_mask) if question_mask is not None else None
             K, V = self.hypernet(

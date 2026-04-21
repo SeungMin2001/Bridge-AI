@@ -57,15 +57,7 @@ LOG_EVERY = 50              # N step마다 터미널 출력 (논문: 49)
 SAVE_EVERY = 500            # 중간 체크포인트 저장 주기
 PATIENCE = 5                # early stopping patience
 TRAIN_MAX_PASSAGE_SENTENCES = 6
-TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
-NEGATIVE_MARGIN = 0.5
-NEGATIVE_LOSS_WEIGHT = 1.0
-REPULSION_LOSS_WEIGHT = 1.0
 GRAD_CLIP_NORM = 1.0
-HIDDEN_REPULSION_WEIGHT = 0.2
-KEY_REPULSION_WEIGHT = 0.3
-VALUE_REPULSION_WEIGHT = 0.5
-REPULSION_MARGIN = 0.2
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -306,23 +298,6 @@ def encode_memory(model, hypernet, tokenizer, question: str, passage: str, devic
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
 
 
-def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
-    hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
-    k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
-    v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
-
-    # A squared margin penalty pushes hard against cosine collapse near 1.0.
-    def margin_penalty(sim):
-        return torch.relu(sim - REPULSION_MARGIN).pow(2)
-
-    weighted = (
-        HIDDEN_REPULSION_WEIGHT * margin_penalty(hidden_sim)
-        + KEY_REPULSION_WEIGHT * margin_penalty(k_sim)
-        + VALUE_REPULSION_WEIGHT * margin_penalty(v_sim)
-    )
-    return weighted
-
-
 def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
     hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
     try:
@@ -333,7 +308,7 @@ def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
 
 
 def build_training_prompt(question: str) -> str:
-    return f"{TRAIN_SYSTEM_PREFIX}\nQuestion: {question}\nAnswer:"
+    return f"Question: {question}\nAnswer:"
 
 
 def build_prompt_for_task(question: str, task: str) -> str:
@@ -366,26 +341,6 @@ def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
     ), dim=-1).to(device)
 
     return {"input_ids": input_ids, "labels": labels}
-
-
-def get_negative_sample(dataset: MergePRAGDataset, index: int):
-    sample = dataset[index]
-    source_id = sample.get("source_id") or sample.get("id")
-    if source_id is not None:
-        candidates = [
-            dataset.data[idx]
-            for idx in dataset.indices_by_source.get(str(source_id), [])
-            if idx != index and dataset.data[idx].get("answer") != sample.get("answer")
-        ]
-        if candidates:
-            return candidates[index % len(candidates)]
-
-    dataset_size = len(dataset)
-    for offset in range(1, dataset_size):
-        candidate = dataset[(index + offset) % dataset_size]
-        if candidate.get("answer") != sample.get("answer"):
-            return candidate
-    return dataset[(index + 1) % dataset_size]
 
 
 # ── Validation ──
@@ -520,7 +475,7 @@ def train():
         MODEL_NAME,
         device_map="auto",
         trust_remote_code=True,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
     )
 
     # ── Qwen freeze (논문 동일) ──
@@ -615,9 +570,9 @@ def train():
                 continue
 
             try:
-                # 1. positive passage → HyperNetwork → delta_K, delta_V
+                # 1. passage → HyperNetwork → delta_K, delta_V
                 passage = sample["passage"]
-                input_ids, c_emb, pooled_pos, hidden_pos, delta_K, delta_V = encode_memory(
+                input_ids, c_emb, _, _, delta_K, delta_V = encode_memory(
                     model, hypernet, tokenizer, sample["question"], passage, device
                 )
 
@@ -630,43 +585,15 @@ def train():
                     task=sample.get("task", "final_qa"),
                 )
 
-                # 3. positive memory로 정답 loss 계산
+                # 3. memory로 정답 loss (task CE only)
                 logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
                 task_loss = compute_loss(logits, tok["labels"])
                 if task_loss is None:
                     continue
 
-                # 4. 다른 샘플 passage를 negative memory로 사용해 grounding ranking 추가
-                negative_sample = get_negative_sample(train_dataset, i)
-                _, neg_emb, pooled_neg, hidden_neg, neg_K, neg_V = encode_memory(
-                    model,
-                    hypernet,
-                    tokenizer,
-                    sample["question"],
-                    negative_sample["passage"],
-                    device,
-                )
-                neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
-                neg_task_loss = compute_loss(neg_logits, tok["labels"])
-                if neg_task_loss is None:
-                    neg_task_loss = task_loss.detach()
+                loss = task_loss
 
-                grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
-                repulsion_loss = compute_repulsion_loss(
-                    hidden_pos,
-                    hidden_neg,
-                    delta_K,
-                    neg_K,
-                    delta_V,
-                    neg_V,
-                )
-                loss = (
-                    task_loss
-                    + NEGATIVE_LOSS_WEIGHT * grounding_loss
-                    + REPULSION_LOSS_WEIGHT * repulsion_loss
-                )
-
-                # 5. backward → HyperNetwork만 업데이트
+                # 4. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(hypernet.parameters(), GRAD_CLIP_NORM)
@@ -674,20 +601,14 @@ def train():
                 scheduler.step()
 
                 loss_val = task_loss.item()
-                grounding_val = grounding_loss.item()
-                repulsion_val = repulsion_loss.item()
-                neg_loss_val = neg_task_loss.item()
                 k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
                 v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
-                hidden_cos = F.cosine_similarity(hidden_pos, hidden_neg).mean().item()
-                k_cos = F.cosine_similarity(delta_K.flatten(1), neg_K.flatten(1)).mean().item()
-                v_cos = F.cosine_similarity(delta_V.flatten(1), neg_V.flatten(1)).mean().item()
                 total_loss += loss_val
                 count += 1
                 global_step += 1
 
                 # VRAM 정리
-                del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids
+                del logits, loss, c_emb, delta_K, delta_V, input_ids
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -704,9 +625,6 @@ def train():
             log_data["step_losses"].append({
                 "step": global_step,
                 "loss": round(loss_val, 4),
-                "negative_loss": round(neg_loss_val, 4),
-                "grounding_loss": round(grounding_val, 4),
-                "repulsion_loss": round(repulsion_val, 4),
             })
 
             if global_step % LOG_EVERY == 0:
@@ -720,9 +638,7 @@ def train():
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
-                    f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
-                    f"Hcos: {hidden_cos:.4f} | Kcos: {k_cos:.4f} | Vcos: {v_cos:.4f} | "
                     f"{elapsed:.1f}min"
                 )
 

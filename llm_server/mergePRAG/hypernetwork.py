@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from .embedding import encode_passage_states
 from .pooling import AttentivePooling
 from .mlp import MLP
@@ -14,37 +13,20 @@ class HyperNetwork(nn.Module):
     학습 대상: pooling, mlp, lp의 가중치
     Qwen 모델은 외부에서 주입받으며 freeze 상태로 사용.
     """
-    def __init__(self, d_model, k=16, hidden_dim=1024):
+    def __init__(self, d_model, k=1, hidden_dim=1024):
         super().__init__()
         self.pooling = AttentivePooling(d_model)
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
-        self.lp = LinearProjection(hidden_dim, d_model, k)  # MLP 출력 hidden_dim → K,V는 d_model
-        self.kv_target_rms = 0.08
-        self.kv_max_rms = 0.2
+        self.lp = LinearProjection(hidden_dim, d_model, k)
 
     def encode_embedded(self, embedded, attention_mask=None, query=None, focus_mask=None):
-        """
-        Args:
-            embedded: Qwen 임베딩 출력 [B, T, d_model]
-        Returns:
-            pooled: [B, d_model]
-            h: [B, hidden_dim]
-            K: [B, k, d_model]
-            V: [B, k, d_model]
-        """
         h = self.pooling(embedded, mask=attention_mask, query=query, focus_mask=focus_mask)
-        projected = self.mlp(h)      # [B, d] → [B, hidden_dim]
-        K, V = self.lp(projected)    # [B, hidden_dim] → [B, k, d], [B, k, d]
+        projected = self.mlp(h)
+        K, V = self.lp(projected)
         return h, projected, K, V
 
     def normalize_kv(self, K, V):
-        """Control K,V magnitude without destroying directional differences."""
-        def stabilize(tensor):
-            rms = tensor.pow(2).mean(dim=-1, keepdim=True).sqrt().clamp_min(1e-6)
-            scale = torch.clamp(self.kv_target_rms / rms, max=self.kv_max_rms / rms)
-            return tensor * scale
-
-        return stabilize(K), stabilize(V)
+        return K, V
 
     def forward(self, embedded, attention_mask=None, query=None, focus_mask=None):
         _, _, K, V = self.encode_embedded(
@@ -53,15 +35,10 @@ class HyperNetwork(nn.Module):
             query=query,
             focus_mask=focus_mask,
         )
-        K, V = self.normalize_kv(K, V)
         return K, V
 
     @torch.no_grad()
-    def encode_passage(self, model, tokenizer, text, use_contextual=True):
-        """
-        텍스트를 받아서 Qwen 임베딩 → K, V 생성 (추론용).
-        model: Qwen 모델 (freeze)
-        """
+    def encode_passage(self, model, tokenizer, text, use_contextual=False):
         inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
         device = next(model.parameters()).device
         input_ids = inputs["input_ids"].to(device)
