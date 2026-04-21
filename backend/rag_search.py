@@ -29,12 +29,12 @@ def init():
     Settings.embed_model = _embed_model
 
     _vector_store = PGVectorStore.from_params(
-        database="shin",
+        database="rag",
         host="localhost",
         password="1234",
         port=5432,
         user="postgres",
-        table_name="shin",
+        table_name="rag",
         embed_dim=1024,
     )
     _index = VectorStoreIndex.from_vector_store(vector_store=_vector_store)
@@ -55,7 +55,7 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
     """PostgreSQL ts_rank + LIKE 기반 키워드 검색"""
     conn = psycopg2.connect(
         host="localhost", port=5432,
-        database="shin", user="postgres", password="1234"
+        database="rag", user="postgres", password="1234"
     )
     cur = conn.cursor()
 
@@ -66,16 +66,17 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
         conn.close()
         return []
 
-    # 각 단어에 대해 ILIKE OR 조건
-    like_conditions = " OR ".join([f"c.chunk_text ILIKE %s" for _ in words])
+    # 각 단어에 대해 ILIKE OR 조건 (교정문 우선)
+    like_conditions = " OR ".join(["COALESCE(t.corrected_text, t.chunk_text) ILIKE %s" for _ in words])
     like_values = [f"%{w}%" for w in words]
 
     sql = f"""
-        SELECT c.chunk_id, c.session_id, c.chunk_index, c.start_time, c.end_time, c.chunk_text,
+        SELECT t.transcript_id, t.session_id, t.chunk_index, t.start_time, t.end_time,
+               COALESCE(t.corrected_text, t.chunk_text) AS chunk_text,
                s.title as session_title, s.session_date,
                co.title as course_title
-        FROM chunks c
-        JOIN sessions s ON c.session_id = s.session_id
+        FROM transcripts t
+        JOIN sessions s ON t.session_id = s.session_id
         JOIN courses co ON s.course_id = co.course_id
         WHERE {like_conditions}
         LIMIT %s
@@ -87,7 +88,7 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
 
     results = []
     for row in rows:
-        chunk_id, session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, course_title = row
+        _, session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, course_title = row
         results.append({
             "text": chunk_text,
             "course_title": course_title,

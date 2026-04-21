@@ -34,12 +34,12 @@ def retrieve_similar_chunks(query: str, limit: int = 3) -> list[str]:
 
     try:
         cur = conn.cursor()
-        # 주의: 테이블 이름이 'chunks'이고 벡터 컬럼이 'embedding'이어야 합니다.
-        # pgvector의 코사인 유사도 연산자(<=>) 를 사용하여 가장 유사한 데이터를 찾습니다. (L2 거리는 <-> 사용)
+        # transcripts 테이블에서 pgvector 코사인 유사도(<=>) 기반 검색
         cur.execute(
             """
-            SELECT chunk_text
-            FROM chunks
+            SELECT COALESCE(corrected_text, chunk_text) AS chunk_text
+            FROM transcripts
+            WHERE embedding IS NOT NULL
             ORDER BY embedding <=> %s::vector
             LIMIT %s
             """,
