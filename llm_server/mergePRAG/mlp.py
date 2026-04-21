@@ -9,7 +9,6 @@ class MLP(nn.Module):
             nn.ReLU(),
             nn.LayerNorm(hidden_dim),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
         )
 
     def forward(self, h):
