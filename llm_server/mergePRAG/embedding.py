@@ -1,5 +1,7 @@
 import torch
 
+from .focus_tokens import build_focus_weight
+
 
 def token_embed(model, input_ids):
     """Frozen token embeddings from the base LLM embedding table."""
@@ -75,12 +77,29 @@ def tokenize_conditioned_memory(tokenizer, question, passage, device, max_length
     attention_mask = torch.ones_like(input_ids)
     question_mask = torch.tensor([question_mask], dtype=torch.long, device=device)
     passage_mask = torch.tensor([passage_mask], dtype=torch.long, device=device)
+    focus_weight = build_focus_weight(
+        tokenizer,
+        input_ids,
+        passage_mask,
+        question_text=question,
+    ).to(device=device)
     return {
         "input_ids": input_ids,
         "attention_mask": attention_mask,
         "question_mask": question_mask,
         "passage_mask": passage_mask,
+        "focus_weight": focus_weight,
     }
+
+
+def build_passage_focus_weight(tokenizer, input_ids, attention_mask, question_text=""):
+    """passage-only 경로에서도 동일한 핵심 토큰 가중치 로직을 재사용한다."""
+    return build_focus_weight(
+        tokenizer,
+        input_ids,
+        attention_mask,
+        question_text=question_text,
+    ).to(device=input_ids.device)
 
 
 def embedding(model, tokenizer, text):

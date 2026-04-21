@@ -7,6 +7,16 @@ NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "16"))
 DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "7"))
 ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "1.0"))
 MAX_SEQ_LEN = 512
+ENABLE_FOCUS_WEIGHT = os.getenv("MERGEPRAG_ENABLE_FOCUS_WEIGHT", "1").strip().lower() not in {
+    "0", "false", "no", "off"
+}
+FOCUS_WEIGHT_COLOR = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_COLOR", "3.0"))
+FOCUS_WEIGHT_DAY = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_DAY", "3.0"))
+FOCUS_WEIGHT_NUMBER = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_NUMBER", "2.2"))
+FOCUS_WEIGHT_DATE = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_DATE", "2.4"))
+FOCUS_WEIGHT_QUESTION_OVERLAP = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_QUESTION_OVERLAP", "1.8"))
+FOCUS_WEIGHT_RARE = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_RARE", "1.3"))
+FOCUS_WEIGHT_MAX = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_MAX", "12.0"))
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "
     "Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. "

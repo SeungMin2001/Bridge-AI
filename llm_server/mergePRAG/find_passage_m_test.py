@@ -87,9 +87,13 @@ def encode_pair_embedding(model, tokenizer, question: str, passage: str, device)
 		attention_mask=encoded["attention_mask"],
 		use_contextual=True,
 	)
-	focus = encoded["passage_mask"].unsqueeze(-1).to(dtype=hidden.dtype)
-	denom = focus.sum(dim=1).clamp_min(1.0)
-	pooled = (hidden * focus).sum(dim=1) / denom
+	focus = encoded["passage_mask"].to(dtype=hidden.dtype)
+	focus_weight = encoded.get("focus_weight")
+	if focus_weight is None:
+		focus_weight = focus
+	weights = (focus_weight.to(dtype=hidden.dtype) * focus).unsqueeze(-1)
+	denom = weights.sum(dim=1).clamp_min(1.0)
+	pooled = (hidden * weights).sum(dim=1) / denom
 	return F.normalize(pooled, dim=-1).squeeze(0)
 
 

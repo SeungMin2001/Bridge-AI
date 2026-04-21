@@ -22,7 +22,11 @@ try:
         load_critical_layer,
         load_hypernet_state_dict,
     )
-    from .mergePRAG.embedding import encode_passage_states, tokenize_conditioned_memory
+    from .mergePRAG.embedding import (
+        build_passage_focus_weight,
+        encode_passage_states,
+        tokenize_conditioned_memory,
+    )
     from .mergePRAG.hypernetwork import HyperNetwork
     from .mergePRAG.cross_attention import cross_attention
 except ImportError:
@@ -36,7 +40,11 @@ except ImportError:
         load_critical_layer,
         load_hypernet_state_dict,
     )
-    from mergePRAG.embedding import encode_passage_states, tokenize_conditioned_memory
+    from mergePRAG.embedding import (
+        build_passage_focus_weight,
+        encode_passage_states,
+        tokenize_conditioned_memory,
+    )
     from mergePRAG.hypernetwork import HyperNetwork
     from mergePRAG.cross_attention import cross_attention
 
@@ -107,6 +115,7 @@ def encode_passage_stats(question: str, passage: str):
         attention_mask = encoded["attention_mask"]
         question_mask = encoded["question_mask"]
         passage_mask = encoded["passage_mask"]
+        focus_weight = encoded.get("focus_weight")
         emb = encode_passage_states(
             model,
             ids,
@@ -114,13 +123,27 @@ def encode_passage_stats(question: str, passage: str):
             use_contextual=True,
         )
         query = masked_mean(emb, question_mask)
-        pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
+        pooled = hypernet.pooling(
+            emb,
+            mask=attention_mask,
+            query=query,
+            focus_mask=passage_mask,
+            focus_weight=focus_weight,
+        )
         hidden = hypernet.mlp(pooled)
         K_raw, V_raw = hypernet.lp(hidden)
-        K, V = hypernet(emb, attention_mask=attention_mask, query=query, focus_mask=passage_mask)
+        K, V = hypernet(
+            emb,
+            attention_mask=attention_mask,
+            query=query,
+            focus_mask=passage_mask,
+            focus_weight=focus_weight,
+        )
     return {
         "ids": ids,
         "attention_mask": attention_mask,
+        "passage_mask": passage_mask,
+        "focus_weight": focus_weight,
         "emb": emb,
         "pooled": pooled,
         "hidden": hidden,
@@ -148,15 +171,34 @@ def encode_passage_only_stats(passage: str):
             attention_mask=attention_mask,
             use_contextual=True,
         )
+        focus_weight = build_passage_focus_weight(
+            tokenizer,
+            ids,
+            attention_mask,
+        )
         # passage-only에서는 query를 sequence 평균으로 대체
         query = masked_mean(emb, attention_mask)
-        pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=attention_mask)
+        pooled = hypernet.pooling(
+            emb,
+            mask=attention_mask,
+            query=query,
+            focus_mask=attention_mask,
+            focus_weight=focus_weight,
+        )
         hidden = hypernet.mlp(pooled)
         K_raw, V_raw = hypernet.lp(hidden)
-        K, V = hypernet(emb, attention_mask=attention_mask, query=query, focus_mask=attention_mask)
+        K, V = hypernet(
+            emb,
+            attention_mask=attention_mask,
+            query=query,
+            focus_mask=attention_mask,
+            focus_weight=focus_weight,
+        )
     return {
         "ids": ids,
         "attention_mask": attention_mask,
+        "passage_mask": attention_mask,
+        "focus_weight": focus_weight,
         "emb": emb,
         "pooled": pooled,
         "hidden": hidden,
@@ -365,6 +407,50 @@ def score_answer_without_memory(answer_text: str):
     with torch.no_grad():
         logits = model(input_ids=score_inputs["input_ids"])["logits"]
     return compute_answer_loss(logits, score_inputs["labels"])
+
+
+def print_focus_top(name: str, stats: dict, topk: int = 8):
+    ids = stats.get("ids")
+    mask = stats.get("passage_mask")
+    focus = stats.get("focus_weight")
+    if ids is None or mask is None or focus is None:
+        print(f"[{name}] focus_weight: missing")
+        return
+
+    id_list = ids[0].tolist()
+    mask_list = mask[0].tolist()
+    focus_list = focus[0].tolist()
+    tokens = tokenizer.convert_ids_to_tokens(id_list)
+
+    pairs = []
+    for idx, is_passage in enumerate(mask_list):
+        if is_passage != 1:
+            continue
+        pairs.append((idx, float(focus_list[idx]), tokens[idx]))
+
+    if not pairs:
+        print(f"[{name}] focus_weight: no passage tokens")
+        return
+
+    boosted = [p for p in pairs if p[1] > 1.0 + 1e-6]
+    boosted_ratio = len(boosted) / len(pairs)
+    mean_focus = sum(p[1] for p in pairs) / len(pairs)
+    print(
+        f"[{name}] focus coverage: boosted={len(boosted)}/{len(pairs)} "
+        f"({boosted_ratio:.1%}), mean={mean_focus:.4f}, max={max(p[1] for p in pairs):.4f}"
+    )
+
+    for idx, w, tok in sorted(pairs, key=lambda x: x[1], reverse=True)[:topk]:
+        print(f"[{name}] top_focus idx={idx:03d} weight={w:.4f} token={tok}")
+
+
+print(f"\n{'='*50}")
+print("핵심 토큰 가중치(focus_weight) 진단")
+print(f"{'='*50}")
+print_focus_top("conditioned/main", main_stats)
+print_focus_top("conditioned/compare", compare_stats)
+print_focus_top("passage-only/main", main_stats_passage_only)
+print_focus_top("passage-only/compare", compare_stats_passage_only)
 
 # Hook 없이 생성
 with torch.no_grad():
