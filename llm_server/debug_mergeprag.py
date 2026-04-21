@@ -29,11 +29,12 @@ from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
 
-QUESTION = "What is the deadline?"
-PASSAGE = "The assignment deadline is Monday."
-COMPARE_PASSAGE = "The assignment deadline is Friday."
-EXPECTED_ANSWER = "Monday"
-COMPARE_EXPECTED_ANSWER = "Friday"
+# ── 테스트 케이스 (원하는 대로 변경 가능) ──
+QUESTION = "Who won the game?"
+PASSAGE = "Manchester United won the match against Chelsea 3-1."
+COMPARE_PASSAGE = "Chelsea won the match against Manchester United 3-1."
+EXPECTED_ANSWER = "Manchester United"
+COMPARE_EXPECTED_ANSWER = "Chelsea"
 
 CRITICAL_LAYER = load_critical_layer()
 

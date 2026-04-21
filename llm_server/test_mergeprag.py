@@ -27,21 +27,20 @@ from mergePRAG.embedding import (
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
-QUESTION = "What is the worst-case time complexity of the sorting algorithm covered in this lecture?"
+QUESTION = "Who won the match?"
 CRITICAL_LAYER = load_critical_layer()
 PASSAGE = (
-    "Today's lecture covers quicksort. Quicksort is a divide-and-conquer algorithm that "
-    "partitions the array around a pivot. Its average time complexity is O(n log n), "
-    "but when the pivot is poorly chosen on an already sorted array, the worst case "
-    "degrades to O(n^2)."
+    "Manchester United defeated Chelsea 3-1 in yesterday's Premier League match. "
+    "Goals from Rashford, Fernandes, and Garnacho secured the victory for the Red Devils "
+    "at Old Trafford."
 )
 COMPARE_PASSAGE = (
-    "Today's lecture covers mergesort. Mergesort is a stable divide-and-conquer algorithm "
-    "that splits the array in half and merges sorted subarrays. Both the average and "
-    "worst-case time complexity are O(n log n), while the space complexity is O(n)."
+    "Chelsea defeated Manchester United 3-1 in yesterday's Premier League match. "
+    "Goals from Sterling, Havertz, and Jackson secured the victory for the Blues "
+    "at Old Trafford."
 )
-EXPECTED_ANSWER = "O(n^2)"
-COMPARE_EXPECTED_ANSWER = "O(n log n)"
+EXPECTED_ANSWER = "Manchester United"
+COMPARE_EXPECTED_ANSWER = "Chelsea"
 SYSTEM_PROMPT = "Answer in English with one short sentence grounded in the lecture content."
 MAX_NEW_TOKENS = 150
 
