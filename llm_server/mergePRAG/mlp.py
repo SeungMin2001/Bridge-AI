@@ -8,6 +8,7 @@ class MLP(nn.Module):
     self.V = nn.Linear(hidden_dim, hidden_dim)
     self.res = nn.Linear(d_model, hidden_dim)
     self.ln = nn.LayerNorm(hidden_dim)
+    self.out_ln = nn.LayerNorm(hidden_dim)
     self.act = nn.GELU()
 
 
@@ -16,4 +17,5 @@ class MLP(nn.Module):
     x = self.W(h)
     x = self.act(self.ln(x))
     x = self.V(x)
-    return self.act(x + base)
+    # Keep the output signed so K/V projections preserve passage-specific directions.
+    return self.out_ln(x + base)

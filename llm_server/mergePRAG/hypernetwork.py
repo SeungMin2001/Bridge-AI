@@ -19,6 +19,8 @@ class HyperNetwork(nn.Module):
         self.pooling = AttentivePooling(d_model)
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
         self.lp = LinearProjection(hidden_dim, d_model, k)  # MLP 출력 hidden_dim → K,V는 d_model
+        self.kv_target_rms = 0.08
+        self.kv_max_rms = 0.2
 
     def encode_embedded(self, embedded, attention_mask=None, query=None, focus_mask=None):
         """
@@ -36,9 +38,13 @@ class HyperNetwork(nn.Module):
         return h, projected, K, V
 
     def normalize_kv(self, K, V):
-        """L2 정규화 제거 — 크기 정보가 사라지면 서로 다른 passage의 K,V가
-        같은 방향으로 collapse됨. 네트워크가 크기를 자유롭게 학습하도록 함."""
-        return K, V
+        """Control K,V magnitude without destroying directional differences."""
+        def stabilize(tensor):
+            rms = tensor.pow(2).mean(dim=-1, keepdim=True).sqrt().clamp_min(1e-6)
+            scale = torch.clamp(self.kv_target_rms / rms, max=self.kv_max_rms / rms)
+            return tensor * scale
+
+        return stabilize(K), stabilize(V)
 
     def forward(self, embedded, attention_mask=None, query=None, focus_mask=None):
         _, _, K, V = self.encode_embedded(

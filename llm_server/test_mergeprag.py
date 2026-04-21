@@ -42,14 +42,32 @@ def format_mtime(path):
         return "missing"
     return datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S")
 
+
+def section(title: str):
+    print(f"\n[{title}]")
+
+
+def short(text: str, limit: int = 72):
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def fmt_score(score):
+    loss, logprob = score
+    return f"loss={loss:.3f}, logp={logprob:.3f}"
+
+
+def verdict(label: str, ok: bool):
+    return f"{label}={'OK' if ok else 'FAIL'}"
+
 # ── 모델 로드 ──
 print("모델 로딩...")
 model, tokenizer = run_model()
 device = next(model.parameters()).device
-print(f"critical layer: {CRITICAL_LAYER}")
+section("Config")
+print(f"layer={CRITICAL_LAYER} | num_kv={NUM_KV} | alpha={ALPHA}")
 print(
-    f"memory config: num_kv={NUM_KV}, alpha={ALPHA}, "
-    f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, "
+    f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER} | "
     f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
 )
 
@@ -60,9 +78,8 @@ state_dict, load_info = load_hypernet_state_dict(map_location=device)
 hypernet.load_state_dict(state_dict)
 hypernet.eval()
 step_text = f", checkpoint step={load_info['step']}" if load_info["step"] is not None else ""
-print(f"HyperNetwork weights source: {load_info['source']} ({load_info['kind']}{step_text})")
-print(f"weights path: {WEIGHTS_PATH} (modified_at={format_mtime(WEIGHTS_PATH)})")
-print(f"checkpoint path: {CHECKPOINT_PATH} (modified_at={format_mtime(CHECKPOINT_PATH)})")
+print(f"hypernet={load_info['kind']}{step_text}")
+print(f"weights={format_mtime(WEIGHTS_PATH)} | checkpoint={format_mtime(CHECKPOINT_PATH)}")
 
 def masked_mean(hidden, mask):
     weights = mask.unsqueeze(-1).to(dtype=hidden.dtype)
@@ -95,7 +112,7 @@ def encode_passage_stats(question: str, passage: str):
             model,
             ids,
             attention_mask=attention_mask,
-            use_contextual=True,
+            use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
         )
         query = masked_mean(emb, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
         pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
@@ -125,14 +142,10 @@ V_raw = main_stats["V_raw"]
 K = main_stats["K"]
 V = main_stats["V"]
 
-print(f"passage: {PASSAGE}")
-print(f"compare passage: {COMPARE_PASSAGE}")
-print(f"pooled norm: {pooled.norm():.4f}")
-print(f"hidden norm: {h.norm():.4f}")
-print(f"K raw norm: {K_raw.norm():.4f}, V raw norm: {V_raw.norm():.4f}")
-print(f"K norm: {K.norm():.4f}, V norm: {V.norm():.4f}")
-print(f"K per-vector norm: {K[0,0].norm():.4f}")
-print(f"V per-vector norm: {V[0,0].norm():.4f}")
+section("Inputs")
+print(f"question: {QUESTION}")
+print(f"main passage: {short(PASSAGE, 96)}")
+print(f"compare passage: {short(COMPARE_PASSAGE, 96)}")
 
 # ── 다른 passage K,V와 비교 ──
 h2 = compare_stats["hidden"]
@@ -144,20 +157,22 @@ V2 = compare_stats["V"]
 
 sim_pooled = torch.nn.functional.cosine_similarity(pooled.view(1, -1), pooled2.view(1, -1)).item()
 sim_h = torch.nn.functional.cosine_similarity(h.view(1, -1), h2.view(1, -1)).item()
-print(f"\n두 passage pooled h 유사도: {sim_h:.4f}")
-print(f"두 passage pooled 유사도: {sim_pooled:.4f}")
 sim_k_raw = torch.nn.functional.cosine_similarity(K_raw.view(1, -1), K2_raw.view(1, -1)).item()
-print(f"두 passage K raw 유사도: {sim_k_raw:.4f}")
 sim_v_raw = torch.nn.functional.cosine_similarity(V_raw.view(1, -1), V2_raw.view(1, -1)).item()
-print(f"두 passage V raw 유사도: {sim_v_raw:.4f}")
 sim = torch.nn.functional.cosine_similarity(K.view(1,-1), K2.view(1,-1)).item()
-print(f"\n두 passage K 유사도: {sim:.4f}")
-print(f"  (높을수록 두 passage를 비슷하게 본다는 뜻)")
 sim_v = torch.nn.functional.cosine_similarity(V.view(1,-1), V2.view(1,-1)).item()
-print(f"두 passage V 유사도: {sim_v:.4f}")
+section("Memory Stats")
+print(
+    f"cos(pooled)={sim_pooled:.4f} | cos(hidden)={sim_h:.4f} | "
+    f"cos(K_raw)={sim_k_raw:.4f} | cos(V_raw)={sim_v_raw:.4f}"
+)
+print(
+    f"cos(K)={sim:.4f} | cos(V)={sim_v:.4f} | "
+    f"K_rms={K.pow(2).mean(dim=-1).sqrt().mean().item():.4f} | "
+    f"V_rms={V.pow(2).mean(dim=-1).sqrt().mean().item():.4f}"
+)
 
 # ── 테스트 1: hook 없이 forward → top-5 예측 ──
-print(f"\n{'='*50}")
 prompt_text = tokenizer.apply_chat_template(
     [
         {"role": "system", "content": ENGLISH_SYSTEM_PROMPT},
@@ -167,8 +182,6 @@ prompt_text = tokenizer.apply_chat_template(
     add_generation_prompt=True,
     enable_thinking=False,
 )
-print(f"prompt: '{prompt_text}'")
-print(f"{'='*50}")
 
 inputs = tokenizer(prompt_text, return_tensors="pt").to(device)
 
@@ -178,9 +191,10 @@ def build_scoring_batch(answer_text: str):
     answer = f" {answer_text}{tokenizer.eos_token}"
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True)
     tok_answer = tokenizer(answer, return_tensors="pt", add_special_tokens=False, truncation=True)
-    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"][:, :-1]), dim=-1).to(device)
+    prompt_len = tok_prompt["input_ids"].shape[1]
+    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"]), dim=-1).to(device)
     labels = torch.cat((
-        torch.full((1, tok_prompt["input_ids"].shape[1] - 1), -100, dtype=torch.long),
+        torch.full((1, prompt_len), -100, dtype=torch.long),
         tok_answer["input_ids"]
     ), dim=-1).to(device)
     return {"input_ids": input_ids, "labels": labels}
@@ -209,7 +223,7 @@ def make_hook(dK, dV, alpha=1.0, diag=False):
             h_norm = hidden.norm().item()
             d_norm = delta.norm().item()
             ratio = d_norm / (h_norm + 1e-8)
-            print(f"  [diag] hidden norm={h_norm:.1f}, delta norm={d_norm:.1f}, ratio={ratio:.4f}")
+            print(f"delta_ratio={ratio:.4f} (hidden={h_norm:.1f}, delta={d_norm:.1f})")
         result = hidden + alpha * delta
         if isinstance(output, tuple):
             return (result,) + output[1:]
@@ -219,12 +233,9 @@ def make_hook(dK, dV, alpha=1.0, diag=False):
 layer = model.model.layers[CRITICAL_LAYER]
 
 # ── 문장 생성 비교 ──
-print(f"\n{'='*50}")
-print("문장 생성 비교 (generate)")
-print(f"{'='*50}")
+section("Delta Check")
 
 # delta vs hidden 크기 진단 (1회만)
-print("\n[진단] delta vs hidden 크기 비교:")
 hook = layer.register_forward_hook(make_hook(K, V, alpha=1.0, diag=True))
 with torch.no_grad():
     _ = model(**inputs)
@@ -269,13 +280,13 @@ with torch.no_grad():
         **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
     )
 answer_no = decode_answer(gen_no_hook, inputs["input_ids"].shape[1])
-print(f"\n[Hook 없음] {answer_no}")
 score_no_main = score_answer_without_memory(EXPECTED_ANSWER)
 score_no_compare = score_answer_without_memory(COMPARE_EXPECTED_ANSWER)
-print(f"[No hook score] target={EXPECTED_ANSWER}, loss={score_no_main[0]:.4f}, logprob={score_no_main[1]:.4f}")
-print(f"[No hook score] compare_target={COMPARE_EXPECTED_ANSWER}, loss={score_no_compare[0]:.4f}, logprob={score_no_compare[1]:.4f}")
+section("Generations")
+print(f"no_hook      | ans={short(answer_no)}")
 
 # 여러 alpha로 생성 비교 (main passage)
+alpha_rows = []
 for alpha in [0.1, ALPHA, 1.0]:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
@@ -284,16 +295,21 @@ for alpha in [0.1, ALPHA, 1.0]:
         )
     hook.remove()
     answer_hook = decode_answer(gen_hook, inputs["input_ids"].shape[1])
-    print(f"[Hook main α={alpha}] {answer_hook}")
     score_main = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     score_compare = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
-    print(f"[Hook main α={alpha} score] target={EXPECTED_ANSWER}, loss={score_main[0]:.4f}, logprob={score_main[1]:.4f}")
-    print(f"[Hook main α={alpha} score] compare_target={COMPARE_EXPECTED_ANSWER}, loss={score_compare[0]:.4f}, logprob={score_compare[1]:.4f}")
+    alpha_rows.append((alpha, answer_hook, score_main, score_compare))
+
+for alpha, answer_hook, score_main, score_compare in alpha_rows:
+    prefers_main = score_main[1] > score_compare[1]
+    print(
+        f"main α={alpha:<4} | ans={short(answer_hook, 32):<32} | "
+        f"{verdict('prefer_main', prefers_main)} | "
+        f"target {fmt_score(score_main)} | compare {fmt_score(score_compare)}"
+    )
 
 # 비교 passage도 같은 alpha로 직접 생성
-print(f"\n{'='*50}")
-print("passage answer flip 비교")
-print(f"{'='*50}")
+section("Passage Flip")
+flip_rows = []
 for alpha in [ALPHA, 1.0]:
     hook_main = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
@@ -311,17 +327,38 @@ for alpha in [ALPHA, 1.0]:
 
     answer_main = decode_answer(gen_main, inputs["input_ids"].shape[1])
     answer_compare = decode_answer(gen_compare, inputs["input_ids"].shape[1])
-    print(f"[α={alpha}] main passage answer: {answer_main}")
-    print(f"[α={alpha}] compare passage answer: {answer_compare}")
-    print(f"[α={alpha}] same_answer: {answer_main == answer_compare}")
     main_target_score = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     main_compare_score = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
     compare_target_score = score_answer_with_memory(K2, V2, EXPECTED_ANSWER, alpha=alpha)
     compare_compare_score = score_answer_with_memory(K2, V2, COMPARE_EXPECTED_ANSWER, alpha=alpha)
-    print(f"[α={alpha}] main memory -> target={EXPECTED_ANSWER}, loss={main_target_score[0]:.4f}, logprob={main_target_score[1]:.4f}")
-    print(f"[α={alpha}] main memory -> compare_target={COMPARE_EXPECTED_ANSWER}, loss={main_compare_score[0]:.4f}, logprob={main_compare_score[1]:.4f}")
-    print(f"[α={alpha}] compare memory -> target={EXPECTED_ANSWER}, loss={compare_target_score[0]:.4f}, logprob={compare_target_score[1]:.4f}")
-    print(f"[α={alpha}] compare memory -> compare_target={COMPARE_EXPECTED_ANSWER}, loss={compare_compare_score[0]:.4f}, logprob={compare_compare_score[1]:.4f}")
+    flip_rows.append(
+        (
+            alpha,
+            answer_main,
+            answer_compare,
+            main_target_score,
+            main_compare_score,
+            compare_target_score,
+            compare_compare_score,
+        )
+    )
+
+for (
+    alpha,
+    answer_main,
+    answer_compare,
+    main_target_score,
+    main_compare_score,
+    compare_target_score,
+    compare_compare_score,
+) in flip_rows:
+    main_prefers_main = main_target_score[1] > main_compare_score[1]
+    compare_prefers_compare = compare_compare_score[1] > compare_target_score[1]
+    print(
+        f"α={alpha:<4} | main='{short(answer_main, 20)}' | compare='{short(answer_compare, 20)}' | "
+        f"{verdict('main->Monday', main_prefers_main)} | "
+        f"{verdict('compare->Friday', compare_prefers_compare)}"
+    )
 
 # slot별 차이도 같이 확인
 slot_cos_k = []
@@ -330,5 +367,10 @@ for idx in range(K.shape[1]):
     slot_cos_k.append(torch.nn.functional.cosine_similarity(K[0, idx].view(1, -1), K2[0, idx].view(1, -1)).item())
     slot_cos_v.append(torch.nn.functional.cosine_similarity(V[0, idx].view(1, -1), V2[0, idx].view(1, -1)).item())
 
-print(f"\nK slot cosine avg: {sum(slot_cos_k)/len(slot_cos_k):.4f}, min: {min(slot_cos_k):.4f}, max: {max(slot_cos_k):.4f}")
-print(f"V slot cosine avg: {sum(slot_cos_v)/len(slot_cos_v):.4f}, min: {min(slot_cos_v):.4f}, max: {max(slot_cos_v):.4f}")
+section("Slot Cosine")
+print(f"K avg/min/max = {sum(slot_cos_k)/len(slot_cos_k):.4f} / {min(slot_cos_k):.4f} / {max(slot_cos_k):.4f}")
+print(f"V avg/min/max = {sum(slot_cos_v)/len(slot_cos_v):.4f} / {min(slot_cos_v):.4f} / {max(slot_cos_v):.4f}")
+print(
+    f"baseline target={fmt_score(score_no_main)} | "
+    f"baseline compare={fmt_score(score_no_compare)}"
+)

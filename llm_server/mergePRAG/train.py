@@ -60,11 +60,12 @@ TRAIN_MAX_PASSAGE_SENTENCES = 6
 TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
 NEGATIVE_MARGIN = 0.5
 NEGATIVE_LOSS_WEIGHT = 1.0
-REPULSION_LOSS_WEIGHT = 0.3
+REPULSION_LOSS_WEIGHT = 1.0
 GRAD_CLIP_NORM = 1.0
 HIDDEN_REPULSION_WEIGHT = 0.2
 KEY_REPULSION_WEIGHT = 0.3
 VALUE_REPULSION_WEIGHT = 0.5
+REPULSION_MARGIN = 0.2
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -309,12 +310,17 @@ def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, del
     hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
     k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
     v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
+
+    # A squared margin penalty pushes hard against cosine collapse near 1.0.
+    def margin_penalty(sim):
+        return torch.relu(sim - REPULSION_MARGIN).pow(2)
+
     weighted = (
-        HIDDEN_REPULSION_WEIGHT * hidden_sim
-        + KEY_REPULSION_WEIGHT * k_sim
-        + VALUE_REPULSION_WEIGHT * v_sim
+        HIDDEN_REPULSION_WEIGHT * margin_penalty(hidden_sim)
+        + KEY_REPULSION_WEIGHT * margin_penalty(k_sim)
+        + VALUE_REPULSION_WEIGHT * margin_penalty(v_sim)
     )
-    return torch.clamp(weighted, min=0.0)
+    return weighted
 
 
 def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
