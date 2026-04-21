@@ -585,7 +585,7 @@ def train():
             try:
                 # 1. passage → HyperNetwork → delta_K, delta_V
                 passage = sample["passage"]
-                input_ids, c_emb, _, _, delta_K, delta_V = encode_memory(
+                input_ids, c_emb, _, hidden_pos, delta_K, delta_V = encode_memory(
                     model, hypernet, tokenizer, sample["question"], passage, device
                 )
 
@@ -604,9 +604,9 @@ def train():
                 if task_loss is None:
                     continue
 
-                # 4. 대조 loss — 다른 passage의 K/V와 방향을 분리
+                # 4. 대조 loss — mlp_out(hidden)과 K/V 모두 passage별로 분리
                 negative_sample = get_negative_sample(train_dataset, i)
-                _, neg_emb, _, _, neg_K, neg_V = encode_memory(
+                _, neg_emb, _, hidden_neg, neg_K, neg_V = encode_memory(
                     model,
                     hypernet,
                     tokenizer,
@@ -614,10 +614,12 @@ def train():
                     negative_sample["passage"],
                     device,
                 )
+                h_cos = F.cosine_similarity(hidden_pos, hidden_neg, dim=-1).mean()
                 k_cos = F.cosine_similarity(delta_K.flatten(1), neg_K.flatten(1)).mean()
                 v_cos = F.cosine_similarity(delta_V.flatten(1), neg_V.flatten(1)).mean()
                 repulsion_loss = (
-                    torch.relu(k_cos - REPULSION_MARGIN).pow(2)
+                    torch.relu(h_cos - REPULSION_MARGIN).pow(2)
+                    + torch.relu(k_cos - REPULSION_MARGIN).pow(2)
                     + torch.relu(v_cos - REPULSION_MARGIN).pow(2)
                 )
 
@@ -632,6 +634,7 @@ def train():
 
                 loss_val = task_loss.item()
                 rep_val = repulsion_loss.item()
+                h_cos_val = h_cos.item()
                 k_cos_val = k_cos.item()
                 v_cos_val = v_cos.item()
                 k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
@@ -641,7 +644,7 @@ def train():
                 global_step += 1
 
                 # VRAM 정리
-                del logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids
+                del logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -659,6 +662,7 @@ def train():
                 "step": global_step,
                 "loss": round(loss_val, 4),
                 "repulsion": round(rep_val, 4),
+                "h_cos": round(h_cos_val, 4),
                 "k_cos": round(k_cos_val, 4),
                 "v_cos": round(v_cos_val, 4),
             })
@@ -674,7 +678,7 @@ def train():
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
-                    f"rep: {rep_val:.4f} | Kcos: {k_cos_val:.3f} | Vcos: {v_cos_val:.3f} | "
+                    f"rep: {rep_val:.4f} | Hcos: {h_cos_val:.3f} | Kcos: {k_cos_val:.3f} | Vcos: {v_cos_val:.3f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"{elapsed:.1f}min"
                 )
