@@ -364,8 +364,8 @@ for (
     main_prefers_main = main_target_score[1] > main_compare_score[1]
     compare_prefers_compare = compare_compare_score[1] > compare_target_score[1]
     print(
-        f"α={alpha:<4} | {verdict('main->Monday', main_prefers_main)} | "
-        f"{verdict('compare->Friday', compare_prefers_compare)}"
+        f"α={alpha:<4} | {verdict(f'main->{EXPECTED_ANSWER}', main_prefers_main)} | "
+        f"{verdict(f'compare->{COMPARE_EXPECTED_ANSWER}', compare_prefers_compare)}"
     )
     print(f"  main    ans: {answer_main}")
     print(f"  compare ans: {answer_compare}")
