@@ -1,6 +1,6 @@
 import torch
 
-from .focus_tokens import build_focus_weight
+from .test_focus_tokens import build_focus_weight
 
 
 def token_embed(model, input_ids):
