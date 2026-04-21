@@ -10,7 +10,7 @@ def _get_bool(name: str, default: bool) -> bool:
 
 
 MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
-NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "1"))
+NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "5"))  # 1→5로 증가 (slot diversity를 위해)
 DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "0"))
 ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "3.0"))  # hook 주입 강도 증가 (1.0→3.0)
 MAX_SEQ_LEN = 512
