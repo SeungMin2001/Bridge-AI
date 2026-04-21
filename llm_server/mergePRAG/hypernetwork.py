@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .embedding import encode_passage_states
 from .pooling import AttentivePooling
 from .mlp import MLP
@@ -26,7 +27,9 @@ class HyperNetwork(nn.Module):
         return h, projected, K, V
 
     def normalize_kv(self, K, V):
-        return K, V
+        # Unit vectors along d_model — caps injection magnitude, lets contrastive loss
+        # shape direction instead of fighting exploding norms.
+        return F.normalize(K, dim=-1), F.normalize(V, dim=-1)
 
     def forward(self, embedded, attention_mask=None, query=None, focus_mask=None):
         _, _, K, V = self.encode_embedded(
@@ -35,6 +38,7 @@ class HyperNetwork(nn.Module):
             query=query,
             focus_mask=focus_mask,
         )
+        K, V = self.normalize_kv(K, V)
         return K, V
 
     @torch.no_grad()

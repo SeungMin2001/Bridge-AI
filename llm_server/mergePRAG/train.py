@@ -58,6 +58,8 @@ SAVE_EVERY = 500            # 중간 체크포인트 저장 주기
 PATIENCE = 5                # early stopping patience
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 GRAD_CLIP_NORM = 1.0
+REPULSION_MARGIN = 0.3
+REPULSION_WEIGHT = 0.5
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -343,6 +345,17 @@ def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
     return {"input_ids": input_ids, "labels": labels}
 
 
+def get_negative_sample(dataset, index: int):
+    """Batch 내 대조를 위해 다른 passage를 반환. answer가 다른 것을 우선."""
+    anchor = dataset[index]
+    dataset_size = len(dataset)
+    for offset in range(1, dataset_size):
+        candidate = dataset[(index + offset) % dataset_size]
+        if candidate.get("passage") != anchor.get("passage"):
+            return candidate
+    return dataset[(index + 1) % dataset_size]
+
+
 # ── Validation ──
 def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
     """Validation loss 계산 (hook per sample, no gradient)"""
@@ -585,15 +598,32 @@ def train():
                     task=sample.get("task", "final_qa"),
                 )
 
-                # 3. memory로 정답 loss (task CE only)
+                # 3. memory로 정답 loss (task CE)
                 logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
                 task_loss = compute_loss(logits, tok["labels"])
                 if task_loss is None:
                     continue
 
-                loss = task_loss
+                # 4. 대조 loss — 다른 passage의 K/V와 방향을 분리
+                negative_sample = get_negative_sample(train_dataset, i)
+                _, neg_emb, _, _, neg_K, neg_V = encode_memory(
+                    model,
+                    hypernet,
+                    tokenizer,
+                    sample["question"],
+                    negative_sample["passage"],
+                    device,
+                )
+                k_cos = F.cosine_similarity(delta_K.flatten(1), neg_K.flatten(1)).mean()
+                v_cos = F.cosine_similarity(delta_V.flatten(1), neg_V.flatten(1)).mean()
+                repulsion_loss = (
+                    torch.relu(k_cos - REPULSION_MARGIN).pow(2)
+                    + torch.relu(v_cos - REPULSION_MARGIN).pow(2)
+                )
 
-                # 4. backward → HyperNetwork만 업데이트
+                loss = task_loss + REPULSION_WEIGHT * repulsion_loss
+
+                # 5. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(hypernet.parameters(), GRAD_CLIP_NORM)
@@ -601,6 +631,9 @@ def train():
                 scheduler.step()
 
                 loss_val = task_loss.item()
+                rep_val = repulsion_loss.item()
+                k_cos_val = k_cos.item()
+                v_cos_val = v_cos.item()
                 k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
                 v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
                 total_loss += loss_val
@@ -608,7 +641,7 @@ def train():
                 global_step += 1
 
                 # VRAM 정리
-                del logits, loss, c_emb, delta_K, delta_V, input_ids
+                del logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -625,6 +658,9 @@ def train():
             log_data["step_losses"].append({
                 "step": global_step,
                 "loss": round(loss_val, 4),
+                "repulsion": round(rep_val, 4),
+                "k_cos": round(k_cos_val, 4),
+                "v_cos": round(v_cos_val, 4),
             })
 
             if global_step % LOG_EVERY == 0:
@@ -638,6 +674,7 @@ def train():
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
+                    f"rep: {rep_val:.4f} | Kcos: {k_cos_val:.3f} | Vcos: {v_cos_val:.3f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"{elapsed:.1f}min"
                 )
