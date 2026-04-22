@@ -592,6 +592,9 @@ def train():
                     continue
 
                 loss = task_loss
+                loss_val = loss.item()
+                k_vec_norm = delta_K.detach().norm(dim=-1).mean().item()
+                v_vec_norm = delta_V.detach().norm(dim=-1).mean().item()
 
                 # 4. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
