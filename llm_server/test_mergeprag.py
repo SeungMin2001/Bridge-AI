@@ -18,8 +18,10 @@ from mergePRAG.config import (
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
     USE_POOLED_KV_SKIP,
+    USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
+    V_RMS_CLAMP,
     WEIGHTS_PATH,
     load_critical_layer,
     load_hypernet_state_dict,
@@ -87,7 +89,8 @@ print(
     f"kv_path_mode={KV_PATH_MODE} | "
     f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY} | "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
-    f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE})"
+    f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}) | "
+    f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
 
 # ── HyperNetwork → K, V ──

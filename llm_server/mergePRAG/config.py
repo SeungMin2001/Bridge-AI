@@ -22,13 +22,15 @@ MAX_SEQ_LEN = 512
 # 순서/구문 정보를 잃기 쉬워 contextual hidden이 더 안정적이다.
 USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", False)
-# pooled_only는 현재 실험에서 pooled projection collapse를 그대로 증폭했다.
-# 기본은 MLP 경로를 우선 사용하고, 필요할 때만 hybrid/pooled_only를 실험한다.
-KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "mlp_only").strip().lower()
+# 현재 실험에서는 K는 MLP가 더 잘 분리되고, V는 pooled skip이 더 정보 보존적이었다.
+# 기본은 K는 MLP, V는 hybrid로 보강하는 모드로 둔다.
+KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_mlp_v_hybrid").strip().lower()
 USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)
 POOLED_KV_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_KV_SKIP_SCALE", "1.0"))
 POOLED_K_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_K_SKIP_SCALE", str(POOLED_KV_SKIP_SCALE)))
-POOLED_V_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_V_SKIP_SCALE", str(POOLED_KV_SKIP_SCALE)))
+POOLED_V_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_V_SKIP_SCALE", "0.25"))
+USE_V_RMS_CLAMP = _get_bool("MERGEPRAG_USE_V_RMS_CLAMP", True)
+V_RMS_CLAMP = float(os.getenv("MERGEPRAG_V_RMS_CLAMP", "0.25"))
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "
     "Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. "

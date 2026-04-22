@@ -12,6 +12,8 @@ from .config import (
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
     USE_POOLED_KV_SKIP,
+    USE_V_RMS_CLAMP,
+    V_RMS_CLAMP,
 )
 
 
@@ -34,6 +36,8 @@ class HyperNetwork(nn.Module):
         self.pooled_kv_skip_scale = POOLED_KV_SKIP_SCALE
         self.pooled_k_skip_scale = POOLED_K_SKIP_SCALE
         self.pooled_v_skip_scale = POOLED_V_SKIP_SCALE
+        self.use_v_rms_clamp = USE_V_RMS_CLAMP
+        self.v_rms_clamp = V_RMS_CLAMP
         self.pooling = AttentivePooling(d_model)
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
         self.lp = LinearProjection(hidden_dim, d_model, num_kv=k)
@@ -100,7 +104,15 @@ class HyperNetwork(nn.Module):
         }
 
     def normalize_kv(self, K, V):
-        """논문은 normalize하지 않음. no-op로 유지해서 호출부 호환만 보장."""
+        """K는 그대로 두고, V만 RMS clamp로 과주입을 막는다.
+
+        V는 cross-attention 출력의 내용을 직접 결정해서 collapse/폭주가 더 쉽게 난다.
+        현재 실험에선 K 분리는 이미 살아나고 있으므로, V만 보수적으로 제어한다.
+        """
+        if self.use_v_rms_clamp:
+            v_rms = V.pow(2).mean(dim=-1, keepdim=True).sqrt().clamp_min(1e-8)
+            scale = torch.clamp(self.v_rms_clamp / v_rms, max=1.0)
+            V = V * scale
         return K, V
 
     def forward(self, embedded, attention_mask=None, query=None, focus_mask=None):

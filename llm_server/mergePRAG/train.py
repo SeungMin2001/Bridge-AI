@@ -35,9 +35,11 @@ from .config import (
     POOLED_V_SKIP_SCALE,
     TRAIN_DATA_PATH,
     USE_POOLED_KV_SKIP,
+    USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     VALID_DATA_PATH,
+    V_RMS_CLAMP,
     WEIGHTS_PATH as SAVE_PATH,
     load_critical_layer,
 )
@@ -616,6 +618,7 @@ def train():
         f"[학습] config | num_kv={NUM_KV}, alpha={ALPHA}, "
         f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, kv_path_mode={KV_PATH_MODE}, "
         f"k_skip_scale={POOLED_K_SKIP_SCALE}, v_skip_scale={POOLED_V_SKIP_SCALE}, "
+        f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}, "
         f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
     )
     hypernet.train()
