@@ -25,6 +25,7 @@ from .config import (
     ALPHA,
     CHART_PATH,
     CHECKPOINT_PATH,
+    KV_PATH_MODE,
     LOG_PATH,
     MAX_SEQ_LEN,
     MODEL_NAME,
@@ -590,7 +591,7 @@ def train():
     print(f"[학습] AdamW lr={LR}, CosineAnnealing eta_min={LR_MIN}")
     print(
         f"[학습] config | num_kv={NUM_KV}, alpha={ALPHA}, "
-        f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, "
+        f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, kv_path_mode={KV_PATH_MODE}, "
         f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
     )
     hypernet.train()

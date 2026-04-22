@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from run_model import run_model
 from mergePRAG.config import (
     ALPHA,
+    KV_PATH_MODE,
     NUM_KV,
     POOLED_KV_SKIP_SCALE,
     USE_POOLED_KV_SKIP,
@@ -62,6 +63,7 @@ print(
 )
 print(
     f"[config] critical_layer={CRITICAL_LAYER}, alpha={ALPHA}, num_kv={NUM_KV}, "
+    f"kv_path_mode={KV_PATH_MODE}, "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} (scale={POOLED_KV_SKIP_SCALE})"
 )
 

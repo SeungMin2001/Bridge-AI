@@ -12,6 +12,7 @@ from run_model import run_model
 from mergePRAG.config import (
     ALPHA,
     CHECKPOINT_PATH,
+    KV_PATH_MODE,
     NUM_KV,
     POOLED_KV_SKIP_SCALE,
     USE_POOLED_KV_SKIP,
@@ -81,6 +82,7 @@ section("Config")
 print(f"layer={CRITICAL_LAYER} | num_kv={NUM_KV} | alpha={ALPHA}")
 print(
     f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER} | "
+    f"kv_path_mode={KV_PATH_MODE} | "
     f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY} | "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} (scale={POOLED_KV_SKIP_SCALE})"
 )

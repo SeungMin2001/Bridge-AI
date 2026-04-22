@@ -6,7 +6,7 @@ from .embedding import encode_passage_states
 from .pooling import AttentivePooling
 from .mlp import MLP
 from .linearProjection import LinearProjection
-from .config import POOLED_KV_SKIP_SCALE, USE_POOLED_KV_SKIP
+from .config import KV_PATH_MODE, POOLED_KV_SKIP_SCALE, USE_POOLED_KV_SKIP
 
 
 class HyperNetwork(nn.Module):
@@ -23,6 +23,7 @@ class HyperNetwork(nn.Module):
         super().__init__()
         self.k = k
         self.d_model = d_model
+        self.kv_path_mode = KV_PATH_MODE
         self.use_pooled_kv_skip = USE_POOLED_KV_SKIP
         self.pooled_kv_skip_scale = POOLED_KV_SKIP_SCALE
         self.pooling = AttentivePooling(d_model)
@@ -63,8 +64,16 @@ class HyperNetwork(nn.Module):
             B = pooled.size(0)
             K_skip = self.pooled_to_k(pooled).view(B, self.k, self.d_model)
             V_skip = self.pooled_to_v(pooled).view(B, self.k, self.d_model)
-            K_raw = K_raw + self.pooled_kv_skip_scale * K_skip
-            V_raw = V_raw + self.pooled_kv_skip_scale * V_skip
+            if self.kv_path_mode == "pooled_only":
+                K_raw = self.pooled_kv_skip_scale * K_skip
+                V_raw = self.pooled_kv_skip_scale * V_skip
+            elif self.kv_path_mode == "hybrid":
+                K_raw = K_raw + self.pooled_kv_skip_scale * K_skip
+                V_raw = V_raw + self.pooled_kv_skip_scale * V_skip
+            elif self.kv_path_mode == "mlp_only":
+                pass
+            else:
+                raise ValueError(f"Unsupported MERGEPRAG_KV_PATH_MODE: {self.kv_path_mode}")
         return {
             "pooled": pooled,
             "hidden": hidden,
