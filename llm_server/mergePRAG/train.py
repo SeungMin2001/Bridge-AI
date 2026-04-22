@@ -58,6 +58,12 @@ SAVE_EVERY = 500            # 500 step마다 체크포인트 저장
 PATIENCE = 3                # 5→3으로 감소 (overfitting 방지)
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 GRAD_CLIP_NORM = 1.0
+NEGATIVE_MARGIN = 0.2
+NEGATIVE_LOSS_WEIGHT = 0.25
+REPULSION_LOSS_WEIGHT = 0.10
+HIDDEN_SIM_TARGET = 0.97
+K_SIM_TARGET = 0.95
+V_SIM_TARGET = 0.90
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -343,6 +349,38 @@ def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
     return {"input_ids": input_ids, "labels": labels}
 
 
+def get_negative_sample(dataset: MergePRAGDataset, index: int):
+    sample = dataset[index]
+    source_id = sample.get("source_id") or sample.get("id")
+    if source_id is not None:
+        candidates = [
+            dataset.data[idx]
+            for idx in dataset.indices_by_source.get(str(source_id), [])
+            if idx != index and dataset.data[idx].get("answer") != sample.get("answer")
+        ]
+        if candidates:
+            return candidates[index % len(candidates)]
+
+    dataset_size = len(dataset)
+    for offset in range(1, dataset_size):
+        candidate = dataset[(index + offset) % dataset_size]
+        if candidate.get("answer") != sample.get("answer"):
+            return candidate
+    return dataset[(index + 1) % dataset_size]
+
+
+def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
+    hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
+    k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
+    v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
+    loss = (
+        torch.relu(hidden_sim - HIDDEN_SIM_TARGET)
+        + torch.relu(k_sim - K_SIM_TARGET)
+        + 2.0 * torch.relu(v_sim - V_SIM_TARGET)
+    )
+    return loss, hidden_sim, k_sim, v_sim
+
+
 # ── Validation ──
 def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
     """Validation loss 계산 (hook per sample, no gradient)"""
@@ -587,16 +625,49 @@ def train():
                     task=sample.get("task", "final_qa"),
                 )
 
-                # 3. memory로 정답 loss — 논문 KV_train.py와 동일
+                # 3. memory로 정답 loss — 원본 CE objective 유지
                 logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
                 task_loss = compute_loss(logits, tok["labels"])
                 if task_loss is None:
                     continue
 
-                loss = task_loss
-                loss_val = loss.item()
+                negative_sample = get_negative_sample(train_dataset, i)
+                _, neg_emb, pooled_neg, hidden_neg, neg_K, neg_V = encode_memory(
+                    model,
+                    hypernet,
+                    tokenizer,
+                    sample["question"],
+                    negative_sample["passage"],
+                    device,
+                )
+                neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
+                neg_task_loss = compute_loss(neg_logits, tok["labels"])
+                if neg_task_loss is None:
+                    neg_task_loss = task_loss.detach()
+
+                grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
+                repulsion_loss, hidden_sim_t, k_sim_t, v_sim_t = compute_repulsion_loss(
+                    hidden_pos,
+                    hidden_neg,
+                    delta_K,
+                    neg_K,
+                    delta_V,
+                    neg_V,
+                )
+                loss = (
+                    task_loss
+                    + NEGATIVE_LOSS_WEIGHT * grounding_loss
+                    + REPULSION_LOSS_WEIGHT * repulsion_loss
+                )
+                loss_val = task_loss.item()
                 k_vec_norm = delta_K.detach().norm(dim=-1).mean().item()
                 v_vec_norm = delta_V.detach().norm(dim=-1).mean().item()
+                neg_loss_val = neg_task_loss.item()
+                grounding_val = grounding_loss.item()
+                repulsion_val = repulsion_loss.item()
+                hidden_sim = hidden_sim_t.item()
+                k_sim = k_sim_t.item()
+                v_sim = v_sim_t.item()
 
                 # 진단: memory 없이 같은 샘플 평가 → memory 기여도 확인
                 # global_step 증가는 아래에서 일어나므로 +1로 로깅 조건과 맞춤
@@ -621,7 +692,7 @@ def train():
                 global_step += 1
 
                 # VRAM 정리
-                del logits, loss, c_emb, delta_K, delta_V, input_ids, hidden_pos
+                del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg, pooled_neg
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -638,6 +709,9 @@ def train():
             log_data["step_losses"].append({
                 "step": global_step,
                 "loss": round(loss_val, 4),
+                "negative_loss": round(neg_loss_val, 4),
+                "grounding_loss": round(grounding_val, 4),
+                "repulsion_loss": round(repulsion_val, 4),
             })
 
             if global_step % LOG_EVERY == 0:
@@ -656,7 +730,10 @@ def train():
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
-                    f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f}{diag} | "
+                    f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
+                    f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
+                    f"Hcos: {hidden_sim:.4f} | Kcos: {k_sim:.4f} | Vcos: {v_sim:.4f}"
+                    f"{diag} | "
                     f"{elapsed:.1f}min"
                 )
 

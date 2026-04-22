@@ -61,8 +61,11 @@ def short(text: str, limit: int = 72):
 
 
 def fmt_score(score):
-    loss, logprob = score
-    return f"loss={loss:.3f}, logp={logprob:.3f}"
+    loss, sum_logprob, avg_logprob, n_tokens = score
+    return (
+        f"loss={loss:.3f}, avg_logp={avg_logprob:.3f}, "
+        f"sum_logp={sum_logprob:.3f}, toks={n_tokens}"
+    )
 
 
 def verdict(label: str, ok: bool):
@@ -211,8 +214,10 @@ def compute_answer_loss(logits, labels):
     selected_labels = shift_labels[valid]
     loss = F.cross_entropy(selected_logits, selected_labels)
     log_probs = torch.log_softmax(selected_logits, dim=-1)
-    answer_logprob = log_probs.gather(-1, selected_labels.unsqueeze(-1)).sum().item()
-    return loss.item(), answer_logprob
+    gathered = log_probs.gather(-1, selected_labels.unsqueeze(-1)).squeeze(-1)
+    answer_logprob = gathered.sum().item()
+    avg_logprob = gathered.mean().item()
+    return loss.item(), answer_logprob, avg_logprob, int(selected_labels.numel())
 
 def make_hook(dK, dV, alpha=1.0, diag=False):
     def hook_fn(module, input, output):
@@ -255,7 +260,17 @@ def decode_answer(gen, input_len):
     text = tokenizer.decode(tokens, skip_special_tokens=True)
     import re
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    text = text.splitlines()[0].strip() if text else text
     return text
+
+
+def prefers_target(score_target, score_compare):
+    # 길이가 다른 답변 후보가 많아서 sum logprob 대신 loss/avg logprob를 기준으로 본다.
+    target_loss, _, target_avg_logp, _ = score_target
+    compare_loss, _, compare_avg_logp, _ = score_compare
+    if abs(target_loss - compare_loss) > 1e-6:
+        return target_loss < compare_loss
+    return target_avg_logp > compare_avg_logp
 
 
 def score_answer_with_memory(dK, dV, answer_text: str, alpha=ALPHA):
@@ -302,7 +317,7 @@ for alpha in alpha_list:
     alpha_rows.append((alpha, answer_hook, score_main, score_compare))
 
 for alpha, answer_hook, score_main, score_compare in alpha_rows:
-    prefers_main = score_main[1] > score_compare[1]
+    prefers_main = prefers_target(score_main, score_compare)
     print(
         f"main α={alpha:<4} | {verdict('prefer_main', prefers_main)} | "
         f"target {fmt_score(score_main)} | compare {fmt_score(score_compare)}"
@@ -355,8 +370,8 @@ for (
     compare_target_score,
     compare_compare_score,
 ) in flip_rows:
-    main_prefers_main = main_target_score[1] > main_compare_score[1]
-    compare_prefers_compare = compare_compare_score[1] > compare_target_score[1]
+    main_prefers_main = prefers_target(main_target_score, main_compare_score)
+    compare_prefers_compare = prefers_target(compare_compare_score, compare_target_score)
     print(
         f"α={alpha:<4} | {verdict(f'main->{EXPECTED_ANSWER}', main_prefers_main)} | "
         f"{verdict(f'compare->{COMPARE_EXPECTED_ANSWER}', compare_prefers_compare)}"
