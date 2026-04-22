@@ -2,43 +2,63 @@ import torch
 import torch.nn as nn
 
 
-class AttentivePooling(nn.Module):
-    def __init__(self, d_model):
+class MultiSlotCrossAttention(nn.Module):
+    """k개의 learnable slot query가 passage token에 각자 독립적으로 attend.
+
+    기존 AttentivePooling이 [B, T, d] → [B, d] 단일 벡터로 축약하면서
+    "Monday"/"Friday" 같은 한 단어 차이를 지워버리는 문제를 해결한다.
+
+    출력 [B, k, d]: slot마다 서로 다른 attention pattern으로 passage를 읽어
+    token 수준 정보를 유지.
+    """
+
+    def __init__(self, d_model, num_slots, num_heads=8, dropout=0.0):
         super().__init__()
-        self.att_pool = nn.Linear(d_model, 1)
-        # Max pooling과 결합하기 위한 projection
-        self.combine = nn.Linear(d_model * 2, d_model)
+        self.num_slots = num_slots
+        self.d_model = d_model
 
-    def forward(self, H, mask=None, focus_mask=None, **_ignored):
+        self.slot_queries = nn.Parameter(
+            torch.randn(num_slots, d_model) * (d_model ** -0.5)
+        )
+
+        self.q_norm = nn.LayerNorm(d_model)
+        self.kv_norm = nn.LayerNorm(d_model)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=d_model,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.out_norm = nn.LayerNorm(d_model)
+
+    def forward(self, H, mask=None, focus_mask=None, query=None, **_ignored):
+        """H: [B, T, d].
+
+        mask: [B, T] attention mask (1 = 유효).
+        focus_mask: [B, T] passage 영역 (1 = passage). 주어지면 passage에만 attend.
+        query: optional [B, d] question 임베딩. slot query에 조건 부여.
         """
-        Hybrid pooling: attention pooling + max pooling
+        B = H.size(0)
 
-        문제: pure attention pooling은 전체를 weighted average하면서
-              핵심 단어 차이를 희석시킴
-        해결: max pooling으로 가장 두드러진 feature를 보존하고,
-              attention pooling으로 맥락을 결합
-        """
-        # Attention pooling (기존)
-        scores = self.att_pool(H)
-        if mask is not None:
-            scores = scores.masked_fill(mask.unsqueeze(-1) == 0, float("-inf"))
-        weights = torch.softmax(scores, dim=1)
-        att_pooled = (H * weights).sum(dim=1)  # [B, d_model]
+        slot_q = self.slot_queries.unsqueeze(0).expand(B, -1, -1).contiguous()
+        if query is not None:
+            slot_q = slot_q + query.unsqueeze(1).to(dtype=slot_q.dtype)
+        slot_q = self.q_norm(slot_q)
 
-        # Max pooling (새로 추가)
-        # focus_mask가 있으면 passage 부분만, 없으면 전체에서 max
+        kv = self.kv_norm(H)
+
+        key_padding_mask = None
         if focus_mask is not None and focus_mask.sum() > 0:
-            # passage 영역만 max pooling
-            H_masked = H.clone()
-            H_masked[focus_mask == 0] = float("-inf")
-            max_pooled = H_masked.max(dim=1)[0]  # [B, d_model]
+            key_padding_mask = focus_mask == 0
         elif mask is not None:
-            H_masked = H.clone()
-            H_masked[mask.unsqueeze(-1) == 0] = float("-inf")
-            max_pooled = H_masked.max(dim=1)[0]
-        else:
-            max_pooled = H.max(dim=1)[0]
+            key_padding_mask = mask == 0
 
-        # 두 pooling 결합
-        combined = torch.cat([att_pooled, max_pooled], dim=-1)  # [B, 2*d_model]
-        return self.combine(combined)  # [B, d_model]
+        slots, _ = self.attn(
+            slot_q, kv, kv,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+        )
+        return self.out_norm(slots)
+
+
+AttentivePooling = MultiSlotCrossAttention

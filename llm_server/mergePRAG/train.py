@@ -58,9 +58,12 @@ SAVE_EVERY = 250            # 500→250으로 감소 (더 자주 저장)
 PATIENCE = 3                # 5→3으로 감소 (overfitting 방지)
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 GRAD_CLIP_NORM = 1.0
-REPULSION_MARGIN = 0.3
-REPULSION_WEIGHT = 1.0  # 0.5→1.0으로 증가 (passage 차이 강화)
-SLOT_DIVERSITY_WEIGHT = 0.2  # slot diversity loss 가중치
+REPULSION_MARGIN = 0.1  # 0.3→0.1: 더 강한 분리 (새 아키텍처는 가능)
+REPULSION_WEIGHT = 1.0
+SLOT_DIVERSITY_WEIGHT = 0.2
+# 핵심 추가: 틀린 passage의 K/V로 주입했을 때 loss가 올라가야 함
+DISCRIMINATION_WEIGHT = 1.0
+DISCRIMINATION_MARGIN = 0.5
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -638,7 +641,7 @@ def train():
                 if task_loss is None:
                     continue
 
-                # 4. 대조 loss — mlp_out(hidden)과 K/V 모두 passage별로 분리
+                # 4. 대조 loss — K/V가 passage별로 분리되도록
                 negative_sample = get_negative_sample(train_dataset, i)
                 _, neg_emb, _, hidden_neg, neg_K, neg_V = encode_memory(
                     model,
@@ -648,7 +651,9 @@ def train():
                     negative_sample["passage"],
                     device,
                 )
-                h_cos = F.cosine_similarity(hidden_pos, hidden_neg, dim=-1).mean()
+                h_cos = F.cosine_similarity(
+                    hidden_pos.flatten(1), hidden_neg.flatten(1), dim=-1
+                ).mean()
                 k_cos = F.cosine_similarity(delta_K.flatten(1), neg_K.flatten(1)).mean()
                 v_cos = F.cosine_similarity(delta_V.flatten(1), neg_V.flatten(1)).mean()
                 repulsion_loss = (
@@ -657,10 +662,29 @@ def train():
                     + torch.relu(v_cos - REPULSION_MARGIN).pow(2)
                 )
 
-                # 5. Slot diversity loss — 각 slot이 서로 다른 방향을 가리키도록
+                # 5. Slot diversity — within-passage slot collapse 방지
                 diversity_loss = compute_slot_diversity_loss(delta_K, delta_V)
 
-                loss = task_loss + REPULSION_WEIGHT * repulsion_loss + SLOT_DIVERSITY_WEIGHT * diversity_loss
+                # 6. Discrimination loss — 핵심: 틀린 passage의 K/V를 주입하면
+                #    정답 loss가 올라가야 한다. 이게 "model이 passage를 실제로 쓴다"의
+                #    직접적 정의.
+                logits_wrong = forward_with_memory(
+                    model, target_layer, neg_K, neg_V, tok
+                )
+                wrong_loss = compute_loss(logits_wrong, tok["labels"])
+                if wrong_loss is not None:
+                    discrimination_loss = torch.relu(
+                        task_loss - wrong_loss + DISCRIMINATION_MARGIN
+                    )
+                else:
+                    discrimination_loss = torch.tensor(0.0, device=device)
+
+                loss = (
+                    task_loss
+                    + REPULSION_WEIGHT * repulsion_loss
+                    + SLOT_DIVERSITY_WEIGHT * diversity_loss
+                    + DISCRIMINATION_WEIGHT * discrimination_loss
+                )
 
                 # 5. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
@@ -672,6 +696,8 @@ def train():
                 loss_val = task_loss.item()
                 rep_val = repulsion_loss.item()
                 div_val = diversity_loss.item()
+                disc_val = discrimination_loss.item() if torch.is_tensor(discrimination_loss) else 0.0
+                wrong_val = wrong_loss.item() if wrong_loss is not None else 0.0
                 h_cos_val = h_cos.item()
                 k_cos_val = k_cos.item()
                 v_cos_val = v_cos.item()
@@ -682,7 +708,7 @@ def train():
                 global_step += 1
 
                 # VRAM 정리
-                del logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg
+                del logits, logits_wrong, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -699,8 +725,10 @@ def train():
             log_data["step_losses"].append({
                 "step": global_step,
                 "loss": round(loss_val, 4),
+                "wrong_loss": round(wrong_val, 4),
                 "repulsion": round(rep_val, 4),
                 "diversity": round(div_val, 4),
+                "discrimination": round(disc_val, 4),
                 "h_cos": round(h_cos_val, 4),
                 "k_cos": round(k_cos_val, 4),
                 "v_cos": round(v_cos_val, 4),
@@ -714,11 +742,13 @@ def train():
                 })
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
+                # Δ = wrong - pos. 양수이면 model이 맞는 passage를 쓰고 있다.
+                delta_loss = wrong_val - loss_val
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
-                    f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
-                    f"rep: {rep_val:.4f} | div: {div_val:.4f} | "
-                    f"Hcos: {h_cos_val:.3f} | Kcos: {k_cos_val:.3f} | Vcos: {v_cos_val:.3f} | "
+                    f"pos: {loss_val:.4f} | wrong: {wrong_val:.4f} | Δ: {delta_loss:+.3f} | "
+                    f"lr: {lr_now:.2e} | rep: {rep_val:.4f} | div: {div_val:.4f} | disc: {disc_val:.4f} | "
+                    f"Kcos: {k_cos_val:.3f} | Vcos: {v_cos_val:.3f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"{elapsed:.1f}min"
                 )
