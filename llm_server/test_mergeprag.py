@@ -180,17 +180,10 @@ print(
     f"V_rms={V.pow(2).mean(dim=-1).sqrt().mean().item():.4f}"
 )
 
-# ── 테스트 1: hook 없이 forward → top-5 예측 ──
-prompt_text = tokenizer.apply_chat_template(
-    [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": QUESTION},
-    ],
-    tokenize=False,
-    add_generation_prompt=True,
-    enable_thinking=False,
-)
-
+# ── 프롬프트 포맷: 훈련과 정확히 일치시킴 (chat template 쓰지 않음) ──
+# 훈련: "Question: X\nAnswer:" → hypernet K/V가 이 문맥의 hidden state에 맞춰 학습됨.
+# 추론에서 chat template을 쓰면 hidden state 구조가 달라져 K/V가 엉뚱하게 적용됨.
+prompt_text = f"Question: {QUESTION}\nAnswer:"
 inputs = tokenizer(prompt_text, return_tensors="pt").to(device)
 
 
@@ -293,9 +286,10 @@ score_no_compare = score_answer_without_memory(COMPARE_EXPECTED_ANSWER)
 section("Generations")
 print(f"no_hook      | ans={answer_no}")
 
-# 여러 alpha로 생성 비교 (main passage)
+# 여러 alpha로 생성 비교 (main passage) — ALPHA 중복 제거
 alpha_rows = []
-for alpha in [0.1, ALPHA, 1.0]:
+alpha_list = sorted({0.1, ALPHA, 1.0})
+for alpha in alpha_list:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(
@@ -318,7 +312,8 @@ for alpha, answer_hook, score_main, score_compare in alpha_rows:
 # 비교 passage도 같은 alpha로 직접 생성
 section("Passage Flip")
 flip_rows = []
-for alpha in [ALPHA, 1.0]:
+flip_alphas = sorted({ALPHA, 1.0})
+for alpha in flip_alphas:
     hook_main = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_main = model.generate(
