@@ -14,14 +14,17 @@ MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
 NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "1"))
 # 논문: single_layer=9 (Llama-3.1). Qwen의 경우 find_critical_layers.py 결과 사용.
 DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "9"))
-# 논문: alpha=1.0 (cross_attention 출력을 그대로 더함, 스케일 인위 조정 없음)
-ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "1.0"))
+# 현재 Qwen/lecture QA 조건에서는 alpha=1.0가 hidden을 과도하게 덮어쓰는 경우가 많아
+# 보수적으로 낮춘다. 필요시 환경변수로 다시 올릴 수 있다.
+ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "0.1"))
 MAX_SEQ_LEN = 512
 # 논문은 token embedding only를 썼지만, 현재처럼 역할이 뒤바뀐 near-counterfactual passage에서는
 # 순서/구문 정보를 잃기 쉬워 contextual hidden이 더 안정적이다.
 USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", False)
-KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "pooled_only").strip().lower()
+# pooled_only는 현재 실험에서 pooled projection collapse를 그대로 증폭했다.
+# 기본은 MLP 경로를 우선 사용하고, 필요할 때만 hybrid/pooled_only를 실험한다.
+KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "mlp_only").strip().lower()
 USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)
 POOLED_KV_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_KV_SKIP_SCALE", "1.0"))
 SYSTEM_PROMPT = (
