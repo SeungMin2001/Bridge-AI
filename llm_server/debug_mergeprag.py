@@ -15,6 +15,8 @@ from run_model import run_model
 from mergePRAG.config import (
     ALPHA,
     NUM_KV,
+    POOLED_KV_SKIP_SCALE,
+    USE_POOLED_KV_SKIP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     load_critical_layer,
@@ -58,7 +60,10 @@ hypernet.eval()
 print(
     f"[load] {load_info['source']} ({load_info['kind']}, step={load_info.get('step')})"
 )
-print(f"[config] critical_layer={CRITICAL_LAYER}, alpha={ALPHA}, num_kv={NUM_KV}")
+print(
+    f"[config] critical_layer={CRITICAL_LAYER}, alpha={ALPHA}, num_kv={NUM_KV}, "
+    f"pooled_kv_skip={USE_POOLED_KV_SKIP} (scale={POOLED_KV_SKIP_SCALE})"
+)
 
 
 def masked_mean(hidden, mask):

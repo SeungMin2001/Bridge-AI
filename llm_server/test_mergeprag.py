@@ -13,6 +13,8 @@ from mergePRAG.config import (
     ALPHA,
     CHECKPOINT_PATH,
     NUM_KV,
+    POOLED_KV_SKIP_SCALE,
+    USE_POOLED_KV_SKIP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     WEIGHTS_PATH,
@@ -79,7 +81,8 @@ section("Config")
 print(f"layer={CRITICAL_LAYER} | num_kv={NUM_KV} | alpha={ALPHA}")
 print(
     f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER} | "
-    f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
+    f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY} | "
+    f"pooled_kv_skip={USE_POOLED_KV_SKIP} (scale={POOLED_KV_SKIP_SCALE})"
 )
 
 # ── HyperNetwork → K, V ──

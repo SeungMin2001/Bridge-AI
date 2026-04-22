@@ -29,7 +29,9 @@ from .config import (
     MAX_SEQ_LEN,
     MODEL_NAME,
     NUM_KV,
+    POOLED_KV_SKIP_SCALE,
     TRAIN_DATA_PATH,
+    USE_POOLED_KV_SKIP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     VALID_DATA_PATH,
@@ -60,7 +62,7 @@ TRAIN_MAX_PASSAGE_SENTENCES = 6
 GRAD_CLIP_NORM = 1.0
 NEGATIVE_MARGIN = 0.2
 NEGATIVE_LOSS_WEIGHT = 0.25
-REPULSION_LOSS_WEIGHT = 0.10
+REPULSION_LOSS_WEIGHT = 0.50
 HIDDEN_SIM_TARGET = 0.97
 K_SIM_TARGET = 0.95
 V_SIM_TARGET = 0.90
@@ -612,7 +614,7 @@ def train():
             try:
                 # 1. passage → HyperNetwork → delta_K, delta_V (논문: CE loss만)
                 passage = sample["passage"]
-                input_ids, c_emb, _, hidden_pos, delta_K, delta_V = encode_memory(
+                input_ids, c_emb, pooled_pos, hidden_pos, delta_K, delta_V = encode_memory(
                     model, hypernet, tokenizer, sample["question"], passage, device
                 )
 
@@ -665,6 +667,7 @@ def train():
                 neg_loss_val = neg_task_loss.item()
                 grounding_val = grounding_loss.item()
                 repulsion_val = repulsion_loss.item()
+                pooled_cos = F.cosine_similarity(pooled_pos, pooled_neg).mean().item()
                 hidden_sim = hidden_sim_t.item()
                 k_sim = k_sim_t.item()
                 v_sim = v_sim_t.item()
@@ -732,7 +735,7 @@ def train():
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
                     f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
-                    f"Hcos: {hidden_sim:.4f} | Kcos: {k_sim:.4f} | Vcos: {v_sim:.4f}"
+                    f"Pcos: {pooled_cos:.4f} | Hcos: {hidden_sim:.4f} | Kcos: {k_sim:.4f} | Vcos: {v_sim:.4f}"
                     f"{diag} | "
                     f"{elapsed:.1f}min"
                 )

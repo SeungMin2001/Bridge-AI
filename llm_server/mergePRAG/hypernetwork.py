@@ -6,6 +6,7 @@ from .embedding import encode_passage_states
 from .pooling import AttentivePooling
 from .mlp import MLP
 from .linearProjection import LinearProjection
+from .config import POOLED_KV_SKIP_SCALE, USE_POOLED_KV_SKIP
 
 
 class HyperNetwork(nn.Module):
@@ -22,21 +23,58 @@ class HyperNetwork(nn.Module):
         super().__init__()
         self.k = k
         self.d_model = d_model
+        self.use_pooled_kv_skip = USE_POOLED_KV_SKIP
+        self.pooled_kv_skip_scale = POOLED_KV_SKIP_SCALE
         self.pooling = AttentivePooling(d_model)
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
         self.lp = LinearProjection(hidden_dim, d_model, num_kv=k)
+        if self.use_pooled_kv_skip:
+            self.pooled_to_k = nn.Linear(d_model, k * d_model)
+            self.pooled_to_v = nn.Linear(d_model, k * d_model)
 
     def encode_embedded(self, embedded, attention_mask=None, query=None, focus_mask=None):
         """debug/train 호환 — 중간 stage tensor 반환.
 
         returns: (pooled, hidden, K_raw, V_raw)
         """
+        stats = self.encode_embedded_components(
+            embedded,
+            attention_mask=attention_mask,
+            query=query,
+            focus_mask=focus_mask,
+        )
+        return stats["pooled"], stats["hidden"], stats["K_raw"], stats["V_raw"]
+
+    def encode_embedded_components(self, embedded, attention_mask=None, query=None, focus_mask=None):
+        """중간 구성요소를 모두 반환.
+
+        debug 용도:
+        - pooled 단계에서 살아있는 차이가 mlp 경로에서 죽는지
+        - pooled->kv skip 이 실제로 차이를 보존하는지
+        """
         pooled = self.pooling(
             embedded, mask=attention_mask, focus_mask=focus_mask, query=query
         )
         hidden = self.mlp(pooled)
-        K_raw, V_raw = self.lp(hidden)
-        return pooled, hidden, K_raw, V_raw
+        K_mlp, V_mlp = self.lp(hidden)
+        K_skip = V_skip = None
+        K_raw, V_raw = K_mlp, V_mlp
+        if self.use_pooled_kv_skip:
+            B = pooled.size(0)
+            K_skip = self.pooled_to_k(pooled).view(B, self.k, self.d_model)
+            V_skip = self.pooled_to_v(pooled).view(B, self.k, self.d_model)
+            K_raw = K_raw + self.pooled_kv_skip_scale * K_skip
+            V_raw = V_raw + self.pooled_kv_skip_scale * V_skip
+        return {
+            "pooled": pooled,
+            "hidden": hidden,
+            "K_mlp": K_mlp,
+            "V_mlp": V_mlp,
+            "K_skip": K_skip,
+            "V_skip": V_skip,
+            "K_raw": K_raw,
+            "V_raw": V_raw,
+        }
 
     def normalize_kv(self, K, V):
         """논문은 normalize하지 않음. no-op로 유지해서 호출부 호환만 보장."""
