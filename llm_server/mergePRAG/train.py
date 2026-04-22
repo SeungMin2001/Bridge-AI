@@ -352,14 +352,25 @@ def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
     return {"input_ids": input_ids, "labels": labels}
 
 
+def normalize_passage_text(text: str) -> str:
+    return " ".join((text or "").split()).strip().lower()
+
+
 def get_negative_sample(dataset: MergePRAGDataset, index: int):
     sample = dataset[index]
     source_id = sample.get("source_id") or sample.get("id")
+    sample_answer = sample.get("answer")
+    sample_passage_key = normalize_passage_text(sample.get("passage", ""))
+
     if source_id is not None:
         candidates = [
             dataset.data[idx]
             for idx in dataset.indices_by_source.get(str(source_id), [])
-            if idx != index and dataset.data[idx].get("answer") != sample.get("answer")
+            if (
+                idx != index
+                and dataset.data[idx].get("answer") != sample_answer
+                and normalize_passage_text(dataset.data[idx].get("passage", "")) != sample_passage_key
+            )
         ]
         if candidates:
             return candidates[index % len(candidates)]
@@ -367,8 +378,18 @@ def get_negative_sample(dataset: MergePRAGDataset, index: int):
     dataset_size = len(dataset)
     for offset in range(1, dataset_size):
         candidate = dataset[(index + offset) % dataset_size]
-        if candidate.get("answer") != sample.get("answer"):
+        if (
+            candidate.get("answer") != sample_answer
+            and normalize_passage_text(candidate.get("passage", "")) != sample_passage_key
+        ):
             return candidate
+
+    # 정말로 다른 passage를 못 찾으면 그때만 기존 fallback을 허용.
+    for offset in range(1, dataset_size):
+        candidate = dataset[(index + offset) % dataset_size]
+        if candidate.get("answer") != sample_answer:
+            return candidate
+
     return dataset[(index + 1) % dataset_size]
 
 
@@ -668,6 +689,10 @@ def train():
                 neg_loss_val = neg_task_loss.item()
                 grounding_val = grounding_loss.item()
                 repulsion_val = repulsion_loss.item()
+                same_passage_neg = (
+                    normalize_passage_text(negative_sample.get("passage", ""))
+                    == normalize_passage_text(sample.get("passage", ""))
+                )
                 pooled_cos = F.cosine_similarity(pooled_pos, pooled_neg).mean().item()
                 hidden_sim = hidden_sim_t.item()
                 k_sim = k_sim_t.item()
@@ -737,6 +762,7 @@ def train():
                     f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"Pcos: {pooled_cos:.4f} | Hcos: {hidden_sim:.4f} | Kcos: {k_sim:.4f} | Vcos: {v_sim:.4f}"
+                    f" | neg_same_passage: {same_passage_neg}"
                     f"{diag} | "
                     f"{elapsed:.1f}min"
                 )
