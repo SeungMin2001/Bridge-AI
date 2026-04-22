@@ -66,11 +66,11 @@ def encode_passage(model, tokenizer, hypernet, question: str, passage: str, devi
             use_contextual=True,
         )
         query = masked_mean(emb, question_mask)
-        pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
-        h = hypernet.mlp(pooled)
-        k_raw, v_raw = hypernet.lp(h)
+        slots = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
+        k_raw = hypernet.ffn_k(slots)
+        v_raw = hypernet.ffn_v(slots)
         k, v = hypernet(emb, attention_mask=attention_mask, query=query, focus_mask=passage_mask)
-    return pooled, h, k_raw, v_raw, k, v
+    return slots, slots, k_raw, v_raw, k, v
 
 
 def cosine(a: torch.Tensor, b: torch.Tensor) -> float:
