@@ -599,7 +599,8 @@ def train():
                 v_vec_norm = delta_V.detach().norm(dim=-1).mean().item()
 
                 # 진단: memory 없이 같은 샘플 평가 → memory 기여도 확인
-                if global_step % LOG_EVERY == 0:
+                # global_step 증가는 아래에서 일어나므로 +1로 로깅 조건과 맞춤
+                if (global_step + 1) % LOG_EVERY == 0:
                     with torch.no_grad():
                         base_logits = model(input_ids=tok["input_ids"])["logits"]
                         base_loss = compute_loss(base_logits, tok["labels"])
