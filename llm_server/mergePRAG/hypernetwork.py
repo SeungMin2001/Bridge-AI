@@ -6,7 +6,13 @@ from .embedding import encode_passage_states
 from .pooling import AttentivePooling
 from .mlp import MLP
 from .linearProjection import LinearProjection
-from .config import KV_PATH_MODE, POOLED_KV_SKIP_SCALE, USE_POOLED_KV_SKIP
+from .config import (
+    KV_PATH_MODE,
+    POOLED_KV_SKIP_SCALE,
+    POOLED_K_SKIP_SCALE,
+    POOLED_V_SKIP_SCALE,
+    USE_POOLED_KV_SKIP,
+)
 
 
 class HyperNetwork(nn.Module):
@@ -26,6 +32,8 @@ class HyperNetwork(nn.Module):
         self.kv_path_mode = KV_PATH_MODE
         self.use_pooled_kv_skip = USE_POOLED_KV_SKIP
         self.pooled_kv_skip_scale = POOLED_KV_SKIP_SCALE
+        self.pooled_k_skip_scale = POOLED_K_SKIP_SCALE
+        self.pooled_v_skip_scale = POOLED_V_SKIP_SCALE
         self.pooling = AttentivePooling(d_model)
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
         self.lp = LinearProjection(hidden_dim, d_model, num_kv=k)
@@ -65,13 +73,19 @@ class HyperNetwork(nn.Module):
             K_skip = self.pooled_to_k(pooled).view(B, self.k, self.d_model)
             V_skip = self.pooled_to_v(pooled).view(B, self.k, self.d_model)
             if self.kv_path_mode == "pooled_only":
-                K_raw = self.pooled_kv_skip_scale * K_skip
-                V_raw = self.pooled_kv_skip_scale * V_skip
+                K_raw = self.pooled_k_skip_scale * K_skip
+                V_raw = self.pooled_v_skip_scale * V_skip
             elif self.kv_path_mode == "hybrid":
-                K_raw = K_raw + self.pooled_kv_skip_scale * K_skip
-                V_raw = V_raw + self.pooled_kv_skip_scale * V_skip
+                K_raw = K_raw + self.pooled_k_skip_scale * K_skip
+                V_raw = V_raw + self.pooled_v_skip_scale * V_skip
             elif self.kv_path_mode == "mlp_only":
                 pass
+            elif self.kv_path_mode == "k_mlp_v_hybrid":
+                K_raw = K_mlp
+                V_raw = V_mlp + self.pooled_v_skip_scale * V_skip
+            elif self.kv_path_mode == "k_mlp_v_skip":
+                K_raw = K_mlp
+                V_raw = self.pooled_v_skip_scale * V_skip
             else:
                 raise ValueError(f"Unsupported MERGEPRAG_KV_PATH_MODE: {self.kv_path_mode}")
         return {

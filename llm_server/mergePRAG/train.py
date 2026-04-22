@@ -31,6 +31,8 @@ from .config import (
     MODEL_NAME,
     NUM_KV,
     POOLED_KV_SKIP_SCALE,
+    POOLED_K_SKIP_SCALE,
+    POOLED_V_SKIP_SCALE,
     TRAIN_DATA_PATH,
     USE_POOLED_KV_SKIP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
@@ -613,6 +615,7 @@ def train():
     print(
         f"[학습] config | num_kv={NUM_KV}, alpha={ALPHA}, "
         f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, kv_path_mode={KV_PATH_MODE}, "
+        f"k_skip_scale={POOLED_K_SKIP_SCALE}, v_skip_scale={POOLED_V_SKIP_SCALE}, "
         f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
     )
     hypernet.train()

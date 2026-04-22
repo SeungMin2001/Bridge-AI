@@ -15,6 +15,8 @@ from mergePRAG.config import (
     KV_PATH_MODE,
     NUM_KV,
     POOLED_KV_SKIP_SCALE,
+    POOLED_K_SKIP_SCALE,
+    POOLED_V_SKIP_SCALE,
     USE_POOLED_KV_SKIP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
@@ -84,7 +86,8 @@ print(
     f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER} | "
     f"kv_path_mode={KV_PATH_MODE} | "
     f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY} | "
-    f"pooled_kv_skip={USE_POOLED_KV_SKIP} (scale={POOLED_KV_SKIP_SCALE})"
+    f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
+    f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE})"
 )
 
 # ── HyperNetwork → K, V ──

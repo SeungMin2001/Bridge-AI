@@ -27,6 +27,8 @@ USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_
 KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "mlp_only").strip().lower()
 USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)
 POOLED_KV_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_KV_SKIP_SCALE", "1.0"))
+POOLED_K_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_K_SKIP_SCALE", str(POOLED_KV_SKIP_SCALE)))
+POOLED_V_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_V_SKIP_SCALE", str(POOLED_KV_SKIP_SCALE)))
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "
     "Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. "
