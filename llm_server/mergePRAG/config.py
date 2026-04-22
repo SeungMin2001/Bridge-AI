@@ -79,8 +79,19 @@ def build_chat_text(tokenizer, question: str, answer: str = "", enable_thinking:
 
 
 def load_hypernet_state_dict(map_location=None):
-    """최종 weight 우선, 없으면 중간 checkpoint의 hypernet state_dict와 메타정보를 반환."""
-    if os.path.exists(WEIGHTS_PATH):
+    """기본은 최신 파일을 사용한다.
+
+    MERGEPRAG_LOAD_SOURCE:
+      - latest (default): 수정 시각이 더 최신인 weights/checkpoint 사용
+      - weights: hypernet_weights.pt 우선
+      - checkpoint: hypernet_checkpoint.pt 우선
+    """
+    load_source = os.getenv("MERGEPRAG_LOAD_SOURCE", "latest").strip().lower()
+
+    weights_exists = os.path.exists(WEIGHTS_PATH)
+    checkpoint_exists = os.path.exists(CHECKPOINT_PATH)
+
+    def load_weights():
         state = torch_load(WEIGHTS_PATH, map_location=map_location)
         return state, {
             "source": WEIGHTS_PATH,
@@ -88,7 +99,7 @@ def load_hypernet_state_dict(map_location=None):
             "step": None,
         }
 
-    if os.path.exists(CHECKPOINT_PATH):
+    def load_checkpoint():
         ckpt = torch_load(CHECKPOINT_PATH, map_location=map_location)
         if isinstance(ckpt, dict) and "hypernet" in ckpt:
             return ckpt["hypernet"], {
@@ -97,6 +108,28 @@ def load_hypernet_state_dict(map_location=None):
                 "step": ckpt.get("step"),
             }
         raise ValueError(f"Checkpoint format invalid: {CHECKPOINT_PATH}")
+
+    if load_source == "weights" and weights_exists:
+        return load_weights()
+    if load_source == "checkpoint" and checkpoint_exists:
+        return load_checkpoint()
+
+    if load_source == "latest":
+        candidates = []
+        if weights_exists:
+            candidates.append(("weights", os.path.getmtime(WEIGHTS_PATH)))
+        if checkpoint_exists:
+            candidates.append(("checkpoint", os.path.getmtime(CHECKPOINT_PATH)))
+        if candidates:
+            latest_kind = max(candidates, key=lambda x: x[1])[0]
+            if latest_kind == "checkpoint":
+                return load_checkpoint()
+            return load_weights()
+
+    if weights_exists:
+        return load_weights()
+    if checkpoint_exists:
+        return load_checkpoint()
 
     raise FileNotFoundError(
         f"Neither hypernet weights nor checkpoint found: {WEIGHTS_PATH}, {CHECKPOINT_PATH}"
