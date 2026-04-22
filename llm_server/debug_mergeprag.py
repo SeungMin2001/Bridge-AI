@@ -90,14 +90,25 @@ def get_kv(passage: str, question: str, grad: bool = False):
     ctx = torch.enable_grad() if grad else torch.no_grad()
     with ctx:
         query = masked_mean(emb, qmask) if USE_QUESTION_CONDITIONED_MEMORY else None
-        pooled = hypernet.pooling(emb, mask=attn, query=query, focus_mask=pmask)
-        hidden = hypernet.mlp(pooled)
-        K_raw, V_raw = hypernet.lp(hidden)
+        parts = hypernet.encode_embedded_components(
+            emb,
+            attention_mask=attn,
+            query=query,
+            focus_mask=pmask,
+        )
+        pooled = parts["pooled"]
+        hidden = parts["hidden"]
+        K_raw = parts["K_raw"]
+        V_raw = parts["V_raw"]
         K, V = hypernet.normalize_kv(K_raw, V_raw)
     return {
         "emb": emb,
         "pooled": pooled,
         "mlp_out": hidden,
+        "K_mlp": parts["K_mlp"],
+        "V_mlp": parts["V_mlp"],
+        "K_skip": parts["K_skip"],
+        "V_skip": parts["V_skip"],
         "K_raw": K_raw,
         "V_raw": V_raw,
         "K": K,
@@ -152,6 +163,25 @@ def loss_of(input_ids, labels):
     return F.cross_entropy(shift_logits[valid], shift_labels[valid]).item()
 
 
+def hooked_loss(batch, K=None, V=None, alpha=ALPHA):
+    target = model.model.layers[CRITICAL_LAYER]
+    hook = None
+    if K is not None:
+        hook = target.register_forward_hook(make_hook(K, V, alpha=alpha))
+    try:
+        with torch.no_grad():
+            logits = model(input_ids=batch["input_ids"])["logits"]
+    finally:
+        if hook is not None:
+            hook.remove()
+    shift_logits = logits[:, :-1, :]
+    shift_labels = batch["labels"][:, 1:]
+    valid = shift_labels != -100
+    if valid.sum() == 0:
+        return None
+    return F.cross_entropy(shift_logits[valid], shift_labels[valid]).item()
+
+
 # ═══════════════════════════════════════════════════════════════
 # [A] 스테이지별 cosine 전파 — collapse 진원지 탐지
 # ═══════════════════════════════════════════════════════════════
@@ -174,6 +204,46 @@ print("  emb 단계에서 이미 >0.99 → Qwen 인코딩 자체가 한 단어 �
 print("  pooled/mlp_out에서 급상승 → pooling 또는 MLP가 정보 지움")
 print("  K_raw/K에서 급상승 → LinearProjection 또는 normalize_kv 문제")
 print("  건강한 상태: 각 스테이지마다 cos가 점진 증가, 최종 K/V cos < 0.95")
+
+
+# ═══════════════════════════════════════════════════════════════
+# [A-2] MLP 경로 vs pooled->KV skip 경로 분해
+# ═══════════════════════════════════════════════════════════════
+section("[A-2] K/V 분해 — MLP 경로와 pooled skip 경로의 기여도")
+
+
+def print_component(name: str, key: str):
+    a = main.get(key)
+    b = comp.get(key)
+    if a is None or b is None:
+        print(f"{name:<12} disabled")
+        return
+    print(
+        f"{name:<12} cos={vec_cos(a, b):.4f} | "
+        f"|main|={a.norm().item():.2f} | |comp|={b.norm().item():.2f}"
+    )
+
+
+print_component("K_mlp", "K_mlp")
+print_component("V_mlp", "V_mlp")
+print_component("K_skip", "K_skip")
+print_component("V_skip", "V_skip")
+
+if main.get("K_skip") is not None:
+    main_k_ratio = main["K_skip"].norm().item() / max(main["K_mlp"].norm().item(), 1e-9)
+    main_v_ratio = main["V_skip"].norm().item() / max(main["V_mlp"].norm().item(), 1e-9)
+    comp_k_ratio = comp["K_skip"].norm().item() / max(comp["K_mlp"].norm().item(), 1e-9)
+    comp_v_ratio = comp["V_skip"].norm().item() / max(comp["V_mlp"].norm().item(), 1e-9)
+    print(
+        f"\nskip/mlp norm ratio | "
+        f"main K={main_k_ratio:.3f}, main V={main_v_ratio:.3f}, "
+        f"comp K={comp_k_ratio:.3f}, comp V={comp_v_ratio:.3f}"
+    )
+
+print("\n해석 가이드:")
+print("  K_mlp/V_mlp cos만 높고 K_skip/V_skip cos는 낮음 → MLP/head가 collapse 주범")
+print("  skip norm ratio가 매우 작음(<0.1) → skip이 있어도 영향이 거의 없음")
+print("  skip cos도 높음 → pooled 차이를 K/V로 옮기는 projection 자체가 못 배우는 중")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -255,6 +325,27 @@ print("\n해석 가이드:")
 print("  성공: log(M/F) > 0 under main, < 0 under compare, KL(main || compare) > 0.5")
 print("  collapse: KL(main || compare) < 0.01 → 두 memory가 사실상 같은 분포")
 print("  무효화: KL(main || no_hook) ≈ 0 → hook이 아예 효과 없음")
+
+
+# ═══════════════════════════════════════════════════════════════
+# [C-2] full-answer margin 요약
+# ═══════════════════════════════════════════════════════════════
+section("[C-2] Full-answer margin — main vs compare memory가 실제로 답을 뒤집는가")
+
+main_target = hooked_loss(build_batch(PASSAGE, QUESTION, EXPECTED_ANSWER, False), main["K"], main["V"])
+main_compare = hooked_loss(build_batch(PASSAGE, QUESTION, COMPARE_EXPECTED_ANSWER, False), main["K"], main["V"])
+comp_target = hooked_loss(build_batch(PASSAGE, QUESTION, EXPECTED_ANSWER, False), comp["K"], comp["V"])
+comp_compare = hooked_loss(build_batch(PASSAGE, QUESTION, COMPARE_EXPECTED_ANSWER, False), comp["K"], comp["V"])
+margin_main = main_compare - main_target
+margin_compare = comp_target - comp_compare
+print(f"main memory margin (compare-target)    = {margin_main:+.4f}")
+print(f"compare memory margin (target-compare) = {margin_compare:+.4f}")
+print(f"flip success = {margin_main > 0 and margin_compare > 0}")
+
+print("\n해석 가이드:")
+print("  둘 다 양수면 memory가 full-answer 기준으로도 passage별 분리 성공")
+print("  main만 양수면 generic bias는 배웠지만 compare flip은 실패")
+print("  둘 다 0 근처면 hook은 있어도 passage-specific signal이 약함")
 
 
 # ═══════════════════════════════════════════════════════════════
