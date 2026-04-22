@@ -491,8 +491,10 @@ def train():
     # ── HyperNetwork 초기화 ──
     hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
 
-    # ── Optimizer: AdamW (논문 동일) ──
-    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR)
+    # ── Optimizer: AdamW (weight_decay=0 — MLP 붕괴 방지) ──
+    # 기본 weight_decay=0.01은 훈련 신호가 약할 때 가중치를 0으로 끌어당겨
+    # MLP 출력이 bias에 수렴 → 서로 다른 passage가 동일한 K/V로 붕괴함.
+    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR, weight_decay=0.0)
 
     # ── 데이터 로드 ──
     train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=MAX_SAMPLES)
@@ -596,6 +598,16 @@ def train():
                 k_vec_norm = delta_K.detach().norm(dim=-1).mean().item()
                 v_vec_norm = delta_V.detach().norm(dim=-1).mean().item()
 
+                # 진단: memory 없이 같은 샘플 평가 → memory 기여도 확인
+                if global_step % LOG_EVERY == 0:
+                    with torch.no_grad():
+                        base_logits = model(input_ids=tok["input_ids"])["logits"]
+                        base_loss = compute_loss(base_logits, tok["labels"])
+                    base_loss_val = base_loss.item() if base_loss is not None else float("nan")
+                    del base_logits
+                else:
+                    base_loss_val = None
+
                 # 4. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
                 loss.backward()
@@ -635,10 +647,15 @@ def train():
                 })
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
+                # base_loss 대비 memory loss가 낮아야 훈련이 실제로 의미 있음
+                diag = ""
+                if base_loss_val is not None:
+                    gain = base_loss_val - loss_val
+                    diag = f" | base: {base_loss_val:.4f} (gain: {gain:+.4f})"
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
-                    f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
+                    f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f}{diag} | "
                     f"{elapsed:.1f}min"
                 )
 
