@@ -58,12 +58,6 @@ SAVE_EVERY = 250            # 500→250으로 감소 (더 자주 저장)
 PATIENCE = 3                # 5→3으로 감소 (overfitting 방지)
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 GRAD_CLIP_NORM = 1.0
-REPULSION_MARGIN = 0.1  # 0.3→0.1: 더 강한 분리 (새 아키텍처는 가능)
-REPULSION_WEIGHT = 1.0
-SLOT_DIVERSITY_WEIGHT = 0.2
-# 핵심 추가: 틀린 passage의 K/V로 주입했을 때 loss가 올라가야 함
-DISCRIMINATION_WEIGHT = 1.0
-DISCRIMINATION_MARGIN = 0.5
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -261,39 +255,6 @@ def compute_loss(logits, labels):
     return F.cross_entropy(logits_flat, labels_flat)
 
 
-def compute_slot_diversity_loss(K, V):
-    """Slot diversity regularization — 각 slot이 다른 방향을 가리키도록 강제.
-
-    K, V shape: [B, num_slots, d_model]
-
-    건강한 상태: 모든 slot 쌍이 낮은 cosine similarity (<0.5)
-    collapse 상태: 모든 slot이 거의 같은 방향 (cos > 0.95)
-
-    Loss: slot 쌍 간 cosine similarity의 제곱 평균
-    → 0에 가까울수록 slot들이 직교
-    """
-    if K.shape[1] <= 1:  # slot이 1개면 diversity loss 불필요
-        return torch.tensor(0.0, device=K.device)
-
-    # K에 대한 diversity
-    K_flat = K.view(K.shape[0], K.shape[1], -1)  # [B, k, d]
-    K_norm = F.normalize(K_flat, dim=-1)  # unit vectors
-    K_sim = torch.bmm(K_norm, K_norm.transpose(1, 2))  # [B, k, k]
-    # 대각선 제외 (자기 자신과의 유사도는 1이므로)
-    mask = torch.eye(K_sim.shape[1], device=K.device).unsqueeze(0).bool()
-    K_offdiag = K_sim.masked_fill(mask, 0.0)
-    k_diversity_loss = K_offdiag.abs().pow(2).mean()
-
-    # V에 대한 diversity
-    V_flat = V.view(V.shape[0], V.shape[1], -1)
-    V_norm = F.normalize(V_flat, dim=-1)
-    V_sim = torch.bmm(V_norm, V_norm.transpose(1, 2))
-    V_offdiag = V_sim.masked_fill(mask, 0.0)
-    v_diversity_loss = V_offdiag.abs().pow(2).mean()
-
-    return k_diversity_loss + v_diversity_loss
-
-
 def masked_mean(hidden, mask):
     weights = mask.unsqueeze(-1).to(dtype=hidden.dtype)
     denom = weights.sum(dim=1).clamp_min(1.0)
@@ -380,17 +341,6 @@ def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
     ), dim=-1).to(device)
 
     return {"input_ids": input_ids, "labels": labels}
-
-
-def get_negative_sample(dataset, index: int):
-    """Batch 내 대조를 위해 다른 passage를 반환. answer가 다른 것을 우선."""
-    anchor = dataset[index]
-    dataset_size = len(dataset)
-    for offset in range(1, dataset_size):
-        candidate = dataset[(index + offset) % dataset_size]
-        if candidate.get("passage") != anchor.get("passage"):
-            return candidate
-    return dataset[(index + 1) % dataset_size]
 
 
 # ── Validation ──
@@ -620,7 +570,7 @@ def train():
                 continue
 
             try:
-                # 1. passage → HyperNetwork → delta_K, delta_V
+                # 1. passage → HyperNetwork → delta_K, delta_V (논문: CE loss만)
                 passage = sample["passage"]
                 input_ids, c_emb, _, hidden_pos, delta_K, delta_V = encode_memory(
                     model, hypernet, tokenizer, sample["question"], passage, device
@@ -635,80 +585,27 @@ def train():
                     task=sample.get("task", "final_qa"),
                 )
 
-                # 3. memory로 정답 loss (task CE)
+                # 3. memory로 정답 loss — 논문 KV_train.py와 동일
                 logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
                 task_loss = compute_loss(logits, tok["labels"])
                 if task_loss is None:
                     continue
 
-                # 4. 대조 loss — K/V가 passage별로 분리되도록
-                negative_sample = get_negative_sample(train_dataset, i)
-                _, neg_emb, _, hidden_neg, neg_K, neg_V = encode_memory(
-                    model,
-                    hypernet,
-                    tokenizer,
-                    sample["question"],
-                    negative_sample["passage"],
-                    device,
-                )
-                h_cos = F.cosine_similarity(
-                    hidden_pos.flatten(1), hidden_neg.flatten(1), dim=-1
-                ).mean()
-                k_cos = F.cosine_similarity(delta_K.flatten(1), neg_K.flatten(1)).mean()
-                v_cos = F.cosine_similarity(delta_V.flatten(1), neg_V.flatten(1)).mean()
-                repulsion_loss = (
-                    torch.relu(h_cos - REPULSION_MARGIN).pow(2)
-                    + torch.relu(k_cos - REPULSION_MARGIN).pow(2)
-                    + torch.relu(v_cos - REPULSION_MARGIN).pow(2)
-                )
+                loss = task_loss
 
-                # 5. Slot diversity — within-passage slot collapse 방지
-                diversity_loss = compute_slot_diversity_loss(delta_K, delta_V)
-
-                # 6. Discrimination loss — 핵심: 틀린 passage의 K/V를 주입하면
-                #    정답 loss가 올라가야 한다. 이게 "model이 passage를 실제로 쓴다"의
-                #    직접적 정의.
-                logits_wrong = forward_with_memory(
-                    model, target_layer, neg_K, neg_V, tok
-                )
-                wrong_loss = compute_loss(logits_wrong, tok["labels"])
-                if wrong_loss is not None:
-                    discrimination_loss = torch.relu(
-                        task_loss - wrong_loss + DISCRIMINATION_MARGIN
-                    )
-                else:
-                    discrimination_loss = torch.tensor(0.0, device=device)
-
-                loss = (
-                    task_loss
-                    + REPULSION_WEIGHT * repulsion_loss
-                    + SLOT_DIVERSITY_WEIGHT * diversity_loss
-                    + DISCRIMINATION_WEIGHT * discrimination_loss
-                )
-
-                # 5. backward → HyperNetwork만 업데이트
+                # 4. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(hypernet.parameters(), GRAD_CLIP_NORM)
                 optimizer.step()
                 scheduler.step()
 
-                loss_val = task_loss.item()
-                rep_val = repulsion_loss.item()
-                div_val = diversity_loss.item()
-                disc_val = discrimination_loss.item() if torch.is_tensor(discrimination_loss) else 0.0
-                wrong_val = wrong_loss.item() if wrong_loss is not None else 0.0
-                h_cos_val = h_cos.item()
-                k_cos_val = k_cos.item()
-                v_cos_val = v_cos.item()
-                k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
-                v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
                 total_loss += loss_val
                 count += 1
                 global_step += 1
 
                 # VRAM 정리
-                del logits, logits_wrong, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg
+                del logits, loss, c_emb, delta_K, delta_V, input_ids, hidden_pos
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -721,17 +618,10 @@ def train():
                 else:
                     raise e
 
-            # 로그 기록
+            # 로그 기록 — 논문 스타일: CE loss만
             log_data["step_losses"].append({
                 "step": global_step,
                 "loss": round(loss_val, 4),
-                "wrong_loss": round(wrong_val, 4),
-                "repulsion": round(rep_val, 4),
-                "diversity": round(div_val, 4),
-                "discrimination": round(disc_val, 4),
-                "h_cos": round(h_cos_val, 4),
-                "k_cos": round(k_cos_val, 4),
-                "v_cos": round(v_cos_val, 4),
             })
 
             if global_step % LOG_EVERY == 0:
@@ -742,13 +632,9 @@ def train():
                 })
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
-                # Δ = wrong - pos. 양수이면 model이 맞는 passage를 쓰고 있다.
-                delta_loss = wrong_val - loss_val
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
-                    f"pos: {loss_val:.4f} | wrong: {wrong_val:.4f} | Δ: {delta_loss:+.3f} | "
-                    f"lr: {lr_now:.2e} | rep: {rep_val:.4f} | div: {div_val:.4f} | disc: {disc_val:.4f} | "
-                    f"Kcos: {k_cos_val:.3f} | Vcos: {v_cos_val:.3f} | "
+                    f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"{elapsed:.1f}min"
                 )

@@ -10,11 +10,15 @@ def _get_bool(name: str, default: bool) -> bool:
 
 
 MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
-NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "5"))  # 1→5로 증가 (slot diversity를 위해)
-DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "0"))
-ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "3.0"))  # hook 주입 강도 증가 (1.0→3.0)
+# 논문 기본: num_kv=1. slot 수를 늘려도 되지만 논문 재현은 1부터.
+NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "1"))
+# 논문: single_layer=9 (Llama-3.1). Qwen의 경우 find_critical_layers.py 결과 사용.
+DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "9"))
+# 논문: alpha=1.0 (cross_attention 출력을 그대로 더함, 스케일 인위 조정 없음)
+ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "1.0"))
 MAX_SEQ_LEN = 512
-USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)  # 맥락 정보 활용으로 passage 차이 인식
+# 논문: embed_tokens (token embedding only). contextual은 끔.
+USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", False)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", False)
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "

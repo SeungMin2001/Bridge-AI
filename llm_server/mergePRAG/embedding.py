@@ -25,12 +25,11 @@ def contextualize(model, input_ids, attention_mask=None):
     return outputs.last_hidden_state.to(dtype=torch.float32)
 
 
-def encode_passage_states(model, input_ids, attention_mask=None, use_contextual=True):
-    """Passage encoder input for the hypernetwork.
+def encode_passage_states(model, input_ids, attention_mask=None, use_contextual=False):
+    """논문 `KV_train.py`: `model.model.embed_tokens(input_ids)` 사용 (token embed only).
 
-    Contextual hidden states preserve token interactions inside a passage,
-    which is critical for separating near-identical passages such as
-    'deadline is Monday' vs 'deadline is Friday'.
+    use_contextual=True는 실험적 옵션 (Qwen 전체를 통과시켜 hidden state를 씀).
+    논문 재현이 목적이라면 False가 기본.
     """
     if use_contextual:
         return contextualize(model, input_ids, attention_mask=attention_mask)

@@ -85,13 +85,14 @@ def get_kv(passage: str, question: str, grad: bool = False):
     ctx = torch.enable_grad() if grad else torch.no_grad()
     with ctx:
         query = masked_mean(emb, qmask) if USE_QUESTION_CONDITIONED_MEMORY else None
-        slots = hypernet.pooling(emb, mask=attn, query=query, focus_mask=pmask)
-        K_raw = hypernet.ffn_k(slots)
-        V_raw = hypernet.ffn_v(slots)
+        pooled = hypernet.pooling(emb, mask=attn, query=query, focus_mask=pmask)
+        hidden = hypernet.mlp(pooled)
+        K_raw, V_raw = hypernet.lp(hidden)
         K, V = hypernet.normalize_kv(K_raw, V_raw)
     return {
         "emb": emb,
-        "slots": slots,
+        "pooled": pooled,
+        "mlp_out": hidden,
         "K_raw": K_raw,
         "V_raw": V_raw,
         "K": K,
@@ -159,7 +160,7 @@ def vec_cos(a, b):
 
 
 print(f"{'Stage':<12} {'Cosine':>10} {'|main|':>10} {'|comp|':>10}")
-for name in ["emb", "slots", "K_raw", "V_raw", "K", "V"]:
+for name in ["emb", "pooled", "mlp_out", "K_raw", "V_raw", "K", "V"]:
     a, b = main[name], comp[name]
     print(f"{name:<12} {vec_cos(a, b):>10.4f} {a.norm().item():>10.2f} {b.norm().item():>10.2f}")
 

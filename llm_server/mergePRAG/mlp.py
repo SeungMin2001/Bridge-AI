@@ -2,6 +2,8 @@ import torch.nn as nn
 
 
 class MLP(nn.Module):
+    """논문 HyperKVGeneratorFixed의 mlp와 일치."""
+
     def __init__(self, d_model, hidden_dim=1024):
         super().__init__()
         self.net = nn.Sequential(
@@ -9,6 +11,7 @@ class MLP(nn.Module):
             nn.ReLU(),
             nn.LayerNorm(hidden_dim),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
         )
 
     def forward(self, h):
