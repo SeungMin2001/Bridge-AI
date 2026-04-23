@@ -32,12 +32,12 @@ with open(file_path, "r", encoding="utf-8") as f:
         documents.append(doc)
 
 vector_store = PGVectorStore.from_params(
-    database="shin",
+    database="rag",
     host="localhost",
     password="1234",
     port=5432,
     user="postgres",
-    table_name="shin",
+    table_name="rag",
     embed_dim=1024
 )
 
