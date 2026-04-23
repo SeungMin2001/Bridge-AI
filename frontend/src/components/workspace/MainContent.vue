@@ -9,7 +9,13 @@ import LectureMaterialList from './MainContent/LectureMaterialList.vue'
 import LecturePreviewPanel from './MainContent/LecturePreviewPanel.vue'
 import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
 
-const { selectedWordData, clearSelectedWord } = useChat()
+const {
+  selectedWordData,
+  isWordCardVisible,
+  hideSelectedWordCard,
+  showSelectedWordCard,
+  clearSelectedWord
+} = useChat()
 
 const props = defineProps({
   isRecording: Boolean,
@@ -130,15 +136,25 @@ const handleOpenStoredMaterial = (fileId) => {
 const handleDeleteStoredMaterial = (fileId) => {
   emit('deleteStoredMaterial', fileId)
 }
+
+const handleWordInsightButtonClick = () => {
+  if (selectedWordData.value) {
+    if (isWordCardVisible.value) {
+      hideSelectedWordCard()
+    } else {
+      showSelectedWordCard()
+    }
+  }
+}
 </script>
 
 <template>
   <main class="flex-1 flex flex-col gap-[12px] h-full min-w-0" style="flex: 1 1 0%; min-width: 300px;">
     <transition name="word-card">
       <WorkspaceWordCard
-        v-if="selectedWordData"
+        v-if="selectedWordData && isWordCardVisible"
         :word-data="selectedWordData"
-        @close="clearSelectedWord"
+        @close="hideSelectedWordCard"
         @ask-ai="handleAskAi"
         @add-to-note="handleAddToNote"
       />
@@ -151,6 +167,8 @@ const handleDeleteStoredMaterial = (fileId) => {
         :recording-time-text="recordingTimeText"
         :show-close-preview="!!currentPreviewMaterial"
         :preview-material-name="currentPreviewMaterial?.name || ''"
+        :has-word-insight="!!selectedWordData"
+        :word-insight-visible="!!selectedWordData && isWordCardVisible"
         @start-recording="emit('startRecording')"
         @pause-recording="emit('pauseRecording')"
         @resume-recording="emit('resumeRecording')"
@@ -158,6 +176,7 @@ const handleDeleteStoredMaterial = (fileId) => {
         @main-sidebar-toggle="emit('mainSidebarToggle')"
         @right-sidebar-toggle="emit('rightSidebarToggle')"
         @material-selected="handleMaterialSelection"
+        @word-insight-click="handleWordInsightButtonClick"
         @close-preview-material="emit('closePreviewMaterial')"
       />
 
