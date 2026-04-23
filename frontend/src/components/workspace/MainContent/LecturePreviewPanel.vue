@@ -31,6 +31,7 @@ let activePdfTextLayers = []
 const isPdfAttachment = (file) => /\.pdf$/i.test(file?.name || '')
 const isPptAttachment = (file) => /\.(ppt|pptx)$/i.test(file?.name || '')
 
+// PDF/PPT 리소스 정리
 const destroyPptViewer = () => {
   pptViewer.value?.destroy?.()
   pptViewer.value = null
@@ -80,6 +81,7 @@ const destroyPdfPreview = async ({ incrementToken = true } = {}) => {
   activePdfDocument = null
 }
 
+// PDF 로딩
 const renderPdfPreview = async (file) => {
   if (!file?.url) {
     pdfError.value = 'PDF 파일을 찾을 수 없어 미리보기를 열 수 없습니다.'
@@ -115,6 +117,7 @@ const renderPdfPreview = async (file) => {
     for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
       if (renderToken !== pdfRenderToken) return
 
+      // PDF 페이지별 canvas 렌더링
       const page = await pdfDocument.getPage(pageNumber)
       const initialViewport = page.getViewport({ scale: 1 })
       const scale = Math.max(0.75, Math.min(2.15, availableWidth / initialViewport.width))
@@ -150,6 +153,7 @@ const renderPdfPreview = async (file) => {
       textLayerDiv.style.height = '100%'
       textLayerDiv.style.setProperty('--total-scale-factor', '1')
 
+      // PDF text layer 렌더링
       const textLayer = new pdfjsLib.TextLayer({
         textContentSource: page.streamTextContent({
           includeMarkedContent: true,
@@ -188,11 +192,13 @@ const renderPdfPreview = async (file) => {
   }
 }
 
+// PPT 슬라이드 이동
 const renderCurrentPptSlide = async () => {
   if (!pptViewer.value || !pptCanvasRef.value) return
   await pptViewer.value.render(pptCanvasRef.value, { slideIndex: pptSlideIndex.value })
 }
 
+// PPT 로딩
 const loadPptPreview = async (file) => {
   if (!file?.sourceFile) {
     pptError.value = 'PPT 원본 파일을 찾을 수 없어 미리보기를 열 수 없습니다.'
@@ -277,6 +283,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- PDF/PPT 상태 UI -->
   <div class="lecture-preview-shell">
     <div v-if="isPdfAttachment(material)" class="lecture-preview-frame-wrap">
       <div class="lecture-preview-surface">
@@ -303,6 +310,7 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<!-- 미리보기 스타일 -->
 <style scoped>
 .lecture-preview-shell {
   height: 100%;
