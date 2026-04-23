@@ -115,13 +115,12 @@ class HyperNetwork(nn.Module):
             V = V * scale
         return K, V
 
-    def forward(self, embedded, attention_mask=None, query=None, focus_mask=None, focus_weight=None):
+    def forward(self, embedded, attention_mask=None, query=None, focus_mask=None):
         _, _, K, V = self.encode_embedded(
             embedded,
             attention_mask=attention_mask,
             query=query,
             focus_mask=focus_mask,
-            focus_weight=focus_weight,
         )
         return self.normalize_kv(K, V)
 

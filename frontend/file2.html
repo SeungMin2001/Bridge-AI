@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+
+<html lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>LectoAI</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
+    
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Pretendard Variable', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
+      background-color: #ebebf0;
+      color: #1d1d1f;
+      height: 100vh;
+      overflow: hidden;
+    }
+    /* Polish Bold Typography for Headings */
+    .font-heavy-heading {
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 18px;
+      box-shadow: none;
+    }
+    .empty-state-box {
+      border: 1.5px dashed #d1d1d6;
+      border-radius: 14px;
+    }
+    .sidebar-search-bg {
+      background-color: #f2f2f7;
+    }
+    .active-tab {
+      background-color: #1d1d1f;
+      color: #ffffff;
+    }
+    .floating-toolbar {
+      background-color: #ffffff;
+      border-radius: 24px;
+      box-shadow: none;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+    .tool-btn-active {
+      background-color: #f2f2f7;
+      color: #3b82f6;
+    }
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      background-color: #ff3b30;
+      border-radius: 50%;
+      display: inline-block;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.1); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .message-bubble {
+      background-color: #f2f2f7;
+      border-radius: 16px;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #d1d1d6;
+      border-radius: 10px;
+    }
+    .btn-ghost-icon {
+      transition: background-color 0.2s;
+    }
+    .btn-ghost-icon:hover {
+      background-color: #f2f2f7;
+    }
+    #sidebar {
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .sidebar-collapsed {
+      width: 72px !important;
+    }
+    .sidebar-collapsed .collapsible-content {
+      display: none !important;
+    }
+    .sidebar-collapsed .sidebar-header-row {
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    #resizer-right {
+      z-index: 20;
+    }
+    main {
+      flex: 1 1 0%;
+      min-width: 300px;
+    }
+    aside:last-of-type {
+      width: 300px;
+      min-width: 200px;
+      max-width: 600px;
+    }
+    .note-canvas {
+      background-color: #ffffff;
+      cursor: text;
+    }
+  </style></head>
+<body class="p-[12px] flex gap-[12px]">
+<!-- Left Sidebar -->
+<aside class="w-[280px] flex flex-col h-full shrink-0 overflow-hidden" id="sidebar">
+<div class="card flex-1 flex flex-col p-5 pb-5 overflow-hidden">
+<!-- Header -->
+<div class="flex items-center justify-between mb-5 sidebar-header-row">
+<div class="flex items-center gap-2 font-heavy-heading text-[18px]">
+<div class="w-[28px] h-[28px] bg-[#1d1d1f] rounded-[8px] flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-white text-[17px] scale-x-[-1]">menu_book</span>
+</div>
+<span class="collapsible-content">LectoAI</span>
+</div>
+<div class="flex gap-1 sidebar-header-btns">
+<button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93]" id="sidebarToggle">
+<span class="material-symbols-outlined text-[20px]" id="toggleIcon">grid_view</span>
+</button>
+<button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93] collapsible-content">
+<span class="material-symbols-outlined text-[20px]">edit_note</span>
+</button>
+</div>
+</div>
+<!-- Search -->
+<div class="sidebar-search-bg rounded-[12px] px-3.5 py-2 flex items-center gap-2 mb-5 collapsible-content">
+<span class="material-symbols-outlined text-[#8e8e93] text-[18px]">search</span>
+<span class="text-[13px] text-[#aeaeb2]">제목으로 검색</span>
+</div>
+<!-- Collapsed View Icon Placeholder for Search -->
+<div class="sidebar-collapsed-only flex flex-col items-center gap-6 mb-5 hidden">
+<button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93]">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</button>
+</div>
+<!-- Notes Section -->
+<div class="collapsible-content">
+<div class="flex items-center justify-between px-1 mb-2.5">
+<span class="text-[13px] font-bold text-[#3a3a3c]">활성화한 파일</span>
+<button class="text-[#aeaeb2] hover:text-[#1d1d1f]">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<div class="flex flex-col gap-1 mb-6">
+<div class="flex items-center gap-2.5 px-2 py-2 rounded-xl bg-[#f2f2f7] cursor-pointer">
+<span class="material-symbols-outlined text-[18px] text-[#1d1d1f]">description</span>
+<span class="text-[13px] font-medium text-[#1d1d1f]">새 노트</span>
+</div>
+</div>
+</div>
+<!-- Topics Section -->
+<div class="collapsible-content">
+<div class="flex items-center justify-between px-1 mb-2.5">
+<span class="text-[13px] font-bold text-[#3a3a3c]">주제</span>
+<button class="text-[#aeaeb2] hover:text-[#1d1d1f]">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<!-- Folder and File Hierarchy -->
+<div class="flex flex-col gap-1">
+<!-- New Topic Folder Item -->
+<div class="group flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-[#f2f2f7] cursor-pointer transition-colors">
+<div class="flex items-center gap-2.5">
+<div class="w-2.5 h-2.5 rounded-full bg-[#b00b4a] shrink-0"></div>
+<span class="text-[13px] font-medium text-[#1d1d1f]">새 주제</span>
+</div>
+<button class="opacity-0 group-hover:opacity-100 text-[#aeaeb2] hover:text-[#1d1d1f] transition-opacity">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<!-- Nested New Note Item -->
+<div class="ml-5 flex items-center gap-2.5 px-2 py-2 rounded-xl bg-[#f2f2f7] cursor-pointer">
+<span class="material-symbols-outlined text-[18px] text-[#1d1d1f]">description</span>
+<span class="text-[13px] font-medium text-[#1d1d1f]">새 노트</span>
+</div>
+</div>
+</div>
+<!-- Collapsed Section Icons -->
+<div class="sidebar-collapsed-only flex flex-col items-center gap-4 flex-1 hidden">
+<button class="btn-ghost-icon p-2.5 rounded-xl text-[#aeaeb2]">
+<span class="material-symbols-outlined text-[24px]">description</span>
+</button>
+<button class="btn-ghost-icon p-2.5 rounded-xl text-[#aeaeb2]">
+<span class="material-symbols-outlined text-[24px]">folder</span>
+</button>
+</div>
+<!-- Footer Home Icon -->
+<div class="mt-auto pt-5 flex flex-col items-center" style="padding-top: 1.25rem;">
+<a class="btn-ghost-icon p-2.5 rounded-xl cursor-pointer flex items-center text-[#aeaeb2] justify-center" href="#">
+<span class="material-symbols-outlined text-[24px]">home</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Middle Column -->
+<main class="flex-1 flex flex-col gap-[12px] h-full min-w-0">
+<!-- Header Card -->
+<header class="card h-[56px] flex items-center px-5 shrink-0">
+<nav class="flex gap-1 overflow-x-auto no-scrollbar">
+<button class="active-tab px-4 py-1.5 rounded-[10px] text-[13px] font-bold whitespace-nowrap">새 노트</button>
+<button class="text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap">AI</button>
+<button class="text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap">자료</button>
+<button class="text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap">요약</button>
+<button class="text-[#8e8e93] hover:text-[#1d1d1f] px-3.5 py-1.5 rounded-[10px] text-[13px] font-medium transition-colors whitespace-nowrap">퀴즈</button>
+</nav>
+<div class="ml-auto flex items-center gap-1.5 shrink-0">
+<button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]">
+<span class="material-symbols-outlined text-[20px]">play_circle</span>
+</button>
+<div class="flex items-center gap-2 bg-[#FFF0F3] hover:bg-[#FFE4E9] px-3 py-1.5 rounded-full cursor-pointer transition-colors border border-[#FFD1DA] shrink-0">
+<div class="w-6 h-6 flex items-center justify-center shrink-0"><span class="live-dot bg-[#ff3b30] w-[8px] h-[8px]"></span></div>
+<span class="text-[13px] font-bold text-[#1d1d1f] tabular-nums">0:00</span>
+</div>
+<button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]">
+<span class="material-symbols-outlined text-[20px]">share</span>
+</button>
+</div>
+</header>
+<!-- Main Content Area: Active Note taking area -->
+<section class="card flex-1 flex flex-col relative overflow-hidden note-canvas p-10 pt-12">
+<div class="max-w-4xl mx-auto w-full h-full">
+<h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-8">새 노트</h1>
+<!-- Active Workspace area simulation -->
+<div class="text-[16px] text-[#aeaeb2] leading-relaxed">
+        여기에 타이핑을 시작하거나 파일을 업로드하세요.
+      </div>
+</div>
+<!-- Floating Toolbar -->
+<div class="floating-toolbar absolute bottom-8 left-1/2 -translate-x-1/2 flex p-1.5 gap-1 z-10 bg-white">
+<button class="tool-btn-active w-[48px] h-[48px] flex items-center justify-center rounded-full">
+<span class="material-symbols-outlined text-[24px]">near_me</span>
+</button>
+<button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors">
+<span class="material-symbols-outlined text-[24px]">ink_pen</span>
+</button>
+<button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors">
+<span class="material-symbols-outlined text-[24px]">history_edu</span>
+</button>
+<button class="w-[48px] h-[48px] flex items-center justify-center rounded-full text-[#8e8e93] hover:bg-gray-100 transition-colors">
+<span class="material-symbols-outlined text-[24px]">add_circle</span>
+</button>
+</div>
+</section>
+</main>
+<div class="w-1.5 hover:bg-[#d1d1d6] transition-colors cursor-col-resize flex items-center justify-center group active:bg-[#aeaeb2] mx-[-6px] z-20" id="resizer-right">
+<div class="w-0.5 h-8 bg-[#d1d1d6] rounded-full group-hover:bg-[#8e8e93]"></div>
+</div>
+<!-- Right Sidebar -->
+<aside class="w-[300px] h-full shrink-0" id="right-sidebar">
+<div class="card h-full flex flex-col p-4 pt-3.5">
+<!-- Search/Toggle Header -->
+<div class="flex items-center gap-2 mb-5">
+<div class="sidebar-search-bg flex-1 rounded-[12px] px-3 py-1.5 flex items-center gap-2">
+<span class="material-symbols-outlined text-[#8e8e93] text-[16px]">search</span>
+<span class="text-[12px] text-[#aeaeb2]">전사 내용 검색</span>
+</div>
+<button class="btn-ghost-icon p-1.5 rounded-lg text-[#8e8e93]">
+<span class="material-symbols-outlined text-[20px]">view_sidebar</span>
+</button>
+</div>
+<!-- Chat History -->
+<div class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1">
+<!-- Message 1 -->
+<div class="flex flex-col gap-1.5">
+<span class="text-[11px] font-bold text-[#aeaeb2] px-1.5">오전 10:02</span>
+<div class="flex items-center gap-2 px-1.5 mb-1">
+<div class="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+<span class="text-[10px] font-bold text-blue-600">교</span>
+</div>
+<span class="text-[11px] font-bold text-[#1d1d1f]">교수님</span>
+</div>
+<div class="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
+          여러분 반갑습니다. 오늘은 컴퓨터 네트워크의 핵심인 OSI 7계층 모델과 그 중에서도 특히 데이터 캡슐화에 대해 심도 있게 다뤄보겠습니다.
+        </div>
+</div>
+<!-- Message 2 -->
+<div class="flex flex-col gap-1.5">
+<span class="text-[11px] font-bold text-[#aeaeb2] px-1.5">오전 10:05</span>
+<div class="flex items-center gap-2 px-1.5 mb-1">
+<div class="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+<span class="text-[10px] font-bold text-blue-600">교</span>
+</div>
+<span class="text-[11px] font-bold text-[#1d1d1f]">교수님</span>
+</div>
+<div class="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
+          각 계층은 독립적인 기능을 수행하면서 상위 계층으로부터 받은 데이터에 제어 정보를 담은 헤더를 붙이게 됩니다.
+        </div>
+</div>
+<!-- Live Transcription -->
+<div class="flex flex-col gap-2 mt-1">
+<div class="flex items-center gap-1.5 px-1.5">
+<span class="live-dot"></span>
+<span class="text-[11px] font-bold text-[#ff3b30]">지금 전사 중</span>
+</div>
+<div class="flex items-center gap-2 px-1.5 mb-1 mt-1">
+<div class="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+<span class="text-[10px] font-bold text-blue-600">교</span>
+</div>
+<span class="text-[11px] font-bold text-[#1d1d1f]">교수님</span>
+</div>
+<div class="px-3.5 py-3 text-[13px] leading-[1.6] message-bubble">
+          그래서 이 계층 구조에서 데이터가 캡슐화되는 과정을 살펴보면...
+        </div>
+</div>
+</div>
+</div>
+</aside>
+<script>
+    const sidebar = document.getElementById('sidebar');
+    const toggleBtn = document.getElementById('sidebarToggle');
+    const toggleIcon = document.getElementById('toggleIcon');
+    const collapsedOnlyItems = document.querySelectorAll('.sidebar-collapsed-only');
+    toggleBtn.addEventListener('click', () => {
+      sidebar.classList.toggle('sidebar-collapsed');
+      
+      const isCollapsed = sidebar.classList.contains('sidebar-collapsed');
+      
+      // Switch icons
+      toggleIcon.textContent = isCollapsed ? 'menu' : 'grid_view';
+      // Show/Hide specific icons for collapsed state
+      collapsedOnlyItems.forEach(item => {
+        if (isCollapsed) {
+          item.classList.remove('hidden');
+        } else {
+          item.classList.add('hidden');
+        }
+      });
+    });
+  </script>
+<script>
+    (function() {
+      const resizer = document.getElementById('resizer-right');
+      const rightSidebar = document.getElementById('right-sidebar');
+      let isResizing = false;
+
+      resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none'; // Prevent text selection while dragging
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        // Calculate distance from the right edge of the window
+        const newWidth = window.innerWidth - e.clientX - 6; // Subtracting half of the padding/margin gap
+        
+        // Set constraints
+        if (newWidth > 200 && newWidth < 600) {
+          rightSidebar.style.width = `${newWidth}px`;
+          rightSidebar.style.minWidth = `${newWidth}px`;
+          rightSidebar.style.maxWidth = `${newWidth}px`;
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        isResizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      });
+    })();
+  </script></body></html>

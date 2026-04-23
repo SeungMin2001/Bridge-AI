@@ -2,9 +2,7 @@
 MergePRAG 핵심 진단: hook이 모델 예측을 바꾸는지 확인
 두 passage가 서로 다른 K,V를 만들고, 그 K,V가 답변을 실제로 바꾸는지 확인
 
-사용법:
-1) 프로젝트 루트에서: python -m llm_server.test_mergeprag
-2) llm_server 폴더에서: python test_mergeprag.py
+사용법: cd llm_server && python test_mergeprag.py
 """
 import torch
 import os
@@ -98,13 +96,8 @@ print(
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
 hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
-try:
-    state_dict, load_info = load_hypernet_state_dict(map_location=device)
-    hypernet.load_state_dict(state_dict)
-except FileNotFoundError as exc:
-    print(f"[경고] HyperNetwork 가중치를 찾지 못함: {exc}")
-    print("[경고] random init 상태로 진단을 계속 진행합니다 (절대 성능 평가는 불가, 상대 비교만 사용).")
-    load_info = {"source": "random-init", "kind": "none", "step": None}
+state_dict, load_info = load_hypernet_state_dict(map_location=device)
+hypernet.load_state_dict(state_dict)
 hypernet.eval()
 step_text = f", checkpoint step={load_info['step']}" if load_info["step"] is not None else ""
 print(f"hypernet={load_info['kind']}{step_text}")
@@ -137,7 +130,6 @@ def encode_passage_stats(question: str, passage: str):
         attention_mask = encoded["attention_mask"]
         question_mask = encoded["question_mask"]
         passage_mask = encoded["passage_mask"]
-        focus_weight = encoded.get("focus_weight")
         emb = encode_passage_states(
             model,
             ids,
@@ -148,18 +140,10 @@ def encode_passage_stats(question: str, passage: str):
         pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
         hidden = hypernet.mlp(pooled)
         K_raw, V_raw = hypernet.lp(hidden)
-        K, V = hypernet(
-            emb,
-            attention_mask=attention_mask,
-            query=query,
-            focus_mask=attention_mask,
-            focus_weight=focus_weight,
-        )
+        K, V = hypernet(emb, attention_mask=attention_mask, query=query, focus_mask=passage_mask)
     return {
         "ids": ids,
         "attention_mask": attention_mask,
-        "passage_mask": attention_mask,
-        "focus_weight": focus_weight,
         "emb": emb,
         "pooled": pooled,
         "hidden": hidden,
@@ -172,8 +156,6 @@ def encode_passage_stats(question: str, passage: str):
 
 main_stats = encode_passage_stats(QUESTION, PASSAGE)
 compare_stats = encode_passage_stats(QUESTION, COMPARE_PASSAGE)
-main_stats_passage_only = encode_passage_only_stats(PASSAGE)
-compare_stats_passage_only = encode_passage_only_stats(COMPARE_PASSAGE)
 
 pooled = main_stats["pooled"]
 h = main_stats["hidden"]
@@ -313,67 +295,11 @@ def score_answer_with_memory(dK, dV, answer_text: str, alpha=ALPHA):
     return compute_answer_loss(logits, score_inputs["labels"])
 
 
-def score_answer_with_memory_at_layer(layer_idx: int, dK, dV, answer_text: str, alpha=ALPHA):
-    score_inputs = build_scoring_batch(answer_text)
-    target_layer = model.model.layers[layer_idx]
-    hook = target_layer.register_forward_hook(make_hook(dK, dV, alpha=alpha))
-    try:
-        with torch.no_grad():
-            logits = model(input_ids=score_inputs["input_ids"])["logits"]
-    finally:
-        hook.remove()
-    return compute_answer_loss(logits, score_inputs["labels"])
-
-
 def score_answer_without_memory(answer_text: str):
     score_inputs = build_scoring_batch(answer_text)
     with torch.no_grad():
         logits = model(input_ids=score_inputs["input_ids"])["logits"]
     return compute_answer_loss(logits, score_inputs["labels"])
-
-
-def print_focus_top(name: str, stats: dict, topk: int = 8):
-    ids = stats.get("ids")
-    mask = stats.get("passage_mask")
-    focus = stats.get("focus_weight")
-    if ids is None or mask is None or focus is None:
-        print(f"[{name}] focus_weight: missing")
-        return
-
-    id_list = ids[0].tolist()
-    mask_list = mask[0].tolist()
-    focus_list = focus[0].tolist()
-    tokens = tokenizer.convert_ids_to_tokens(id_list)
-
-    pairs = []
-    for idx, is_passage in enumerate(mask_list):
-        if is_passage != 1:
-            continue
-        pairs.append((idx, float(focus_list[idx]), tokens[idx]))
-
-    if not pairs:
-        print(f"[{name}] focus_weight: no passage tokens")
-        return
-
-    boosted = [p for p in pairs if p[1] > 1.0 + 1e-6]
-    boosted_ratio = len(boosted) / len(pairs)
-    mean_focus = sum(p[1] for p in pairs) / len(pairs)
-    print(
-        f"[{name}] focus coverage: boosted={len(boosted)}/{len(pairs)} "
-        f"({boosted_ratio:.1%}), mean={mean_focus:.4f}, max={max(p[1] for p in pairs):.4f}"
-    )
-
-    for idx, w, tok in sorted(pairs, key=lambda x: x[1], reverse=True)[:topk]:
-        print(f"[{name}] top_focus idx={idx:03d} weight={w:.4f} token={tok}")
-
-
-print(f"\n{'='*50}")
-print("핵심 토큰 가중치(focus_weight) 진단")
-print(f"{'='*50}")
-print_focus_top("conditioned/main", main_stats)
-print_focus_top("conditioned/compare", compare_stats)
-print_focus_top("passage-only/main", main_stats_passage_only)
-print_focus_top("passage-only/compare", compare_stats_passage_only)
 
 # Hook 없이 생성
 with torch.no_grad():

@@ -26,10 +26,8 @@ def make_chunks(items, group_size=3):
         end_time = group[-1]["end_time"]
         chunk_text = " ".join(item["text"] for item in group)
 
-        chunk_index = i // group_size #정수형 인덱스
-
         chunk = {
-            "chunk_index": chunk_index,
+            "chunk_id": f"{session_id}_{i // group_size}",
             "session_id": session_id,
             "start_time": start_time,
             "end_time": end_time,
