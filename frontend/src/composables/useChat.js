@@ -10,6 +10,7 @@ const citePopoverPos = ref({ x: 0, y: 0 })
 
 // ═══ 단어 팝오버 / 정보 상태 (전역) ═══
 const selectedWordData = ref(null)
+const isWordCardVisible = ref(false)
 
 // 전사 단어를 클릭했을 때 보여줄 임시 설명 사전입니다.
 const WORD_EXPLANATIONS = {
@@ -72,11 +73,25 @@ export function useChat() {
       desc: data.desc,
       source: data.source
     }
+    isWordCardVisible.value = true
   }
 
-  // 단어 설명 팝오버를 닫습니다.
+  // 선택된 단어 카드를 잠시 감춥니다.
+  const hideSelectedWordCard = () => {
+    isWordCardVisible.value = false
+  }
+
+  // 선택된 단어 카드를 다시 표시합니다.
+  const showSelectedWordCard = () => {
+    if (selectedWordData.value) {
+      isWordCardVisible.value = true
+    }
+  }
+
+  // 선택된 단어와 카드 상태를 모두 초기화합니다.
   const clearSelectedWord = () => {
     selectedWordData.value = null
+    isWordCardVisible.value = false
   }
 
   return {
@@ -90,7 +105,10 @@ export function useChat() {
     openCitePopover,
     closeCitePopover,
     selectedWordData,
+    isWordCardVisible,
     selectWord,
+    hideSelectedWordCard,
+    showSelectedWordCard,
     clearSelectedWord
   }
 }
