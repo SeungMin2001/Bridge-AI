@@ -22,14 +22,36 @@ const pdfContainerRef = ref(null)
 const pdfLoading = ref(false)
 const pdfError = ref('')
 const pdfPageCount = ref(0)
+const pdfZoom = ref(1)
 
 let activePdfTask = null
 let activePdfDocument = null
 let pdfRenderToken = 0
 let activePdfTextLayers = []
 
+const PDF_ZOOM_MIN = 0.7
+const PDF_ZOOM_MAX = 1.8
+const PDF_ZOOM_STEP = 0.1
+
 const isPdfAttachment = (file) => /\.pdf$/i.test(file?.name || '')
 const isPptAttachment = (file) => /\.(ppt|pptx)$/i.test(file?.name || '')
+
+// PDF 미리보기 배율을 조절합니다. 다시 렌더링하지 않고 CSS 크기만 바꿉니다.
+const updatePdfZoom = (nextZoom) => {
+  pdfZoom.value = Math.min(PDF_ZOOM_MAX, Math.max(PDF_ZOOM_MIN, Number(nextZoom.toFixed(2))))
+}
+
+const zoomOutPdf = () => {
+  updatePdfZoom(pdfZoom.value - PDF_ZOOM_STEP)
+}
+
+const zoomInPdf = () => {
+  updatePdfZoom(pdfZoom.value + PDF_ZOOM_STEP)
+}
+
+const resetPdfZoom = () => {
+  updatePdfZoom(1)
+}
 
 // PDF/PPT 리소스 정리
 const destroyPptViewer = () => {
@@ -142,8 +164,6 @@ const renderPdfPreview = async (file) => {
 
       const pageStage = document.createElement('div')
       pageStage.className = 'pdf-page-stage'
-      pageStage.style.width = `${viewport.width}px`
-      pageStage.style.maxWidth = '100%'
       pageStage.style.aspectRatio = `${viewport.width} / ${viewport.height}`
       pageStage.style.setProperty('--total-scale-factor', '1')
 
@@ -260,6 +280,7 @@ watch(
 
     if (isPdfAttachment(file)) {
       destroyPptViewer()
+      resetPdfZoom()
       await renderPdfPreview(file)
       return
     }
@@ -288,9 +309,22 @@ onBeforeUnmount(() => {
     <div v-if="isPdfAttachment(material)" class="lecture-preview-frame-wrap">
       <div class="lecture-preview-surface">
         <div class="pdf-preview-stage">
-          <div ref="pdfContainerRef" class="pdf-preview-scroll custom-scrollbar" :class="{ 'is-hidden': pdfLoading || pdfError }"></div>
+          <div
+            ref="pdfContainerRef"
+            class="pdf-preview-scroll custom-scrollbar"
+            :class="{ 'is-hidden': pdfLoading || pdfError }"
+            :style="{ '--pdf-zoom': pdfZoom }"
+          ></div>
           <div v-if="pdfLoading" class="pdf-preview-placeholder">PDF를 불러오는 중입니다.</div>
           <div v-else-if="pdfError" class="pdf-preview-placeholder">{{ pdfError }}</div>
+          <div v-else class="pdf-zoom-controls" aria-label="PDF 확대 축소">
+            <button type="button" class="pdf-zoom-btn" :disabled="pdfZoom <= PDF_ZOOM_MIN" title="축소" @click="zoomOutPdf">
+              −
+            </button>
+            <button type="button" class="pdf-zoom-btn" :disabled="pdfZoom >= PDF_ZOOM_MAX" title="확대" @click="zoomInPdf">
+              +
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -348,6 +382,47 @@ onBeforeUnmount(() => {
   gap: 20px;
 }
 
+.pdf-zoom-controls {
+  position: absolute;
+  right: 18px;
+  bottom: 28px;
+  z-index: 5;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.pdf-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(17, 24, 39, 0.86);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.22);
+  font-size: 24px;
+  line-height: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+
+.pdf-zoom-btn:not(:disabled):hover {
+  background: rgba(17, 24, 39, 0.96);
+  transform: translateY(-1px);
+}
+
+.pdf-zoom-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
 .pdf-preview-scroll.is-hidden {
   visibility: hidden;
 }
@@ -398,10 +473,13 @@ onBeforeUnmount(() => {
 }
 
 :deep(.pdf-page-shell) {
+  width: calc(100% * var(--pdf-zoom, 1));
+  margin: 0 auto;
   padding: 0;
   background: transparent;
   border: none;
   box-shadow: none;
+  transition: width 0.18s ease;
 }
 
 :deep(.pdf-page-meta) {
