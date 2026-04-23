@@ -22,6 +22,7 @@ MAX_SEQ_LEN = 512
 # 순서/구문 정보를 잃기 쉬워 contextual hidden이 더 안정적이다.
 USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", False)
+QUERY_POOL_SCALE = float(os.getenv("MERGEPRAG_QUERY_POOL_SCALE", "4.0"))
 # 현재 실험에서는 K는 MLP가 더 잘 분리되고, V는 pooled skip이 더 정보 보존적이었다.
 # 기본은 K는 MLP, V는 hybrid로 보강하는 모드로 둔다.
 KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_mlp_v_hybrid").strip().lower()
