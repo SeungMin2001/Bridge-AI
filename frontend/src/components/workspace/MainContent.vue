@@ -150,6 +150,7 @@ const handleDeleteStoredMaterial = (fileId) => {
         :is-recording-paused="isRecordingPaused"
         :recording-time-text="recordingTimeText"
         :show-close-preview="!!currentPreviewMaterial"
+        :preview-material-name="currentPreviewMaterial?.name || ''"
         @start-recording="emit('startRecording')"
         @pause-recording="emit('pauseRecording')"
         @resume-recording="emit('resumeRecording')"
@@ -166,7 +167,7 @@ const handleDeleteStoredMaterial = (fileId) => {
           :key="'tab-note'"
           :class="[
             'tab-content flex-1 flex flex-col relative overflow-hidden note-canvas',
-            currentPreviewMaterial ? 'px-8 pt-6 pb-0' : 'p-10 pt-4',
+            currentPreviewMaterial ? 'px-4 pt-4 pb-0' : 'p-10 pt-4',
             tabAnim
           ]"
           @dragover.prevent="isNoteDragOver = true"

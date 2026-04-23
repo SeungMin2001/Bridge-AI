@@ -6,7 +6,8 @@ defineProps({
   isRecording: Boolean,
   isRecordingPaused: Boolean,
   recordingTimeText: String,
-  showClosePreview: Boolean
+  showClosePreview: Boolean,
+  previewMaterialName: { type: String, default: '' }
 })
 
 const emit = defineEmits([
@@ -99,6 +100,10 @@ const handleMaterialInputChange = (event) => {
       </div>
     </div>
 
+    <div v-if="previewMaterialName" class="workspace-header-title" :title="previewMaterialName">
+      {{ previewMaterialName }}
+    </div>
+
     <div class="ml-auto flex items-center gap-1.5 shrink-0 pl-3 self-center">
       <button
         v-if="showClosePreview"
@@ -137,8 +142,33 @@ const handleMaterialInputChange = (event) => {
 
 <style scoped>
 .workspace-embedded-header {
+  position: relative;
   background: #ffffff;
   min-height: 56px;
+}
+
+.workspace-header-title {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: min(520px, calc(100% - 560px));
+  transform: translate(-50%, -50%);
+  color: #1d1d1f;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .workspace-header-title {
+    display: none;
+  }
 }
 
 .workspace-embedded-divider {

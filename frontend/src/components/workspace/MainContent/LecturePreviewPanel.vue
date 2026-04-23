@@ -110,14 +110,14 @@ const renderPdfPreview = async (file) => {
     activePdfDocument = pdfDocument
     pdfPageCount.value = pdfDocument.numPages
 
-    const availableWidth = Math.max((pdfContainerRef.value.clientWidth || 960) - 40, 320)
+    const availableWidth = Math.max((pdfContainerRef.value.clientWidth || 960) - 12, 320)
 
     for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
       if (renderToken !== pdfRenderToken) return
 
       const page = await pdfDocument.getPage(pageNumber)
       const initialViewport = page.getViewport({ scale: 1 })
-      const scale = Math.max(0.75, Math.min(1.6, availableWidth / initialViewport.width))
+      const scale = Math.max(0.75, Math.min(2.15, availableWidth / initialViewport.width))
       const viewport = page.getViewport({ scale })
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d')
@@ -129,8 +129,6 @@ const renderPdfPreview = async (file) => {
       canvas.width = viewport.width
       canvas.height = viewport.height
       canvas.className = 'pdf-preview-canvas'
-      canvas.style.width = `${viewport.width}px`
-      canvas.style.height = `${viewport.height}px`
 
       const pageShell = document.createElement('div')
       pageShell.className = 'pdf-page-shell'
@@ -142,13 +140,14 @@ const renderPdfPreview = async (file) => {
       const pageStage = document.createElement('div')
       pageStage.className = 'pdf-page-stage'
       pageStage.style.width = `${viewport.width}px`
-      pageStage.style.height = `${viewport.height}px`
+      pageStage.style.maxWidth = '100%'
+      pageStage.style.aspectRatio = `${viewport.width} / ${viewport.height}`
       pageStage.style.setProperty('--total-scale-factor', '1')
 
       const textLayerDiv = document.createElement('div')
       textLayerDiv.className = 'textLayer pdf-text-layer'
-      textLayerDiv.style.width = `${viewport.width}px`
-      textLayerDiv.style.height = `${viewport.height}px`
+      textLayerDiv.style.width = '100%'
+      textLayerDiv.style.height = '100%'
       textLayerDiv.style.setProperty('--total-scale-factor', '1')
 
       const textLayer = new pdfjsLib.TextLayer({
@@ -281,14 +280,6 @@ onBeforeUnmount(() => {
   <div class="lecture-preview-shell">
     <div v-if="isPdfAttachment(material)" class="lecture-preview-frame-wrap">
       <div class="lecture-preview-surface">
-        <div class="lecture-preview-surface-header">
-          <div>
-            <p class="lecture-preview-type">PDF Preview</p>
-            <h3 class="lecture-preview-title">{{ material?.name }}</h3>
-          </div>
-          <span v-if="pdfPageCount" class="lecture-preview-page-count">{{ pdfPageCount }} pages</span>
-        </div>
-
         <div class="pdf-preview-stage">
           <div ref="pdfContainerRef" class="pdf-preview-scroll custom-scrollbar" :class="{ 'is-hidden': pdfLoading || pdfError }"></div>
           <div v-if="pdfLoading" class="pdf-preview-placeholder">PDF를 불러오는 중입니다.</div>
@@ -327,50 +318,11 @@ onBeforeUnmount(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
   padding: 0;
   border: none;
   background: transparent;
   box-shadow: none;
-}
-
-.lecture-preview-surface-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 0 8px;
-}
-
-.lecture-preview-type {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: #94a3b8;
-  text-transform: uppercase;
-}
-
-.lecture-preview-title {
-  margin-top: 4px;
-  font-size: 34px;
-  font-weight: 800;
-  color: #1d1d1f;
-  letter-spacing: -0.03em;
-  word-break: break-word;
-  line-height: 1.08;
-}
-
-.lecture-preview-page-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .pdf-preview-stage {
@@ -469,6 +421,7 @@ onBeforeUnmount(() => {
 :deep(.pdf-page-stage) {
   position: relative;
   margin: 0 auto;
+  width: 100%;
 }
 
 :deep(.pdf-text-layer) {
