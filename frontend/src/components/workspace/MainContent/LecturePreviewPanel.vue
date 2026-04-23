@@ -53,6 +53,16 @@ const resetPdfZoom = () => {
   updatePdfZoom(1)
 }
 
+// 업로드한 PDF의 텍스트를 페이지별 JSON 형태로 추출합니다.
+const createPdfJsonSkeleton = (file, pageCount) => ({
+  fileName: file?.name || '',
+  fileType: file?.type || '',
+  fileSize: file?.size || 0,
+  pageCount,
+  extractedAt: new Date().toISOString(),
+  pages: []
+})
+
 // PDF/PPT 리소스 정리
 const destroyPptViewer = () => {
   pptViewer.value?.destroy?.()
@@ -135,12 +145,14 @@ const renderPdfPreview = async (file) => {
     pdfPageCount.value = pdfDocument.numPages
 
     const availableWidth = Math.max((pdfContainerRef.value.clientWidth || 960) - 12, 320)
+    const extractedPdfJson = createPdfJsonSkeleton(file, pdfDocument.numPages)
 
     for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
       if (renderToken !== pdfRenderToken) return
 
       // PDF 페이지별 canvas 렌더링
       const page = await pdfDocument.getPage(pageNumber)
+      const textContent = await page.getTextContent()
       const initialViewport = page.getViewport({ scale: 1 })
       const scale = Math.max(0.75, Math.min(2.15, availableWidth / initialViewport.width))
       const viewport = page.getViewport({ scale })
@@ -173,12 +185,25 @@ const renderPdfPreview = async (file) => {
       textLayerDiv.style.height = '100%'
       textLayerDiv.style.setProperty('--total-scale-factor', '1')
 
+      const extractedItems = textContent.items
+        .filter((item) => item.str?.trim())
+        .map((item) => ({
+          text: item.str,
+          x: item.transform?.[4] || 0,
+          y: item.transform?.[5] || 0,
+          width: item.width || 0,
+          height: item.height || 0
+        }))
+
+      extractedPdfJson.pages.push({
+        page: pageNumber,
+        text: extractedItems.map((item) => item.text).join(' '),
+        items: extractedItems
+      })
+
       // PDF text layer 렌더링
       const textLayer = new pdfjsLib.TextLayer({
-        textContentSource: page.streamTextContent({
-          includeMarkedContent: true,
-          disableNormalization: true
-        }),
+        textContentSource: textContent,
         container: textLayerDiv,
         viewport
       })
@@ -201,6 +226,10 @@ const renderPdfPreview = async (file) => {
       const endOfContent = document.createElement('div')
       endOfContent.className = 'endOfContent'
       textLayerDiv.appendChild(endOfContent)
+    }
+
+    if (renderToken === pdfRenderToken) {
+      console.log('PDF JSON 추출 결과:', extractedPdfJson)
     }
   } catch (error) {
     console.error(error)
