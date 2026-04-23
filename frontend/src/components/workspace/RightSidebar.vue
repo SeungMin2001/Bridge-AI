@@ -267,8 +267,8 @@ watch(messages, () => {
     <div class="card workspace-right-sidebar-card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
       <transition name="fade-slide-switch" mode="out-in">
         <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
-          <div class="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-6 shadow-lg">
-            <span class="material-symbols-outlined text-white text-[32px]">auto_awesome</span>
+          <div class="mb-6 flex items-center justify-center">
+            <img src="/images/image.png" alt="AI chat" class="w-20 h-auto object-contain" />
           </div>
           <h3 class="text-[18px] font-bold text-[#1d1d1f] mb-8">무엇을 도와드릴까요?</h3>
           <div class="w-full flex flex-col gap-3 mb-10">

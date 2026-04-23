@@ -275,8 +275,8 @@ const onStopGenerating = () => {
       <!-- Title (Hides when chat starts) -->
       <Transition name="fade">
         <div v-if="messages.length === 0" class="flex flex-col items-center text-center gap-3 pb-8 pointer-events-auto shrink-0 w-full transition-all duration-500">
-          <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-6 transition-transform hover:rotate-0 duration-500">
-            <span class="material-symbols-outlined text-[28px] text-white" style="font-variation-settings: 'FILL' 1">auto_awesome</span>
+          <div class="flex items-center justify-center transform -rotate-6 transition-transform hover:rotate-0 duration-500">
+            <img src="/images/banner_illust.png" alt="AI chat" class="w-36 h-auto object-contain" />
           </div>
           <div class="text-[32px] font-extrabold text-[#1d1d1f] tracking-tight leading-tight">무엇을 도와드릴까요?</div>
         </div>
