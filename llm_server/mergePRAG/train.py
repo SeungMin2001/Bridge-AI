@@ -33,6 +33,7 @@ from .config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
+    QUERY_POOL_SCALE,
     TRAIN_DATA_PATH,
     USE_POOLED_KV_SKIP,
     USE_V_RMS_CLAMP,
@@ -70,7 +71,9 @@ NEGATIVE_LOSS_WEIGHT = 0.25
 REPULSION_LOSS_WEIGHT = 0.50
 HIDDEN_SIM_TARGET = 0.97
 K_SIM_TARGET = 0.95
-V_SIM_TARGET = 0.90
+V_SIM_TARGET = 0.85
+QUESTION_REPULSION_LOSS_WEIGHT = 1.25
+QUESTION_NEGATIVE_LOSS_WEIGHT = 0.50
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -220,11 +223,14 @@ class MergePRAGDataset(Dataset):
                     "num_hops": len(expanded),
                 })
         self.indices_by_source = {}
+        self.indices_by_passage = {}
         for idx, sample in enumerate(self.data):
             source_id = sample.get("source_id") or sample.get("id")
-            if source_id is None:
-                continue
-            self.indices_by_source.setdefault(str(source_id), []).append(idx)
+            if source_id is not None:
+                self.indices_by_source.setdefault(str(source_id), []).append(idx)
+            passage_key = normalize_passage_text(sample.get("passage", ""))
+            if passage_key:
+                self.indices_by_passage.setdefault(passage_key, []).append(idx)
         print(f"[데이터] {len(self.data)}개 샘플 로드됨 ({jsonl_path})")
 
     def __len__(self):
@@ -395,6 +401,28 @@ def get_negative_sample(dataset: MergePRAGDataset, index: int):
             return candidate
 
     return dataset[(index + 1) % dataset_size]
+
+
+def get_same_passage_negative_sample(dataset: MergePRAGDataset, index: int):
+    sample = dataset[index]
+    sample_answer = sample.get("answer")
+    sample_question = normalize_passage_text(sample.get("question", ""))
+    sample_passage_key = normalize_passage_text(sample.get("passage", ""))
+    if not sample_passage_key:
+        return None
+
+    candidates = [
+        dataset.data[idx]
+        for idx in dataset.indices_by_passage.get(sample_passage_key, [])
+        if (
+            idx != index
+            and dataset.data[idx].get("answer") != sample_answer
+            and normalize_passage_text(dataset.data[idx].get("question", "")) != sample_question
+        )
+    ]
+    if not candidates:
+        return None
+    return candidates[index % len(candidates)]
 
 
 def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
@@ -619,7 +647,8 @@ def train():
         f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, kv_path_mode={KV_PATH_MODE}, "
         f"k_skip_scale={POOLED_K_SKIP_SCALE}, v_skip_scale={POOLED_V_SKIP_SCALE}, "
         f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}, "
-        f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
+        f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
+        f"query_pool_scale={QUERY_POOL_SCALE}"
     )
     hypernet.train()
     start_time = time.time()
@@ -684,10 +713,49 @@ def train():
                     delta_V,
                     neg_V,
                 )
+                question_neg_loss = torch.tensor(0.0, device=device)
+                question_repulsion_loss = torch.tensor(0.0, device=device)
+                question_k_sim = float("nan")
+                question_v_sim = float("nan")
+                same_passage_question_neg = get_same_passage_negative_sample(train_dataset, i)
+                if USE_QUESTION_CONDITIONED_MEMORY and same_passage_question_neg is not None:
+                    _, same_passage_emb, _, hidden_same_passage, same_passage_K, same_passage_V = encode_memory(
+                        model,
+                        hypernet,
+                        tokenizer,
+                        same_passage_question_neg["question"],
+                        same_passage_question_neg["passage"],
+                        device,
+                    )
+                    same_passage_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        same_passage_K,
+                        same_passage_V,
+                        tok,
+                    )
+                    same_passage_task_loss = compute_loss(same_passage_logits, tok["labels"])
+                    if same_passage_task_loss is None:
+                        same_passage_task_loss = task_loss.detach()
+                    question_neg_loss = torch.relu(
+                        NEGATIVE_MARGIN + task_loss - same_passage_task_loss
+                    )
+                    question_repulsion_loss, _, question_k_sim_t, question_v_sim_t = compute_repulsion_loss(
+                        hidden_pos,
+                        hidden_same_passage,
+                        delta_K,
+                        same_passage_K,
+                        delta_V,
+                        same_passage_V,
+                    )
+                    question_k_sim = question_k_sim_t.item()
+                    question_v_sim = question_v_sim_t.item()
                 loss = (
                     task_loss
                     + NEGATIVE_LOSS_WEIGHT * grounding_loss
                     + REPULSION_LOSS_WEIGHT * repulsion_loss
+                    + QUESTION_NEGATIVE_LOSS_WEIGHT * question_neg_loss
+                    + QUESTION_REPULSION_LOSS_WEIGHT * question_repulsion_loss
                 )
                 loss_val = task_loss.item()
                 k_vec_norm = delta_K.detach().norm(dim=-1).mean().item()
@@ -695,6 +763,8 @@ def train():
                 neg_loss_val = neg_task_loss.item()
                 grounding_val = grounding_loss.item()
                 repulsion_val = repulsion_loss.item()
+                question_neg_val = question_neg_loss.item()
+                question_repulsion_val = question_repulsion_loss.item()
                 same_passage_neg = (
                     normalize_passage_text(negative_sample.get("passage", ""))
                     == normalize_passage_text(sample.get("passage", ""))
@@ -728,6 +798,8 @@ def train():
 
                 # VRAM 정리
                 del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg, pooled_neg
+                if USE_QUESTION_CONDITIONED_MEMORY and same_passage_question_neg is not None:
+                    del same_passage_logits, same_passage_K, same_passage_V, hidden_same_passage, same_passage_emb
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -747,6 +819,8 @@ def train():
                 "negative_loss": round(neg_loss_val, 4),
                 "grounding_loss": round(grounding_val, 4),
                 "repulsion_loss": round(repulsion_val, 4),
+                "question_negative_loss": round(question_neg_val, 4),
+                "question_repulsion_loss": round(question_repulsion_val, 4),
             })
 
             if global_step % LOG_EVERY == 0:
@@ -766,8 +840,10 @@ def train():
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
                     f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
+                    f"qneg: {question_neg_val:.4f} | qrep: {question_repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"Pcos: {pooled_cos:.4f} | Hcos: {hidden_sim:.4f} | Kcos: {k_sim:.4f} | Vcos: {v_sim:.4f}"
+                    f" | qKcos: {question_k_sim:.4f} | qVcos: {question_v_sim:.4f}"
                     f" | neg_same_passage: {same_passage_neg}"
                     f"{diag} | "
                     f"{elapsed:.1f}min"

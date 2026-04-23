@@ -40,6 +40,12 @@ class HyperNetwork(nn.Module):
         self.v_rms_clamp = V_RMS_CLAMP
         self.pooling = AttentivePooling(d_model)
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
+        # V는 현재 collapse가 더 심해서 K와 분리된 hidden 경로를 둔다.
+        self.v_mlp = MLP(d_model, hidden_dim=hidden_dim)
+        self.query_to_v = nn.Sequential(
+            nn.Linear(d_model, hidden_dim),
+            nn.Tanh(),
+        )
         self.lp = LinearProjection(hidden_dim, d_model, num_kv=k)
         if self.use_pooled_kv_skip:
             self.pooled_to_k = nn.Linear(d_model, k * d_model)
@@ -69,7 +75,10 @@ class HyperNetwork(nn.Module):
             embedded, mask=attention_mask, focus_mask=focus_mask, query=query
         )
         hidden = self.mlp(pooled)
-        K_mlp, V_mlp = self.lp(hidden)
+        hidden_v = self.v_mlp(pooled)
+        if query is not None:
+            hidden_v = hidden_v + self.query_to_v(query)
+        K_mlp, V_mlp = self.lp(hidden, hidden_v)
         K_skip = V_skip = None
         K_raw, V_raw = K_mlp, V_mlp
         if self.use_pooled_kv_skip:
@@ -95,6 +104,7 @@ class HyperNetwork(nn.Module):
         return {
             "pooled": pooled,
             "hidden": hidden,
+            "hidden_v": hidden_v,
             "K_mlp": K_mlp,
             "V_mlp": V_mlp,
             "K_skip": K_skip,
@@ -139,11 +149,11 @@ class HyperNetwork(nn.Module):
 
     def ffn_v(self, pooled_or_slots):
         if pooled_or_slots.dim() == 2:
-            hidden = self.mlp(pooled_or_slots)
+            hidden = self.v_mlp(pooled_or_slots)
         else:
             B, k, d = pooled_or_slots.shape
-            hidden = self.mlp(pooled_or_slots.view(B * k, d)).view(B, k, -1)
-        _, V = self.lp(hidden) if hidden.dim() == 2 else (None, None)
+            hidden = self.v_mlp(pooled_or_slots.view(B * k, d)).view(B, k, -1)
+        _, V = self.lp(hidden, hidden) if hidden.dim() == 2 else (None, None)
         return V
 
     @torch.no_grad()

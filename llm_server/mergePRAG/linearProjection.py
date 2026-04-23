@@ -14,8 +14,10 @@ class LinearProjection(nn.Module):
         self.linear_K = nn.Linear(hidden_dim, num_kv * d_model)
         self.linear_V = nn.Linear(hidden_dim, num_kv * d_model)
 
-    def forward(self, h):
-        B = h.size(0)
-        K = self.linear_K(h).view(B, self.num_kv, self.d_model)
-        V = self.linear_V(h).view(B, self.num_kv, self.d_model)
+    def forward(self, h_k, h_v=None):
+        if h_v is None:
+            h_v = h_k
+        B = h_k.size(0)
+        K = self.linear_K(h_k).view(B, self.num_kv, self.d_model)
+        V = self.linear_V(h_v).view(B, self.num_kv, self.d_model)
         return K, V
