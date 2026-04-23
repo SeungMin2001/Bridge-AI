@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  db:
+    # pgvector가 사전 구성된(설치된) 이미지 사용
+    image: ankane/pgvector:latest
+    container_name: rag_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: always
+
+  # DeepFilterNet 잡음 제거 서버 (numpy<2.0 별도 환경)
+  denoise_server:
+    build: ./denoise_server
+    container_name: denoise_server
+    ports:
+      - "8002:8002"
+    environment:
+      - HF_TOKEN={HF_TOKEN
+    restart: always
+
+  # diart 화자 분리 서버 (별도 컨테이너, 독립 스케일링 가능)
+  diart_server:
+    build: ./diart_server
+    container_name: diart_server
+    ports:
+      - "8003:8003"
+    environment:
+      - HF_TOKEN={HF_TOKEN}
+    restart: always
+
+  fastapi_backend:
+    build: .
+    container_name: fastapi_backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Docker 내부에서는 IP 대신 서비스 이름('db')으로 DB에 연결합니다.
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=1234
+      - DB_NAME=rag
+      # 호스트 머신(현재 내 노트북/컴퓨터)에서 실행 중인 Qwen에 접근하기 위해 host.docker.internal 사용
+      - LLM_API_URL=http://host.docker.internal:11434/api/generate
+#      - DENOISE_URL=http://denoise_server:8002/denoise/raw
+#      - DIARIZE_URL=http://diart_server:8003/diart/raw
+#      - HF_TOKEN={HF_TOKEN}
+    depends_on:
+      - db
+#      - denoise_server
+#      - diart_server
+    volumes:
+      - .:/app  # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vue_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # 호스트의 node_modules가 컨테이너 내부를 덮어쓰지 않도록 설정
+    environment:
+      - CHOKIDAR_USEPOLLING=true # Windows/WSL 환경에서 파일 변경 감지를 위해 필요한 경우가 있음
+    depends_on:
+      - fastapi_backend
+volumes:
+  pgdata:

@@ -79,6 +79,7 @@ class CourseMemoryManager:
                 attention_mask = encoded["attention_mask"]
                 question_mask = encoded["question_mask"]
                 passage_mask = encoded["passage_mask"]
+                focus_weight = encoded.get("focus_weight")
             else:
                 encoded = self.tokenizer(
                     passage, return_tensors="pt", truncation=True, max_length=512
@@ -86,7 +87,12 @@ class CourseMemoryManager:
                 input_ids = encoded["input_ids"].to(self.device)
                 attention_mask = encoded["attention_mask"].to(self.device)
                 question_mask = None
-                passage_mask = None
+                passage_mask = attention_mask
+                focus_weight = build_passage_focus_weight(
+                    self.tokenizer,
+                    input_ids,
+                    attention_mask,
+                )
 
             c_emb = encode_passage_states(
                 self.model,
@@ -100,6 +106,7 @@ class CourseMemoryManager:
                 attention_mask=attention_mask,
                 query=query,
                 focus_mask=passage_mask,
+                focus_weight=focus_weight,
             )
         return K, V
 

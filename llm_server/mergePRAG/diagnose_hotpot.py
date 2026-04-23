@@ -59,6 +59,7 @@ def encode_passage(model, tokenizer, hypernet, question: str, passage: str, devi
         attention_mask = encoded["attention_mask"]
         question_mask = encoded["question_mask"]
         passage_mask = encoded["passage_mask"]
+        focus_weight = encoded.get("focus_weight")
         emb = encode_passage_states(
             model,
             ids,
