@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 
+// 홈/워크스페이스 AI 채팅에서 공유하는 메시지 목록입니다.
 const messages = ref([])
 
 // ═══ 근거 확인 팝오버 상태 (전역) ═══
@@ -10,6 +11,7 @@ const citePopoverPos = ref({ x: 0, y: 0 })
 // ═══ 단어 팝오버 / 정보 상태 (전역) ═══
 const selectedWordData = ref(null)
 
+// 전사 단어를 클릭했을 때 보여줄 임시 설명 사전입니다.
 const WORD_EXPLANATIONS = {
   "기초": { desc: "어떤 지식이나 기술 따위의 바탕이 되는 토대입니다.", source: "강의 교안 Chapter 1" },
   "네트워크": { desc: "여러 대의 컴퓨터나 통신기기를 통신망으로 연결하여 데이터를 주고받는 가상의 연결 체계입니다.", source: "IT 용어 대사전" },
@@ -22,11 +24,14 @@ const WORD_EXPLANATIONS = {
   "실시간": { desc: "데이터가 발생하는 즉시 또는 아주 짧은 지연 시간 내에 처리되는 방식을 의미합니다.", source: "운영체제론" },
 }
 
+// 채팅 메시지, 출처 팝오버, 단어 설명 팝오버 상태를 관리합니다.
 export function useChat() {
+  // 사용자/AI 메시지를 채팅 기록에 추가합니다.
   const addMessage = (message) => {
     messages.value.push(message)
   }
 
+  // 스트리밍 중인 마지막 AI 메시지에 토큰/출처/상태를 덧씌웁니다.
   const updateLastAiMessage = (updates) => {
     if (messages.value.length > 0) {
       const lastIndex = messages.value.length - 1
@@ -36,6 +41,7 @@ export function useChat() {
     }
   }
 
+  // 현재 세션의 채팅 메시지를 모두 비웁니다.
   const clearHistory = () => {
     messages.value = []
   }
@@ -54,6 +60,7 @@ export function useChat() {
     currentCite.value = null
   }
 
+  // 클릭한 단어를 정리해 등록된 설명이 있으면 표시하고, 없으면 기본 안내를 보여줍니다.
   const selectWord = (word) => {
     const cleanWord = word.replace(/[.,]/g, '')
     const data = WORD_EXPLANATIONS[cleanWord] || {
@@ -67,6 +74,7 @@ export function useChat() {
     }
   }
 
+  // 단어 설명 팝오버를 닫습니다.
   const clearSelectedWord = () => {
     selectedWordData.value = null
   }

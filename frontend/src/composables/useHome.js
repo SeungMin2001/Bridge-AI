@@ -1,5 +1,6 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 
+// 홈/작업 폴더 화면의 모달, 폴더 이동, 파일/폴더 생성 액션을 관리합니다.
 export function useHome({ fileTree, favorites }, emit) {
   const isSidebarCollapsed = ref(false)
   const isFolderModalOpen = ref(false)
@@ -10,6 +11,7 @@ export function useHome({ fileTree, favorites }, emit) {
   const newFolderName = ref('')
   const newFileName = ref('')
 
+  // 모달 바깥 배경을 클릭하면 생성 모달을 닫습니다.
   const handleOutsideClick = (e) => {
     // Modals
     if (e.target.classList.contains('modal-overlay')) {
@@ -26,6 +28,7 @@ export function useHome({ fileTree, favorites }, emit) {
     document.removeEventListener('mousedown', handleOutsideClick)
   })
 
+  // 파일/폴더 카드의 즐겨찾기 상태를 토글합니다.
   const toggleStar = (e, targetId) => {
     e.stopPropagation()
     const next = new Set(favorites)
@@ -34,6 +37,7 @@ export function useHome({ fileTree, favorites }, emit) {
     emit('update:favorites', next)
   }
 
+  // 현재 위치 또는 특정 폴더 안에 새 파일/폴더 노드를 추가합니다.
   const addItemToTree = (nodes, parentId, newItem) => {
     if (!parentId) return [newItem, ...nodes]
     return nodes.map(node => {
@@ -47,6 +51,7 @@ export function useHome({ fileTree, favorites }, emit) {
     })
   }
 
+  // 입력한 이름과 색상으로 새 폴더를 생성합니다.
   const handleCreateFolder = () => {
     if (!newFolderName.value.trim()) return
     const now = new Date()
@@ -69,6 +74,7 @@ export function useHome({ fileTree, favorites }, emit) {
     newFolderName.value = ''
   }
 
+  // 입력한 이름과 색상으로 새 파일을 생성합니다.
   const handleCreateFile = () => {
     if (!newFileName.value.trim()) return
     const now = new Date()
@@ -88,11 +94,13 @@ export function useHome({ fileTree, favorites }, emit) {
     newFileName.value = ''
   }
 
+  // 폴더 카드 안으로 들어가도록 navigationStack에 현재 폴더를 쌓습니다.
   const handleEnterFolder = (e, item) => {
     e.stopPropagation()
     navigationStack.value.push({ id: item.id, name: item.name })
   }
 
+  // 상위 폴더로 돌아갑니다.
   const handleGoBack = () => {
     navigationStack.value.pop()
   }
