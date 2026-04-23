@@ -1,8 +1,10 @@
+<!-- 음성 녹음, 실시간 전사, AI 분석 및 교차 참조가 이루어지는 작업실 페이지 컴포넌트입니다. -->
 <script setup>
 import { ref } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
+import InfiniteGrid from '../../components/home/InfiniteGrid.vue'
 import { useChat } from '../../composables/useChat'
 
 const props = defineProps({
@@ -10,8 +12,12 @@ const props = defineProps({
   fileTree: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() },
   isRecording: { type: Boolean, default: false },
-  recordingTimeText: { type: String, default: '0:00' },
+  isRecordingPaused: { type: Boolean, default: false },
+  recordingTimeText: { type: String, default: '00:00:00' },
   activeFileName: { type: String, default: '' },
+  activeFileId: { type: String, default: '' },
+  currentAttachments: { type: Array, default: () => [] },
+  currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
   summaryNotes: { type: Array, default: () => [] },
   aiInput: { type: String, default: '' }
@@ -24,10 +30,16 @@ const emit = defineEmits([
   'update:favorites',
   'update:aiInput',
   'startRecording',
+  'pauseRecording',
+  'resumeRecording',
   'stopRecording',
   'rightSidebarToggle',
   'addToNote',
-  'askAi'
+  'askAi',
+  'uploadLectureMaterials',
+  'closePreviewMaterial',
+  'openStoredMaterial',
+  'deleteStoredMaterial'
 ])
 
 const isLeftSidebarCollapsed = ref(false)
@@ -73,12 +85,14 @@ const highlightedTranscript = computed(() => {
 
 <template>
   <div 
-    class="p-[12px] flex relative h-full w-full bg-[#ebebf0] text-[#1d1d1f] overflow-hidden transition-all duration-400"
+    class="p-[12px] flex relative h-full w-full bg-transparent text-[#1e293b] overflow-hidden transition-all duration-400"
     :class="[
       { 'gap-[12px]': !isLeftSidebarCollapsed || isRightSidebarVisible }
     ]"
   >
+    <InfiniteGrid class="absolute inset-0 z-0" />
     <LeftSidebar
+      class="relative z-10"
       :isCollapsed="isLeftSidebarCollapsed"
       :transcriptions="transcriptions"
       :fileTree="fileTree"
@@ -93,17 +107,32 @@ const highlightedTranscript = computed(() => {
     />
     
     <MainContent
+      class="relative z-10"
       :isRecording="isRecording"
+      :isRecordingPaused="isRecordingPaused"
       :recordingTimeText="recordingTimeText"
       :activeFileName="activeFileName"
+      :activeFileId="activeFileId"
+      :transcriptions="transcriptions"
+      :materialAttachments="currentAttachments"
+      :currentPreviewMaterial="currentPreviewMaterial"
       :summaryNotes="summaryNotes"
       @startRecording="emit('startRecording')"
+      @pauseRecording="emit('pauseRecording')"
+      @resumeRecording="emit('resumeRecording')"
       @stopRecording="emit('stopRecording')"
       @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @rightSidebarToggle="emit('rightSidebarToggle')"
+      @askAi="(word) => emit('askAi', word)"
+      @addToNote="(text, source) => emit('addToNote', text, source)"
+      @uploadLectureMaterials="emit('uploadLectureMaterials', $event)"
+      @closePreviewMaterial="emit('closePreviewMaterial')"
+      @openStoredMaterial="emit('openStoredMaterial', $event)"
+      @deleteStoredMaterial="emit('deleteStoredMaterial', $event)"
     />
     
     <RightSidebar 
+      class="relative z-10"
       :visible="isRightSidebarVisible" 
       :aiInput="aiInput"
       @update:aiInput="emit('update:aiInput', $event)"
@@ -119,40 +148,42 @@ const highlightedTranscript = computed(() => {
           :style="{ left: citePopoverPos.x + 'px', top: citePopoverPos.y + 'px' }"
         >
           <!-- 헤더 -->
-          <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-2.5">
-              <div class="w-2.5 h-2.5 bg-[#3b82f6] rounded-full animate-pulse"></div>
-              <span class="font-extrabold text-[#1d1d1f] text-[15px] tracking-tight">근거 정보</span>
+          <div class="flex items-center justify-between mb-5 px-1">
+            <div class="flex items-center gap-3">
+              <div class="cite-popover-badge">
+                <span class="material-symbols-outlined text-[15px]">fact_check</span>
+              </div>
+              <span class="font-bold text-[#1c1c1e] text-[18px] tracking-tight">근거 정보</span>
             </div>
-            <button class="text-[#8e8e93] hover:text-[#1d1d1f] transition-colors bg-transparent border-none p-1 cursor-pointer flex items-center justify-center rounded-full hover:bg-black/5" @click="closeCitePopover">
-              <span class="material-symbols-outlined text-[18px]">close</span>
+            <button class="cite-popover-close-btn" @click="closeCitePopover">
+              <span class="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
 
           <!-- 본문 (스크롤 영역) -->
-          <div class="flex-1 overflow-y-auto mb-5 pr-2 custom-scrollbar" style="max-height: 240px;">
+          <div class="flex-1 overflow-y-auto mb-6 px-1 custom-scrollbar" style="max-height: 400px;">
             <div 
-              class="text-[13px] text-[#3a3a3c] leading-[1.7] whitespace-pre-wrap break-keep font-medium"
+              class="text-[15px] text-[#3a3a3c] leading-[1.8] whitespace-pre-wrap break-keep font-medium"
               v-html="highlightedTranscript"
             >
             </div>
           </div>
 
           <!-- 구분선 -->
-          <div class="w-full h-[1px] bg-black/5 mb-4 shrink-0"></div>
+          <div class="cite-popover-divider"></div>
 
           <!-- 출처 정보 -->
-          <div class="flex flex-col gap-1.5 pt-1 shrink-0">
-            <div class="flex items-center gap-1.5">
-              <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
-              <span class="font-bold text-[#8e8e93] text-[11px] uppercase tracking-wider">SOURCE:</span>
-              <span class="font-bold text-[#3b82f6] text-[11px] ml-1 truncate hover:underline cursor-pointer">
+          <div class="cite-source-wrap shrink-0">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[15px] text-[#8e8e93]">link</span>
+              <span class="font-bold text-[#8e8e93] text-[11px] uppercase tracking-wider">Source</span>
+              <span class="font-bold text-[#4b5563] text-[12px] ml-1 truncate hover:underline cursor-pointer">
                 {{ currentCite?.session_title || 'AI 분석 결과' }}
               </span>
             </div>
             
-            <div v-if="currentCite?.transcript_id" class="flex items-center gap-1.5 ml-[20px]">
-              <span class="text-[#8e8e93] text-[9px] font-medium tracking-wide uppercase">REF_ID:</span>
+            <div v-if="currentCite?.transcript_id" class="flex items-center gap-1.5 ml-[23px] mt-1">
+              <span class="text-[#8e8e93] text-[9px] font-medium tracking-wide uppercase">Ref ID</span>
               <span class="text-[#aeaeb2] text-[9px] font-mono select-all">{{ currentCite.transcript_id }}</span>
             </div>
           </div>
@@ -172,19 +203,20 @@ const highlightedTranscript = computed(() => {
 
 .cite-popover {
   position: fixed;
-  width: 280px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 20px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  width: 284px;
+  background: linear-gradient(160deg, rgba(246, 240, 232, 0.94), rgba(241, 233, 223, 0.72));
+  border-radius: 24px;
+  box-shadow: 0 24px 48px rgba(148, 163, 184, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.82);
   display: flex;
   flex-direction: column;
-  padding: 20px;
-  transform-origin: left top;
+  padding: 18px;
+  transform-origin: right top;
+  backdrop-filter: blur(22px) saturate(145%);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
 }
 
+/* 애니메이션 개선 */
 .popover-fade-enter-active {
   transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
@@ -200,18 +232,66 @@ const highlightedTranscript = computed(() => {
   transform: scale(0.95) translateY(5px);
 }
 
+.cite-popover-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  background: linear-gradient(180deg, rgba(250,246,240,0.96), rgba(242,235,226,0.76));
+  border: 1px solid rgba(255,255,255,0.84);
+  box-shadow: 0 12px 24px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255,255,255,0.96);
+}
+
+.cite-popover-close-btn {
+  color: #8e8e93;
+  background: rgba(248,244,238,0.48);
+  border: 1px solid rgba(255,255,255,0.72);
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+.cite-popover-close-btn:hover {
+  background: rgba(250,246,240,0.78);
+  color: #1c1c1e;
+}
+
+.cite-popover-divider {
+  width: 100%;
+  height: 1px;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, rgba(255,255,255,0), rgba(206,212,218,0.7), rgba(255,255,255,0));
+  flex-shrink: 0;
+}
+
+.cite-source-wrap {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(249,244,238,0.78), rgba(241,233,224,0.56));
+  border: 1px solid rgba(255,255,255,0.78);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.94);
+}
+
 /* 팝오버 스크롤바 디자인 */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.15);
 }
 </style>

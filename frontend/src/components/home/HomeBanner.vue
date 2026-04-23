@@ -1,3 +1,4 @@
+<!-- 홈 화면 상단에 표시되는 환영 문구와 광고/안내 배너를 포함하는 컴포넌트입니다. -->
 <script setup>
 import { ref, defineEmits, nextTick } from 'vue'
 import MultimodalInput from './MultimodalInput.vue'
@@ -7,6 +8,11 @@ const emit = defineEmits(['sendMessage', 'openReference'])
 const messages = ref([])
 const isGenerating = ref(false)
 const chatScrollRef = ref(null)
+const abortController = ref(null)
+
+// true: 백엔드 없이 홈 AI 채팅에서 데모 응답을 표시합니다.
+// false: 실제 /chat/stream 엔드포인트를 호출합니다.
+const USE_DEMO_DATA = false
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -31,50 +37,151 @@ const getFileIcon = (type) => {
   }
 }
 
-const onSendMessage = (params) => {
-  // Add user message
+const mapCitationsToReferences = (citations = []) => {
+  return citations.map((cite, index) => ({
+    id: cite.transcript_id || `cite-${index}`,
+    title: cite.citation || cite.session_title || `근거 ${index + 1}`,
+    script: cite.full_transcript || cite.text || '',
+    raw: cite,
+  }))
+}
+
+const demoResponse = {
+  content: 'CPU(중앙 처리 장치)는 컴퓨터의 두뇌 역할을 하며, 프로그램의 명령어를 해석하고 실행하는 핵심 하드웨어입니다. CPU 내부에는 초고속 임시 저장 공간인 레지스터가 있어 연산 과정에 필요한 데이터를 매우 빠르게 처리할 수 있습니다.',
+  citations: [
+    {
+      transcript_id: 'dd110001-0000-0000-1004',
+      text: 'CPU 는 명령을 읽고 실행하며 레지스터는 초고속 임시 저장 공간이다.',
+      citation: '1 주차 - 데이터 표현과 메모리 > 6:00~8:00',
+      session_title: '1주차 - 데이터 표현과 메모리',
+      full_transcript: '오늘 수업 시작하겠습니다! 여러분 컴퓨터의 구조에 대해 많이 들어보셨죠?\n그 중에서 가장 핵심이 되는 부품이 뭘까요? 네 맞습니다. CPU입니다.\n\nCPU 는 명령을 읽고 실행하며 레지스터는 초고속 임시 저장 공간이다. 이 점을 꼭 기억하셔야 합니다.\n이러한 구조 덕분에 우리가 원하는 프로그램이 순식간에 처리될 수 있는 것이죠.'
+    },
+    {
+      transcript_id: 'dd110002-0000-0001-2005',
+      text: '운영체제는 하드웨어와 사용자 사이를 중개한다.',
+      citation: '컴퓨터공학개론 > 2 주차 - 프로세스와 스레드 > 0:00~2:00',
+      session_title: '2주차 - 프로세스와 스레드',
+      full_transcript: '자, 지난 시간에는 하드웨어에 대해 배웠죠.\n오늘은 소프트웨어를 배워봅시다. 특히 운영체제에 집중할 건데요.\n운영체제는 하드웨어와 사용자 사이를 중개한다. 이게 가장 중요한 역할입니다.\n마우스 클릭만으로 복잡한 연산이 처리되는게 다 운영체제 덕분이죠.'
+    }
+  ]
+}
+
+const onSendMessage = async (params) => {
   messages.value.push({ role: 'user', content: params.input, attachments: params.attachments })
   emit('sendMessage', params)
   scrollToBottom()
-  
-  // Start thinking — 프로필 아이콘 회전만 표시
+
   isGenerating.value = true
-  
-  // Mock AI Response — 로딩 시간 동안 thinking 애니메이션만 유지
-  const thinkingDuration = 2000 // 2초간 thinking 유지
 
-  setTimeout(() => {
-    const isMathQuery = params.input.includes('수학')
-    
-    const fullResponse = isMathQuery 
-      ? "수학에 관한 자료를 바탕으로 종합된 설명을 요약해 보았습니다. 더 자세한 원본 스크립트는 아래 근거 링크를 클릭하여 확인해 보세요:"
-      : "안녕하세요! 파일 요약이나 새로운 문서 작업 등 어떤 것을 도와드릴까요?"
+  const aiMessage = {
+    role: 'assistant',
+    content: '',
+    references: [],
+    isRevealing: true,
+    phase: 'streaming',
+  }
+  messages.value.push(aiMessage)
+  scrollToBottom()
 
-    // 로딩이 끝난 후 AI 메시지를 한 번에 추가
-    const aiMessage = { role: 'assistant', content: fullResponse, references: [], isRevealing: true }
+  abortController.value = new AbortController()
 
-    if (isMathQuery) {
-      aiMessage.summary = "수학은 논리와 기호학을 기반으로 수, 양, 구조, 공간, 변화 등의 개념을 다루는 학문입니다. 각 강의에서는 수학적 사고의 뼈대가 되는 공리부터 실생활에 적용되는 응용 수학까지 폭넓게 다룹니다."
-      aiMessage.references = [
-        { id: 'lec1', title: '강의 1: 수학의 기초', script: '이 강의에서는 수학의 가장 기초가 되는 논리와 집합론에 대해 다룹니다.\n\n수학은 우리 생활 모든 곳에 스며들어 있으며 변해야 할 것과 변하지 않아야 할 것을 명확히 구분하는 학문입니다.\n\n먼저 기본 공리에 대해 알아보겠습니다...' },
-        { id: 'lec2', title: '강의 2: 대수학 입문', script: '방정식과 변수에 대한 이해를 돕는 대수학 입문 강의 전사 내용입니다.\n\n미지수 x를 구하기 위해 우리는 양변에 같은 조작을 가해야 합니다.\n이러한 원칙은 복잡한 식을 간결하게 만듭니다.' },
-        { id: 'lec3', title: '강의 3: 실생활 미적분', script: '우리 주변에서 발견할 수 있는 변화율과 미적분 활용 사례에 대한 스크립트입니다.\n\n자동차가 가속할 때 속도의 변화량, 즉 가속도를 계산하는 것이 미분의 기초이며, 총 이동 거리를 구하는 것이 적분의 기초입니다.' }
-      ]
+  try {
+    if (USE_DEMO_DATA) {
+      await new Promise((resolve) => setTimeout(resolve, 700))
+
+      const current = messages.value[messages.value.length - 1]
+      messages.value[messages.value.length - 1] = {
+        ...current,
+        content: demoResponse.content,
+        references: mapCitationsToReferences(demoResponse.citations),
+        phase: 'done',
+      }
+      return
     }
 
-    // 생성 완료 → thinking 해제, 메시지 추가
+    const res = await fetch('/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: params.input,
+        is_thinking: false,
+      }),
+      signal: abortController.value.signal,
+    })
+
+    if (!res.ok) throw new Error(`서버 응답 오류 (상태 코드: ${res.status})`)
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let streamedText = ''
+    let streamedCitations = []
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6)
+        if (payload === '[DONE]') break
+
+        const data = JSON.parse(payload)
+        if (data.type === 'citations') {
+          streamedCitations = data.citations || []
+        } else if (data.type === 'token') {
+          streamedText += data.token
+        } else if (data.type === 'error') {
+          streamedText += `\n오류: ${data.error}`
+        }
+
+        const current = messages.value[messages.value.length - 1]
+        messages.value[messages.value.length - 1] = {
+          ...current,
+          content: streamedText,
+          references: mapCitationsToReferences(streamedCitations),
+          phase: 'streaming',
+        }
+        scrollToBottom()
+      }
+    }
+
+    const current = messages.value[messages.value.length - 1]
+    messages.value[messages.value.length - 1] = {
+      ...current,
+      content: streamedText,
+      references: mapCitationsToReferences(streamedCitations),
+      phase: 'done',
+    }
+  } catch (error) {
+    const aborted = error?.name === 'AbortError'
+    const current = messages.value[messages.value.length - 1]
+    messages.value[messages.value.length - 1] = {
+      ...current,
+      content: aborted ? '응답 생성을 중단했습니다.' : '오류가 발생했습니다. 서버 연결을 확인해주세요.',
+      references: [],
+      phase: 'done',
+    }
+  } finally {
     isGenerating.value = false
-    messages.value.push(aiMessage)
+    abortController.value = null
     scrollToBottom()
 
-    // reveal 애니메이션 완료 후 플래그 제거
-    setTimeout(() => {
-      aiMessage.isRevealing = false
-    }, 600)
-  }, thinkingDuration)
+    const current = messages.value[messages.value.length - 1]
+    if (current?.role === 'assistant') {
+      setTimeout(() => {
+        current.isRevealing = false
+      }, 600)
+    }
+  }
 }
 
 const onStopGenerating = () => {
+  abortController.value?.abort()
   isGenerating.value = false
 }
 </script>
@@ -107,10 +214,10 @@ const onStopGenerating = () => {
 
             <!-- Message Bubble -->
             <div :class="[
-              'max-w-[85%] rounded-2xl px-5 py-3.5 text-[15px] leading-relaxed break-words shadow-sm',
+              'max-w-[85%] rounded-[24px] px-5 py-4 text-[15px] leading-relaxed break-words',
               msg.role === 'user' 
-                ? 'bg-[#1d1d1f] text-white rounded-tr-none' 
-                : 'bg-white/80 backdrop-blur-xl text-[#1d1d1f] border border-black/5 rounded-tl-none shadow-[0_4px_20px_rgba(0,0,0,0.03)]',
+                ? 'neo-active-btn text-white rounded-tr-none' 
+                : 'neo-card text-[#1e293b] rounded-tl-none',
               msg.role === 'assistant' && msg.isRevealing ? 'reveal-message' : ''
             ]">
               <div v-if="msg.attachments?.length" class="flex gap-2 mb-3">
@@ -120,17 +227,8 @@ const onStopGenerating = () => {
               </div>
               <div :class="['whitespace-pre-wrap', msg.isRevealing ? 'reveal-content' : '']">{{ msg.content }}</div>
               
-              <!-- Summary Block -->
-              <div v-if="msg.summary" :class="['mt-4 p-4 bg-indigo-50/40 rounded-xl border border-indigo-100/50', msg.isRevealing ? 'reveal-content reveal-delay-1' : '']">
-                <div class="flex items-center gap-2 mb-2 text-indigo-800 font-semibold text-[13px] uppercase tracking-wider">
-                  <span class="material-symbols-outlined text-[16px]">summarize</span>
-                  종합된 설명
-                </div>
-                <p class="text-[14px] text-gray-700 leading-relaxed">{{ msg.summary }}</p>
-              </div>
-
               <!-- Reference Links -->
-              <div v-if="msg.references && msg.references.length > 0" :class="['flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/10', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
+              <div v-if="msg.phase === 'done' && msg.references && msg.references.length > 0" :class="['flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/10', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
                 <button 
                   v-for="ref in msg.references" 
                   :key="ref.id" 
@@ -177,8 +275,8 @@ const onStopGenerating = () => {
       <!-- Title (Hides when chat starts) -->
       <Transition name="fade">
         <div v-if="messages.length === 0" class="flex flex-col items-center text-center gap-3 pb-8 pointer-events-auto shrink-0 w-full transition-all duration-500">
-          <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-6 transition-transform hover:rotate-0 duration-500">
-            <span class="material-symbols-outlined text-[28px] text-white" style="font-variation-settings: 'FILL' 1">auto_awesome</span>
+          <div class="flex items-center justify-center transform -rotate-6 transition-transform hover:rotate-0 duration-500">
+            <img src="/images/banner_illust.png" alt="AI chat" class="w-36 h-auto object-contain" />
           </div>
           <div class="text-[32px] font-extrabold text-[#1d1d1f] tracking-tight leading-tight">무엇을 도와드릴까요?</div>
         </div>
@@ -195,16 +293,16 @@ const onStopGenerating = () => {
 
       <!-- Recent Files Section -->
       <div v-if="messages.length === 0" class="w-full max-w-[600px] pointer-events-auto flex flex-col gap-4 mt-12 opacity-80 animate-fade-in-up shrink-0" style="animation-duration: 0.6s; animation-delay: 0.2s; animation-fill-mode: both;">
-        <h3 class="text-sm font-semibold text-gray-500 px-2 uppercase tracking-wider font-sans">최근 연 파일</h3>
+        <h3 class="text-sm font-semibold text-[#64748b] px-2 uppercase tracking-wider font-sans">최근 연 파일</h3>
         <div class="flex gap-4">
           <div v-for="file in recentFiles" :key="file.id" 
-               class="flex-1 bg-white/40 backdrop-blur-md border border-white/50 rounded-2xl p-4 flex flex-col gap-3 cursor-pointer hover:-translate-y-1 hover:bg-white/60 hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition-all duration-300">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-gray-600 shadow-sm border border-black/5">
+               class="flex-1 neo-card p-5 flex flex-col gap-3 cursor-pointer hover:-translate-y-1 hover:brightness-105 transition-all duration-300">
+            <div class="w-10 h-10 rounded-xl neo-inner flex items-center justify-center text-gray-500">
               <span class="material-symbols-outlined text-[20px]">{{ getFileIcon(file.type) }}</span>
             </div>
             <div class="flex flex-col">
-              <span class="text-[14px] font-bold text-[#1d1d1f] truncate leading-tight">{{ file.name }}</span>
-              <span class="text-[12px] text-gray-500 mt-0.5">{{ file.date }}</span>
+              <span class="text-[14px] font-bold text-[#1e293b] truncate leading-tight">{{ file.name }}</span>
+              <span class="text-[12px] text-[#64748b] mt-0.5">{{ file.date }}</span>
             </div>
           </div>
         </div>

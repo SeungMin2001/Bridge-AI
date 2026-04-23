@@ -14,14 +14,12 @@ source venv/bin/activate      # macOS / Linux
 pip install -r requirements.txt
 ```
 
-## Run Backend
 ```bash
 cd backend
 #uvicorn main:app --reload
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Backend: http://127.0.0.1:8000
 
 ## Run Frontend
 ```bash

@@ -1,3 +1,4 @@
+<!-- 워크스페이스 내에서 AI와 실시간으로 채팅하며 노트를 정리할 수 있는 오른쪽 채팅 패널입니다. -->
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useChat } from '../../composables/useChat'
@@ -29,6 +30,7 @@ const isSending = ref(false) // 중복 전송 방지용 플래그
 // 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
 // true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
 // false: 실제 백엔드 서버(http://100.104.164.84:8000)로 통신합니다.
+// 백엔드 사용시 여부분 주석 처리 조심
 const USE_DEMO_DATA = false
 
 async function sendMessage() {
@@ -44,7 +46,8 @@ async function sendMessage() {
   const idx = messages.value.length
   messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
 
-  /* 1. 데모(목업) 모드 동작 (비활성화)
+  /*
+  // 1. 데모(목업) 모드 동작 (비활성화)
   if (USE_DEMO_DATA) {
     console.log('[테스트 모드] USE_DEMO_DATA가 true이므로 미리 설정된 데모 데이터를 출력합니다.')
     setTimeout(() => {
@@ -74,8 +77,8 @@ async function sendMessage() {
     }, 800)
     return
   }
-  */
-
+  //데모(목업) 모드 동작 (비활성화)
+*/
   // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
   const t0 = performance.now()
   let ttftLogged = false
@@ -187,37 +190,22 @@ function renderTextWithCitations(text) {
 }
 
 function handleDocContentClick(event, msg, idx) {
-  const chip = event.currentTarget
-  if (!chip || isNaN(idx) || !msg.citations || !msg.citations[idx]) return
+  if (isNaN(idx) || !msg.citations || !msg.citations[idx]) return
   
-  const rect = chip.getBoundingClientRect()
-  const popoverWidth = 300
-  const popoverHeight = 400 // 하이라이트 텍스트 포함 넉넉한 높이 가정
-  
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-  
-  // 1. 좌우 위치 결정 (사이드바 메뉴 왼쪽)
-  let x = rect.left - popoverWidth 
-  if (x < 20) x = 20
-  
-  // 2. 상하 위치 결정 (스마트 포지셔닝)
-  let y = rect.top - 20 
-
-  // 클릭 위치가 화면의 60%보다 아래면 팝업을 위쪽으로 띄움
-  if (rect.top > viewportHeight * 0.6) {
-    y = rect.top - popoverHeight + 40 // 버튼 위쪽으로 띄움
-  } else {
-    // 위쪽에 띄울 공간이 충분할 때는 기존처럼 살짝 아래로
-    if (y + popoverHeight > viewportHeight) {
-      y = viewportHeight - popoverHeight - 30 
-    }
+  // 🎯 중앙 메인 컨텐츠 카드의 위치를 찾습니다.
+  const mainCard = document.getElementById('tab-contents-container')
+  if (!mainCard) {
+    // 만약 요소를 못 찾는 경우 대비한 fallback
+    openCitePopover(msg.citations[idx], window.innerWidth / 2 + 50, 100)
+    return
   }
 
-  // 상단 경계 최소값 보정
-  if (y < 20) y = 20
+  const rect = mainCard.getBoundingClientRect()
   
-  openCitePopover(msg.citations[idx], x, y)
+  const popoverWidth = 284
+  const edgeInset = 0
+  const topInset = 0
+  openCitePopover(msg.citations[idx], rect.right - popoverWidth - edgeInset, rect.top + topInset)
 }
 
 const width = ref(420)
@@ -283,28 +271,28 @@ watch(messages, () => {
   </div>
 
   <aside
-    class="h-full shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)]"
+    class="h-full shrink-0 overflow-hidden rounded-[24px] transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)]"
     id="right-sidebar"
     :class="{ 'sidebar-collapsed': !visible }"
     :style="{ width: visible ? `${width}px` : '0px', minWidth: visible ? `${width}px` : '0px', maxWidth: visible ? `${width}px` : '0px' }"
   >
-    <div class="card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
+    <div class="card workspace-right-sidebar-card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
       <transition name="fade-slide-switch" mode="out-in">
         <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
-          <div class="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-6 shadow-lg">
-            <span class="material-symbols-outlined text-white text-[32px]">auto_awesome</span>
+          <div class="mb-6 flex items-center justify-center">
+            <img src="/images/image.png" alt="AI chat" class="w-20 h-auto object-contain" />
           </div>
           <h3 class="text-[18px] font-bold text-[#1d1d1f] mb-8">무엇을 도와드릴까요?</h3>
           <div class="w-full flex flex-col gap-3 mb-10">
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-xl bg-white text-left">
+            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left">
               <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">description</span>
               <span class="text-[13px] font-medium text-[#1d1d1f]">강의 노트 요약하기</span>
             </button>
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-xl bg-white text-left" @click="emit('update:aiInput', '핵심 개념 퀴즈 생성해줘')">
+            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left" @click="emit('update:aiInput', '핵심 개념 퀴즈 생성해줘')">
               <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">quiz</span>
               <span class="text-[13px] font-medium text-[#1d1d1f]">핵심 개념 퀴즈 생성</span>
             </button>
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-xl bg-white text-left">
+            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left">
               <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">translate</span>
               <span class="text-[13px] font-medium text-[#1d1d1f]">외국어 자료 번역</span>
             </button>
@@ -316,7 +304,7 @@ watch(messages, () => {
             <div
               v-for="(msg, i) in messages"
               :key="i"
-              :class="msg.role === 'ai' ? 'w-full flex flex-col' : 'px-4 py-2.5 rounded-[18px] bg-[#373549] text-white text-[14px] leading-relaxed self-end w-fit max-w-[85%] shadow-sm'"
+              :class="msg.role === 'ai' ? 'w-full flex flex-col' : 'user-bubble px-4 py-2.5 rounded-[18px] text-white text-[14px] leading-relaxed self-end w-fit max-w-[85%]'"
             >
               <!-- 사용자 말풍선 -->
               <template v-if="msg.role === 'user'">
@@ -335,7 +323,7 @@ watch(messages, () => {
                 </div>
 
                 <!-- [이미지 스타일] 관련 링크 섹션 -->
-                <div v-if="msg.citations && msg.citations.length" class="mt-8 border-t border-[#f2f2f7] pt-5">
+                <div v-if="msg.phase === 'done' && msg.citations && msg.citations.length" class="mt-8 border-t border-[#f2f2f7] pt-5">
                   <div class="text-[14px] font-bold text-[#1d1d1f] mb-4">관련 링크</div>
                   <div v-for="(cite, idx) in msg.citations" :key="idx" class="mb-6 last:mb-0">
                     <div class="text-[13.5px] text-[#424245] leading-relaxed mb-2.5">
@@ -362,7 +350,7 @@ watch(messages, () => {
       </transition>
         <div class="mt-auto px-1 pb-2">
           <!-- 🎨 다듬어진 프리미엄 입력창 디자인 -->
-          <div class="bg-[#f8f8fa] rounded-[26px] border border-[#efeff3] p-3.5 transition-all">
+          <div class="chat-input-glow rounded-[26px] p-3.5 transition-all">
             <textarea
               class="w-full bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] min-h-[24px] max-h-[120px] resize-none leading-relaxed custom-scrollbar"
               placeholder="무엇이든 물어보세요..."
@@ -409,6 +397,22 @@ watch(messages, () => {
 </template>
 
 <style scoped>
+.workspace-right-sidebar-card {
+  background: var(--workspace-sidebar-card-bg);
+  border: 1px solid var(--workspace-sidebar-card-border);
+  box-shadow: var(--workspace-sidebar-card-shadow);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+.workspace-right-sidebar-card::before {
+  background: var(--workspace-sidebar-card-overlay);
+}
+
+.workspace-right-sidebar-card::after {
+  border-color: var(--workspace-sidebar-card-inner-border);
+}
+
 /* 화면 전환 애니메이션 */
 .fade-slide-switch-enter-active,
 .fade-slide-switch-leave-active {

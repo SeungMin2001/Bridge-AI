@@ -1,3 +1,4 @@
+<!-- 폴더 생성 및 파일 추가 등 홈 화면에서 사용하는 각종 모달 창을 관리하는 컴포넌트입니다. -->
 <script setup>
 defineProps({
   isFolderModalOpen: Boolean,

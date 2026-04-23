@@ -1,3 +1,4 @@
+<!-- 텍스트 및 이미지 등 다양한 입력을 처리하는 홈 화면의 통합 검색창 컴포넌트입니다. -->
 <script setup> import { ref, watch, onMounted, nextTick } from 'vue'
 
 const props = defineProps({
@@ -88,7 +89,7 @@ onMounted(() => {
     </div>
 
     <!-- Input Area -->
-    <div class="relative bg-white/70 backdrop-blur-xl border border-black/10 rounded-[24px] p-2 flex flex-col shadow-lg">
+    <div class="relative neo-inner border border-white/50 rounded-[24px] p-2 flex flex-col">
       <textarea
         ref="textareaRef"
         v-model="input"
@@ -112,7 +113,7 @@ onMounted(() => {
           <button 
             v-if="isGenerating"
             @click="emit('stopGenerating')"
-            class="p-2 bg-[#373549] text-white rounded-full flex items-center justify-center shadow-md hover:bg-[#373549]/90"
+            class="p-2 bg-gray-300 text-[#1d1d1f] rounded-full flex items-center justify-center neo-card hover:bg-gray-200"
           >
             <span class="material-symbols-outlined text-[20px]">stop</span>
           </button>
@@ -120,7 +121,7 @@ onMounted(() => {
             v-else
             @click="handleSubmit"
             :disabled="!input.trim() && !attachments.length"
-            class="p-2 bg-[#373549] text-white rounded-full flex items-center justify-center shadow-md hover:bg-[#373549]/90 disabled:opacity-30 disabled:cursor-not-allowed"
+            class="p-2 neo-active-btn text-white rounded-full flex items-center justify-center hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <span class="material-symbols-outlined text-[20px]">arrow_upward</span>
           </button>

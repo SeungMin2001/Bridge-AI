@@ -13,6 +13,7 @@ import torch
 import uuid
 import httpx
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 
@@ -142,14 +143,10 @@ async def chat(req: ChatRequest):
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """SSE 스트리밍 엔드포인트"""
-    import time
-    t0 = time.perf_counter()
+    request_started_at = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
 
     prompt, citations = _build_prompt_and_citations(req.question)
-    t_rag = time.perf_counter()
-    print(f"⏱️ [RAG 검색] {(t_rag - t0)*1000:.0f}ms")
-
     messages = [
         {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."},
         {"role": "user", "content": prompt},
@@ -158,9 +155,8 @@ async def chat_stream(req: ChatRequest):
     import json
 
     async def generate():
-        nonlocal t0
-        ttft_logged = False
-        token_count = 0
+        first_token_logged = False
+        first_token_elapsed = None
 
         # 먼저 citations 전송
         yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
@@ -190,18 +186,18 @@ async def chat_stream(req: ChatRequest):
                         delta = chunk["choices"][0].get("delta", {})
                         content = delta.get("content", "")
                         if content:
-                            if not ttft_logged:
-                                print(f"⏱️ [TTFT] 첫 토큰까지: {(time.perf_counter() - t0)*1000:.0f}ms")
-                                ttft_logged = True
-                            token_count += 1
+                            if not first_token_logged:
+                                first_token_logged = True
+                                first_token_elapsed = time.perf_counter() - request_started_at
+                                print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
                             yield f"data: {json.dumps({'type': 'token', 'token': content}, ensure_ascii=False)}\n\n"
         except Exception as e:
             print(f"[CHAT STREAM] 에러: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
-
-        total_ms = (time.perf_counter() - t0) * 1000
-        tps = token_count / (total_ms / 1000) if total_ms > 0 else 0
-        print(f"⏱️ [응답완료] 총: {total_ms:.0f}ms | 토큰: {token_count}개 | {tps:.1f} tok/s")
+        finally:
+            total_elapsed = time.perf_counter() - request_started_at
+            first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
+            print(f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, total={total_elapsed:.3f}s")
 
         yield "data: [DONE]\n\n"
 

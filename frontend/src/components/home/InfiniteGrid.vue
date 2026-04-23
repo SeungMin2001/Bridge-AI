@@ -1,3 +1,4 @@
+<!-- 배경에 무한히 펼쳐지는 그리드 패턴을 그려주는 장식용 UI 컴포넌트입니다. -->
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 
@@ -93,12 +94,6 @@ onUnmounted(() => {
       </svg>
     </div>
 
-    <!-- Decorative Glows -->
-    <div class="decorative-glows">
-      <div class="glow glow-orange" />
-      <div class="glow glow-primary" />
-      <div class="glow glow-blue" />
-    </div>
   </div>
 </template>
 
@@ -108,7 +103,7 @@ onUnmounted(() => {
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  background-color: #ebebf0;
+  background-color: #efe3d4;
   pointer-events: auto;
 }
 
@@ -131,40 +126,4 @@ onUnmounted(() => {
 .w-full { width: 100%; }
 .h-full { height: 100%; }
 
-.decorative-glows {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-}
-
-.glow {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(120px);
-}
-
-.glow-orange {
-  right: -10%;
-  top: -10%;
-  width: 40%;
-  height: 40%;
-  background-color: rgba(249, 115, 22, 0.2);
-}
-
-.glow-primary {
-  right: 10%;
-  top: 50%;
-  width: 20%;
-  height: 20%;
-  background-color: rgba(59, 130, 246, 0.15);
-}
-
-.glow-blue {
-  left: -10%;
-  bottom: -10%;
-  width: 40%;
-  height: 40%;
-  background-color: rgba(59, 130, 246, 0.2);
-}
 </style>

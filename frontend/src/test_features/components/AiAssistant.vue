@@ -1,3 +1,4 @@
+<!-- AI 비서 기능의 개발 및 테스트를 위해 분리된 독립형 테스트용 컴포넌트입니다. -->
 <script setup>
 import { ref } from 'vue'
 

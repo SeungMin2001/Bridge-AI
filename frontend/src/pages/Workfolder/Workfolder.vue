@@ -1,3 +1,4 @@
+<!-- 사용자의 폴더 구조를 관리하고 파일들을 탐색할 수 있는 워크폴더 페이지 컴포넌트입니다. -->
 <script setup>
 import { computed } from 'vue'
 import HomeSidebar from '../../components/home/HomeSidebar.vue'
@@ -55,7 +56,7 @@ const currentItems = computed(() => {
 </script>
 
 <template>
-  <div class="p-[12px] flex gap-[12px] relative h-full w-full text-[#1d1d1f] overflow-hidden">
+  <div class="p-[12px] flex gap-[12px] relative h-full w-full bg-transparent text-[#1e293b] overflow-hidden">
     <InfiniteGrid />
     <HomeSidebar 
       class="relative z-10"

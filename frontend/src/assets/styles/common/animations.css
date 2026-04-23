@@ -187,3 +187,49 @@
 .recording-wave-ring:nth-child(3) {
   animation-delay: 0.9s;
 }
+
+@keyframes voiceDotPulse {
+  0%,
+  100% {
+    transform: scaleY(0.55);
+    opacity: 0.42;
+  }
+
+  50% {
+    transform: scaleY(1.15);
+    opacity: 1;
+  }
+}
+
+.recording-voice-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+}
+
+.recording-voice-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #7d7d89, #585864);
+  transform-origin: center;
+  animation: voiceDotPulse 0.95s ease-in-out infinite;
+  box-shadow: 0 1px 2px rgba(88, 88, 100, 0.16);
+}
+
+.recording-voice-dot:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.recording-voice-dot:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.recording-voice-dot:nth-child(4) {
+  animation-delay: 0.36s;
+}
+
+.recording-voice-dot:nth-child(5) {
+  animation-delay: 0.48s;
+}

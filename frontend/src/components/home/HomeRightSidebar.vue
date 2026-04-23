@@ -1,3 +1,4 @@
+<!-- 홈 화면에서 선택한 강의 자료나 AI 분석 결과를 상세하게 보여주는 오른쪽 사이드바입니다. -->
 <script setup>
 import { computed } from 'vue'
 
@@ -21,8 +22,8 @@ const script = computed(() => props.referenceData?.script || '스크립트 내�
 <template>
   <div 
     :class="[
-      'fixed right-0 top-0 h-full w-[400px] bg-white/95 backdrop-blur-2xl border-l border-black/5 shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] z-[100] flex flex-col',
-      isOpen ? 'translate-x-0' : 'translate-x-full'
+      'fixed right-4 top-4 bottom-4 h-[calc(100%-32px)] w-[400px] neo-card transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] z-[100] flex flex-col',
+      isOpen ? 'translate-x-0' : 'translate-x-[120%]'
     ]"
   >
     <!-- Header -->
@@ -42,8 +43,8 @@ const script = computed(() => props.referenceData?.script || '스크립트 내�
     </div>
 
     <!-- Content -->
-    <div class="flex-1 overflow-y-auto p-6 custom-scrollbar bg-gray-50/50">
-      <div class="bg-white rounded-2xl p-6 shadow-sm border border-black/5 min-h-full">
+    <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
+      <div class="neo-inner rounded-2xl p-6 min-h-full">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">전사 내용 스크립트</h3>
         <p class="text-[15px] leading-relaxed text-gray-700 whitespace-pre-wrap">
           {{ script }}

@@ -1,3 +1,4 @@
+<!-- 워크스페이스의 왼쪽 사이드바 본체로, 폴더 탐색기와 음성 전사 탭을 전환하며 보여줍니다. -->
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import FolderSideTab from './FolderSideTab.vue'
@@ -20,8 +21,8 @@ const emit = defineEmits([
   'toggle'
 ])
 
-const activeTab = ref('folders')
-const width = ref(280)
+const activeTab = ref('voice')
+const width = ref(340)
 const toastMsg = ref('')
 const isResizing = ref(false)
 
@@ -66,10 +67,10 @@ const showToast = (msg) => {
   <aside
     :class="[{ 'sidebar-collapsed': isCollapsed }]"
     id="sidebar"
-    class="transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
+    class="transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden rounded-[24px]"
     :style="{ width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
   >
-    <div class="card h-full bg-white flex flex-col p-5 overflow-hidden min-w-[280px]">
+    <div class="card workspace-sidebar-card h-full flex flex-col p-5 overflow-hidden min-w-[280px]">
       <!-- Header -->
       <div class="flex items-center justify-between mb-5">
         <div class="flex items-center gap-2 font-extrabold tracking-tight">
@@ -86,17 +87,17 @@ const showToast = (msg) => {
       </div>
 
       <!-- Tab Buttons -->
-      <div class="bg-gray-100/50 p-1 rounded-lg flex gap-1 mb-4 collapsible-content">
+      <div class="workspace-inset-shell p-1.5 rounded-[22px] flex gap-1.5 mb-4 collapsible-content">
         <button
-          class="flex-1 py-1.5 rounded-md text-[12px] font-bold transition-all"
-          :class="activeTab === 'folders' ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.1)] text-black' : 'text-gray-500 hover:text-gray-700'"
-          @click="activeTab = 'folders'"
-        >폴더</button>
-        <button
-          class="flex-1 py-1.5 rounded-md text-[12px] font-bold transition-all"
-          :class="activeTab === 'voice' ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.1)] text-black' : 'text-gray-500 hover:text-gray-700'"
+          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          :class="{ 'is-active text-black': activeTab === 'voice' }"
           @click="activeTab = 'voice'"
         >전사 내용</button>
+        <button
+          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          :class="{ 'is-active text-black': activeTab === 'folders' }"
+          @click="activeTab = 'folders'"
+        >폴더</button>
       </div>
 
       <!-- Tab Content -->
@@ -145,3 +146,21 @@ const showToast = (msg) => {
   <!-- Toast -->
   <div :class="['toast', { show: toastMsg }]" id="toast">{{ toastMsg }}</div>
 </template>
+
+<style scoped>
+.workspace-sidebar-card {
+  background: var(--workspace-sidebar-card-bg);
+  border: 1px solid var(--workspace-sidebar-card-border);
+  box-shadow: var(--workspace-sidebar-card-shadow);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+.workspace-sidebar-card::before {
+  background: var(--workspace-sidebar-card-overlay);
+}
+
+.workspace-sidebar-card::after {
+  border-color: var(--workspace-sidebar-card-inner-border);
+}
+</style>
