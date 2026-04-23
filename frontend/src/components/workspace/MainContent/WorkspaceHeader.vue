@@ -7,7 +7,9 @@ defineProps({
   isRecordingPaused: Boolean,
   recordingTimeText: String,
   showClosePreview: Boolean,
-  previewMaterialName: { type: String, default: '' }
+  previewMaterialName: { type: String, default: '' },
+  hasWordInsight: Boolean,
+  wordInsightVisible: Boolean
 })
 
 const emit = defineEmits([
@@ -18,6 +20,7 @@ const emit = defineEmits([
   'main-sidebar-toggle',
   'right-sidebar-toggle',
   'material-selected',
+  'word-insight-click',
   'close-preview-material'
 ])
 
@@ -115,8 +118,16 @@ const handleMaterialInputChange = (event) => {
         <span>닫기</span>
       </button>
 
-      <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]">
-        <span class="material-symbols-outlined text-[20px]">play_circle</span>
+      <button
+        v-if="hasWordInsight"
+        class="btn-ghost-icon p-2 rounded-lg shrink-0 word-insight-btn text-[#8e8e93]"
+        :aria-label="wordInsightVisible ? 'AI 결과 카드 접기' : 'AI 결과 카드 다시 보기'"
+        :title="wordInsightVisible ? 'AI 결과 카드 접기' : 'AI 결과 카드 다시 보기'"
+        @click="emit('word-insight-click')"
+      >
+        <span class="material-symbols-outlined text-[20px]">
+          {{ wordInsightVisible ? 'unfold_less' : 'unfold_more' }}
+        </span>
       </button>
 
       <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" title="강의 자료 열기" @click="triggerMaterialPicker">
@@ -208,6 +219,18 @@ const handleMaterialInputChange = (event) => {
   min-height: 36px;
   display: flex;
   align-items: center;
+}
+
+.word-insight-btn {
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.word-insight-btn:hover {
+  color: #1d1d1f;
+}
+
+.word-insight-btn:active {
+  transform: scale(0.98);
 }
 
 .recording-control-inner {
