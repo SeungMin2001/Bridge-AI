@@ -27,11 +27,12 @@ def contextualize(model, input_ids, attention_mask=None):
     return outputs.last_hidden_state.to(dtype=torch.float32)
 
 
-def encode_passage_states(model, input_ids, attention_mask=None, use_contextual=False):
-    """논문 `KV_train.py`: `model.model.embed_tokens(input_ids)` 사용 (token embed only).
+def encode_passage_states(model, input_ids, attention_mask=None, use_contextual=True):
+    """Passage encoder input for the hypernetwork.
 
-    use_contextual=True는 실험적 옵션 (Qwen 전체를 통과시켜 hidden state를 씀).
-    논문 재현이 목적이라면 False가 기본.
+    Contextual hidden states preserve token interactions inside a passage,
+    which is critical for separating near-identical passages such as
+    'deadline is Monday' vs 'deadline is Friday'.
     """
     if use_contextual:
         return contextualize(model, input_ids, attention_mask=attention_mask)
@@ -91,23 +92,14 @@ def tokenize_conditioned_memory(tokenizer, question, passage, device, max_length
     }
 
 
-def tokenize_passage_memory(tokenizer, passage, device, max_length=512):
-    encoded = tokenizer(
-        passage,
-        return_tensors="pt",
-        truncation=True,
-        max_length=max_length,
-        padding=False,
-    )
-    input_ids = encoded["input_ids"].to(device)
-    attention_mask = encoded["attention_mask"].to(device)
-    zero_mask = torch.zeros_like(input_ids)
-    return {
-        "input_ids": input_ids,
-        "attention_mask": attention_mask,
-        "question_mask": zero_mask,
-        "passage_mask": attention_mask.clone(),
-    }
+def build_passage_focus_weight(tokenizer, input_ids, attention_mask, question_text=""):
+    """passage-only 경로에서도 동일한 핵심 토큰 가중치 로직을 재사용한다."""
+    return build_focus_weight(
+        tokenizer,
+        input_ids,
+        attention_mask,
+        question_text=question_text,
+    ).to(device=input_ids.device)
 
 
 def embedding(model, tokenizer, text):
