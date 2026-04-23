@@ -1,17 +1,21 @@
-import torch
 import torch.nn as nn
 
+
 class LinearProjection(nn.Module):
-  def __init__(self,d_model1,d_model2,k):
-    super().__init__()
-    self.k=k
-    self.K=nn.Linear(d_model1,k*d_model2)
-    self.V=nn.Linear(d_model1,k*d_model2)
-    self.d=d_model2
+    """논문 HyperKVGeneratorFixed의 linear_K, linear_V와 일치.
 
-  def forward(self,h):
-    B,d=h.size()
-    res_k=self.K(h).view(B,self.k,self.d)
-    res_v=self.V(h).view(B,self.k,self.d)
+    hidden_dim → num_kv * d_model 로 flatten 후 view(B, num_kv, d_model).
+    """
 
-    return res_k,res_v
+    def __init__(self, hidden_dim, d_model, num_kv):
+        super().__init__()
+        self.num_kv = num_kv
+        self.d_model = d_model
+        self.linear_K = nn.Linear(hidden_dim, num_kv * d_model)
+        self.linear_V = nn.Linear(hidden_dim, num_kv * d_model)
+
+    def forward(self, h):
+        B = h.size(0)
+        K = self.linear_K(h).view(B, self.num_kv, self.d_model)
+        V = self.linear_V(h).view(B, self.num_kv, self.d_model)
+        return K, V
