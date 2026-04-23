@@ -137,10 +137,17 @@ def encode_passage_stats(question: str, passage: str):
             use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
         )
         query = masked_mean(emb, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
-        pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
-        hidden = hypernet.mlp(pooled)
-        K_raw, V_raw = hypernet.lp(hidden)
-        K, V = hypernet(emb, attention_mask=attention_mask, query=query, focus_mask=passage_mask)
+        parts = hypernet.encode_embedded_components(
+            emb,
+            attention_mask=attention_mask,
+            query=query,
+            focus_mask=passage_mask,
+        )
+        pooled = parts["pooled"]
+        hidden = parts["hidden"]
+        K_raw = parts["K_raw"]
+        V_raw = parts["V_raw"]
+        K, V = hypernet.normalize_kv(K_raw, V_raw)
     return {
         "ids": ids,
         "attention_mask": attention_mask,
