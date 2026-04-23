@@ -25,16 +25,29 @@ from .config import (
     ALPHA,
     CHART_PATH,
     CHECKPOINT_PATH,
+    KV_PATH_MODE,
     LOG_PATH,
     MAX_SEQ_LEN,
     MODEL_NAME,
     NUM_KV,
+    POOLED_KV_SKIP_SCALE,
+    POOLED_K_SKIP_SCALE,
+    POOLED_V_SKIP_SCALE,
     TRAIN_DATA_PATH,
+    USE_POOLED_KV_SKIP,
+    USE_V_RMS_CLAMP,
+    USE_CONTEXTUAL_PASSAGE_ENCODER,
+    USE_QUESTION_CONDITIONED_MEMORY,
     VALID_DATA_PATH,
+    V_RMS_CLAMP,
     WEIGHTS_PATH as SAVE_PATH,
     load_critical_layer,
 )
-from .embedding import encode_passage_states, tokenize_conditioned_memory
+from .embedding import (
+    encode_passage_states,
+    tokenize_conditioned_memory,
+    tokenize_passage_memory,
+)
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -45,19 +58,19 @@ LR_MIN = 1e-6               # 논문 CosineAnnealing eta_min
 EPOCHS = 1                  # 논문: 1 epoch (single pass)
 MAX_SAMPLES = None           # 전체 학습
 MAX_VAL_SAMPLES = None       # 전체 검증
-EVAL_EVERY = 1000           # N step마다 validation
+EVAL_EVERY = 500            # 500 step마다 validation
 EVAL_MAX_SAMPLES = 500      # validation 시 최대 샘플 수 (전체 순회 방지)
 LOG_EVERY = 50              # N step마다 터미널 출력 (논문: 49)
-SAVE_EVERY = 500            # 중간 체크포인트 저장 주기
-PATIENCE = 5                # early stopping patience
+SAVE_EVERY = 500            # 500 step마다 체크포인트 저장
+PATIENCE = 3                # 5→3으로 감소 (overfitting 방지)
 TRAIN_MAX_PASSAGE_SENTENCES = 6
-TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
-NEGATIVE_MARGIN = 0.5
-NEGATIVE_LOSS_WEIGHT = 0.5
-REPULSION_LOSS_WEIGHT = 0.1
-USE_CONTEXTUAL_PASSAGE_ENCODER = True
-
-
+GRAD_CLIP_NORM = 1.0
+NEGATIVE_MARGIN = 0.2
+NEGATIVE_LOSS_WEIGHT = 0.25
+REPULSION_LOSS_WEIGHT = 0.50
+HIDDEN_SIM_TARGET = 0.97
+K_SIM_TARGET = 0.95
+V_SIM_TARGET = 0.90
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -262,13 +275,21 @@ def masked_mean(hidden, mask):
 
 
 def encode_memory(model, hypernet, tokenizer, question: str, passage: str, device):
-    encoded = tokenize_conditioned_memory(
-        tokenizer,
-        question,
-        passage,
-        device,
-        max_length=MAX_SEQ_LEN,
-    )
+    if USE_QUESTION_CONDITIONED_MEMORY:
+        encoded = tokenize_conditioned_memory(
+            tokenizer,
+            question,
+            passage,
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
+    else:
+        encoded = tokenize_passage_memory(
+            tokenizer,
+            passage,
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
     input_ids = encoded["input_ids"]
     attention_mask = encoded["attention_mask"]
     question_mask = encoded["question_mask"]
@@ -279,21 +300,15 @@ def encode_memory(model, hypernet, tokenizer, question: str, passage: str, devic
         attention_mask=attention_mask,
         use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
     )
-    query = masked_mean(embedded, question_mask)
-    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(
+    query = masked_mean(embedded, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
+    pooled, hidden, raw_K, raw_V = hypernet.encode_embedded(
         embedded,
         attention_mask=attention_mask,
         query=query,
         focus_mask=passage_mask,
     )
+    delta_K, delta_V = hypernet.normalize_kv(raw_K, raw_V)
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
-
-
-def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
-    hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
-    k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
-    v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
-    return torch.clamp((hidden_sim + k_sim + v_sim) / 3.0, min=0.0)
 
 
 def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
@@ -306,7 +321,7 @@ def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
 
 
 def build_training_prompt(question: str) -> str:
-    return f"{TRAIN_SYSTEM_PREFIX}\nQuestion: {question}\nAnswer:"
+    return f"Question: {question}\nAnswer:"
 
 
 def build_prompt_for_task(question: str, task: str) -> str:
@@ -320,30 +335,46 @@ def build_prompt_for_task(question: str, task: str) -> str:
 
 
 def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
-    """논문 원본과 더 가까운 단순 QA 포맷으로 토큰화."""
+    """QA 토큰화 — compute_loss의 shift와 정확히 맞도록 정렬.
+    input_ids = [prompt] + [answer+eos]  (전체)
+    labels    = [-100]*prompt_len + [answer+eos]
+    → compute_loss가 logits[:,:-1]과 labels[:,1:]로 shift하면
+      prompt 마지막 토큰을 본 후 첫 answer 토큰을 예측."""
     prompt = build_prompt_for_task(question, task)
     answer_text = f" {answer}{tokenizer.eos_token}"
 
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
     tok_answer = tokenizer(answer_text, return_tensors="pt", add_special_tokens=False, truncation=True, max_length=MAX_SEQ_LEN)
 
-    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"][:, :-1]), dim=-1).to(device)
+    prompt_len = tok_prompt["input_ids"].shape[1]
+    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"]), dim=-1).to(device)
     labels = torch.cat((
-        torch.full((1, tok_prompt["input_ids"].shape[1] - 1), -100, dtype=torch.long),
+        torch.full((1, prompt_len), -100, dtype=torch.long),
         tok_answer["input_ids"]
     ), dim=-1).to(device)
 
     return {"input_ids": input_ids, "labels": labels}
 
 
+def normalize_passage_text(text: str) -> str:
+    return " ".join((text or "").split()).strip().lower()
+
+
 def get_negative_sample(dataset: MergePRAGDataset, index: int):
     sample = dataset[index]
     source_id = sample.get("source_id") or sample.get("id")
+    sample_answer = sample.get("answer")
+    sample_passage_key = normalize_passage_text(sample.get("passage", ""))
+
     if source_id is not None:
         candidates = [
             dataset.data[idx]
             for idx in dataset.indices_by_source.get(str(source_id), [])
-            if idx != index and dataset.data[idx].get("answer") != sample.get("answer")
+            if (
+                idx != index
+                and dataset.data[idx].get("answer") != sample_answer
+                and normalize_passage_text(dataset.data[idx].get("passage", "")) != sample_passage_key
+            )
         ]
         if candidates:
             return candidates[index % len(candidates)]
@@ -351,9 +382,31 @@ def get_negative_sample(dataset: MergePRAGDataset, index: int):
     dataset_size = len(dataset)
     for offset in range(1, dataset_size):
         candidate = dataset[(index + offset) % dataset_size]
-        if candidate.get("answer") != sample.get("answer"):
+        if (
+            candidate.get("answer") != sample_answer
+            and normalize_passage_text(candidate.get("passage", "")) != sample_passage_key
+        ):
             return candidate
+
+    # 정말로 다른 passage를 못 찾으면 그때만 기존 fallback을 허용.
+    for offset in range(1, dataset_size):
+        candidate = dataset[(index + offset) % dataset_size]
+        if candidate.get("answer") != sample_answer:
+            return candidate
+
     return dataset[(index + 1) % dataset_size]
+
+
+def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
+    hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
+    k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
+    v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
+    loss = (
+        torch.relu(hidden_sim - HIDDEN_SIM_TARGET)
+        + torch.relu(k_sim - K_SIM_TARGET)
+        + 2.0 * torch.relu(v_sim - V_SIM_TARGET)
+    )
+    return loss, hidden_sim, k_sim, v_sim
 
 
 # ── Validation ──
@@ -368,13 +421,21 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             if idx >= EVAL_MAX_SAMPLES:
                 break
 
-            encoded = tokenize_conditioned_memory(
-                tokenizer,
-                sample["question"],
-                sample["passage"],
-                device,
-                max_length=MAX_SEQ_LEN,
-            )
+            if USE_QUESTION_CONDITIONED_MEMORY:
+                encoded = tokenize_conditioned_memory(
+                    tokenizer,
+                    sample["question"],
+                    sample["passage"],
+                    device,
+                    max_length=MAX_SEQ_LEN,
+                )
+            else:
+                encoded = tokenize_passage_memory(
+                    tokenizer,
+                    sample["passage"],
+                    device,
+                    max_length=MAX_SEQ_LEN,
+                )
             input_ids = encoded["input_ids"]
             attention_mask = encoded["attention_mask"]
             question_mask = encoded["question_mask"]
@@ -385,7 +446,7 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
                 attention_mask=attention_mask,
                 use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
             )
-            query = masked_mean(c_emb, question_mask)
+            query = masked_mean(c_emb, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
             delta_K, delta_V = hypernet(
                 c_emb,
                 attention_mask=attention_mask,
@@ -480,7 +541,7 @@ def train():
         MODEL_NAME,
         device_map="auto",
         trust_remote_code=True,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
     )
 
     # ── Qwen freeze (논문 동일) ──
@@ -496,8 +557,10 @@ def train():
     # ── HyperNetwork 초기화 ──
     hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
 
-    # ── Optimizer: AdamW (논문 동일) ──
-    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR)
+    # ── Optimizer: AdamW (weight_decay=0 — MLP 붕괴 방지) ──
+    # 기본 weight_decay=0.01은 훈련 신호가 약할 때 가중치를 0으로 끌어당겨
+    # MLP 출력이 bias에 수렴 → 서로 다른 passage가 동일한 K/V로 붕괴함.
+    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR, weight_decay=0.0)
 
     # ── 데이터 로드 ──
     train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=MAX_SAMPLES)
@@ -512,12 +575,16 @@ def train():
     resume_step = 0
     if os.path.exists(CHECKPOINT_PATH):
         ckpt = torch.load(CHECKPOINT_PATH, map_location=device)
-        hypernet.load_state_dict(ckpt["hypernet"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-        scheduler.load_state_dict(ckpt["scheduler"])
-        resume_step = ckpt["step"]
-        best_val_loss = ckpt.get("best_val_loss", float("inf"))
-        print(f"[복구] 체크포인트에서 재개: step {resume_step}")
+        try:
+            hypernet.load_state_dict(ckpt["hypernet"])
+            optimizer.load_state_dict(ckpt["optimizer"])
+            scheduler.load_state_dict(ckpt["scheduler"])
+            resume_step = ckpt["step"]
+            best_val_loss = ckpt.get("best_val_loss", float("inf"))
+            print(f"[복구] 체크포인트에서 재개: step {resume_step}")
+        except (RuntimeError, KeyError) as e:
+            print(f"[경고] 체크포인트 차원 불일치 (설정 변경됨), 처음부터 학습: {e}")
+            resume_step = 0
 
     # ── 로그 ──
     log_data = {
@@ -547,6 +614,13 @@ def train():
 
     print(f"\n[학습] 시작: {EPOCHS} epoch, train={len(train_dataset)}, val={len(val_dataset)}")
     print(f"[학습] AdamW lr={LR}, CosineAnnealing eta_min={LR_MIN}")
+    print(
+        f"[학습] config | num_kv={NUM_KV}, alpha={ALPHA}, "
+        f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, kv_path_mode={KV_PATH_MODE}, "
+        f"k_skip_scale={POOLED_K_SKIP_SCALE}, v_skip_scale={POOLED_V_SKIP_SCALE}, "
+        f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}, "
+        f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
+    )
     hypernet.train()
     start_time = time.time()
     start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -566,7 +640,7 @@ def train():
                 continue
 
             try:
-                # 1. positive passage → HyperNetwork → delta_K, delta_V
+                # 1. passage → HyperNetwork → delta_K, delta_V (논문: CE loss만)
                 passage = sample["passage"]
                 input_ids, c_emb, pooled_pos, hidden_pos, delta_K, delta_V = encode_memory(
                     model, hypernet, tokenizer, sample["question"], passage, device
@@ -581,13 +655,12 @@ def train():
                     task=sample.get("task", "final_qa"),
                 )
 
-                # 3. positive memory로 정답 loss 계산
+                # 3. memory로 정답 loss — 원본 CE objective 유지
                 logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
                 task_loss = compute_loss(logits, tok["labels"])
                 if task_loss is None:
                     continue
 
-                # 4. 다른 샘플 passage를 negative memory로 사용해 grounding ranking 추가
                 negative_sample = get_negative_sample(train_dataset, i)
                 _, neg_emb, pooled_neg, hidden_neg, neg_K, neg_V = encode_memory(
                     model,
@@ -603,7 +676,7 @@ def train():
                     neg_task_loss = task_loss.detach()
 
                 grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
-                repulsion_loss = compute_repulsion_loss(
+                repulsion_loss, hidden_sim_t, k_sim_t, v_sim_t = compute_repulsion_loss(
                     hidden_pos,
                     hidden_neg,
                     delta_K,
@@ -616,25 +689,45 @@ def train():
                     + NEGATIVE_LOSS_WEIGHT * grounding_loss
                     + REPULSION_LOSS_WEIGHT * repulsion_loss
                 )
+                loss_val = task_loss.item()
+                k_vec_norm = delta_K.detach().norm(dim=-1).mean().item()
+                v_vec_norm = delta_V.detach().norm(dim=-1).mean().item()
+                neg_loss_val = neg_task_loss.item()
+                grounding_val = grounding_loss.item()
+                repulsion_val = repulsion_loss.item()
+                same_passage_neg = (
+                    normalize_passage_text(negative_sample.get("passage", ""))
+                    == normalize_passage_text(sample.get("passage", ""))
+                )
+                pooled_cos = F.cosine_similarity(pooled_pos, pooled_neg).mean().item()
+                hidden_sim = hidden_sim_t.item()
+                k_sim = k_sim_t.item()
+                v_sim = v_sim_t.item()
 
-                # 5. backward → HyperNetwork만 업데이트
+                # 진단: memory 없이 같은 샘플 평가 → memory 기여도 확인
+                # global_step 증가는 아래에서 일어나므로 +1로 로깅 조건과 맞춤
+                if (global_step + 1) % LOG_EVERY == 0:
+                    with torch.no_grad():
+                        base_logits = model(input_ids=tok["input_ids"])["logits"]
+                        base_loss = compute_loss(base_logits, tok["labels"])
+                    base_loss_val = base_loss.item() if base_loss is not None else float("nan")
+                    del base_logits
+                else:
+                    base_loss_val = None
+
+                # 4. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(hypernet.parameters(), GRAD_CLIP_NORM)
                 optimizer.step()
                 scheduler.step()
 
-                loss_val = task_loss.item()
-                grounding_val = grounding_loss.item()
-                repulsion_val = repulsion_loss.item()
-                neg_loss_val = neg_task_loss.item()
-                k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
-                v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
                 total_loss += loss_val
                 count += 1
                 global_step += 1
 
                 # VRAM 정리
-                del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids
+                del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg, pooled_neg
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -647,7 +740,7 @@ def train():
                 else:
                     raise e
 
-            # 로그 기록
+            # 로그 기록 — 논문 스타일: CE loss만
             log_data["step_losses"].append({
                 "step": global_step,
                 "loss": round(loss_val, 4),
@@ -664,11 +757,19 @@ def train():
                 })
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
+                # base_loss 대비 memory loss가 낮아야 훈련이 실제로 의미 있음
+                diag = ""
+                if base_loss_val is not None:
+                    gain = base_loss_val - loss_val
+                    diag = f" | base: {base_loss_val:.4f} (gain: {gain:+.4f})"
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
                     f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
+                    f"Pcos: {pooled_cos:.4f} | Hcos: {hidden_sim:.4f} | Kcos: {k_sim:.4f} | Vcos: {v_sim:.4f}"
+                    f" | neg_same_passage: {same_passage_neg}"
+                    f"{diag} | "
                     f"{elapsed:.1f}min"
                 )
 

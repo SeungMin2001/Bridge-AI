@@ -2,21 +2,35 @@ import json
 import os
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
-NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "16"))
-DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "7"))
-ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "1.0"))
+# 논문 기본: num_kv=1. slot 수를 늘려도 되지만 논문 재현은 1부터.
+NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "1"))
+# 논문: single_layer=9 (Llama-3.1). Qwen의 경우 find_critical_layers.py 결과 사용.
+DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "9"))
+# 현재 Qwen/lecture QA 조건에서는 alpha=1.0가 hidden을 과도하게 덮어쓰는 경우가 많아
+# 보수적으로 낮춘다. 필요시 환경변수로 다시 올릴 수 있다.
+ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "0.1"))
 MAX_SEQ_LEN = 512
-ENABLE_FOCUS_WEIGHT = os.getenv("MERGEPRAG_ENABLE_FOCUS_WEIGHT", "1").strip().lower() not in {
-    "0", "false", "no", "off"
-}
-FOCUS_WEIGHT_COLOR = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_COLOR", "3.0"))
-FOCUS_WEIGHT_DAY = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_DAY", "3.0"))
-FOCUS_WEIGHT_NUMBER = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_NUMBER", "2.2"))
-FOCUS_WEIGHT_DATE = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_DATE", "2.4"))
-FOCUS_WEIGHT_QUESTION_OVERLAP = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_QUESTION_OVERLAP", "1.8"))
-FOCUS_WEIGHT_RARE = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_RARE", "1.3"))
-FOCUS_WEIGHT_MAX = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_MAX", "12.0"))
+# 논문은 token embedding only를 썼지만, 현재처럼 역할이 뒤바뀐 near-counterfactual passage에서는
+# 순서/구문 정보를 잃기 쉬워 contextual hidden이 더 안정적이다.
+USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
+USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", False)
+# 현재 실험에서는 K는 MLP가 더 잘 분리되고, V는 pooled skip이 더 정보 보존적이었다.
+# 기본은 K는 MLP, V는 hybrid로 보강하는 모드로 둔다.
+KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_mlp_v_hybrid").strip().lower()
+USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)
+POOLED_KV_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_KV_SKIP_SCALE", "1.0"))
+POOLED_K_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_K_SKIP_SCALE", str(POOLED_KV_SKIP_SCALE)))
+POOLED_V_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_V_SKIP_SCALE", "0.25"))
+USE_V_RMS_CLAMP = _get_bool("MERGEPRAG_USE_V_RMS_CLAMP", True)
+V_RMS_CLAMP = float(os.getenv("MERGEPRAG_V_RMS_CLAMP", "0.25"))
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "
     "Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. "
@@ -50,15 +64,19 @@ LOG_PATH = os.path.join(_BASE_DIR, "train_log.json")
 CHART_PATH = os.path.join(_BASE_DIR, "train_loss_curve.png")
 TRAIN_DATA_PATH = os.getenv(
     "MERGEPRAG_TRAIN_DATA_PATH",
-    r"C:\Users\user\Documents\last_project\data\HotPot_train_processed.jsonl",
+    r"C:\Users\user\Documents\last_project\data\SQuAD_train_processed.jsonl",
 )
 VALID_DATA_PATH = os.getenv(
     "MERGEPRAG_VALID_DATA_PATH",
-    r"C:\Users\user\Documents\last_project\data\HotPot_valid_processed.jsonl",
+    r"C:\Users\user\Documents\last_project\data\SQuAD_valid_processed.jsonl",
 )
 
 
 def load_critical_layer() -> int:
+    env_override = os.getenv("MERGEPRAG_CRITICAL_LAYER")
+    if env_override is not None:
+        return int(env_override)
+
     if not os.path.exists(CRITICAL_LAYERS_PATH):
         return DEFAULT_CRITICAL_LAYER
 
@@ -91,8 +109,19 @@ def build_chat_text(tokenizer, question: str, answer: str = "", enable_thinking:
 
 
 def load_hypernet_state_dict(map_location=None):
-    """최종 weight 우선, 없으면 중간 checkpoint의 hypernet state_dict와 메타정보를 반환."""
-    if os.path.exists(WEIGHTS_PATH):
+    """기본은 최신 파일을 사용한다.
+
+    MERGEPRAG_LOAD_SOURCE:
+      - latest (default): 수정 시각이 더 최신인 weights/checkpoint 사용
+      - weights: hypernet_weights.pt 우선
+      - checkpoint: hypernet_checkpoint.pt 우선
+    """
+    load_source = os.getenv("MERGEPRAG_LOAD_SOURCE", "latest").strip().lower()
+
+    weights_exists = os.path.exists(WEIGHTS_PATH)
+    checkpoint_exists = os.path.exists(CHECKPOINT_PATH)
+
+    def load_weights():
         state = torch_load(WEIGHTS_PATH, map_location=map_location)
         return state, {
             "source": WEIGHTS_PATH,
@@ -100,7 +129,7 @@ def load_hypernet_state_dict(map_location=None):
             "step": None,
         }
 
-    if os.path.exists(CHECKPOINT_PATH):
+    def load_checkpoint():
         ckpt = torch_load(CHECKPOINT_PATH, map_location=map_location)
         if isinstance(ckpt, dict) and "hypernet" in ckpt:
             return ckpt["hypernet"], {
@@ -109,6 +138,28 @@ def load_hypernet_state_dict(map_location=None):
                 "step": ckpt.get("step"),
             }
         raise ValueError(f"Checkpoint format invalid: {CHECKPOINT_PATH}")
+
+    if load_source == "weights" and weights_exists:
+        return load_weights()
+    if load_source == "checkpoint" and checkpoint_exists:
+        return load_checkpoint()
+
+    if load_source == "latest":
+        candidates = []
+        if weights_exists:
+            candidates.append(("weights", os.path.getmtime(WEIGHTS_PATH)))
+        if checkpoint_exists:
+            candidates.append(("checkpoint", os.path.getmtime(CHECKPOINT_PATH)))
+        if candidates:
+            latest_kind = max(candidates, key=lambda x: x[1])[0]
+            if latest_kind == "checkpoint":
+                return load_checkpoint()
+            return load_weights()
+
+    if weights_exists:
+        return load_weights()
+    if checkpoint_exists:
+        return load_checkpoint()
 
     raise FileNotFoundError(
         f"Neither hypernet weights nor checkpoint found: {WEIGHTS_PATH}, {CHECKPOINT_PATH}"
