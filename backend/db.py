@@ -58,3 +58,35 @@ async def save_transcript_to_db(transcript_data: dict, segment_index: int):
             transcript_data.get("text"),
             datetime.now(),
         )
+
+
+# ══════════════════════════════════════
+#  세션별 전사문 조회
+# ══════════════════════════════════════
+async def get_transcripts_by_session(session_id: str) -> list[dict]:
+    """session_id에 해당하는 전사문을 시간순으로 조회"""
+    import uuid as _uuid
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT transcript_id, chunk_index, start_time, end_time,
+                   chunk_text, corrected_text
+            FROM transcripts
+            WHERE session_id = $1
+            ORDER BY chunk_index ASC
+        """, _uuid.UUID(session_id))
+        return [
+            {
+                "transcript_id": str(r["transcript_id"]),
+                "chunk_index": r["chunk_index"],
+                "start_time": r["start_time"],
+                "end_time": r["end_time"],
+                "chunk_text": r["chunk_text"],
+                "corrected_text": r["corrected_text"],
+                "text": r["corrected_text"] or r["chunk_text"],
+            }
+            for r in rows
+        ]
+
+
+

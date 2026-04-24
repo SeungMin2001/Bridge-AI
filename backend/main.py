@@ -16,6 +16,7 @@ import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
+from quiz.quiz import router as quiz_router
 
 device = "cuda" if torch.cuda.is_available() else (
     "mps" if torch.backends.mps.is_available() else "cpu"
@@ -47,6 +48,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── 라우터 등록 ──
+app.include_router(quiz_router)
 
 #python -c "from huggingface_hub import login; login(token='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')"
 
