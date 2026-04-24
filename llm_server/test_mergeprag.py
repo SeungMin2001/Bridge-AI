@@ -51,7 +51,7 @@ EXPECTED_ANSWER = "Manchester United"
 COMPARE_EXPECTED_ANSWER = "Chelsea"
 ALT_EXPECTED_ANSWER = "Chelsea"
 SYSTEM_PROMPT = "Answer in English with one short sentence grounded in the lecture content."
-MAX_NEW_TOKENS = 150
+MAX_NEW_TOKENS = 12
 
 
 def format_mtime(path):
@@ -75,6 +75,11 @@ def fmt_score(score):
         f"loss={loss:.3f}, avg_logp={avg_logprob:.3f}, "
         f"sum_logp={sum_logprob:.3f}, toks={n_tokens}"
     )
+
+
+def fmt_choice(label, score):
+    loss, _, avg_logprob, _ = score
+    return f"{label}: loss={loss:.3f}, avg_logp={avg_logprob:.3f}"
 
 
 def verdict(label: str, ok: bool):
@@ -331,6 +336,10 @@ def score_answer_without_memory(answer_text: str):
         logits = model(input_ids=score_inputs["input_ids"])["logits"]
     return compute_answer_loss(logits, score_inputs["labels"])
 
+
+def choose_candidate(score_map: dict[str, tuple]):
+    return min(score_map.items(), key=lambda item: item[1][0])
+
 # Hook 없이 생성
 with torch.no_grad():
     gen_no_hook = model.generate(
@@ -419,6 +428,33 @@ for (
     )
     print(f"  main    ans: {answer_main}")
     print(f"  compare ans: {answer_compare}")
+
+section("Candidate Choice")
+candidates = [EXPECTED_ANSWER, COMPARE_EXPECTED_ANSWER]
+for alpha in flip_alphas:
+    main_scores = {
+        candidate: score_answer_with_memory(K, V, candidate, alpha=alpha)
+        for candidate in candidates
+    }
+    compare_scores = {
+        candidate: score_answer_with_memory(K2, V2, candidate, alpha=alpha)
+        for candidate in candidates
+    }
+    main_choice, main_choice_score = choose_candidate(main_scores)
+    compare_choice, compare_choice_score = choose_candidate(compare_scores)
+    print(
+        f"α={alpha:<4} | "
+        f"main_choice={main_choice} ({fmt_choice(main_choice, main_choice_score)}) | "
+        f"compare_choice={compare_choice} ({fmt_choice(compare_choice, compare_choice_score)})"
+    )
+    print(
+        "  main scores    | "
+        + " | ".join(fmt_choice(candidate, score) for candidate, score in main_scores.items())
+    )
+    print(
+        "  compare scores | "
+        + " | ".join(fmt_choice(candidate, score) for candidate, score in compare_scores.items())
+    )
 
 # slot별 차이도 같이 확인
 slot_cos_k = []
