@@ -218,11 +218,17 @@ if USE_QUESTION_CONDITIONED_MEMORY and alt_question_stats is not None:
         f"cos(V)={torch.nn.functional.cosine_similarity(V.view(1,-1), alt_V.view(1,-1)).item():.4f}"
     )
 
-# ── 프롬프트 포맷: 훈련과 정확히 일치시킴 (chat template 쓰지 않음) ──
-# 훈련: "Question: X\nAnswer:" → hypernet K/V가 이 문맥의 hidden state에 맞춰 학습됨.
-# 추론에서 chat template을 쓰면 hidden state 구조가 달라져 K/V가 엉뚱하게 적용됨.
-prompt_text = f"Question: {QUESTION}\nAnswer:"
-inputs = tokenizer(prompt_text, return_tensors="pt").to(device)
+# ── 프롬프트 포맷 ─────────────────────────────────────────────
+# scoring_prompt는 훈련 형식과 일치시켜 loss 비교를 유지한다.
+# generation_prompt는 자유 생성이 "the other team" 같은 일반 답으로 빠지는지 보려고
+# 정답 엔티티만 요구하는 별도 진단 프롬프트를 사용한다.
+scoring_prompt_text = f"Question: {QUESTION}\nAnswer:"
+generation_prompt_text = (
+    f"Question: {QUESTION}\n"
+    "Answer with only the winning team name:"
+)
+scoring_inputs = tokenizer(scoring_prompt_text, return_tensors="pt").to(device)
+generation_inputs = tokenizer(generation_prompt_text, return_tensors="pt").to(device)
 
 
 def build_scoring_batch(answer_text: str):
@@ -279,7 +285,7 @@ section("Delta Check")
 # delta vs hidden 크기 진단 (1회만)
 hook = layer.register_forward_hook(make_hook(K, V, alpha=1.0, diag=True))
 with torch.no_grad():
-    _ = model(**inputs)
+    _ = model(**scoring_inputs)
 hook.remove()
 
 STOP_IDS = tokenizer.encode("\nQuestion:", add_special_tokens=False)
@@ -328,9 +334,9 @@ def score_answer_without_memory(answer_text: str):
 # Hook 없이 생성
 with torch.no_grad():
     gen_no_hook = model.generate(
-        **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+        **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
     )
-answer_no = decode_answer(gen_no_hook, inputs["input_ids"].shape[1])
+answer_no = decode_answer(gen_no_hook, generation_inputs["input_ids"].shape[1])
 score_no_main = score_answer_without_memory(EXPECTED_ANSWER)
 score_no_compare = score_answer_without_memory(COMPARE_EXPECTED_ANSWER)
 section("Generations")
@@ -343,10 +349,10 @@ for alpha in alpha_list:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(
-            **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+            **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
         )
     hook.remove()
-    answer_hook = decode_answer(gen_hook, inputs["input_ids"].shape[1])
+    answer_hook = decode_answer(gen_hook, generation_inputs["input_ids"].shape[1])
     score_main = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     score_compare = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
     alpha_rows.append((alpha, answer_hook, score_main, score_compare))
@@ -367,19 +373,19 @@ for alpha in flip_alphas:
     hook_main = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_main = model.generate(
-            **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+            **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
         )
     hook_main.remove()
 
     hook_compare = layer.register_forward_hook(make_hook(K2, V2, alpha=alpha))
     with torch.no_grad():
         gen_compare = model.generate(
-            **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+            **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
         )
     hook_compare.remove()
 
-    answer_main = decode_answer(gen_main, inputs["input_ids"].shape[1])
-    answer_compare = decode_answer(gen_compare, inputs["input_ids"].shape[1])
+    answer_main = decode_answer(gen_main, generation_inputs["input_ids"].shape[1])
+    answer_compare = decode_answer(gen_compare, generation_inputs["input_ids"].shape[1])
     main_target_score = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     main_compare_score = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
     compare_target_score = score_answer_with_memory(K2, V2, EXPECTED_ANSWER, alpha=alpha)
