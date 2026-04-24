@@ -1,5 +1,12 @@
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { useChat } from '../../composables/useChat'
+import { marked } from 'marked'
+
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
 
 const props = defineProps({
   visible: { type: Boolean, default: true },
@@ -8,48 +15,220 @@ const props = defineProps({
 
 const emit = defineEmits(['update:aiInput'])
 
-const messages = ref([])
+const { 
+  messages, 
+  addMessage, 
+  updateLastAiMessage,
+  openCitePopover
+} = useChat()
 const isLoading = ref(false)
+const isThinkingMode = ref(false)
+const aiTextarea = ref(null)
+const isSending = ref(false) // 중복 전송 방지용 플래그
+
+// 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
+// true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
+// false: 실제 백엔드 서버(http://100.104.164.84:8000)로 통신합니다.
+const USE_DEMO_DATA = false
 
 async function sendMessage() {
   const question = props.aiInput.trim()
-  if (!question) return
+  if (!question || isSending.value) return // 전송 중이거나 빈 메시지면 무시
+  
+  isSending.value = true
 
-  messages.value.push({ role: 'user', text: question })
+  addMessage({ role: 'user', text: question })
   emit('update:aiInput', '')
   isLoading.value = true
 
-  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'thinking' })
+  const idx = messages.value.length
+  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
+
+  /* 1. 데모(목업) 모드 동작 (비활성화)
+  if (USE_DEMO_DATA) {
+    console.log('[테스트 모드] USE_DEMO_DATA가 true이므로 미리 설정된 데모 데이터를 출력합니다.')
+    setTimeout(() => {
+      updateLastAiMessage({
+        role: 'ai',
+        thinking: 'CPU의 정의와 주요 역할을 강의 자료에서 검색했습니다...',
+        text: 'CPU(중앙 처리 장치)는 컴퓨터의 두뇌 역할을 하며, 프로그램의 명령어를 해석하고 실행하는 핵심 하드웨어입니다. CPU 내부에는 초고속 임시 저장 공간인 **레지스터** 가 있어, 연산 과정에서 필요한 데이터를 매우 빠르게 접근하고 처리할 수 있습니다.',
+        citations: [
+          {
+            transcript_id: "dd110001-0000-0000-1004",
+            text: "CPU 는 명령을 읽고 실행하며 레지스터는 초고속 임시 저장 공간이다.",
+            citation: "1 주차 - 데이터 표현과 메모리 > 6:00~8:00",
+            session_title: "1주차 - 데이터 표현과 메모리",
+            full_transcript: "오늘 수업 시작하겠습니다! 여러분 컴퓨터의 구조에 대해 많이 들어보셨죠?\n그 중에서 가장 핵심이 되는 부품이 뭘까요? 네 맞습니다. CPU입니다.\n\nCPU 는 명령을 읽고 실행하며 레지스터는 초고속 임시 저장 공간이다. 이 점을 꼭 기억하셔야 합니다.\n이러한 구조 덕분에 우리가 원하는 프로그램이 순식간에 처리될 수 있는 것이죠."
+          },
+          {
+            transcript_id: "dd110002-0000-0001-2005",
+            text: "운영체제는 하드웨어와 사용자 사이를 중개한다.",
+            citation: "컴퓨터공학개론 > 2 주차 - 프로세스와 스레드 > 0:00~2:00",
+            session_title: "2주차 - 프로세스와 스레드",
+            full_transcript: "자, 지난 시간에는 하드웨어에 대해 배웠죠.\n오늘은 소프트웨어를 배워봅시다. 특히 운영체제에 집중할 건데요.\n운영체제는 하드웨어와 사용자 사이를 중개한다. 이게 가장 중요한 역할입니다.\n마우스 클릭만으로 복잡한 연산이 처리되는게 다 운영체제 덕분이죠."
+          }
+        ],
+        phase: 'done',
+      })
+      isLoading.value = false
+    }, 800)
+    return
+  }
+  */
+
+  // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
+  const t0 = performance.now()
+  let ttftLogged = false
 
   try {
-    const res = await fetch('/chat', {
+    const res = await fetch('/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({
+        question,
+        is_thinking: isThinkingMode.value
+      }),
     })
-    const data = await res.json()
-    messages.value[messages.value.length - 1] = {
-      role: 'ai',
-      thinking: data.thinking || '',
-      text: data.answer || '',
-      citations: data.citations || [],
-      phase: 'done',
+
+    if (!res.ok) throw new Error(`서버 응답 오류 (상태 코드: ${res.status})`)
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let streamedText = ''
+    let streamedCitations = []
+    let tokenCount = 0
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6)
+        if (payload === '[DONE]') break
+
+        try {
+          const data = JSON.parse(payload)
+          if (data.type === 'citations') {
+            streamedCitations = data.citations
+            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+          } else if (data.type === 'token') {
+            if (!ttftLogged) {
+              console.log(`⏱️ [TTFT] 첫 토큰까지: ${(performance.now() - t0).toFixed(0)}ms`)
+              ttftLogged = true
+            }
+            tokenCount++
+            streamedText += data.token
+            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+          } else if (data.type === 'error') {
+            streamedText += `\n오류: ${data.error}`
+            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+          }
+        } catch (parseErr) {
+          // SSE 파싱 실패 시 무시
+        }
+      }
     }
+
+    const totalMs = performance.now() - t0
+    console.log(`⏱️ [응답완료] 총: ${totalMs.toFixed(0)}ms | 토큰: ${tokenCount}개 | 속도: ${(tokenCount / (totalMs / 1000)).toFixed(1)} tok/s`)
+
+    updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'done' })
+
   } catch (e) {
-    messages.value[messages.value.length - 1] = {
+    console.error('[오류] 실제 백엔드 서버 연결에 실패했습니다.', e)
+    updateLastAiMessage({
       role: 'ai',
       thinking: '',
-      text: '오류가 발생했습니다. 서버 연결을 확인해주세요.',
+      text: '⚠️ 현재 백엔드 서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인해 주세요.',
       citations: [],
       phase: 'done',
-    }
+    })
   } finally {
     isLoading.value = false
+    isSending.value = false // 전송 완료 후 플래그 해제
+    // 전송 후 텍스트에어리어 높이 초기화
+    nextTick(() => {
+      if (aiTextarea.value) aiTextarea.value.style.height = 'auto'
+    })
   }
+}
+
+function handleInput(e) {
+  emit('update:aiInput', e.target.value)
+  // 높이 자동 조절
+  nextTick(() => {
+    if (aiTextarea.value) {
+      aiTextarea.value.style.height = 'auto'
+      aiTextarea.value.style.height = aiTextarea.value.scrollHeight + 'px'
+    }
+  })
+}
+
+function handleEnter(e) {
+  // 한국어 IME 중복 전송 방지를 위한 엄격한 체크 (keyCode 229는 조합 중을 의미)
+  if (e.isComposing || e.keyCode === 229) return
+  if (e.shiftKey) return 
+  
+  e.preventDefault()
+  sendMessage()
+}
+
+function renderTextWithCitations(text) {
+  if (!text) return ''
+  // 이미지 스타일을 위해 인라인 [1] 마커 제거 후 마크다운 렌더링
+  let processedText = text.replace(/\[\d+\]/g, '').trim()
+  return marked.parse(processedText)
+}
+
+function handleDocContentClick(event, msg, idx) {
+  const chip = event.currentTarget
+  if (!chip || isNaN(idx) || !msg.citations || !msg.citations[idx]) return
+  
+  const rect = chip.getBoundingClientRect()
+  const popoverWidth = 300
+  const popoverHeight = 400 // 하이라이트 텍스트 포함 넉넉한 높이 가정
+  
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+  
+  // 1. 좌우 위치 결정 (사이드바 메뉴 왼쪽)
+  let x = rect.left - popoverWidth 
+  if (x < 20) x = 20
+  
+  // 2. 상하 위치 결정 (스마트 포지셔닝)
+  let y = rect.top - 20 
+
+  // 클릭 위치가 화면의 60%보다 아래면 팝업을 위쪽으로 띄움
+  if (rect.top > viewportHeight * 0.6) {
+    y = rect.top - popoverHeight + 40 // 버튼 위쪽으로 띄움
+  } else {
+    // 위쪽에 띄울 공간이 충분할 때는 기존처럼 살짝 아래로
+    if (y + popoverHeight > viewportHeight) {
+      y = viewportHeight - popoverHeight - 30 
+    }
+  }
+
+  // 상단 경계 최소값 보정
+  if (y < 20) y = 20
+  
+  openCitePopover(msg.citations[idx], x, y)
 }
 
 const width = ref(420)
 const isResizing = ref(false)
+
+const handleMouseDown = (e) => {
+  isResizing.value = true
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  document.body.classList.add('is-resizing')
+}
 
 const handleMouseMove = (e) => {
   if (!isResizing.value) return
@@ -75,12 +254,22 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', handleMouseUp)
 })
 
-const handleMouseDown = () => {
-  isResizing.value = true
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-  document.body.classList.add('is-resizing')
+const scrollContainer = ref(null)
+
+const scrollToBottom = async () => {
+  await nextTick()
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTo({
+      top: scrollContainer.value.scrollHeight,
+      behavior: 'smooth'
+    })
+  }
 }
+
+watch(messages, () => {
+  scrollToBottom()
+}, { deep: true })
+
 </script>
 
 <template>
@@ -100,7 +289,8 @@ const handleMouseDown = () => {
     :style="{ width: visible ? `${width}px` : '0px', minWidth: visible ? `${width}px` : '0px', maxWidth: visible ? `${width}px` : '0px' }"
   >
     <div class="card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
-        <div class="flex-1 flex flex-col items-center justify-center px-2">
+      <transition name="fade-slide-switch" mode="out-in">
+        <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
           <div class="w-14 h-14 rounded-2xl ai-gradient-bg flex items-center justify-center mb-6 shadow-lg">
             <span class="material-symbols-outlined text-white text-[32px]">auto_awesome</span>
           </div>
@@ -121,62 +311,175 @@ const handleMouseDown = () => {
           </div>
         </div>
 
-        <div class="mt-auto">
-          <div v-if="messages.length > 0" class="mb-3 flex flex-col gap-2 max-h-[300px] overflow-y-auto custom-scrollbar">
+        <div v-else key="chat-history" class="flex-1 flex flex-col gap-6 mb-4 overflow-y-auto custom-scrollbar px-1" ref="scrollContainer">
+          <transition-group name="chat-bubble">
             <div
               v-for="(msg, i) in messages"
               :key="i"
-              :class="['px-3 py-2 rounded-xl text-[13px] leading-relaxed', msg.role === 'ai' ? 'bg-[#f2f2f7] text-[#1d1d1f] self-start' : 'bg-[#373549] text-white self-end']"
+              :class="msg.role === 'ai' ? 'w-full flex flex-col' : 'px-4 py-2.5 rounded-[18px] bg-[#373549] text-white text-[14px] leading-relaxed self-end w-fit max-w-[85%] shadow-sm'"
             >
-              <!-- Thinking 실시간 표시 -->
-              <div v-if="msg.thinking" class="thinking-block mb-1.5">
-                <div class="flex items-center gap-1 mb-1">
-                  <span class="material-symbols-outlined text-[13px] text-[#8e8e93]" :class="{ 'thinking-spin': msg.phase === 'thinking' }">psychology</span>
-                  <span class="text-[10px] font-semibold text-[#8e8e93]">
-                    {{ msg.phase === 'thinking' ? '생각하는 중...' : '사고 완료' }}
-                  </span>
-                </div>
-                <div class="thinking-content thinking-stream text-[11px]">
-                  {{ msg.thinking }}
-                </div>
-              </div>
-              <!-- 최종 답변 -->
-              <div v-if="msg.text" :class="{ 'answer-fade-in': msg.phase === 'answering' || msg.phase === 'done' }">
+              <!-- 사용자 말풍선 -->
+              <template v-if="msg.role === 'user'">
                 {{ msg.text }}
-              </div>
-              <!-- 출처 표시 -->
-              <div v-if="msg.citations && msg.citations.length" class="mt-2 pt-2 border-t border-black/5">
-                <div class="flex items-center gap-1 mb-1.5">
-                  <span class="material-symbols-outlined text-[12px] text-[#8e8e93]">menu_book</span>
-                  <span class="text-[10px] font-bold text-[#8e8e93]">참고 출처</span>
+              </template>
+
+              <!-- AI 답변 (문서 스타일) -->
+              <template v-else>
+                <!-- 최종 답변 본문 -->
+                <div 
+                  v-if="msg.text" 
+                  :class="{ 'answer-fade-in': msg.phase === 'answering' || msg.phase === 'done' }"
+                  class="ai-doc-feed text-[#1d1d1f] text-[14px] leading-[1.7]"
+                  v-html="renderTextWithCitations(msg.text)"
+                >
                 </div>
-                <div v-for="(cite, ci) in msg.citations" :key="ci" class="flex items-start gap-1.5 mb-1">
-                  <span class="text-[10px] text-blue-500 font-bold mt-0.5">{{ ci + 1 }}</span>
-                  <span class="text-[10px] text-[#636366] leading-[1.5]">{{ cite.citation }}</span>
+
+                <!-- [이미지 스타일] 관련 링크 섹션 -->
+                <div v-if="msg.citations && msg.citations.length" class="mt-8 border-t border-[#f2f2f7] pt-5">
+                  <div class="text-[14px] font-bold text-[#1d1d1f] mb-4">관련 링크</div>
+                  <div v-for="(cite, idx) in msg.citations" :key="idx" class="mb-6 last:mb-0">
+                    <div class="text-[13.5px] text-[#424245] leading-relaxed mb-2.5">
+                      {{ cite.text }}
+                    </div>
+                    <!-- 링크 버튼 (배지) -->
+                    <div class="cite-grounding-badge-wrap">
+                      <span class="cite-chip-inline cite-chip-clickable" @click="handleDocContentClick($event, msg, idx)" :title="cite.citation">
+                        {{ cite.citation }} <span class="cite-chip-extra">+1</span>
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <!-- thinking 중 대기 -->
-              <div v-if="msg.phase === 'thinking' && !msg.text && !msg.thinking" class="flex items-center gap-2">
-                <span class="material-symbols-outlined text-[14px] thinking-spin">psychology</span>
-                <span class="text-[#8e8e93]">생각하는 중...</span>
+
+                <!-- thinking 중 데이터가 오기 전 대기 -->
+                <div v-if="msg.phase === 'thinking' && !msg.text && !msg.thinking" class="flex items-center gap-2 mt-1">
+                  <span class="material-symbols-outlined text-[15px] thinking-spin text-[#8e8e93]">psychology</span>
+                  <span class="text-[#8e8e93] text-[13px]">생각하는 중...</span>
+                </div>
+              </template>
+            </div>
+          </transition-group>
+        </div>
+      </transition>
+        <div class="mt-auto px-1 pb-2">
+          <!-- 🎨 다듬어진 프리미엄 입력창 디자인 -->
+          <div class="bg-[#f8f8fa] rounded-[26px] border border-[#efeff3] p-3.5 transition-all">
+            <textarea
+              class="w-full bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] min-h-[24px] max-h-[120px] resize-none leading-relaxed custom-scrollbar"
+              placeholder="무엇이든 물어보세요..."
+              rows="1"
+              ref="aiTextarea"
+              :value="aiInput"
+              @input="handleInput"
+              @keydown.enter.prevent="handleEnter"
+            ></textarea>
+            
+            <div class="flex items-center justify-between mt-2 pt-1 border-t border-[#f2f2f7]/50">
+              <!-- 왼쪽 도구: 첨부 아이콘 -->
+              <button class="w-8 h-8 flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] rounded-full transition-all">
+                <span class="material-symbols-outlined text-[20px]">attach_file</span>
+              </button>
+
+              <div class="flex items-center gap-2">
+                <!-- Thinking 모드 버튼 (동작 위주 아이콘) -->
+                <button 
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all border-none cursor-pointer"
+                  :class="isThinkingMode ? 'bg-[#3b82f6]/10 text-[#3b82f6]' : 'bg-[#f2f2f7] text-[#8e8e93] hover:bg-[#e5e5ea]'"
+                  @click="isThinkingMode = !isThinkingMode"
+                  title="Thinking Mode"
+                >
+                  <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-pulse': isThinkingMode }">psychology</span>
+                  <span class="text-[11px] font-bold tracking-tight">Thinking</span>
+                </button>
+
+                <!-- 전송 버튼 -->
+                <button 
+                  class="w-8 h-8 rounded-full flex items-center justify-center transition-all border-none"
+                  :class="aiInput.trim() ? 'bg-[#3b82f6] text-white shadow-sm' : 'bg-[#d1d1d6] text-white cursor-not-allowed'"
+                  @click="sendMessage"
+                  :disabled="!aiInput.trim()"
+                >
+                  <span class="material-symbols-outlined text-[18px]">arrow_upward</span>
+                </button>
               </div>
             </div>
           </div>
-
-          <div class="sidebar-search-bg rounded-[14px] px-4 py-3 flex items-center gap-3 border border-transparent focus-within:border-[#3b82f6] transition-all">
-            <input
-              class="bg-transparent border-none focus:ring-0 p-0 text-[13px] flex-1 text-[#1d1d1f] placeholder-[#aeaeb2]"
-              placeholder="AI에게 질문하기..." type="text"
-              :value="aiInput"
-              @input="emit('update:aiInput', $event.target.value)"
-              @keyup.enter="sendMessage"
-            />
-            <button class="text-[#3b82f6] hover:text-blue-700 transition-colors" @click="sendMessage">
-              <span class="material-symbols-outlined text-[20px]">arrow_upward</span>
-            </button>
-          </div>
-          <p class="text-[10px] text-center text-[#aeaeb2] mt-3">AI는 실수를 할 수 있으므로 중요한 정보는 확인해 주세요.</p>
         </div>
       </div>
   </aside>
 </template>
+
+<style scoped>
+/* 화면 전환 애니메이션 */
+.fade-slide-switch-enter-active,
+.fade-slide-switch-leave-active {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-slide-switch-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.fade-slide-switch-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+/* 채팅 말풍선 등장 애니메이션 */
+.chat-bubble-enter-active {
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.chat-bubble-enter-from {
+  opacity: 0;
+  transform: translateY(15px) scale(0.95);
+}
+
+/* 리스트 레이아웃 부드러운 이동 */
+.chat-bubble-move {
+  transition: transform 0.4s ease;
+}
+
+/* ═══════════════════════════════════════
+   전역 근거 배지(팝오버 트리거) 스타일
+   ═══════════════════════════════════════ */
+:deep(.cite-grounding-badge-wrap) {
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+:deep(.cite-chip-inline) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 100px;
+  background: #eef4e8;
+  color: #4b6a4e;
+  font-size: 12px;
+  font-weight: 500;
+  vertical-align: middle;
+  white-space: nowrap;
+  border: 1px solid #dce8d3;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+:deep(.cite-chip-inline:hover) {
+  background: #dce8d3;
+  border-color: #b8cfae;
+  box-shadow: 0 1px 4px rgba(72, 101, 74, 0.15);
+}
+
+:deep(.cite-chip-extra) {
+  font-size: 10px;
+  color: #7a9a7c;
+  font-weight: 600;
+}
+
+:deep(.ai-doc-feed p) {
+  margin-bottom: 0.5em;
+}
+:deep(.ai-doc-feed p:last-child) {
+  margin-bottom: 0;
+}
+
+</style>
