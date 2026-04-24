@@ -37,15 +37,12 @@ logger = logging.getLogger(__name__)
 # LLM 서버가 준비되면 False로 변경
 MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "true").lower() == "true"
 
-# vLLM OpenAI 호환 API (main.py와 동일한 설정)
+# vLLM OpenAI 호환 API
 LLM_URL = os.getenv("LLM_URL", "http://localhost:8001")
 LLM_MODEL = os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 
-
-# ══════════════════════════════════════
 #  LLM 프롬프트 템플릿
-# ══════════════════════════════════════
 QUIZ_SYSTEM_PROMPT = """당신은 대학 강의 내용을 기반으로 학습 퀴즈를 만드는 AI 교수입니다.
 반드시 아래 JSON 형식으로만 응답하세요. JSON 외의 텍스트는 절대 포함하지 마세요."""
 
@@ -155,9 +152,7 @@ def _parse_quiz_json(raw_text: str) -> list[dict]:
     return questions
 
 
-# ══════════════════════════════════════
 #  퀴즈 생성 (LLM 호출)
-# ══════════════════════════════════════
 async def generate_quiz(
     transcript_text: str,
     num_questions: int = 5,
@@ -211,9 +206,7 @@ async def generate_quiz(
         raise RuntimeError(f"퀴즈 생성 실패: {e}")
 
 
-# ══════════════════════════════════════
 #  채점 로직
-# ══════════════════════════════════════
 def grade_quiz(quiz_data: list[dict], answers: dict[str, str]) -> tuple[list[dict], int]:
     """
     사용자 답안을 채점합니다.
@@ -277,9 +270,7 @@ def _fuzzy_match(correct: str, submitted: str) -> bool:
     return False
 
 
-# ══════════════════════════════════════
 #  목업 데이터 (LLM 미연결 시)
-# ══════════════════════════════════════
 def _generate_mock_quiz(num_questions: int = 5) -> list[dict]:
     """프론트엔드 개발/테스트용 목업 퀴즈 데이터"""
     mc, ox, sa = _calculate_type_distribution(num_questions)

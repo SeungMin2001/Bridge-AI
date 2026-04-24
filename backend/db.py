@@ -60,9 +60,7 @@ async def save_transcript_to_db(transcript_data: dict, segment_index: int):
         )
 
 
-# ══════════════════════════════════════
 #  세션별 전사문 조회
-# ══════════════════════════════════════
 async def get_transcripts_by_session(session_id: str) -> list[dict]:
     """session_id에 해당하는 전사문을 시간순으로 조회"""
     import uuid as _uuid

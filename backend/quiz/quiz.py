@@ -53,11 +53,7 @@ class QuizSubmitRequest(BaseModel):
         examples=[{"1": "1. 데이터 중복 제거", "2": "X", "3": "제1정규형"}],
     )
 
-
-# ══════════════════════════════════════
-#  POST /quiz/generate
 #  세션 전사문 → 퀴즈 생성
-# ══════════════════════════════════════
 @router.post("/generate")
 async def quiz_generate(req: QuizGenerateRequest):
     """
@@ -115,11 +111,7 @@ async def quiz_generate(req: QuizGenerateRequest):
         "quiz_data": quiz_data,
     }
 
-
-# ══════════════════════════════════════
-#  POST /quiz/generate/text
-#  직접 텍스트 → 퀴즈 생성 (테스트/개발용)
-# ══════════════════════════════════════
+#  직접 텍스트 → 퀴즈 생성
 @router.post("/generate/text")
 async def quiz_generate_from_text(req: QuizGenerateTextRequest):
     """
@@ -156,11 +148,7 @@ async def quiz_generate_from_text(req: QuizGenerateTextRequest):
         "quiz_data": quiz_data,
     }
 
-
-# ══════════════════════════════════════
-#  GET /quiz/{quiz_id}
 #  퀴즈 조회
-# ══════════════════════════════════════
 @router.get("/{quiz_id}")
 async def quiz_get(quiz_id: str):
     """quiz_id로 퀴즈 데이터를 조회합니다."""
@@ -170,10 +158,7 @@ async def quiz_get(quiz_id: str):
     return quiz
 
 
-# ══════════════════════════════════════
-#  POST /quiz/{quiz_id}/submit
 #  퀴즈 채점
-# ══════════════════════════════════════
 @router.post("/{quiz_id}/submit")
 async def quiz_submit(quiz_id: str, req: QuizSubmitRequest):
     """
@@ -218,10 +203,7 @@ async def quiz_submit(quiz_id: str, req: QuizSubmitRequest):
     }
 
 
-# ══════════════════════════════════════
-#  GET /quiz/session/{session_id}
 #  세션별 퀴즈 목록
-# ══════════════════════════════════════
 @router.get("/session/{session_id}")
 async def quiz_list_by_session(session_id: str):
     """session_id에 해당하는 퀴즈 목록을 최신순으로 반환합니다."""

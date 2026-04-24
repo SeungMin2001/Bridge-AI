@@ -3,9 +3,7 @@ from datetime import datetime
 import json
 from db import get_pool
 
-# ══════════════════════════════════════
 #  퀴즈 CRUD
-# ══════════════════════════════════════
 async def save_quiz(
     quiz_id: str,
     session_id: str,
