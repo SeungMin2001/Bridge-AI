@@ -8,7 +8,14 @@ import torch
 import io
 import os
 from .cross_attention import cross_attention
-from .config import ALPHA, NUM_KV, USE_CONTEXTUAL_PASSAGE_ENCODER, load_critical_layer, load_hypernet_state_dict
+from .config import (
+    ALPHA,
+    NUM_KV,
+    USE_CONTEXTUAL_PASSAGE_ENCODER,
+    USE_QUESTION_CONDITIONED_MEMORY,
+    load_critical_layer,
+    load_hypernet_state_dict,
+)
 from .embedding import encode_passage_states, tokenize_conditioned_memory
 from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
@@ -59,7 +66,11 @@ class CourseMemoryManager:
         step = load_info["step"]
         kind = load_info["kind"]
         step_text = f", step={step}" if step is not None else ""
-        print(f"[MergePRAG] HyperNetwork 로드 완료 (d_model={d_model}, k={NUM_KV}, source={source}, kind={kind}{step_text})")
+        print(
+            f"[MergePRAG] HyperNetwork 로드 완료 "
+            f"(d_model={d_model}, k={NUM_KV}, question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
+            f"source={source}, kind={kind}{step_text})"
+        )
 
         # 과목별 메모리 캐시: {course_id: {"K": Tensor, "V": Tensor, "count": int}}
         self.memories = {}
@@ -67,7 +78,8 @@ class CourseMemoryManager:
     def encode_passage(self, passage: str, question: str | None = None):
         """Build K,V from a passage, optionally conditioned on the current question."""
         with torch.no_grad():
-            if question:
+            should_condition = bool(question) and USE_QUESTION_CONDITIONED_MEMORY
+            if should_condition:
                 encoded = tokenize_conditioned_memory(
                     self.tokenizer,
                     question,
@@ -137,7 +149,7 @@ class CourseMemoryManager:
         if mem is None:
             return None, None
         passages = mem.get("passages") or []
-        if question and passages:
+        if question and passages and USE_QUESTION_CONDITIONED_MEMORY:
             merged_k = None
             merged_v = None
             for passage in passages:

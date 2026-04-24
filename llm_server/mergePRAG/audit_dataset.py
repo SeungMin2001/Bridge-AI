@@ -47,6 +47,8 @@ class AuditRow:
     trunc_len: int
     raw_len: int
     passage_contains_answer: bool
+    has_hard_negative: bool
+    contrast_id: str
 
 
 def load_tokenizer():
@@ -96,6 +98,20 @@ def iter_audit_rows(dataset_path: Path, max_length: int, limit: int | None) -> I
         norm_passage = normalize_passage_text(passage)
         trunc_passage, trunc_len = truncate_with_tokenizer(tokenizer, passage, max_length=max_length)
         source_id = str(item.get("source_id") or item.get("id") or f"row-{idx}")
+        has_hard_negative = any(
+            item.get(key)
+            for key in (
+                "hard_negatives",
+                "negative_passages",
+                "counterfactuals",
+                "distractors",
+                "hard_negative_passage",
+                "negative_passage",
+                "counterfactual_passage",
+                "distractor_passage",
+            )
+        )
+        contrast_id = str(item.get("contrast_id") or item.get("group_id") or "")
 
         yield AuditRow(
             index=idx,
@@ -110,6 +126,8 @@ def iter_audit_rows(dataset_path: Path, max_length: int, limit: int | None) -> I
             trunc_len=trunc_len,
             raw_len=len(passage),
             passage_contains_answer=norm_answer in norm_passage,
+            has_hard_negative=has_hard_negative,
+            contrast_id=contrast_id,
         )
         kept += 1
 
@@ -168,6 +186,8 @@ def main():
 
     truncated_rows = 0
     contains_answer = 0
+    hard_negative_rows = 0
+    contrast_rows = 0
 
     for row in rows:
         by_source[row.source_id].append(row)
@@ -180,11 +200,16 @@ def main():
             truncated_rows += 1
         if row.passage_contains_answer:
             contains_answer += 1
+        if row.has_hard_negative:
+            hard_negative_rows += 1
+        if row.contrast_id:
+            contrast_rows += 1
 
     same_source_same_passage = 0
     same_source_same_question = 0
     same_source_valid_negative = 0
     global_valid_negative = 0
+    effective_valid_negative = 0
     no_valid_negative = 0
 
     answer_to_passages = defaultdict(set)
@@ -237,6 +262,8 @@ def main():
         fallback_exists = fallback_count > 0
         if fallback_exists:
             global_valid_negative += 1
+        if fallback_exists or row.has_hard_negative:
+            effective_valid_negative += 1
         else:
             no_valid_negative += 1
 
@@ -255,10 +282,13 @@ def main():
     print(f"[rows] {total_rows}")
     print(f"[truncated_at_{args.max_length}] {truncated_rows} ({truncated_rows / total_rows:.2%})")
     print(f"[passage_contains_answer] {contains_answer} ({contains_answer / total_rows:.2%})")
+    print(f"[has_explicit_hard_negative] {hard_negative_rows} ({hard_negative_rows / total_rows:.2%})")
+    print(f"[has_contrast_id] {contrast_rows} ({contrast_rows / total_rows:.2%})")
     print(f"[same_source_same_passage] {same_source_same_passage} ({same_source_same_passage / total_rows:.2%})")
     print(f"[same_source_same_question] {same_source_same_question} ({same_source_same_question / total_rows:.2%})")
     print(f"[same_source_valid_negative] {same_source_valid_negative} ({same_source_valid_negative / total_rows:.2%})")
     print(f"[global_valid_negative] {global_valid_negative} ({global_valid_negative / total_rows:.2%})")
+    print(f"[effective_valid_negative] {effective_valid_negative} ({effective_valid_negative / total_rows:.2%})")
     print(f"[no_valid_negative] {no_valid_negative} ({no_valid_negative / total_rows:.2%})")
     print(f"[exact_passage_duplicates] {sum(1 for v in by_passage.values() if len(v) > 1)} groups")
     print(f"[trunc_passage_collisions] {len(trunc_collisions)} groups")
@@ -290,6 +320,7 @@ def main():
     print("  - exact_passage_duplicates가 많으면 passage 분리 학습이 약해질 수 있습니다.")
     print("  - trunc_passage_collisions가 많으면 raw passage는 달라도 hypernetwork 입력은 같아집니다.")
     print("  - same_source_valid_negative가 낮으면 같은 질문 안에서 hard negative가 부족합니다.")
+    print("  - has_explicit_hard_negative/has_contrast_id가 낮으면 passage flip 학습 신호가 약할 수 있습니다.")
     print("  - Answers Linked To Many Distinct Passages 상위 answer가 많으면 generic answer prior를 의심해야 합니다.")
     print("  - passage_contains_answer 비율이 높으면 memory가 근거보다 정답 문자열 매칭으로 흐를 수 있습니다.")
 
