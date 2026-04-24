@@ -519,3 +519,164 @@ python -m llm_server.mergePRAG.diagnose_hotpot
 
 이 문서 기준으로 보면 현재 프로젝트 방향은 명확하다.  
 "mergePRAG를 서비스 코드에 붙여 놓은 상태"에서, 이제 진짜로 작동하는 memory injection으로 다듬는 단계다.
+
+## 11. 2026-04-25 이후 개발 방향 업데이트
+
+현재 진단 결과 기준으로 결론은 명확하다.
+우리가 원하는 서비스는 "발화자가 말한 내용을 모델 내부 memory로 주입하고, 사용자가 질문하면 그 발화 기반으로 설명하는 것"이다.
+따라서 논문처럼 반드시 multi-hop/sub-question 구조부터 재현할 필요는 없다.
+
+우선순위는 다음이다.
+
+1. single-hop lecture QA로 passage-grounding을 먼저 안정화한다.
+2. 같은 질문에서 passage만 바뀌면 answer도 바뀌는 hard negative/counterfactual 데이터를 반드시 넣는다.
+3. question-conditioned memory로 학습해서 서비스 추론 시 질문별로 같은 발화 중 필요한 부분을 다르게 뽑게 한다.
+4. multi-hop은 "여러 발화/여러 chunk를 조합해야 하는 질문"으로 넘어갈 때 확장한다.
+
+즉 지금 당장 필요한 데이터는 HotpotQA식 full multi-hop이 아니라, 아래처럼 발화 chunk 하나가 답을 결정할 수 있는 구조다.
+
+```json
+{
+  "course_id": "os-2026",
+  "chunk_id": "week01-003",
+  "speaker": "교수",
+  "utterance": "프로세스는 실행 중인 프로그램입니다.",
+  "question": "교수님은 프로세스를 뭐라고 설명했어?",
+  "answer": "교수님은 프로세스를 실행 중인 프로그램이라고 설명했습니다.",
+  "contrast_id": "process-definition",
+  "hard_negatives": [
+    {
+      "passage": "교수: 스레드는 프로세스 안의 실행 흐름입니다.",
+      "answer": "스레드"
+    }
+  ]
+}
+```
+
+### 11-1. 현재 collapse의 가장 큰 원인
+
+1000~1500 step 실험에서 hook은 작동했다.
+`delta_ratio`가 충분히 컸고, 정답 후보 loss도 움직였다.
+문제는 memory가 passage의 관계를 제대로 담지 못했다는 점이다.
+
+특히 아래 조합이 위험했다.
+
+- `question_conditioned=False`
+- SQuAD처럼 같은 passage에 여러 question/answer가 붙는 데이터
+- 쉬운 global negative 위주 sampling
+- `num_kv=16`이지만 slot별 다양성 loss가 없음
+- "Manchester United defeated Chelsea" vs "Chelsea defeated Manchester United" 같은 near-counterfactual 관계를 학습하지 않음
+
+이 상태에서는 모델이 "passage에 나온 엔티티/일반 answer prior"는 배우지만, "누가 누구를 이겼는지" 같은 관계 반전은 배우기 어렵다.
+그래서 Kcos/Vcos가 계속 커지고, compare passage를 넣어도 같은 답을 고르는 현상이 생긴다.
+
+### 11-2. 코드에 새로 반영된 보강
+
+`llm_server/mergePRAG/train.py`
+
+- `hard_negatives`, `negative_passage`, `counterfactual_passage`를 negative sample로 우선 사용한다.
+- `contrast_id` 또는 `group_id`가 같은 샘플을 hard negative 후보로 우선 사용한다.
+- 같은 `question`을 가진 다른 passage/answer를 global negative보다 먼저 사용한다.
+- `utterance`, `speaker`, `messages`, `turns` 같은 서비스 transcript 형태도 passage로 읽을 수 있다.
+- `num_kv>1`에서 slot들이 같은 방향으로 복제되는 것을 줄이기 위해 slot diversity loss를 추가했다.
+- checkpoint에 config snapshot을 저장하고, 설정이 다르면 기본적으로 자동 resume하지 않는다.
+
+`llm_server/mergePRAG/config.py`
+
+- loss weight, slot diversity, prompt format, checkpoint resume 정책을 환경변수로 조절할 수 있게 했다.
+- `MERGEPRAG_TRAIN_PROMPT_FORMAT=chat`을 켜면 API의 chat template과 더 가까운 형식으로 학습한다.
+
+`llm_server/mergePRAG/main.py`
+
+- API 추론에서 question-conditioned memory는 `MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY=true`일 때만 사용한다.
+- 즉, question-conditioned로 학습하지 않은 checkpoint에 질문 조건 주입을 실수로 섞는 위험을 줄였다.
+
+`llm_server/mergePRAG/prepare_lecture_qa.py`
+
+- lecture/service QA JSON 또는 JSONL을 MergePRAG 학습 포맷으로 변환하는 스크립트를 추가했다.
+
+### 11-3. 다음 실험의 권장 set 값
+
+기존 1500 step checkpoint는 `question_conditioned=False` 기반이라 서비스 방향으로 계속 이어 학습하기보다 새 실험을 권장한다.
+
+Windows CMD 기준:
+
+```bat
+set MERGEPRAG_NUM_KV=1
+set MERGEPRAG_ALPHA=0.1
+set MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY=true
+set MERGEPRAG_USE_CONTEXTUAL_ENCODER=true
+set MERGEPRAG_KV_PATH_MODE=k_mlp_v_hybrid
+set MERGEPRAG_TRAIN_PROMPT_FORMAT=chat
+set MERGEPRAG_SLOT_DIVERSITY_LOSS_WEIGHT=0.0
+```
+
+`NUM_KV=1`을 먼저 권장하는 이유는 slot collapse 문제를 제거하고, "memory 하나로 passage를 인식할 수 있는가"부터 확인하기 위해서다.
+이게 성공하면 그 다음에 `NUM_KV=4` 또는 `NUM_KV=16`으로 올리고 slot diversity를 켠다.
+
+`NUM_KV=16` 실험을 다시 할 때:
+
+```bat
+set MERGEPRAG_NUM_KV=16
+set MERGEPRAG_SLOT_DIVERSITY_LOSS_WEIGHT=0.05
+set MERGEPRAG_SLOT_DIVERSITY_TARGET=0.75
+```
+
+기존 legacy checkpoint를 정말 이어서 쓰고 싶을 때만:
+
+```bat
+set MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME=true
+```
+
+하지만 서비스 방향 실험에서는 이 값을 켜지 않는 것을 권장한다.
+설정이 바뀐 checkpoint를 이어 학습하면 왜 좋아졌는지/나빠졌는지 원인 분석이 흐려진다.
+
+### 11-4. lecture QA 데이터 변환
+
+입력 lecture QA가 준비되어 있으면 아래처럼 변환한다.
+
+```bat
+python -m llm_server.mergePRAG.prepare_lecture_qa C:\path\lecture_train_raw.jsonl C:\path\lecture_train_processed.jsonl
+python -m llm_server.mergePRAG.prepare_lecture_qa C:\path\lecture_valid_raw.jsonl C:\path\lecture_valid_processed.jsonl
+```
+
+그 다음 학습 데이터 경로를 지정한다.
+
+```bat
+set MERGEPRAG_TRAIN_DATA_PATH=C:\path\lecture_train_processed.jsonl
+set MERGEPRAG_VALID_DATA_PATH=C:\path\lecture_valid_processed.jsonl
+python -m llm_server.mergePRAG.train
+```
+
+학습 후 진단에서 중간 checkpoint를 직접 볼 때만 아래 값을 추가한다.
+
+```bat
+set MERGEPRAG_LOAD_SOURCE=checkpoint
+python llm_server\test_mergeprag.py
+```
+
+데이터 품질은 먼저 audit으로 확인한다.
+
+```bat
+python -m llm_server.mergePRAG.audit_dataset %MERGEPRAG_TRAIN_DATA_PATH%
+```
+
+확인해야 할 값:
+
+- `has_explicit_hard_negative`가 너무 낮으면 passage flip 학습 신호가 부족하다.
+- `has_contrast_id`가 낮으면 같은 질문/다른 passage 구조가 부족하다.
+- `same_source_valid_negative`가 낮으면 같은 강의/같은 주제 안에서 비교 학습이 약하다.
+- `passage_contains_answer`만 높고 hard negative가 없으면 정답 문자열 매칭으로 흐를 수 있다.
+
+### 11-5. 앞으로 해결할 문제
+
+가장 먼저 봐야 할 성공 조건은 free generation이 아니라 candidate choice다.
+
+- main passage memory에서 main answer loss가 낮아지는가
+- compare passage memory에서 compare answer loss가 낮아지는가
+- `Kcos/Vcos`가 훈련이 진행될수록 0.99로 붙지 않는가
+- `slotK/slotV`가 `num_kv=16`에서 계속 0.9 이상으로 붙지 않는가
+- qKcos/qVcos가 question-conditioned 학습에서 실제 숫자로 나오고, 같은 passage의 다른 질문을 구분하는가
+
+이 기준을 통과한 다음에야 `/generate/mergeprag`의 자유 생성 품질을 보는 것이 맞다.
+자유 생성은 base model prior, decoding, prompt format 영향을 많이 받기 때문에 초반 진단 지표로 쓰면 원인을 헷갈리기 쉽다.

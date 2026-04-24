@@ -17,12 +17,14 @@ from mergePRAG.config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
+    TRAIN_PROMPT_FORMAT,
     USE_POOLED_KV_SKIP,
     USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     V_RMS_CLAMP,
     WEIGHTS_PATH,
+    build_chat_text,
     load_critical_layer,
     load_hypernet_state_dict,
 )
@@ -95,6 +97,7 @@ print(
     f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER} | "
     f"kv_path_mode={KV_PATH_MODE} | "
     f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY} | "
+    f"train_prompt_format={TRAIN_PROMPT_FORMAT} | "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
     f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}) | "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
@@ -227,8 +230,16 @@ if USE_QUESTION_CONDITIONED_MEMORY and alt_question_stats is not None:
 # scoring_prompt는 훈련 형식과 일치시켜 loss 비교를 유지한다.
 # generation_prompt는 자유 생성이 "the other team" 같은 일반 답으로 빠지는지 보려고
 # 정답 엔티티만 요구하는 별도 진단 프롬프트를 사용한다.
-scoring_prompt_text = f"Question: {QUESTION}\nAnswer:"
-generation_prompt_text = (
+def format_prompt(user_prompt: str) -> str:
+    if TRAIN_PROMPT_FORMAT == "chat":
+        return build_chat_text(tokenizer, question=user_prompt, enable_thinking=False)
+    if TRAIN_PROMPT_FORMAT == "plain":
+        return user_prompt
+    raise ValueError(f"Unsupported MERGEPRAG_TRAIN_PROMPT_FORMAT: {TRAIN_PROMPT_FORMAT}")
+
+
+scoring_prompt_text = format_prompt(f"Question: {QUESTION}\nAnswer:")
+generation_prompt_text = format_prompt(
     f"Question: {QUESTION}\n"
     "Answer with only the winning team name:"
 )
@@ -237,8 +248,12 @@ generation_inputs = tokenizer(generation_prompt_text, return_tensors="pt").to(de
 
 
 def build_scoring_batch(answer_text: str):
-    prompt = f"Question: {QUESTION}\nAnswer:"
-    answer = f" {answer_text}{tokenizer.eos_token}"
+    prompt = format_prompt(f"Question: {QUESTION}\nAnswer:")
+    answer = (
+        f"{answer_text}{tokenizer.eos_token}"
+        if TRAIN_PROMPT_FORMAT == "chat"
+        else f" {answer_text}{tokenizer.eos_token}"
+    )
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True)
     tok_answer = tokenizer(answer, return_tensors="pt", add_special_tokens=False, truncation=True)
     prompt_len = tok_prompt["input_ids"].shape[1]

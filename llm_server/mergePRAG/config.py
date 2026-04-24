@@ -9,29 +9,64 @@ def _get_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _get_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return float(value)
+
+
+def _get_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return int(value)
+
+
 MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
 # 논문 기본: num_kv=1. slot 수를 늘려도 되지만 논문 재현은 1부터.
-NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "1"))
+NUM_KV = _get_int("MERGEPRAG_NUM_KV", 1)
 # 논문: single_layer=9 (Llama-3.1). Qwen의 경우 find_critical_layers.py 결과 사용.
-DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "9"))
+DEFAULT_CRITICAL_LAYER = _get_int("MERGEPRAG_DEFAULT_LAYER", 9)
 # 현재 Qwen/lecture QA 조건에서는 alpha=1.0가 hidden을 과도하게 덮어쓰는 경우가 많아
 # 보수적으로 낮춘다. 필요시 환경변수로 다시 올릴 수 있다.
-ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "0.1"))
-MAX_SEQ_LEN = 512
+ALPHA = _get_float("MERGEPRAG_ALPHA", 0.1)
+MAX_SEQ_LEN = _get_int("MERGEPRAG_MAX_SEQ_LEN", 512)
 # 논문은 token embedding only를 썼지만, 현재처럼 역할이 뒤바뀐 near-counterfactual passage에서는
 # 순서/구문 정보를 잃기 쉬워 contextual hidden이 더 안정적이다.
 USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", False)
-QUERY_POOL_SCALE = float(os.getenv("MERGEPRAG_QUERY_POOL_SCALE", "4.0"))
+QUERY_POOL_SCALE = _get_float("MERGEPRAG_QUERY_POOL_SCALE", 4.0)
 # 현재 실험에서는 K는 MLP가 더 잘 분리되고, V는 pooled skip이 더 정보 보존적이었다.
 # 기본은 K는 MLP, V는 hybrid로 보강하는 모드로 둔다.
 KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_mlp_v_hybrid").strip().lower()
 USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)
-POOLED_KV_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_KV_SKIP_SCALE", "1.0"))
-POOLED_K_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_K_SKIP_SCALE", str(POOLED_KV_SKIP_SCALE)))
-POOLED_V_SKIP_SCALE = float(os.getenv("MERGEPRAG_POOLED_V_SKIP_SCALE", "0.25"))
+POOLED_KV_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_KV_SKIP_SCALE", 1.0)
+POOLED_K_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_K_SKIP_SCALE", POOLED_KV_SKIP_SCALE)
+POOLED_V_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_V_SKIP_SCALE", 0.25)
 USE_V_RMS_CLAMP = _get_bool("MERGEPRAG_USE_V_RMS_CLAMP", True)
-V_RMS_CLAMP = float(os.getenv("MERGEPRAG_V_RMS_CLAMP", "0.25"))
+V_RMS_CLAMP = _get_float("MERGEPRAG_V_RMS_CLAMP", 0.25)
+# plain: 논문/기존 실험 형식 "Question: ...\nAnswer:"
+# chat: 실제 서비스 API와 같은 chat template 형식. lecture-domain 재학습 때 권장.
+TRAIN_PROMPT_FORMAT = os.getenv("MERGEPRAG_TRAIN_PROMPT_FORMAT", "plain").strip().lower()
+
+# 학습 목적 함수 설정. SQuAD 같은 쉬운 global negative만으로는 passage flip을 못 배우므로
+# hard negative/contrastive 데이터에서는 아래 loss가 실제 grounding 방향을 잡아준다.
+NEGATIVE_MARGIN = _get_float("MERGEPRAG_NEGATIVE_MARGIN", 0.2)
+NEGATIVE_LOSS_WEIGHT = _get_float("MERGEPRAG_NEGATIVE_LOSS_WEIGHT", 0.25)
+REPULSION_LOSS_WEIGHT = _get_float("MERGEPRAG_REPULSION_LOSS_WEIGHT", 0.50)
+HIDDEN_SIM_TARGET = _get_float("MERGEPRAG_HIDDEN_SIM_TARGET", 0.97)
+K_SIM_TARGET = _get_float("MERGEPRAG_K_SIM_TARGET", 0.95)
+V_SIM_TARGET = _get_float("MERGEPRAG_V_SIM_TARGET", 0.85)
+QUESTION_REPULSION_LOSS_WEIGHT = _get_float("MERGEPRAG_QUESTION_REPULSION_LOSS_WEIGHT", 1.25)
+QUESTION_NEGATIVE_LOSS_WEIGHT = _get_float("MERGEPRAG_QUESTION_NEGATIVE_LOSS_WEIGHT", 0.50)
+SLOT_DIVERSITY_LOSS_WEIGHT = _get_float("MERGEPRAG_SLOT_DIVERSITY_LOSS_WEIGHT", 0.05)
+SLOT_DIVERSITY_TARGET = _get_float("MERGEPRAG_SLOT_DIVERSITY_TARGET", 0.75)
+
+# 설정이 바뀐 채 예전 checkpoint를 자동 재개하면 collapse 원인 분석이 꼬인다.
+# 새 checkpoint에는 config snapshot을 저장하고, legacy checkpoint는 명시적으로 허용할 때만 재개한다.
+ALLOW_LEGACY_CHECKPOINT_RESUME = _get_bool("MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME", False)
+ALLOW_CONFIG_MISMATCH_RESUME = _get_bool("MERGEPRAG_ALLOW_CONFIG_MISMATCH_RESUME", False)
 SYSTEM_PROMPT = (
     "You are a helpful lecture assistant. "
     "Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. "
