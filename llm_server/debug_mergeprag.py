@@ -42,6 +42,8 @@ PASSAGE = "Manchester United won the match against Chelsea 3-1."
 COMPARE_PASSAGE = "Chelsea won the match against Manchester United 3-1."
 EXPECTED_ANSWER = "Manchester United"
 COMPARE_EXPECTED_ANSWER = "Chelsea"
+ALT_QUESTION = "Which team lost the game?"
+ALT_EXPECTED_ANSWER = "Chelsea"
 
 CRITICAL_LAYER = load_critical_layer()
 
@@ -214,6 +216,18 @@ print("  K_raw/K에서 급상승 → LinearProjection 또는 normalize_kv 문제
 print("  건강한 상태: 각 스테이지마다 cos가 점진 증가, 최종 K/V cos < 0.95")
 
 
+if USE_QUESTION_CONDITIONED_MEMORY:
+    section("[A-1] same passage + different question — question-conditioned 분리력")
+    alt = get_kv(PASSAGE, ALT_QUESTION)
+    print(f"{'Stage':<12} {'Cosine':>10} {'|base|':>10} {'|altQ|':>10}")
+    for name in ["emb", "pooled", "mlp_out", "K_raw", "V_raw", "K", "V"]:
+        a, b = main[name], alt[name]
+        print(f"{name:<12} {vec_cos(a, b):>10.4f} {a.norm().item():>10.2f} {b.norm().item():>10.2f}")
+    print("\n해석 가이드:")
+    print("  same passage인데도 질문이 다르면 pooled/K/V가 실제로 갈려야 함")
+    print("  특히 V cosine이 여전히 0.98 이상이면 question-conditioned가 아직 약함")
+
+
 # ═══════════════════════════════════════════════════════════════
 # [A-2] MLP 경로 vs pooled->KV skip 경로 분해
 # ═══════════════════════════════════════════════════════════════
@@ -277,6 +291,24 @@ print("\n해석 가이드:")
 print("  상한 Δ > 2.0: model이 passage만 있으면 정답을 쉽게 구분 → hook의 목표가 분명")
 print("  상한 Δ < 0.5: 단일 단어 차이를 model이 못 쓰고 있음 → tokenizer/프롬프트 문제")
 print("  hook 실험의 loss는 이 두 값 사이에 있어야 의미가 있음")
+
+
+if USE_QUESTION_CONDITIONED_MEMORY:
+    section("[B-1] same passage + different question — answer supervision 분리력")
+    base_q_batch = build_batch(PASSAGE, QUESTION, EXPECTED_ANSWER, False)
+    alt_q_batch = build_batch(PASSAGE, ALT_QUESTION, ALT_EXPECTED_ANSWER, False)
+    alt_mem = get_kv(PASSAGE, ALT_QUESTION)
+    base_under_base = hooked_loss(base_q_batch, main["K"], main["V"])
+    base_under_alt = hooked_loss(base_q_batch, alt_mem["K"], alt_mem["V"])
+    alt_under_alt = hooked_loss(alt_q_batch, alt_mem["K"], alt_mem["V"])
+    alt_under_base = hooked_loss(alt_q_batch, main["K"], main["V"])
+    print(f"base question under base memory = {base_under_base:.4f}")
+    print(f"base question under alt memory  = {base_under_alt:.4f}")
+    print(f"alt question under alt memory   = {alt_under_alt:.4f}")
+    print(f"alt question under base memory  = {alt_under_base:.4f}")
+    print("\n해석 가이드:")
+    print("  각 질문은 자기 memory 아래에서 loss가 더 낮아야 함")
+    print("  둘이 비슷하면 same-passage question separation이 아직 약함")
 
 
 # ═══════════════════════════════════════════════════════════════

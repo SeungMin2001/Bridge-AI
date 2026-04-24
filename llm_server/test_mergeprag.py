@@ -35,6 +35,7 @@ from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
 QUESTION = "Who won the match?"
+ALT_QUESTION = "Which team lost the match?"
 CRITICAL_LAYER = load_critical_layer()
 PASSAGE = (
     "Manchester United defeated Chelsea 3-1 in yesterday's Premier League match. "
@@ -48,6 +49,7 @@ COMPARE_PASSAGE = (
 )
 EXPECTED_ANSWER = "Manchester United"
 COMPARE_EXPECTED_ANSWER = "Chelsea"
+ALT_EXPECTED_ANSWER = "Chelsea"
 SYSTEM_PROMPT = "Answer in English with one short sentence grounded in the lecture content."
 MAX_NEW_TOKENS = 150
 
@@ -163,6 +165,7 @@ def encode_passage_stats(question: str, passage: str):
 
 main_stats = encode_passage_stats(QUESTION, PASSAGE)
 compare_stats = encode_passage_stats(QUESTION, COMPARE_PASSAGE)
+alt_question_stats = encode_passage_stats(ALT_QUESTION, PASSAGE) if USE_QUESTION_CONDITIONED_MEMORY else None
 
 pooled = main_stats["pooled"]
 h = main_stats["hidden"]
@@ -200,6 +203,20 @@ print(
     f"K_rms={K.pow(2).mean(dim=-1).sqrt().mean().item():.4f} | "
     f"V_rms={V.pow(2).mean(dim=-1).sqrt().mean().item():.4f}"
 )
+
+if USE_QUESTION_CONDITIONED_MEMORY and alt_question_stats is not None:
+    alt_pooled = alt_question_stats["pooled"]
+    alt_hidden = alt_question_stats["hidden"]
+    alt_K = alt_question_stats["K"]
+    alt_V = alt_question_stats["V"]
+    section("Same Passage / Different Question")
+    print(
+        f"question: {QUESTION} | alt_question: {ALT_QUESTION}\n"
+        f"cos(pooled)={torch.nn.functional.cosine_similarity(pooled.view(1, -1), alt_pooled.view(1, -1)).item():.4f} | "
+        f"cos(hidden)={torch.nn.functional.cosine_similarity(h.view(1, -1), alt_hidden.view(1, -1)).item():.4f} | "
+        f"cos(K)={torch.nn.functional.cosine_similarity(K.view(1,-1), alt_K.view(1,-1)).item():.4f} | "
+        f"cos(V)={torch.nn.functional.cosine_similarity(V.view(1,-1), alt_V.view(1,-1)).item():.4f}"
+    )
 
 # ── 프롬프트 포맷: 훈련과 정확히 일치시킴 (chat template 쓰지 않음) ──
 # 훈련: "Question: X\nAnswer:" → hypernet K/V가 이 문맥의 hidden state에 맞춰 학습됨.
