@@ -20,9 +20,11 @@ const {
 const props = defineProps({
   isRecording: Boolean,
   isRecordingPaused: Boolean,
+  recordingMode: { type: String, default: 'lecture' },
   recordingTimeText: String,
   activeFileName: String,
   activeFileId: String,
+  activeFileType: { type: String, default: 'lecture' },
   transcriptions: { type: Array, default: () => [] },
   materialAttachments: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
@@ -146,6 +148,10 @@ const handleWordInsightButtonClick = () => {
     }
   }
 }
+
+const handleStartRecording = () => {
+  emit('startRecording', props.activeFileType === 'meeting' ? 'meeting' : 'lecture')
+}
 </script>
 
 <template>
@@ -164,12 +170,12 @@ const handleWordInsightButtonClick = () => {
       <WorkspaceHeader
         :is-recording="isRecording"
         :is-recording-paused="isRecordingPaused"
+        :recording-mode="recordingMode"
         :recording-time-text="recordingTimeText"
         :show-close-preview="!!currentPreviewMaterial"
-        :preview-material-name="currentPreviewMaterial?.name || ''"
         :has-word-insight="!!selectedWordData"
         :word-insight-visible="!!selectedWordData && isWordCardVisible"
-        @start-recording="emit('startRecording')"
+        @start-recording="handleStartRecording"
         @pause-recording="emit('pauseRecording')"
         @resume-recording="emit('resumeRecording')"
         @stop-recording="emit('stopRecording')"
@@ -274,6 +280,7 @@ const handleWordInsightButtonClick = () => {
             <div v-show="activeSummaryTab === 'transcript'" class="summary-subcontent summary-transcript-wrap flex-1 min-h-0">
               <VoiceTransferSideTab
                 :transcriptions="transcriptions"
+                :recording-mode="recordingMode"
                 variant="content"
                 @askAi="emit('askAi', $event)"
                 @addToNote="(text, source) => emit('addToNote', text, source)"

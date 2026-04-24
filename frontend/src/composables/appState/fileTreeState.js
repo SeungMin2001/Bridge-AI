@@ -6,11 +6,17 @@ const STORAGE_KEYS = {
   favorites: 'lecto_favorites'
 }
 
+const formatFileDate = (date = new Date()) => {
+  return `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}. ${date.getHours() >= 12 ? '오후' : '오전'} ${date.getHours() % 12 || 12}:${date.getMinutes().toString().padStart(2, '0')}`
+}
+
 // 강의자료 첨부가 붙는 기본 파일 노드입니다.
 const createLectureOneNode = () => ({
   id: 'lecture-1',
   type: 'file',
+  fileKind: 'lecture',
   name: '강의1',
+  date: formatFileDate(),
   content: '',
   attachments: []
 })
@@ -28,6 +34,8 @@ export const ensureLectureOneFile = (nodes) => {
   list[existingIndex] = {
     ...existingNode,
     id: existingNode.id || 'lecture-1',
+    fileKind: existingNode.fileKind || 'lecture',
+    date: existingNode.date || formatFileDate(),
     content: existingNode.content || '',
     attachments: Array.isArray(existingNode.attachments) ? existingNode.attachments : []
   }
@@ -73,6 +81,7 @@ export function useFileTreeState() {
   const activeFileId = ref('lecture-1')
 
   const currentFileNode = computed(() => findNodeById(fileTree.value, activeFileId.value))
+  const activeFileType = computed(() => currentFileNode.value?.fileKind || 'lecture')
   const currentAttachments = computed(() => currentFileNode.value?.attachments || [])
 
   // 외부 컴포넌트에서 수정한 트리를 받아 기본 강의 노드를 보정합니다.
@@ -115,6 +124,7 @@ export function useFileTreeState() {
     favorites,
     activeFileName,
     activeFileId,
+    activeFileType,
     currentAttachments,
     handleFileTreeUpdate,
     handleFavoritesUpdate,

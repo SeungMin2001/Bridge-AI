@@ -8,6 +8,7 @@ defineProps({
   fileTree: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() },
   transcriptions: { type: Array, default: () => [] },
+  recordingMode: { type: String, default: 'lecture' },
   isCollapsed: { type: Boolean, default: false }
 })
 
@@ -115,6 +116,7 @@ const showToast = (msg) => {
         <VoiceTransferSideTab 
           v-else
           :transcriptions="transcriptions"
+          :recording-mode="recordingMode"
           @addToNote="(text, source) => emit('addToNote', text, source)"
           @askAi="emit('askAi', $event)"
           class="sidebar-content-animate"

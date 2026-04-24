@@ -14,9 +14,11 @@ const {
   transcriptions,
   isRecording,
   isRecordingPaused,
+  recordingMode,
   recordingTimeText,
   activeFileName,
   activeFileId,
+  activeFileType,
   currentAttachments,
   currentPreviewMaterial,
   isRightSidebarVisible,
@@ -52,6 +54,7 @@ const {
     :favorites="favorites"
     @update:fileTree="handleFileTreeUpdate"
     @update:favorites="handleFavoritesUpdate"
+    @fileSelect="handleFileSelect"
     @navigate="navigateTo"
   />
 
@@ -71,9 +74,11 @@ const {
     :transcriptions="transcriptions"
     :isRecording="isRecording"
     :isRecordingPaused="isRecordingPaused"
+    :recordingMode="recordingMode"
     :recordingTimeText="recordingTimeText"
     :activeFileName="activeFileName"
     :activeFileId="activeFileId"
+    :activeFileType="activeFileType"
     :currentAttachments="currentAttachments"
     :currentPreviewMaterial="currentPreviewMaterial"
     :isRightSidebarVisible="isRightSidebarVisible"

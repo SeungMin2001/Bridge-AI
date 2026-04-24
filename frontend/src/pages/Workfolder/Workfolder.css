@@ -190,12 +190,12 @@
   position: absolute;
   top: 10px;
   right: 10px;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 202, 40, 0.16);
   border: none;
   cursor: pointer;
   padding: 4px;
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.7);
+  color: #d89c00;
   transition: color 0.15s, background 0.15s;
   display: flex;
   align-items: center;
@@ -203,10 +203,11 @@
   z-index: 2;
 }
 .folder-card .star-btn:hover {
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 202, 40, 0.26);
 }
 .folder-card .star-btn.starred {
-  color: #fbbf24;
+  color: #f4b400;
+  background: rgba(255, 202, 40, 0.28);
 }
 
 /* Icon area inside folder body */
@@ -242,14 +243,15 @@
 
 /* ── File Card (Document/Note style) ── */
 .file-card .star-btn {
-  background: rgba(0, 0, 0, 0.05);
-  color: #d1d1d6;
+  background: rgba(255, 202, 40, 0.18);
+  color: #d89c00;
 }
 .file-card .star-btn:hover {
-  background: rgba(0, 0, 0, 0.09);
+  background: rgba(255, 202, 40, 0.28);
 }
 .file-card .star-btn.starred {
-  color: #fbbf24;
+  color: #f4b400;
+  background: rgba(255, 202, 40, 0.28);
 }
 .file-card .folder-card-name {
   color: #1d1d1f;
@@ -304,6 +306,8 @@
 .modal-btn-primary:hover { opacity: 0.82; }
 .modal-btn-secondary { background: #f2f2f7; color: #1d1d1f; border: none; border-radius: 100px; padding: 12px 28px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: background 0.2s; }
 .modal-btn-secondary:hover { background: #e5e5ea; }
+.modal-btn-danger { background: #fff1f2; color: #e11d48; border: none; border-radius: 100px; padding: 12px 28px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s; }
+.modal-btn-danger:hover { background: #ffe4e6; color: #be123c; }
 .color-picker-container { display: flex; gap: 12px; margin-bottom: 24px; }
 .color-circle { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 2.5px solid transparent; transition: transform 0.2s; }
 .color-circle:hover { transform: scale(1.1); }

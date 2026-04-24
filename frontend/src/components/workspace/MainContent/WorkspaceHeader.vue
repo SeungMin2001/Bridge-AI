@@ -5,9 +5,9 @@ import { ref } from 'vue'
 defineProps({
   isRecording: Boolean,
   isRecordingPaused: Boolean,
+  recordingMode: { type: String, default: 'lecture' },
   recordingTimeText: String,
   showClosePreview: Boolean,
-  previewMaterialName: { type: String, default: '' },
   hasWordInsight: Boolean,
   wordInsightVisible: Boolean
 })
@@ -60,6 +60,9 @@ const handleMaterialInputChange = (event) => {
             녹음시작
           </button>
           <template v-else>
+            <span class="recording-mode-chip">
+              {{ recordingMode === 'meeting' ? '회의 녹음' : '강의 녹음' }}
+            </span>
             <div
               key="voice-dots"
               class="recording-voice-dots shrink-0"
@@ -101,10 +104,6 @@ const handleMaterialInputChange = (event) => {
           </template>
         </transition-group>
       </div>
-    </div>
-
-    <div v-if="previewMaterialName" class="workspace-header-title" :title="previewMaterialName">
-      {{ previewMaterialName }}
     </div>
 
     <div class="ml-auto flex items-center gap-1.5 shrink-0 pl-3 self-center">
@@ -156,30 +155,6 @@ const handleMaterialInputChange = (event) => {
   position: relative;
   background: #ffffff;
   min-height: 56px;
-}
-
-.workspace-header-title {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  max-width: min(520px, calc(100% - 560px));
-  transform: translate(-50%, -50%);
-  color: #1d1d1f;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-  overflow: hidden;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-@media (max-width: 900px) {
-  .workspace-header-title {
-    display: none;
-  }
 }
 
 .workspace-embedded-divider {
@@ -239,6 +214,19 @@ const handleMaterialInputChange = (event) => {
   gap: 14px;
   min-width: 0;
   white-space: nowrap;
+}
+
+.recording-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f4ede4;
+  color: #6b5b45;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .recording-time-text {

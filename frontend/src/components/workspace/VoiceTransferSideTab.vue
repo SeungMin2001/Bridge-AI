@@ -7,6 +7,7 @@ const { selectWord } = useChat()
 
 const props = defineProps({
   transcriptions: { type: Array, default: () => [] },
+  recordingMode: { type: String, default: 'lecture' },
   variant: { type: String, default: 'sidebar' }
 })
 
@@ -40,6 +41,12 @@ const handleWordClick = (e, word) => {
   e.stopPropagation()
   selectWord(word)
 }
+
+const getSpeakerBadgeClass = (speaker) => {
+  if (speaker === '화자 2') return 'speaker-badge-amber'
+  if (speaker === '화자 3') return 'speaker-badge-rose'
+  return 'speaker-badge-sky'
+}
 </script>
 
 <template>
@@ -62,8 +69,10 @@ const handleWordClick = (e, word) => {
     >
       <template v-if="transcriptions.filter(t => t.text.toLowerCase().includes(transSearch.toLowerCase())).length === 0">
         <div class="flex flex-col items-center justify-center h-full opacity-40 py-10">
-          <span class="material-symbols-outlined text-[48px] mb-2 text-[#aeaeb2]">record_voice_over</span>
-          <p class="text-[13px] font-medium text-[#8e8e93]">전사된 데이터가 없습니다.</p>
+          <span class="material-symbols-outlined text-[48px] mb-2 text-[#aeaeb2]">{{ recordingMode === 'meeting' ? 'groups_2' : 'record_voice_over' }}</span>
+          <p class="text-[13px] font-medium text-[#8e8e93]">
+            {{ recordingMode === 'meeting' ? '화자 분리된 회의 스크립트가 여기에 표시됩니다.' : '전사된 데이터가 없습니다.' }}
+          </p>
         </div>
       </template>
       <template v-else>
@@ -75,12 +84,17 @@ const handleWordClick = (e, word) => {
         >
           <span class="text-[11px] font-bold text-[#aeaeb2] px-1.5">{{ t.time }}</span>
           <div class="flex items-center gap-2 px-1.5 mb-1">
-            <div class="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
-              <span class="text-[10px] font-bold text-blue-600">나</span>
+            <div
+              class="w-6 h-6 rounded-full flex items-center justify-center"
+              :class="recordingMode === 'meeting' ? getSpeakerBadgeClass(t.speaker) : 'bg-blue-100'"
+            >
+              <span class="text-[10px] font-bold" :class="recordingMode === 'meeting' ? 'text-white' : 'text-blue-600'">
+                {{ recordingMode === 'meeting' ? (t.speaker || '화').slice(-1) : '나' }}
+              </span>
             </div>
-            <span class="text-[11px] font-bold text-[#1d1d1f]">나</span>
+            <span class="text-[11px] font-bold text-[#1d1d1f]">{{ recordingMode === 'meeting' ? (t.speaker || '화자 미상') : '나' }}</span>
           </div>
-          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[13px] leading-[1.6]" :class="{ 'is-content': variant === 'content' }">
+          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[13px] leading-[1.6]" :class="{ 'is-content': variant === 'content', 'is-meeting': recordingMode === 'meeting' }">
             <template v-if="t.segments && t.segments.length">
               <span
                 v-for="(seg, sIdx) in t.segments"
@@ -176,6 +190,11 @@ const handleWordClick = (e, word) => {
   max-width: min(100%, 860px);
 }
 
+.voice-message-bubble.is-meeting {
+  background: #f8f4ee;
+  border-color: rgba(222, 205, 182, 0.72);
+}
+
 .transcript-search-shell {
   position: relative;
   background: #f4ede4;
@@ -201,5 +220,17 @@ const handleWordClick = (e, word) => {
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.18), transparent 34%);
   pointer-events: none;
+}
+
+.speaker-badge-sky {
+  background: linear-gradient(135deg, #60a5fa, #2563eb);
+}
+
+.speaker-badge-amber {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+.speaker-badge-rose {
+  background: linear-gradient(135deg, #fb7185, #e11d48);
 }
 </style>
