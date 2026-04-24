@@ -10,48 +10,58 @@ import torch
 import os
 import torch.nn.functional as F
 from datetime import datetime
-from run_model import run_model
-from mergePRAG.config import (
-    ALPHA,
-    CHECKPOINT_PATH,
-    KV_PATH_MODE,
-    NUM_KV,
-    POOLED_KV_SKIP_SCALE,
-    POOLED_K_SKIP_SCALE,
-    POOLED_V_SKIP_SCALE,
-    USE_POOLED_KV_SKIP,
-    USE_V_RMS_CLAMP,
-    USE_CONTEXTUAL_PASSAGE_ENCODER,
-    USE_QUESTION_CONDITIONED_MEMORY,
-    V_RMS_CLAMP,
-    WEIGHTS_PATH,
-    load_critical_layer,
-    load_hypernet_state_dict,
-)
-from mergePRAG.embedding import (
-    encode_passage_states,
-    tokenize_conditioned_memory,
-    tokenize_passage_memory,
-)
-from mergePRAG.hypernetwork import HyperNetwork
-from mergePRAG.cross_attention import cross_attention
 
-QUESTION = "Who won the match?"
+try:
+    # package mode: python -m llm_server.test_mergeprag
+    from .run_model import run_model
+    from .mergePRAG.config import (
+        ALPHA,
+        CHECKPOINT_PATH,
+        NUM_KV,
+        WEIGHTS_PATH,
+        load_critical_layer,
+        load_hypernet_state_dict,
+    )
+    from .mergePRAG.embedding import (
+        build_passage_focus_weight,
+        encode_passage_states,
+        tokenize_conditioned_memory,
+    )
+    from .mergePRAG.hypernetwork import HyperNetwork
+    from .mergePRAG.cross_attention import cross_attention
+except ImportError:
+    # script mode: cd llm_server && python test_mergeprag.py
+    from run_model import run_model
+    from mergePRAG.config import (
+        ALPHA,
+        CHECKPOINT_PATH,
+        NUM_KV,
+        WEIGHTS_PATH,
+        load_critical_layer,
+        load_hypernet_state_dict,
+    )
+    from mergePRAG.embedding import (
+        build_passage_focus_weight,
+        encode_passage_states,
+        tokenize_conditioned_memory,
+    )
+    from mergePRAG.hypernetwork import HyperNetwork
+    from mergePRAG.cross_attention import cross_attention
+
+QUESTION = "What is the deadline?"
 CRITICAL_LAYER = load_critical_layer()
-PASSAGE = (
-    "Manchester United defeated Chelsea 3-1 in yesterday's Premier League match. "
-    "Goals from Rashford, Fernandes, and Garnacho secured the victory for the Red Devils "
-    "at Old Trafford."
-)
-COMPARE_PASSAGE = (
-    "Chelsea defeated Manchester United 3-1 in yesterday's Premier League match. "
-    "Goals from Sterling, Havertz, and Jackson secured the victory for the Blues "
-    "at Old Trafford."
-)
-EXPECTED_ANSWER = "Manchester United"
-COMPARE_EXPECTED_ANSWER = "Chelsea"
-SYSTEM_PROMPT = "Answer in English with one short sentence grounded in the lecture content."
-MAX_NEW_TOKENS = 150
+PASSAGE = "The assignment deadline is Monday."
+COMPARE_PASSAGE = "The assignment deadline is Friday."
+EXPECTED_ANSWER = "Monday"
+COMPARE_EXPECTED_ANSWER = "Friday"
+ENGLISH_SYSTEM_PROMPT = "Answer in English with one short sentence."
+MAX_NEW_TOKENS = 50
+SIM_WARN_THRESHOLD = 0.99
+MARGIN_PASS_THRESHOLD = 0.10
+
+
+def verdict(ok: bool) -> str:
+    return "PASS" if ok else "WARN"
 
 
 def format_mtime(path):
@@ -59,41 +69,11 @@ def format_mtime(path):
         return "missing"
     return datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S")
 
-
-def section(title: str):
-    print(f"\n[{title}]")
-
-
-def short(text: str, limit: int = 72):
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 3] + "..."
-
-
-def fmt_score(score):
-    loss, sum_logprob, avg_logprob, n_tokens = score
-    return (
-        f"loss={loss:.3f}, avg_logp={avg_logprob:.3f}, "
-        f"sum_logp={sum_logprob:.3f}, toks={n_tokens}"
-    )
-
-
-def verdict(label: str, ok: bool):
-    return f"{label}={'OK' if ok else 'FAIL'}"
-
 # ── 모델 로드 ──
 print("모델 로딩...")
 model, tokenizer = run_model()
 device = next(model.parameters()).device
-section("Config")
-print(f"layer={CRITICAL_LAYER} | num_kv={NUM_KV} | alpha={ALPHA}")
-print(
-    f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER} | "
-    f"kv_path_mode={KV_PATH_MODE} | "
-    f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY} | "
-    f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
-    f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}) | "
-    f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
-)
+print(f"critical layer: {CRITICAL_LAYER}")
 
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size
@@ -107,8 +87,14 @@ except FileNotFoundError as exc:
     load_info = {"source": "random-init", "kind": "none", "step": None}
 hypernet.eval()
 step_text = f", checkpoint step={load_info['step']}" if load_info["step"] is not None else ""
-print(f"hypernet={load_info['kind']}{step_text}")
-print(f"weights={format_mtime(WEIGHTS_PATH)} | checkpoint={format_mtime(CHECKPOINT_PATH)}")
+print(f"HyperNetwork weights source: {load_info['source']} ({load_info['kind']}{step_text})")
+print(f"weights path: {WEIGHTS_PATH} (modified_at={format_mtime(WEIGHTS_PATH)})")
+print(f"checkpoint path: {CHECKPOINT_PATH} (modified_at={format_mtime(CHECKPOINT_PATH)})")
+ALPHA_SWEEP = list(dict.fromkeys([0.1, ALPHA, 1.0]))
+LAYER_SWEEP = [CRITICAL_LAYER]
+print(f"alpha sweep: {ALPHA_SWEEP}")
+print(f"layer sweep: {LAYER_SWEEP}")
+print(f"thresholds: sim_warn>={SIM_WARN_THRESHOLD}, margin_pass>={MARGIN_PASS_THRESHOLD}")
 
 def masked_mean(hidden, mask):
     weights = mask.unsqueeze(-1).to(dtype=hidden.dtype)
@@ -118,21 +104,13 @@ def masked_mean(hidden, mask):
 
 def encode_passage_stats(question: str, passage: str):
     with torch.no_grad():
-        if USE_QUESTION_CONDITIONED_MEMORY:
-            encoded = tokenize_conditioned_memory(
-                tokenizer,
-                question,
-                passage,
-                device,
-                max_length=512,
-            )
-        else:
-            encoded = tokenize_passage_memory(
-                tokenizer,
-                passage,
-                device,
-                max_length=512,
-            )
+        encoded = tokenize_conditioned_memory(
+            tokenizer,
+            question,
+            passage,
+            device,
+            max_length=512,
+        )
         ids = encoded["input_ids"]
         attention_mask = encoded["attention_mask"]
         question_mask = encoded["question_mask"]
@@ -142,10 +120,71 @@ def encode_passage_stats(question: str, passage: str):
             model,
             ids,
             attention_mask=attention_mask,
-            use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
+            use_contextual=True,
         )
-        query = masked_mean(emb, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
-        pooled = hypernet.pooling(emb, mask=attention_mask, query=query, focus_mask=passage_mask)
+        query = masked_mean(emb, question_mask)
+        pooled = hypernet.pooling(
+            emb,
+            mask=attention_mask,
+            query=query,
+            focus_mask=passage_mask,
+            focus_weight=focus_weight,
+        )
+        hidden = hypernet.mlp(pooled)
+        K_raw, V_raw = hypernet.lp(hidden)
+        K, V = hypernet(
+            emb,
+            attention_mask=attention_mask,
+            query=query,
+            focus_mask=passage_mask,
+            focus_weight=focus_weight,
+        )
+    return {
+        "ids": ids,
+        "attention_mask": attention_mask,
+        "passage_mask": passage_mask,
+        "focus_weight": focus_weight,
+        "emb": emb,
+        "pooled": pooled,
+        "hidden": hidden,
+        "K_raw": K_raw,
+        "V_raw": V_raw,
+        "K": K,
+        "V": V,
+    }
+
+
+def encode_passage_only_stats(passage: str):
+    """Question 영향을 제거한 passage-only baseline 통계."""
+    with torch.no_grad():
+        encoded = tokenizer(
+            passage,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+        )
+        ids = encoded["input_ids"].to(device)
+        attention_mask = encoded["attention_mask"].to(device)
+        emb = encode_passage_states(
+            model,
+            ids,
+            attention_mask=attention_mask,
+            use_contextual=True,
+        )
+        focus_weight = build_passage_focus_weight(
+            tokenizer,
+            ids,
+            attention_mask,
+        )
+        # passage-only에서는 query를 sequence 평균으로 대체
+        query = masked_mean(emb, attention_mask)
+        pooled = hypernet.pooling(
+            emb,
+            mask=attention_mask,
+            query=query,
+            focus_mask=attention_mask,
+            focus_weight=focus_weight,
+        )
         hidden = hypernet.mlp(pooled)
         K_raw, V_raw = hypernet.lp(hidden)
         K, V = hypernet(
@@ -182,10 +221,14 @@ V_raw = main_stats["V_raw"]
 K = main_stats["K"]
 V = main_stats["V"]
 
-section("Inputs")
-print(f"question: {QUESTION}")
-print(f"main passage: {short(PASSAGE, 96)}")
-print(f"compare passage: {short(COMPARE_PASSAGE, 96)}")
+print(f"passage: {PASSAGE}")
+print(f"compare passage: {COMPARE_PASSAGE}")
+print(f"pooled norm: {pooled.norm():.4f}")
+print(f"hidden norm: {h.norm():.4f}")
+print(f"K raw norm: {K_raw.norm():.4f}, V raw norm: {V_raw.norm():.4f}")
+print(f"K norm: {K.norm():.4f}, V norm: {V.norm():.4f}")
+print(f"K per-vector norm: {K[0,0].norm():.4f}")
+print(f"V per-vector norm: {V[0,0].norm():.4f}")
 
 # ── 다른 passage K,V와 비교 ──
 h2 = compare_stats["hidden"]
@@ -197,37 +240,80 @@ V2 = compare_stats["V"]
 
 sim_pooled = torch.nn.functional.cosine_similarity(pooled.view(1, -1), pooled2.view(1, -1)).item()
 sim_h = torch.nn.functional.cosine_similarity(h.view(1, -1), h2.view(1, -1)).item()
+print(f"\n두 passage pooled h 유사도: {sim_h:.4f}")
+print(f"두 passage pooled 유사도: {sim_pooled:.4f}")
 sim_k_raw = torch.nn.functional.cosine_similarity(K_raw.view(1, -1), K2_raw.view(1, -1)).item()
+print(f"두 passage K raw 유사도: {sim_k_raw:.4f}")
 sim_v_raw = torch.nn.functional.cosine_similarity(V_raw.view(1, -1), V2_raw.view(1, -1)).item()
+print(f"두 passage V raw 유사도: {sim_v_raw:.4f}")
 sim = torch.nn.functional.cosine_similarity(K.view(1,-1), K2.view(1,-1)).item()
+print(f"\n두 passage K 유사도: {sim:.4f}")
+print(f"  (높을수록 두 passage를 비슷하게 본다는 뜻)")
 sim_v = torch.nn.functional.cosine_similarity(V.view(1,-1), V2.view(1,-1)).item()
-section("Memory Stats")
+print(f"두 passage V 유사도: {sim_v:.4f}")
+l2_k = torch.norm(K - K2, p=2).item()
+l2_v = torch.norm(V - V2, p=2).item()
+mae_k = torch.mean(torch.abs(K - K2)).item()
+mae_v = torch.mean(torch.abs(V - V2)).item()
+print(f"두 passage K/V L2: K={l2_k:.6f}, V={l2_v:.6f}")
+print(f"두 passage K/V MAE: K={mae_k:.8f}, V={mae_v:.8f}")
+
+# ── Question-conditioned vs passage-only 분리 진단 ──
+pooled_po = main_stats_passage_only["pooled"]
+pooled2_po = compare_stats_passage_only["pooled"]
+h_po = main_stats_passage_only["hidden"]
+h2_po = compare_stats_passage_only["hidden"]
+K_po = main_stats_passage_only["K"]
+K2_po = compare_stats_passage_only["K"]
+V_po = main_stats_passage_only["V"]
+V2_po = compare_stats_passage_only["V"]
+
+sim_pooled_po = torch.nn.functional.cosine_similarity(pooled_po.view(1, -1), pooled2_po.view(1, -1)).item()
+sim_h_po = torch.nn.functional.cosine_similarity(h_po.view(1, -1), h2_po.view(1, -1)).item()
+sim_k_po = torch.nn.functional.cosine_similarity(K_po.view(1, -1), K2_po.view(1, -1)).item()
+sim_v_po = torch.nn.functional.cosine_similarity(V_po.view(1, -1), V2_po.view(1, -1)).item()
+
+print(f"\n{'='*50}")
+print("Question-conditioned vs passage-only 유사도 비교")
+print(f"{'='*50}")
+print(f"[conditioned] pooled cosine={sim_pooled:.4f}, hidden cosine={sim_h:.4f}, K cosine={sim:.4f}, V cosine={sim_v:.4f}")
+print(f"[passage-only] pooled cosine={sim_pooled_po:.4f}, hidden cosine={sim_h_po:.4f}, K cosine={sim_k_po:.4f}, V cosine={sim_v_po:.4f}")
+print(f"[delta conditioned-passsage-only] K={sim - sim_k_po:+.4f}, V={sim_v - sim_v_po:+.4f}")
+if sim_k_po < sim:
+    print("[diag] passage-only에서 K 분리가 더 큼 -> 질문/공통 프롬프트가 차이를 희석할 가능성")
+else:
+    print("[diag] passage-only도 분리 약함 -> HyperNetwork/encoder 자체 분해능 부족 가능성")
+separation_warn = (sim >= SIM_WARN_THRESHOLD) and (sim_v >= SIM_WARN_THRESHOLD)
 print(
-    f"cos(pooled)={sim_pooled:.4f} | cos(hidden)={sim_h:.4f} | "
-    f"cos(K_raw)={sim_k_raw:.4f} | cos(V_raw)={sim_v_raw:.4f}"
-)
-print(
-    f"cos(K)={sim:.4f} | cos(V)={sim_v:.4f} | "
-    f"K_rms={K.pow(2).mean(dim=-1).sqrt().mean().item():.4f} | "
-    f"V_rms={V.pow(2).mean(dim=-1).sqrt().mean().item():.4f}"
+    f"[판정] memory separation {verdict(not separation_warn)} | "
+    f"K_cos={sim:.4f}, V_cos={sim_v:.4f}, K_L2={l2_k:.6f}, V_L2={l2_v:.6f}"
 )
 
-# ── 프롬프트 포맷: 훈련과 정확히 일치시킴 (chat template 쓰지 않음) ──
-# 훈련: "Question: X\nAnswer:" → hypernet K/V가 이 문맥의 hidden state에 맞춰 학습됨.
-# 추론에서 chat template을 쓰면 hidden state 구조가 달라져 K/V가 엉뚱하게 적용됨.
-prompt_text = f"Question: {QUESTION}\nAnswer:"
+# ── 테스트 1: hook 없이 forward → top-5 예측 ──
+print(f"\n{'='*50}")
+prompt_text = tokenizer.apply_chat_template(
+    [
+        {"role": "system", "content": ENGLISH_SYSTEM_PROMPT},
+        {"role": "user", "content": QUESTION},
+    ],
+    tokenize=False,
+    add_generation_prompt=True,
+    enable_thinking=False,
+)
+print(f"prompt: '{prompt_text}'")
+print(f"{'='*50}")
+
 inputs = tokenizer(prompt_text, return_tensors="pt").to(device)
 
 
 def build_scoring_batch(answer_text: str):
-    prompt = f"Question: {QUESTION}\nAnswer:"
+    prompt = f"Answer the question using the passage-grounded fact.\nQuestion: {QUESTION}\nAnswer:"
     answer = f" {answer_text}{tokenizer.eos_token}"
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True)
     tok_answer = tokenizer(answer, return_tensors="pt", add_special_tokens=False, truncation=True)
-    prompt_len = tok_prompt["input_ids"].shape[1]
-    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"]), dim=-1).to(device)
+    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"][:, :-1]), dim=-1).to(device)
     labels = torch.cat((
-        torch.full((1, prompt_len), -100, dtype=torch.long),
+        torch.full((1, tok_prompt["input_ids"].shape[1] - 1), -100, dtype=torch.long),
         tok_answer["input_ids"]
     ), dim=-1).to(device)
     return {"input_ids": input_ids, "labels": labels}
@@ -243,10 +329,8 @@ def compute_answer_loss(logits, labels):
     selected_labels = shift_labels[valid]
     loss = F.cross_entropy(selected_logits, selected_labels)
     log_probs = torch.log_softmax(selected_logits, dim=-1)
-    gathered = log_probs.gather(-1, selected_labels.unsqueeze(-1)).squeeze(-1)
-    answer_logprob = gathered.sum().item()
-    avg_logprob = gathered.mean().item()
-    return loss.item(), answer_logprob, avg_logprob, int(selected_labels.numel())
+    answer_logprob = log_probs.gather(-1, selected_labels.unsqueeze(-1)).sum().item()
+    return loss.item(), answer_logprob
 
 def make_hook(dK, dV, alpha=1.0, diag=False):
     def hook_fn(module, input, output):
@@ -258,7 +342,7 @@ def make_hook(dK, dV, alpha=1.0, diag=False):
             h_norm = hidden.norm().item()
             d_norm = delta.norm().item()
             ratio = d_norm / (h_norm + 1e-8)
-            print(f"delta_ratio={ratio:.4f} (hidden={h_norm:.1f}, delta={d_norm:.1f})")
+            print(f"  [diag] hidden norm={h_norm:.1f}, delta norm={d_norm:.1f}, ratio={ratio:.4f}")
         result = hidden + alpha * delta
         if isinstance(output, tuple):
             return (result,) + output[1:]
@@ -268,9 +352,12 @@ def make_hook(dK, dV, alpha=1.0, diag=False):
 layer = model.model.layers[CRITICAL_LAYER]
 
 # ── 문장 생성 비교 ──
-section("Delta Check")
+print(f"\n{'='*50}")
+print("문장 생성 비교 (generate)")
+print(f"{'='*50}")
 
 # delta vs hidden 크기 진단 (1회만)
+print("\n[진단] delta vs hidden 크기 비교:")
 hook = layer.register_forward_hook(make_hook(K, V, alpha=1.0, diag=True))
 with torch.no_grad():
     _ = model(**inputs)
@@ -289,17 +376,7 @@ def decode_answer(gen, input_len):
     text = tokenizer.decode(tokens, skip_special_tokens=True)
     import re
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
-    text = text.splitlines()[0].strip() if text else text
     return text
-
-
-def prefers_target(score_target, score_compare):
-    # 길이가 다른 답변 후보가 많아서 sum logprob 대신 loss/avg logprob를 기준으로 본다.
-    target_loss, _, target_avg_logp, _ = score_target
-    compare_loss, _, compare_avg_logp, _ = score_compare
-    if abs(target_loss - compare_loss) > 1e-6:
-        return target_loss < compare_loss
-    return target_avg_logp > compare_avg_logp
 
 
 def score_answer_with_memory(dK, dV, answer_text: str, alpha=ALPHA):
@@ -381,15 +458,15 @@ with torch.no_grad():
         **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
     )
 answer_no = decode_answer(gen_no_hook, inputs["input_ids"].shape[1])
+print(f"\n[Hook 없음] {answer_no}")
 score_no_main = score_answer_without_memory(EXPECTED_ANSWER)
 score_no_compare = score_answer_without_memory(COMPARE_EXPECTED_ANSWER)
-section("Generations")
-print(f"no_hook      | ans={answer_no}")
+print(f"[No hook score] target={EXPECTED_ANSWER}, loss={score_no_main[0]:.4f}, logprob={score_no_main[1]:.4f}")
+print(f"[No hook score] compare_target={COMPARE_EXPECTED_ANSWER}, loss={score_no_compare[0]:.4f}, logprob={score_no_compare[1]:.4f}")
 
-# 여러 alpha로 생성 비교 (main passage) — ALPHA 중복 제거
-alpha_rows = []
-alpha_list = sorted({0.1, ALPHA, 1.0})
-for alpha in alpha_list:
+# 여러 alpha로 생성 비교 (main passage)
+alpha_main_results = []
+for alpha in ALPHA_SWEEP:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(
@@ -397,23 +474,29 @@ for alpha in alpha_list:
         )
     hook.remove()
     answer_hook = decode_answer(gen_hook, inputs["input_ids"].shape[1])
+    print(f"[Hook main α={alpha}] {answer_hook}")
     score_main = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     score_compare = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
-    alpha_rows.append((alpha, answer_hook, score_main, score_compare))
-
-for alpha, answer_hook, score_main, score_compare in alpha_rows:
-    prefers_main = prefers_target(score_main, score_compare)
-    print(
-        f"main α={alpha:<4} | {verdict('prefer_main', prefers_main)} | "
-        f"target {fmt_score(score_main)} | compare {fmt_score(score_compare)}"
+    margin = score_main[1] - score_compare[1]
+    alpha_main_results.append(
+        {
+            "alpha": alpha,
+            "answer": answer_hook,
+            "main_logprob": score_main[1],
+            "compare_logprob": score_compare[1],
+            "margin": margin,
+        }
     )
-    print(f"  ans: {answer_hook}")
+    print(f"[Hook main α={alpha} score] target={EXPECTED_ANSWER}, loss={score_main[0]:.4f}, logprob={score_main[1]:.4f}")
+    print(f"[Hook main α={alpha} score] compare_target={COMPARE_EXPECTED_ANSWER}, loss={score_compare[0]:.4f}, logprob={score_compare[1]:.4f}")
+    print(f"[Hook main α={alpha} margin] {EXPECTED_ANSWER} - {COMPARE_EXPECTED_ANSWER} = {margin:+.4f} ({verdict(margin >= MARGIN_PASS_THRESHOLD)})")
 
 # 비교 passage도 같은 alpha로 직접 생성
-section("Passage Flip")
-flip_rows = []
-flip_alphas = sorted({ALPHA, 1.0})
-for alpha in flip_alphas:
+print(f"\n{'='*50}")
+print("passage answer flip 비교")
+print(f"{'='*50}")
+flip_results = []
+for alpha in ALPHA_SWEEP:
     hook_main = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_main = model.generate(
@@ -430,39 +513,35 @@ for alpha in flip_alphas:
 
     answer_main = decode_answer(gen_main, inputs["input_ids"].shape[1])
     answer_compare = decode_answer(gen_compare, inputs["input_ids"].shape[1])
+    print(f"[α={alpha}] main passage answer: {answer_main}")
+    print(f"[α={alpha}] compare passage answer: {answer_compare}")
+    print(f"[α={alpha}] same_answer: {answer_main == answer_compare}")
     main_target_score = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     main_compare_score = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
     compare_target_score = score_answer_with_memory(K2, V2, EXPECTED_ANSWER, alpha=alpha)
     compare_compare_score = score_answer_with_memory(K2, V2, COMPARE_EXPECTED_ANSWER, alpha=alpha)
-    flip_rows.append(
-        (
-            alpha,
-            answer_main,
-            answer_compare,
-            main_target_score,
-            main_compare_score,
-            compare_target_score,
-            compare_compare_score,
-        )
+    print(f"[α={alpha}] main memory -> target={EXPECTED_ANSWER}, loss={main_target_score[0]:.4f}, logprob={main_target_score[1]:.4f}")
+    print(f"[α={alpha}] main memory -> compare_target={COMPARE_EXPECTED_ANSWER}, loss={main_compare_score[0]:.4f}, logprob={main_compare_score[1]:.4f}")
+    print(f"[α={alpha}] compare memory -> target={EXPECTED_ANSWER}, loss={compare_target_score[0]:.4f}, logprob={compare_target_score[1]:.4f}")
+    print(f"[α={alpha}] compare memory -> compare_target={COMPARE_EXPECTED_ANSWER}, loss={compare_compare_score[0]:.4f}, logprob={compare_compare_score[1]:.4f}")
+    margin_main = main_target_score[1] - main_compare_score[1]
+    margin_compare = compare_compare_score[1] - compare_target_score[1]
+    flip_ok = (margin_main >= MARGIN_PASS_THRESHOLD) and (margin_compare >= MARGIN_PASS_THRESHOLD)
+    same_answer = answer_main == answer_compare
+    flip_results.append(
+        {
+            "alpha": alpha,
+            "same_answer": same_answer,
+            "flip_ok": flip_ok,
+            "margin_main": margin_main,
+            "margin_compare": margin_compare,
+            "main_answer": answer_main,
+            "compare_answer": answer_compare,
+        }
     )
-
-for (
-    alpha,
-    answer_main,
-    answer_compare,
-    main_target_score,
-    main_compare_score,
-    compare_target_score,
-    compare_compare_score,
-) in flip_rows:
-    main_prefers_main = prefers_target(main_target_score, main_compare_score)
-    compare_prefers_compare = prefers_target(compare_compare_score, compare_target_score)
-    print(
-        f"α={alpha:<4} | {verdict(f'main->{EXPECTED_ANSWER}', main_prefers_main)} | "
-        f"{verdict(f'compare->{COMPARE_EXPECTED_ANSWER}', compare_prefers_compare)}"
-    )
-    print(f"  main    ans: {answer_main}")
-    print(f"  compare ans: {answer_compare}")
+    print(f"[α={alpha}] margin_main({EXPECTED_ANSWER}-{COMPARE_EXPECTED_ANSWER})={margin_main:+.4f}")
+    print(f"[α={alpha}] margin_compare({COMPARE_EXPECTED_ANSWER}-{EXPECTED_ANSWER})={margin_compare:+.4f}")
+    print(f"[α={alpha}] flip 판정: {verdict(flip_ok)} | same_answer_bias: {same_answer}")
 
 # slot별 차이도 같이 확인
 slot_cos_k = []
@@ -471,10 +550,70 @@ for idx in range(K.shape[1]):
     slot_cos_k.append(torch.nn.functional.cosine_similarity(K[0, idx].view(1, -1), K2[0, idx].view(1, -1)).item())
     slot_cos_v.append(torch.nn.functional.cosine_similarity(V[0, idx].view(1, -1), V2[0, idx].view(1, -1)).item())
 
-section("Slot Cosine")
-print(f"K avg/min/max = {sum(slot_cos_k)/len(slot_cos_k):.4f} / {min(slot_cos_k):.4f} / {max(slot_cos_k):.4f}")
-print(f"V avg/min/max = {sum(slot_cos_v)/len(slot_cos_v):.4f} / {min(slot_cos_v):.4f} / {max(slot_cos_v):.4f}")
-print(
-    f"baseline target={fmt_score(score_no_main)} | "
-    f"baseline compare={fmt_score(score_no_compare)}"
-)
+print(f"\nK slot cosine avg: {sum(slot_cos_k)/len(slot_cos_k):.4f}, min: {min(slot_cos_k):.4f}, max: {max(slot_cos_k):.4f}")
+print(f"V slot cosine avg: {sum(slot_cos_v)/len(slot_cos_v):.4f}, min: {min(slot_cos_v):.4f}, max: {max(slot_cos_v):.4f}")
+
+print(f"\n{'='*50}")
+print("최종 요약")
+print(f"{'='*50}")
+if alpha_main_results:
+    best_main = max(alpha_main_results, key=lambda x: x["margin"])
+    print(
+        f"[main memory best] α={best_main['alpha']} | margin={best_main['margin']:+.4f} | "
+        f"answer='{best_main['answer']}'"
+    )
+if flip_results:
+    best_flip = max(flip_results, key=lambda x: x["margin_main"] + x["margin_compare"])
+    print(
+        f"[flip best] α={best_flip['alpha']} | flip_ok={best_flip['flip_ok']} | "
+        f"same_answer={best_flip['same_answer']} | "
+        f"margin_main={best_flip['margin_main']:+.4f}, margin_compare={best_flip['margin_compare']:+.4f}"
+    )
+    print(f"[flip answers] main='{best_flip['main_answer']}' | compare='{best_flip['compare_answer']}'")
+
+if separation_warn:
+    print("[경고] K/V 분리 실패: cosine이 매우 높아(>= threshold) 사실 반전이 희석될 가능성이 큼")
+if flip_results and not any(x["flip_ok"] for x in flip_results):
+    print("[경고] 모든 α에서 flip 실패: 현재 memory 주입만으로 정답 반전이 안정적으로 발생하지 않음")
+if flip_results and all(x["same_answer"] for x in flip_results):
+    print("[경고] same-answer bias 지속: 두 passage에 동일 답변 출력")
+
+print(f"\n{'='*50}")
+print("Layer x Alpha 스윕 (logprob 기반 빠른 탐색)")
+print(f"{'='*50}")
+grid_results = []
+for layer_idx in LAYER_SWEEP:
+    for alpha in ALPHA_SWEEP:
+        main_target_score = score_answer_with_memory_at_layer(layer_idx, K, V, EXPECTED_ANSWER, alpha=alpha)
+        main_compare_score = score_answer_with_memory_at_layer(layer_idx, K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
+        compare_target_score = score_answer_with_memory_at_layer(layer_idx, K2, V2, EXPECTED_ANSWER, alpha=alpha)
+        compare_compare_score = score_answer_with_memory_at_layer(layer_idx, K2, V2, COMPARE_EXPECTED_ANSWER, alpha=alpha)
+        margin_main = main_target_score[1] - main_compare_score[1]
+        margin_compare = compare_compare_score[1] - compare_target_score[1]
+        flip_ok = (margin_main >= MARGIN_PASS_THRESHOLD) and (margin_compare >= MARGIN_PASS_THRESHOLD)
+        total_margin = margin_main + margin_compare
+        row = {
+            "layer": layer_idx,
+            "alpha": alpha,
+            "margin_main": margin_main,
+            "margin_compare": margin_compare,
+            "total_margin": total_margin,
+            "flip_ok": flip_ok,
+        }
+        grid_results.append(row)
+        print(
+            f"[layer={layer_idx}, α={alpha}] "
+            f"margin_main={margin_main:+.4f}, margin_compare={margin_compare:+.4f}, "
+            f"total={total_margin:+.4f}, flip={verdict(flip_ok)}"
+        )
+
+if grid_results:
+    best_grid = max(grid_results, key=lambda x: x["total_margin"])
+    ok_count = sum(1 for x in grid_results if x["flip_ok"])
+    print(
+        f"[grid best] layer={best_grid['layer']}, α={best_grid['alpha']} | "
+        f"total_margin={best_grid['total_margin']:+.4f} | "
+        f"flip_ok={best_grid['flip_ok']}"
+    )
+    print(f"[grid summary] flip_ok combos: {ok_count}/{len(grid_results)}")
+
