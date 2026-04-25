@@ -70,10 +70,12 @@ SLOT_DIVERSITY_TARGET = _get_float("MERGEPRAG_SLOT_DIVERSITY_TARGET", 0.5)
 # 새 checkpoint에는 config snapshot을 저장하고, legacy checkpoint는 명시적으로 허용할 때만 재개한다.
 ALLOW_LEGACY_CHECKPOINT_RESUME = _get_bool("MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME", False)
 ALLOW_CONFIG_MISMATCH_RESUME = _get_bool("MERGEPRAG_ALLOW_CONFIG_MISMATCH_RESUME", False)
-SYSTEM_PROMPT = (
-    "You are a helpful lecture assistant. "
-    "Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. "
-    "불필요한 부연설명 하지 마."
+SYSTEM_PROMPT = os.getenv(
+    "MERGEPRAG_SYSTEM_PROMPT",
+    (
+        "You are a helpful QA assistant. "
+        "Answer in English with a concise answer grounded in the provided content."
+    ),
 )
 
 _BASE_DIR = os.path.dirname(__file__)
