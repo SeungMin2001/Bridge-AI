@@ -37,6 +37,7 @@ def safe_preview(text: str, limit: int = 120) -> str:
 class AuditRow:
     index: int
     source_id: str
+    task: str
     question: str
     answer: str
     passage: str
@@ -49,6 +50,8 @@ class AuditRow:
     passage_contains_answer: bool
     has_hard_negative: bool
     contrast_id: str
+    hop_index: int
+    num_hops: int
 
 
 def load_tokenizer():
@@ -98,6 +101,15 @@ def iter_audit_rows(dataset_path: Path, max_length: int, limit: int | None) -> I
         norm_passage = normalize_passage_text(passage)
         trunc_passage, trunc_len = truncate_with_tokenizer(tokenizer, passage, max_length=max_length)
         source_id = str(item.get("source_id") or item.get("id") or f"row-{idx}")
+        task = str(item.get("task") or "unknown")
+        try:
+            hop_index = int(item.get("hop_index") or 0)
+        except (TypeError, ValueError):
+            hop_index = 0
+        try:
+            num_hops = int(item.get("num_hops") or 0)
+        except (TypeError, ValueError):
+            num_hops = 0
         has_hard_negative = any(
             item.get(key)
             for key in (
@@ -116,6 +128,7 @@ def iter_audit_rows(dataset_path: Path, max_length: int, limit: int | None) -> I
         yield AuditRow(
             index=idx,
             source_id=source_id,
+            task=task,
             question=question,
             answer=answer,
             passage=passage,
@@ -128,6 +141,8 @@ def iter_audit_rows(dataset_path: Path, max_length: int, limit: int | None) -> I
             passage_contains_answer=norm_answer in norm_passage,
             has_hard_negative=has_hard_negative,
             contrast_id=contrast_id,
+            hop_index=hop_index,
+            num_hops=num_hops,
         )
         kept += 1
 
@@ -188,6 +203,8 @@ def main():
     contains_answer = 0
     hard_negative_rows = 0
     contrast_rows = 0
+    task_counter = Counter()
+    hop_counter = Counter()
 
     for row in rows:
         by_source[row.source_id].append(row)
@@ -196,6 +213,9 @@ def main():
         by_passage[row.norm_passage].append(row)
         by_trunc_passage[row.trunc_passage].append(row)
         by_question_passage[(row.norm_question, row.trunc_passage)].append(row)
+        task_counter[row.task] += 1
+        if row.num_hops:
+            hop_counter[row.num_hops] += 1
         if row.trunc_len >= args.max_length:
             truncated_rows += 1
         if row.passage_contains_answer:
@@ -231,6 +251,7 @@ def main():
 
     passage_counter = Counter({k: len(v) for k, v in by_passage.items()})
     trunc_counter = Counter({k: len(v) for k, v in by_trunc_passage.items()})
+    source_counter = Counter({k: len(v) for k, v in by_source.items()})
 
     all_answers = Counter(row.norm_answer for row in rows)
 
@@ -294,6 +315,9 @@ def main():
     print(f"[trunc_passage_collisions] {len(trunc_collisions)} groups")
     print(f"[question_plus_trunc_collision] {len(q_trunc_collisions)} groups")
 
+    summarize_top(task_counter, "Task Distribution")
+    summarize_top(hop_counter, "num_hops Distribution")
+    summarize_top(source_counter, "Rows Per source_id")
     summarize_top(passage_counter, "Most Reused Passages")
     summarize_top(trunc_counter, f"Most Reused Truncated-{args.max_length} Passages")
     summarize_top(all_answers, "Most Frequent Answers")
