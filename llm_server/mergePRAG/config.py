@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 
 def _get_bool(name: str, default: bool) -> bool:
@@ -38,7 +39,14 @@ MAX_SEQ_LEN = _get_int("MERGEPRAG_MAX_SEQ_LEN", 512)
 USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", True)
 QUERY_POOL_SCALE = _get_float("MERGEPRAG_QUERY_POOL_SCALE", 4.0)
-MEMORY_ENCODER_INSTRUCTION = os.getenv(
+_HANGUL_RE = re.compile(r"[가-힣]")
+
+
+def contains_hangul(text: str) -> bool:
+    return bool(_HANGUL_RE.search(str(text or "")))
+
+
+MEMORY_ENCODER_INSTRUCTION_EN = os.getenv(
     "MERGEPRAG_MEMORY_ENCODER_INSTRUCTION",
     (
         "Memory task: encode the passage for answering the question. "
@@ -46,6 +54,15 @@ MEMORY_ENCODER_INSTRUCTION = os.getenv(
         "negation, and the exact entity that answers the question."
     ),
 )
+MEMORY_ENCODER_INSTRUCTION_KO = os.getenv(
+    "MERGEPRAG_MEMORY_ENCODER_INSTRUCTION_KO",
+    (
+        "메모리 작업: 질문에 답할 수 있도록 passage를 인코딩하세요. "
+        "누가 무엇을 누구에게 했는지, 비교 방향, 숫자, 날짜, 부정 표현, "
+        "정답이 되는 정확한 개체를 보존하세요."
+    ),
+)
+MEMORY_ENCODER_INSTRUCTION = MEMORY_ENCODER_INSTRUCTION_EN
 # K MLP가 near-counterfactual 차이를 다시 뭉개는 경우가 있어 K에도 pooled skip을 섞는다.
 # V는 passage pooled 정보를 직접 싣도록 skip 경로를 기본으로 둔다.
 KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_hybrid_v_skip").strip().lower()
@@ -65,6 +82,8 @@ TRAIN_PROMPT_FORMAT = os.getenv("MERGEPRAG_TRAIN_PROMPT_FORMAT", "chat").strip()
 # hard negative/contrastive 데이터에서는 아래 loss가 실제 grounding 방향을 잡아준다.
 NEGATIVE_MARGIN = _get_float("MERGEPRAG_NEGATIVE_MARGIN", 0.2)
 NEGATIVE_LOSS_WEIGHT = _get_float("MERGEPRAG_NEGATIVE_LOSS_WEIGHT", 0.25)
+ANSWER_RANK_MARGIN = _get_float("MERGEPRAG_ANSWER_RANK_MARGIN", 0.2)
+ANSWER_RANK_LOSS_WEIGHT = _get_float("MERGEPRAG_ANSWER_RANK_LOSS_WEIGHT", 1.0)
 REPULSION_LOSS_WEIGHT = _get_float("MERGEPRAG_REPULSION_LOSS_WEIGHT", 1.0)
 HIDDEN_SIM_TARGET = _get_float("MERGEPRAG_HIDDEN_SIM_TARGET", 0.97)
 K_SIM_TARGET = _get_float("MERGEPRAG_K_SIM_TARGET", 0.95)
@@ -79,7 +98,7 @@ SLOT_DIVERSITY_TARGET = _get_float("MERGEPRAG_SLOT_DIVERSITY_TARGET", 0.5)
 # 새 checkpoint에는 config snapshot을 저장하고, legacy checkpoint는 명시적으로 허용할 때만 재개한다.
 ALLOW_LEGACY_CHECKPOINT_RESUME = _get_bool("MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME", False)
 ALLOW_CONFIG_MISMATCH_RESUME = _get_bool("MERGEPRAG_ALLOW_CONFIG_MISMATCH_RESUME", False)
-SYSTEM_PROMPT = os.getenv(
+SYSTEM_PROMPT_EN = os.getenv(
     "MERGEPRAG_SYSTEM_PROMPT",
     (
         "You are a helpful lecture assistant. "
@@ -88,6 +107,15 @@ SYSTEM_PROMPT = os.getenv(
         "and keep the answer concise."
     ),
 )
+SYSTEM_PROMPT_KO = os.getenv(
+    "MERGEPRAG_SYSTEM_PROMPT_KO",
+    (
+        "당신은 수업 내용을 근거로 답하는 유용한 조교입니다. "
+        "사용자의 질문과 같은 언어로 답하세요. "
+        "제공된 수업 내용만 근거로 사용하고, 답변은 간결하게 유지하세요."
+    ),
+)
+SYSTEM_PROMPT = SYSTEM_PROMPT_EN
 
 _BASE_DIR = os.path.dirname(__file__)
 DEFAULT_DATA_DIR = os.getenv("MERGEPRAG_DATA_DIR", r"C:\Users\user\Documents\last_project\data")
@@ -128,7 +156,7 @@ def load_critical_layer() -> int:
 
 def build_chat_text(tokenizer, question: str, answer: str = "", enable_thinking: bool = False) -> str:
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": select_system_prompt(question)},
         {"role": "user", "content": question},
     ]
     if answer:
@@ -140,6 +168,19 @@ def build_chat_text(tokenizer, question: str, answer: str = "", enable_thinking:
         add_generation_prompt=not bool(answer),
         enable_thinking=enable_thinking,
     )
+
+
+def select_system_prompt(question: str) -> str:
+    if os.getenv("MERGEPRAG_SYSTEM_PROMPT") is not None:
+        return SYSTEM_PROMPT_EN
+    return SYSTEM_PROMPT_KO if contains_hangul(question) else SYSTEM_PROMPT_EN
+
+
+def select_memory_encoder_instruction(question: str, passage: str = "") -> str:
+    if os.getenv("MERGEPRAG_MEMORY_ENCODER_INSTRUCTION") is not None:
+        return MEMORY_ENCODER_INSTRUCTION_EN
+    text = f"{question}\n{passage}"
+    return MEMORY_ENCODER_INSTRUCTION_KO if contains_hangul(text) else MEMORY_ENCODER_INSTRUCTION_EN
 
 
 def load_hypernet_state_dict(map_location=None):

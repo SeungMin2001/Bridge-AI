@@ -37,25 +37,19 @@ from mergePRAG.embedding import (
     tokenize_conditioned_memory,
     tokenize_passage_memory,
 )
+from mergePRAG.eval_cases import SERVICE_DIAGNOSTIC_CASE
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
-QUESTION = "Who won the match?"
-ALT_QUESTION = "Which team lost the match?"
+QUESTION = SERVICE_DIAGNOSTIC_CASE["question"]
+ALT_QUESTION = SERVICE_DIAGNOSTIC_CASE["alt_question"]
 CRITICAL_LAYER = load_critical_layer()
-PASSAGE = (
-    "Manchester United defeated Chelsea 3-1 in yesterday's Premier League match. "
-    "Goals from Rashford, Fernandes, and Garnacho secured the victory for the Red Devils "
-    "at Old Trafford."
-)
-COMPARE_PASSAGE = (
-    "Chelsea defeated Manchester United 3-1 in yesterday's Premier League match. "
-    "Goals from Sterling, Havertz, and Jackson secured the victory for the Blues "
-    "at Old Trafford."
-)
-EXPECTED_ANSWER = "Manchester United"
-COMPARE_EXPECTED_ANSWER = "Chelsea"
-ALT_EXPECTED_ANSWER = "Chelsea"
+PASSAGE = SERVICE_DIAGNOSTIC_CASE["passage"]
+COMPARE_PASSAGE = SERVICE_DIAGNOSTIC_CASE["compare_passage"]
+EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["answer"]
+COMPARE_EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["compare_answer"]
+ALT_EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["alt_answer"]
+GENERATION_INSTRUCTION = SERVICE_DIAGNOSTIC_CASE["generation_instruction"]
 MAX_NEW_TOKENS = 12
 
 
@@ -264,10 +258,24 @@ def format_prompt(user_prompt: str) -> str:
 scoring_prompt_text = format_prompt(f"Question: {QUESTION}\nAnswer:")
 generation_prompt_text = format_prompt(
     f"Question: {QUESTION}\n"
-    "Answer with only the winning team name:"
+    f"{GENERATION_INSTRUCTION}"
+)
+direct_main_prompt_text = format_prompt(
+    "Answer the question using only the passage.\n"
+    f"Passage: {PASSAGE}\n"
+    f"Question: {QUESTION}\n"
+    f"{GENERATION_INSTRUCTION}"
+)
+direct_compare_prompt_text = format_prompt(
+    "Answer the question using only the passage.\n"
+    f"Passage: {COMPARE_PASSAGE}\n"
+    f"Question: {QUESTION}\n"
+    f"{GENERATION_INSTRUCTION}"
 )
 scoring_inputs = tokenizer(scoring_prompt_text, return_tensors="pt").to(device)
 generation_inputs = tokenizer(generation_prompt_text, return_tensors="pt").to(device)
+direct_main_inputs = tokenizer(direct_main_prompt_text, return_tensors="pt").to(device)
+direct_compare_inputs = tokenizer(direct_compare_prompt_text, return_tensors="pt").to(device)
 
 
 def build_scoring_batch(answer_text: str):
@@ -384,10 +392,21 @@ with torch.no_grad():
         **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
     )
 answer_no = decode_answer(gen_no_hook, generation_inputs["input_ids"].shape[1])
+with torch.no_grad():
+    gen_direct_main = model.generate(
+        **direct_main_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+    )
+    gen_direct_compare = model.generate(
+        **direct_compare_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+    )
+answer_direct_main = decode_answer(gen_direct_main, direct_main_inputs["input_ids"].shape[1])
+answer_direct_compare = decode_answer(gen_direct_compare, direct_compare_inputs["input_ids"].shape[1])
 score_no_main = score_answer_without_memory(EXPECTED_ANSWER)
 score_no_compare = score_answer_without_memory(COMPARE_EXPECTED_ANSWER)
 section("Generations")
 print(f"no_hook      | ans={answer_no}")
+print(f"direct main  | ans={answer_direct_main}")
+print(f"direct comp  | ans={answer_direct_compare}")
 
 # 여러 alpha로 생성 비교 (main passage) — ALPHA 중복 제거
 alpha_rows = []

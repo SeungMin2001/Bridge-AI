@@ -24,10 +24,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
+
+from .eval_cases import SERVICE_DIAGNOSTIC_CASE
 
 
 DEFAULT_OUTPUT_DIR = Path(r"C:\Users\user\Documents\last_project\data")
+HANGUL_RE = re.compile(r"[가-힣]")
 
 
 EN_TEAMS = [
@@ -96,14 +100,18 @@ COMPARISONS_EN = [
 ]
 
 COMPARISONS_KO = [
-    ("병합 정렬", "퀵 정렬", "더 안정적"),
-    ("BFS", "DFS", "가중치가 없는 그래프의 최단 경로에 더 적합"),
-    ("SSD", "HDD", "임의 접근이 더 빠름"),
-    ("TCP", "UDP", "더 신뢰성 있음"),
+    ("병합 정렬", "퀵 정렬", "더 안정적인"),
+    ("BFS 방식", "DFS 방식", "가중치가 없는 그래프의 최단 경로에 더 적합한"),
+    ("SSD 저장장치", "HDD 저장장치", "임의 접근이 더 빠른"),
+    ("TCP 프로토콜", "UDP 프로토콜", "더 신뢰성 있는"),
 ]
 
 SPEAKERS_EN = ["Professor Lee", "TA Mina", "Instructor Park"]
 SPEAKERS_KO = ["이 교수", "민아 조교", "박 강사"]
+
+
+def has_hangul(text: str) -> bool:
+    return bool(HANGUL_RE.search(str(text or "")))
 
 
 def add_pair(rows: list[dict], *, source_id: str, question: str, passage_a: str, answer_a: str, passage_b: str, answer_b: str, split: str) -> None:
@@ -132,6 +140,26 @@ def add_pair(rows: list[dict], *, source_id: str, question: str, passage_a: str,
 
 def build_rows() -> list[dict]:
     rows: list[dict] = []
+    add_pair(
+        rows,
+        source_id="en_shared_diagnostic_homework_due",
+        question=SERVICE_DIAGNOSTIC_CASE["question"],
+        passage_a=SERVICE_DIAGNOSTIC_CASE["passage"],
+        answer_a=SERVICE_DIAGNOSTIC_CASE["answer"],
+        passage_b=SERVICE_DIAGNOSTIC_CASE["compare_passage"],
+        answer_b=SERVICE_DIAGNOSTIC_CASE["compare_answer"],
+        split="train",
+    )
+    add_pair(
+        rows,
+        source_id="en_shared_diagnostic_proposal_due",
+        question=SERVICE_DIAGNOSTIC_CASE["alt_question"],
+        passage_a=SERVICE_DIAGNOSTIC_CASE["passage"],
+        answer_a=SERVICE_DIAGNOSTIC_CASE["alt_answer"],
+        passage_b=SERVICE_DIAGNOSTIC_CASE["compare_passage"],
+        answer_b=SERVICE_DIAGNOSTIC_CASE["answer"],
+        split="train",
+    )
 
     for i, (winner, loser) in enumerate(EN_TEAMS):
         speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
@@ -144,8 +172,8 @@ def build_rows() -> list[dict]:
     for i, (winner, loser) in enumerate(KO_TEAMS):
         speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
         split = "valid" if i % 5 == 4 else "train"
-        pa = f"{speaker}: 어제 수업 경기에서 {winner}가 {loser}를 3대 1로 이겼습니다. 승자는 {winner}입니다."
-        pb = f"{speaker}: 어제 수업 경기에서 {loser}가 {winner}를 3대 1로 이겼습니다. 승자는 {loser}입니다."
+        pa = f"{speaker}: 어제 수업 경기 결과는 {winner} 승리, {loser} 패배였습니다. 승자는 {winner}입니다."
+        pb = f"{speaker}: 어제 수업 경기 결과는 {loser} 승리, {winner} 패배였습니다. 승자는 {loser}입니다."
         add_pair(rows, source_id=f"ko_match_winner_{i}", question="경기에서 누가 이겼어?", passage_a=pa, answer_a=winner, passage_b=pb, answer_b=loser, split=split)
         add_pair(rows, source_id=f"ko_match_loser_{i}", question="경기에서 진 팀은 어디야?", passage_a=pa, answer_a=loser, passage_b=pb, answer_b=winner, split=split)
 
@@ -201,9 +229,9 @@ def build_rows() -> list[dict]:
     for i, (left, right, relation) in enumerate(COMPARISONS_KO):
         speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
         split = "valid" if i % 4 == 3 else "train"
-        pa = f"{speaker}: {right}와 비교했을 때 {left}가 {relation}입니다."
-        pb = f"{speaker}: {left}와 비교했을 때 {right}가 {relation}입니다."
-        add_pair(rows, source_id=f"ko_compare_{i}", question=f"어느 쪽이 {relation}이야?", passage_a=pa, answer_a=left, passage_b=pb, answer_b=right, split=split)
+        pa = f"{speaker}: {right}와 비교했을 때 {left} 쪽이 {relation} 선택지입니다."
+        pb = f"{speaker}: {left}와 비교했을 때 {right} 쪽이 {relation} 선택지입니다."
+        add_pair(rows, source_id=f"ko_compare_{i}", question=f"{relation} 선택지는 무엇이야?", passage_a=pa, answer_a=left, passage_b=pb, answer_b=right, split=split)
 
     return rows
 
@@ -216,14 +244,15 @@ def expand_rows(rows: list[dict], repeats: int) -> list[dict]:
         session = repeat_idx + 1
         for row in rows:
             cloned = dict(row)
+            prefix = f"수업 {session}회차. " if has_hangul(row["question"]) else f"Session {session}. "
             cloned["source_id"] = f"{row['source_id']}:session{session:02d}"
             cloned["contrast_id"] = f"{row['contrast_id']}:session{session:02d}"
             cloned["lecture_id"] = f"synthetic-service-{session:02d}"
-            cloned["passage"] = f"Session {session}. {row['passage']}"
+            cloned["passage"] = f"{prefix}{row['passage']}"
             cloned["hard_negatives"] = [
                 {
                     **negative,
-                    "passage": f"Session {session}. {negative['passage']}",
+                    "passage": f"{prefix}{negative['passage']}",
                 }
                 for negative in row.get("hard_negatives", [])
             ]

@@ -24,6 +24,8 @@ from .config import (
     ALPHA,
     ALLOW_CONFIG_MISMATCH_RESUME,
     ALLOW_LEGACY_CHECKPOINT_RESUME,
+    ANSWER_RANK_LOSS_WEIGHT,
+    ANSWER_RANK_MARGIN,
     CHART_PATH,
     CHECKPOINT_PATH,
     HIDDEN_SIM_TARGET,
@@ -32,6 +34,7 @@ from .config import (
     LOG_PATH,
     MAX_SEQ_LEN,
     MEMORY_ENCODER_INSTRUCTION,
+    MEMORY_ENCODER_INSTRUCTION_KO,
     MODEL_NAME,
     NEGATIVE_LOSS_WEIGHT,
     NEGATIVE_MARGIN,
@@ -46,6 +49,7 @@ from .config import (
     SLOT_DIVERSITY_LOSS_WEIGHT,
     SLOT_DIVERSITY_TARGET,
     SYSTEM_PROMPT,
+    SYSTEM_PROMPT_KO,
     TRAIN_DATA_PATH,
     TRAIN_PROMPT_FORMAT,
     USE_POOLED_KV_SKIP,
@@ -60,6 +64,7 @@ from .config import (
     V_RMS_CLAMP,
     WEIGHTS_PATH as SAVE_PATH,
     build_chat_text,
+    contains_hangul,
     load_critical_layer,
 )
 from .embedding import (
@@ -409,11 +414,19 @@ def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
 
 
 def build_training_prompt(question: str) -> str:
+    if contains_hangul(question):
+        return f"질문: {question}\n답변:"
     return f"Question: {question}\nAnswer:"
 
 
 def build_prompt_for_task(question: str, task: str) -> str:
     if task == "hop_fact":
+        if contains_hangul(question):
+            return (
+                "본문을 읽고 현재 근거가 되는 보조 사실을 출력하세요.\n"
+                f"질문: {question}\n"
+                "보조 사실:"
+            )
         return (
             "Read the passage and output the supporting fact that is currently grounded.\n"
             f"Question: {question}\n"
@@ -490,6 +503,16 @@ def build_inline_negative_sample(sample: dict, raw_negative, fallback_question: 
         }
 
     return None
+
+
+def has_valid_contrast_answer(sample: dict, negative_sample: dict) -> bool:
+    answer = str(sample.get("answer") or "").strip()
+    negative_answer = str(negative_sample.get("answer") or "").strip()
+    if not (answer and negative_answer):
+        return False
+    if negative_answer == "__hard_negative__":
+        return False
+    return normalize_passage_text(answer) != normalize_passage_text(negative_answer)
 
 
 def iter_explicit_negative_samples(sample: dict):
@@ -783,11 +806,15 @@ def current_training_config() -> dict:
         "v_sim_target": V_SIM_TARGET,
         "v_repulsion_multiplier": V_REPULSION_MULTIPLIER,
         "system_prompt": SYSTEM_PROMPT,
+        "system_prompt_ko": SYSTEM_PROMPT_KO,
         "train_prompt_format": TRAIN_PROMPT_FORMAT,
         "train_data_path": TRAIN_DATA_PATH,
         "valid_data_path": VALID_DATA_PATH,
         "memory_query_format": "task_aware_v1",
         "memory_encoder_instruction": MEMORY_ENCODER_INSTRUCTION,
+        "memory_encoder_instruction_ko": MEMORY_ENCODER_INSTRUCTION_KO,
+        "answer_rank_margin": ANSWER_RANK_MARGIN,
+        "answer_rank_loss_weight": ANSWER_RANK_LOSS_WEIGHT,
         "negative_margin": NEGATIVE_MARGIN,
         "negative_loss_weight": NEGATIVE_LOSS_WEIGHT,
         "repulsion_loss_weight": REPULSION_LOSS_WEIGHT,
@@ -821,11 +848,15 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "v_sim_target",
         "v_repulsion_multiplier",
         "system_prompt",
+        "system_prompt_ko",
         "train_prompt_format",
         "train_data_path",
         "valid_data_path",
         "memory_query_format",
         "memory_encoder_instruction",
+        "memory_encoder_instruction_ko",
+        "answer_rank_margin",
+        "answer_rank_loss_weight",
         "negative_margin",
         "negative_loss_weight",
         "repulsion_loss_weight",
@@ -955,10 +986,13 @@ def train():
         f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
         f"query_pool_scale={QUERY_POOL_SCALE}, "
         f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
-        f"slot_diversity={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}"
+        f"slot_diversity={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}, "
+        f"answer_rank={ANSWER_RANK_LOSS_WEIGHT}:{ANSWER_RANK_MARGIN}"
     )
-    print(f"[학습] system_prompt: {SYSTEM_PROMPT[:160]}")
-    print(f"[학습] memory_encoder_instruction: {MEMORY_ENCODER_INSTRUCTION[:200]}")
+    print(f"[학습] system_prompt_en: {SYSTEM_PROMPT[:160]}")
+    print(f"[학습] system_prompt_ko: {SYSTEM_PROMPT_KO[:160]}")
+    print(f"[학습] memory_encoder_instruction_en: {MEMORY_ENCODER_INSTRUCTION[:200]}")
+    print(f"[학습] memory_encoder_instruction_ko: {MEMORY_ENCODER_INSTRUCTION_KO[:200]}")
     hypernet.train()
     start_time = time.time()
     start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1016,6 +1050,46 @@ def train():
                     neg_task_loss = task_loss.detach()
 
                 grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
+                answer_rank_loss = torch.tensor(0.0, device=device)
+                pos_wrong_loss_val = float("nan")
+                neg_correct_loss_val = float("nan")
+                extra_logits = []
+                if has_valid_contrast_answer(sample, negative_sample):
+                    neg_answer_tok = tokenize_qa(
+                        tokenizer,
+                        sample["question"],
+                        negative_sample["answer"],
+                        device,
+                        task=task,
+                    )
+                    pos_wrong_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        delta_K,
+                        delta_V,
+                        neg_answer_tok,
+                    )
+                    extra_logits.append(pos_wrong_logits)
+                    pos_wrong_loss = compute_loss(pos_wrong_logits, neg_answer_tok["labels"])
+                    neg_correct_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        neg_K,
+                        neg_V,
+                        neg_answer_tok,
+                    )
+                    extra_logits.append(neg_correct_logits)
+                    neg_correct_loss = compute_loss(neg_correct_logits, neg_answer_tok["labels"])
+                    if pos_wrong_loss is not None and neg_correct_loss is not None:
+                        pos_rank_loss = torch.relu(
+                            ANSWER_RANK_MARGIN + task_loss - pos_wrong_loss
+                        )
+                        neg_rank_loss = torch.relu(
+                            ANSWER_RANK_MARGIN + neg_correct_loss - neg_task_loss
+                        )
+                        answer_rank_loss = pos_rank_loss + neg_rank_loss
+                        pos_wrong_loss_val = pos_wrong_loss.item()
+                        neg_correct_loss_val = neg_correct_loss.item()
                 repulsion_loss, hidden_sim_t, k_sim_t, v_sim_t = compute_repulsion_loss(
                     hidden_pos,
                     hidden_neg,
@@ -1072,6 +1146,7 @@ def train():
                 loss = (
                     task_loss
                     + NEGATIVE_LOSS_WEIGHT * grounding_loss
+                    + ANSWER_RANK_LOSS_WEIGHT * answer_rank_loss
                     + REPULSION_LOSS_WEIGHT * repulsion_loss
                     + QUESTION_NEGATIVE_LOSS_WEIGHT * question_neg_loss
                     + QUESTION_REPULSION_LOSS_WEIGHT * question_repulsion_loss
@@ -1082,6 +1157,7 @@ def train():
                 v_vec_norm = delta_V.detach().norm(dim=-1).mean().item()
                 neg_loss_val = neg_task_loss.item()
                 grounding_val = grounding_loss.item()
+                answer_rank_val = answer_rank_loss.item()
                 repulsion_val = repulsion_loss.item()
                 slot_diversity_val = slot_diversity_loss.item()
                 question_neg_val = question_neg_loss.item()
@@ -1119,6 +1195,8 @@ def train():
 
                 # VRAM 정리
                 del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg, pooled_neg
+                for extra_logit in extra_logits:
+                    del extra_logit
                 if USE_QUESTION_CONDITIONED_MEMORY and same_passage_question_neg is not None:
                     del same_passage_logits, same_passage_K, same_passage_V, hidden_same_passage, same_passage_emb
                 if global_step % 100 == 0:
@@ -1139,6 +1217,9 @@ def train():
                 "loss": round(loss_val, 4),
                 "negative_loss": round(neg_loss_val, 4),
                 "grounding_loss": round(grounding_val, 4),
+                "answer_rank_loss": round(answer_rank_val, 4),
+                "positive_memory_wrong_answer_loss": round(pos_wrong_loss_val, 4),
+                "negative_memory_correct_answer_loss": round(neg_correct_loss_val, 4),
                 "repulsion_loss": round(repulsion_val, 4),
                 "slot_diversity_loss": round(slot_diversity_val, 4),
                 "question_negative_loss": round(question_neg_val, 4),
@@ -1161,7 +1242,8 @@ def train():
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
-                    f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
+                    f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | arank: {answer_rank_val:.4f} | "
+                    f"rep: {repulsion_val:.4f} | "
                     f"slot: {slot_diversity_val:.4f} | "
                     f"qneg: {question_neg_val:.4f} | qrep: {question_repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "

@@ -38,18 +38,19 @@ from mergePRAG.embedding import (
     tokenize_conditioned_memory,
     tokenize_passage_memory,
 )
+from mergePRAG.eval_cases import SERVICE_DIAGNOSTIC_CASE
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
 
 # ── 테스트 케이스 (원하는 대로 변경 가능) ──
-QUESTION = "Who won the game?"
-PASSAGE = "Manchester United won the match against Chelsea 3-1."
-COMPARE_PASSAGE = "Chelsea won the match against Manchester United 3-1."
-EXPECTED_ANSWER = "Manchester United"
-COMPARE_EXPECTED_ANSWER = "Chelsea"
-ALT_QUESTION = "Which team lost the game?"
-ALT_EXPECTED_ANSWER = "Chelsea"
+QUESTION = SERVICE_DIAGNOSTIC_CASE["question"]
+PASSAGE = SERVICE_DIAGNOSTIC_CASE["passage"]
+COMPARE_PASSAGE = SERVICE_DIAGNOSTIC_CASE["compare_passage"]
+EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["answer"]
+COMPARE_EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["compare_answer"]
+ALT_QUESTION = SERVICE_DIAGNOSTIC_CASE["alt_question"]
+ALT_EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["alt_answer"]
 
 CRITICAL_LAYER = load_critical_layer()
 

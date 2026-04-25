@@ -1,6 +1,6 @@
 import torch
 
-from .config import MEMORY_ENCODER_INSTRUCTION
+from .config import contains_hangul, select_memory_encoder_instruction
 
 
 def token_embed(model, input_ids):
@@ -45,16 +45,22 @@ def tokenize_conditioned_memory(tokenizer, question, passage, device, max_length
     which parts of the passage matter. To keep those roles separate we return
     masks for question tokens and passage tokens.
     """
-    instruction = str(MEMORY_ENCODER_INSTRUCTION or "").strip()
+    instruction = str(select_memory_encoder_instruction(question, passage) or "").strip()
+    if contains_hangul(f"{question}\n{passage}"):
+        question_label = "질문:"
+        passage_label = "본문:"
+    else:
+        question_label = "Question:"
+        passage_label = "Passage:"
     segments = []
     if instruction:
         segments.append(
             (tokenizer(f"{instruction}\n", add_special_tokens=False)["input_ids"], False, False)
         )
     segments.extend([
-        (tokenizer("Question:", add_special_tokens=False)["input_ids"], False, False),
+        (tokenizer(question_label, add_special_tokens=False)["input_ids"], False, False),
         (tokenizer(f" {question}\n", add_special_tokens=False)["input_ids"], True, False),
-        (tokenizer("Passage:", add_special_tokens=False)["input_ids"], False, False),
+        (tokenizer(passage_label, add_special_tokens=False)["input_ids"], False, False),
         (tokenizer(f" {passage}", add_special_tokens=False)["input_ids"], False, True),
     ])
 
