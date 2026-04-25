@@ -611,7 +611,7 @@ python -m llm_server.mergePRAG.diagnose_hotpot
 - `SLOT_DIVERSITY_TARGET=0.5`
 - `TRAIN_PROMPT_FORMAT=chat`
 
-따라서 Windows CMD 기준으로 이제 매번 모든 값을 `set`할 필요는 없다. 기존 checkpoint/weights만 백업하고 데이터 경로만 명시하면 된다.
+SQuAD baseline 결과 K/V norm 폭주는 잡혔지만, main/compare memory가 여전히 거의 같은 분포를 만들었다. 그래서 현재 코드의 기본 학습 데이터도 HotPot processed로 옮겼다. Windows CMD 기준으로 이제 매번 모든 값을 `set`할 필요는 없다. 기존 checkpoint/weights만 백업하고 바로 학습하면 된다.
 
 ```bat
 cd C:\Users\user\Documents\last_project\Group-Chat-agent
@@ -619,9 +619,6 @@ cd C:\Users\user\Documents\last_project\Group-Chat-agent
 if not exist llm_server\mergePRAG\backup_pt mkdir llm_server\mergePRAG\backup_pt
 if exist llm_server\mergePRAG\hypernet_checkpoint.pt move llm_server\mergePRAG\hypernet_checkpoint.pt llm_server\mergePRAG\backup_pt\hypernet_checkpoint_prev.pt
 if exist llm_server\mergePRAG\hypernet_weights.pt move llm_server\mergePRAG\hypernet_weights.pt llm_server\mergePRAG\backup_pt\hypernet_weights_prev.pt
-
-set MERGEPRAG_TRAIN_DATA_PATH=C:\Users\user\Documents\last_project\data\SQuAD_train_processed.jsonl
-set MERGEPRAG_VALID_DATA_PATH=C:\Users\user\Documents\last_project\data\SQuAD_valid_processed.jsonl
 
 python -m llm_server.mergePRAG.train
 ```
@@ -647,8 +644,7 @@ set MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME=true
 
 ### 11-4. lecture QA 데이터 변환
 
-데이터셋은 당장 반드시 바꾸지 않아도 된다.
-SQuAD는 학습 루프와 V 분리 설정이 안정적으로 도는지 확인하는 baseline으로 계속 쓸 수 있다.
+SQuAD는 학습 루프와 V/K clamp 설정이 안정적으로 도는지 확인하는 baseline 역할은 했다. 하지만 relation flip 진단은 통과하지 못했으므로, 현재 기본 데이터셋은 HotPot processed다.
 
 다만 `A defeated B`와 `B defeated A`처럼 같은 엔티티가 나오지만 관계가 뒤집히는 테스트를 통과하려면 SQuAD만으로는 부족할 가능성이 높다. SQuAD에는 `contrast_id`나 explicit hard negative가 거의 없기 때문이다. 직접 lecture 데이터를 만들 수 없다면 다음 단계는 공개 데이터셋 중 `HotPot_train_processed.jsonl` 또는 `MuSiQue_train.jsonl`을 우선 audit하고, 더 hard-negative가 많은 쪽으로 바꾸는 것이다.
 
@@ -659,11 +655,9 @@ python -m llm_server.mergePRAG.audit_dataset C:\Users\user\Documents\last_projec
 python -m llm_server.mergePRAG.audit_dataset C:\Users\user\Documents\last_project\data\MuSiQue_train.jsonl --limit 1000
 ```
 
-학습 경로만 바꿔 실험할 때:
+HotPot은 이제 코드 기본 경로라 별도 `set` 없이 실행된다. MuSiQue로 바꿔 실험할 때만 경로를 지정한다.
 
 ```bat
-set MERGEPRAG_TRAIN_DATA_PATH=C:\Users\user\Documents\last_project\data\HotPot_train_processed.jsonl
-set MERGEPRAG_VALID_DATA_PATH=C:\Users\user\Documents\last_project\data\HotPot_valid_processed.jsonl
 python -m llm_server.mergePRAG.train
 ```
 
