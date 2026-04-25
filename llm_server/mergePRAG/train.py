@@ -47,9 +47,11 @@ from .config import (
     TRAIN_DATA_PATH,
     TRAIN_PROMPT_FORMAT,
     USE_POOLED_KV_SKIP,
+    USE_K_RMS_CLAMP,
     USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
+    K_RMS_CLAMP,
     VALID_DATA_PATH,
     V_SIM_TARGET,
     V_REPULSION_MULTIPLIER,
@@ -763,6 +765,8 @@ def current_training_config() -> dict:
         "pooled_kv_skip": USE_POOLED_KV_SKIP,
         "pooled_k_skip_scale": POOLED_K_SKIP_SCALE,
         "pooled_v_skip_scale": POOLED_V_SKIP_SCALE,
+        "k_rms_clamp": USE_K_RMS_CLAMP,
+        "k_rms_clamp_value": K_RMS_CLAMP,
         "v_rms_clamp": USE_V_RMS_CLAMP,
         "v_rms_clamp_value": V_RMS_CLAMP,
         "v_repulsion_multiplier": V_REPULSION_MULTIPLIER,
@@ -915,6 +919,7 @@ def train():
         f"[학습] config | num_kv={NUM_KV}, alpha={ALPHA}, "
         f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, kv_path_mode={KV_PATH_MODE}, "
         f"k_skip_scale={POOLED_K_SKIP_SCALE}, v_skip_scale={POOLED_V_SKIP_SCALE}, "
+        f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP}, "
         f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}, "
         f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
         f"query_pool_scale={QUERY_POOL_SCALE}, "

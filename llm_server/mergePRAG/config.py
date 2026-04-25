@@ -46,6 +46,8 @@ POOLED_K_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_K_SKIP_SCALE", POOLED_KV_SKIP
 POOLED_V_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_V_SKIP_SCALE", 1.0)
 USE_V_RMS_CLAMP = _get_bool("MERGEPRAG_USE_V_RMS_CLAMP", True)
 V_RMS_CLAMP = _get_float("MERGEPRAG_V_RMS_CLAMP", 0.25)
+USE_K_RMS_CLAMP = _get_bool("MERGEPRAG_USE_K_RMS_CLAMP", True)
+K_RMS_CLAMP = _get_float("MERGEPRAG_K_RMS_CLAMP", 0.25)
 # plain: 논문/기존 실험 형식 "Question: ...\nAnswer:"
 # chat: 실제 서비스 API와 같은 chat template 형식. lecture-domain 재학습 때 권장.
 TRAIN_PROMPT_FORMAT = os.getenv("MERGEPRAG_TRAIN_PROMPT_FORMAT", "chat").strip().lower()
