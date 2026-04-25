@@ -38,6 +38,14 @@ MAX_SEQ_LEN = _get_int("MERGEPRAG_MAX_SEQ_LEN", 512)
 USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", True)
 QUERY_POOL_SCALE = _get_float("MERGEPRAG_QUERY_POOL_SCALE", 4.0)
+MEMORY_ENCODER_INSTRUCTION = os.getenv(
+    "MERGEPRAG_MEMORY_ENCODER_INSTRUCTION",
+    (
+        "Memory task: encode the passage for answering the question. "
+        "Preserve who did what to whom, comparison direction, numbers, dates, "
+        "negation, and the exact entity that answers the question."
+    ),
+)
 # K는 MLP가 분리하고, V는 passage pooled 정보를 직접 싣도록 skip 경로를 기본으로 둔다.
 KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_mlp_v_skip").strip().lower()
 USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)

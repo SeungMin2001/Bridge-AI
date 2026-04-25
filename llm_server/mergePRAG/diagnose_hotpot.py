@@ -14,6 +14,7 @@ import torch
 from ..run_model import run_model
 from .config import (
     ALPHA,
+    MEMORY_ENCODER_INSTRUCTION,
     NUM_KV,
     SYSTEM_PROMPT,
     TRAIN_DATA_PATH,
@@ -144,6 +145,7 @@ def main():
     print(f"[diag] critical layer: {CRITICAL_LAYER}")
     print(f"[diag] dataset: {TRAIN_DATA_PATH}")
     print(f"[diag] system prompt: {SYSTEM_PROMPT[:160]}")
+    print(f"[diag] memory encoder instruction: {MEMORY_ENCODER_INSTRUCTION[:200]}")
 
     rows = []
     for idx, item in enumerate(iter_jsonl(TRAIN_DATA_PATH)):

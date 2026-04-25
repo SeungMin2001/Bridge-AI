@@ -13,6 +13,7 @@ from mergePRAG.config import (
     ALPHA,
     CHECKPOINT_PATH,
     KV_PATH_MODE,
+    MEMORY_ENCODER_INSTRUCTION,
     NUM_KV,
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
@@ -106,6 +107,7 @@ print(
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
 print(f"system_prompt={SYSTEM_PROMPT[:160]}")
+print(f"memory_encoder_instruction={MEMORY_ENCODER_INSTRUCTION[:200]}")
 
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size

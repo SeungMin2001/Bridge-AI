@@ -1,5 +1,7 @@
 import torch
 
+from .config import MEMORY_ENCODER_INSTRUCTION
+
 
 def token_embed(model, input_ids):
     """Frozen token embeddings from the base LLM embedding table."""
@@ -43,12 +45,18 @@ def tokenize_conditioned_memory(tokenizer, question, passage, device, max_length
     which parts of the passage matter. To keep those roles separate we return
     masks for question tokens and passage tokens.
     """
-    segments = [
+    instruction = str(MEMORY_ENCODER_INSTRUCTION or "").strip()
+    segments = []
+    if instruction:
+        segments.append(
+            (tokenizer(f"{instruction}\n", add_special_tokens=False)["input_ids"], False, False)
+        )
+    segments.extend([
         (tokenizer("Question:", add_special_tokens=False)["input_ids"], False, False),
         (tokenizer(f" {question}\n", add_special_tokens=False)["input_ids"], True, False),
         (tokenizer("Passage:", add_special_tokens=False)["input_ids"], False, False),
         (tokenizer(f" {passage}", add_special_tokens=False)["input_ids"], False, True),
-    ]
+    ])
 
     input_ids = []
     question_mask = []

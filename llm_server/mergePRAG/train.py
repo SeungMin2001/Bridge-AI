@@ -31,6 +31,7 @@ from .config import (
     KV_PATH_MODE,
     LOG_PATH,
     MAX_SEQ_LEN,
+    MEMORY_ENCODER_INSTRUCTION,
     MODEL_NAME,
     NEGATIVE_LOSS_WEIGHT,
     NEGATIVE_MARGIN,
@@ -786,6 +787,7 @@ def current_training_config() -> dict:
         "train_data_path": TRAIN_DATA_PATH,
         "valid_data_path": VALID_DATA_PATH,
         "memory_query_format": "task_aware_v1",
+        "memory_encoder_instruction": MEMORY_ENCODER_INSTRUCTION,
         "negative_margin": NEGATIVE_MARGIN,
         "negative_loss_weight": NEGATIVE_LOSS_WEIGHT,
         "repulsion_loss_weight": REPULSION_LOSS_WEIGHT,
@@ -823,6 +825,7 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "train_data_path",
         "valid_data_path",
         "memory_query_format",
+        "memory_encoder_instruction",
         "negative_margin",
         "negative_loss_weight",
         "repulsion_loss_weight",
@@ -955,6 +958,7 @@ def train():
         f"slot_diversity={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}"
     )
     print(f"[학습] system_prompt: {SYSTEM_PROMPT[:160]}")
+    print(f"[학습] memory_encoder_instruction: {MEMORY_ENCODER_INSTRUCTION[:200]}")
     hypernet.train()
     start_time = time.time()
     start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
