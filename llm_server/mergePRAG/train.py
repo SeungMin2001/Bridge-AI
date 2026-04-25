@@ -593,8 +593,13 @@ def get_negative_sample(dataset: MergePRAGDataset, index: int):
 def get_same_passage_negative_sample(dataset: MergePRAGDataset, index: int):
     sample = dataset[index]
     sample_answer = sample.get("answer")
-    sample_question = normalize_passage_text(sample.get("question", ""))
     sample_passage_key = normalize_passage_text(sample.get("passage", ""))
+    sample_query = normalize_passage_text(
+        build_memory_query_for_task(
+            sample.get("question", ""),
+            sample.get("task", "final_qa"),
+        )
+    )
     if not sample_passage_key:
         return None
 
@@ -604,7 +609,13 @@ def get_same_passage_negative_sample(dataset: MergePRAGDataset, index: int):
         if (
             idx != index
             and dataset.data[idx].get("answer") != sample_answer
-            and normalize_passage_text(dataset.data[idx].get("question", "")) != sample_question
+            and normalize_passage_text(
+                build_memory_query_for_task(
+                    dataset.data[idx].get("question", ""),
+                    dataset.data[idx].get("task", "final_qa"),
+                )
+            )
+            != sample_query
         )
     ]
     if not candidates:
@@ -766,6 +777,9 @@ def current_training_config() -> dict:
         "k_rms_clamp_value": K_RMS_CLAMP,
         "v_rms_clamp": USE_V_RMS_CLAMP,
         "v_rms_clamp_value": V_RMS_CLAMP,
+        "hidden_sim_target": HIDDEN_SIM_TARGET,
+        "k_sim_target": K_SIM_TARGET,
+        "v_sim_target": V_SIM_TARGET,
         "v_repulsion_multiplier": V_REPULSION_MULTIPLIER,
         "system_prompt": SYSTEM_PROMPT,
         "train_prompt_format": TRAIN_PROMPT_FORMAT,
@@ -796,13 +810,26 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "pooled_kv_skip",
         "pooled_k_skip_scale",
         "pooled_v_skip_scale",
+        "k_rms_clamp",
+        "k_rms_clamp_value",
         "v_rms_clamp",
         "v_rms_clamp_value",
+        "hidden_sim_target",
+        "k_sim_target",
+        "v_sim_target",
+        "v_repulsion_multiplier",
         "system_prompt",
         "train_prompt_format",
         "train_data_path",
         "valid_data_path",
         "memory_query_format",
+        "negative_margin",
+        "negative_loss_weight",
+        "repulsion_loss_weight",
+        "question_negative_loss_weight",
+        "question_repulsion_loss_weight",
+        "slot_diversity_loss_weight",
+        "slot_diversity_target",
     )
     mismatches = []
     for key in checked_keys:
@@ -927,6 +954,7 @@ def train():
         f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
         f"slot_diversity={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}"
     )
+    print(f"[학습] system_prompt: {SYSTEM_PROMPT[:160]}")
     hypernet.train()
     start_time = time.time()
     start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1170,7 +1198,12 @@ def train():
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    torch.save(hypernet.state_dict(), SAVE_PATH)
+                    torch.save({
+                        "step": global_step,
+                        "hypernet": hypernet.state_dict(),
+                        "config": run_config,
+                        "val_loss": val_loss,
+                    }, SAVE_PATH)
                     print(f"     ★ Best val_loss → 가중치 저장")
                 else:
                     patience_counter += 1

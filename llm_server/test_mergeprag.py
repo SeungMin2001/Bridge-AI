@@ -17,6 +17,7 @@ from mergePRAG.config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
+    SYSTEM_PROMPT,
     TRAIN_PROMPT_FORMAT,
     USE_K_RMS_CLAMP,
     USE_POOLED_KV_SKIP,
@@ -54,7 +55,6 @@ COMPARE_PASSAGE = (
 EXPECTED_ANSWER = "Manchester United"
 COMPARE_EXPECTED_ANSWER = "Chelsea"
 ALT_EXPECTED_ANSWER = "Chelsea"
-SYSTEM_PROMPT = "Answer in English with one short sentence grounded in the lecture content."
 MAX_NEW_TOKENS = 12
 
 
@@ -105,6 +105,7 @@ print(
     f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP} | "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
+print(f"system_prompt={SYSTEM_PROMPT[:160]}")
 
 # ── HyperNetwork → K, V ──
 d_model = model.config.hidden_size

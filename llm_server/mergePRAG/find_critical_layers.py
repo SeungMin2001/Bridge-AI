@@ -25,6 +25,7 @@ from .train import (
     NEGATIVE_LOSS_WEIGHT,
     NEGATIVE_MARGIN,
     REPULSION_LOSS_WEIGHT,
+    build_memory_query_for_task,
     compute_repulsion_loss,
     compute_loss,
     encode_memory,
@@ -77,8 +78,12 @@ def evaluate_layer(model, tokenizer, hypernet, layer_idx, dataset, device):
                 device,
                 task=sample.get("task", "final_qa"),
             )
+            memory_query = build_memory_query_for_task(
+                sample["question"],
+                sample.get("task", "final_qa"),
+            )
             _, _, _, _, delta_K, delta_V = encode_memory(
-                model, hypernet, tokenizer, sample["question"], sample["passage"], device
+                model, hypernet, tokenizer, memory_query, sample["passage"], device
             )
 
             logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
@@ -97,7 +102,7 @@ def evaluate_layer(model, tokenizer, hypernet, layer_idx, dataset, device):
 def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device):
     target_layer = model.model.layers[layer_idx]
     hypernet = HyperNetwork(model.config.hidden_size, k=NUM_KV).to(device).float()
-    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR)
+    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR, weight_decay=0.0)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=min(len(train_dataset), SCAN_STEPS),
@@ -110,8 +115,12 @@ def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
         if step >= SCAN_STEPS:
             break
 
+        memory_query = build_memory_query_for_task(
+            sample["question"],
+            sample.get("task", "final_qa"),
+        )
         _, _, _, hidden_pos, delta_K, delta_V = encode_memory(
-            model, hypernet, tokenizer, sample["question"], sample["passage"], device
+            model, hypernet, tokenizer, memory_query, sample["passage"], device
         )
         tok = tokenize_qa(
             tokenizer,
@@ -131,7 +140,7 @@ def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
             model,
             hypernet,
             tokenizer,
-            sample["question"],
+            memory_query,
             negative_sample["passage"],
             device,
         )
@@ -141,7 +150,7 @@ def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
             neg_task_loss = task_loss.detach()
 
         grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
-        repulsion_loss = compute_repulsion_loss(
+        repulsion_loss, _, _, _ = compute_repulsion_loss(
             hidden_pos,
             hidden_neg,
             delta_K,
