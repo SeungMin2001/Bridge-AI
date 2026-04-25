@@ -598,28 +598,42 @@ python -m llm_server.mergePRAG.diagnose_hotpot
 ### 11-3. 다음 실험의 권장 set 값
 
 기존 1500 step checkpoint는 `question_conditioned=False` 기반이라 서비스 방향으로 계속 이어 학습하기보다 새 실험을 권장한다.
+또한 `num_kv=1` 실험에서 K는 분리됐지만 V가 거의 같은 방향으로 붙는 문제가 확인됐다. `num_kv=1`에서는 attention slot이 하나뿐이라 K가 선택 역할을 못 하고 V 하나가 그대로 주입되므로, 현재 코드 기본값은 아래 방향으로 바꿨다.
 
-Windows CMD 기준:
+- `NUM_KV=4`
+- `USE_QUESTION_CONDITIONED_MEMORY=true`
+- `KV_PATH_MODE=k_mlp_v_skip`
+- `POOLED_V_SKIP_SCALE=1.0`
+- `V_SIM_TARGET=0.65`
+- `V_REPULSION_MULTIPLIER=4.0`
+- `REPULSION_LOSS_WEIGHT=1.0`
+- `SLOT_DIVERSITY_LOSS_WEIGHT=0.1`
+- `SLOT_DIVERSITY_TARGET=0.5`
+- `TRAIN_PROMPT_FORMAT=chat`
+
+따라서 Windows CMD 기준으로 이제 매번 모든 값을 `set`할 필요는 없다. 기존 checkpoint/weights만 백업하고 데이터 경로만 명시하면 된다.
 
 ```bat
-set MERGEPRAG_NUM_KV=1
-set MERGEPRAG_ALPHA=0.1
-set MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY=true
-set MERGEPRAG_USE_CONTEXTUAL_ENCODER=true
-set MERGEPRAG_KV_PATH_MODE=k_mlp_v_hybrid
-set MERGEPRAG_TRAIN_PROMPT_FORMAT=chat
-set MERGEPRAG_SLOT_DIVERSITY_LOSS_WEIGHT=0.0
+cd C:\Users\user\Documents\last_project\Group-Chat-agent
+
+if not exist llm_server\mergePRAG\backup_pt mkdir llm_server\mergePRAG\backup_pt
+if exist llm_server\mergePRAG\hypernet_checkpoint.pt move llm_server\mergePRAG\hypernet_checkpoint.pt llm_server\mergePRAG\backup_pt\hypernet_checkpoint_prev.pt
+if exist llm_server\mergePRAG\hypernet_weights.pt move llm_server\mergePRAG\hypernet_weights.pt llm_server\mergePRAG\backup_pt\hypernet_weights_prev.pt
+
+set MERGEPRAG_TRAIN_DATA_PATH=C:\Users\user\Documents\last_project\data\SQuAD_train_processed.jsonl
+set MERGEPRAG_VALID_DATA_PATH=C:\Users\user\Documents\last_project\data\SQuAD_valid_processed.jsonl
+
+python -m llm_server.mergePRAG.train
 ```
 
-`NUM_KV=1`을 먼저 권장하는 이유는 slot collapse 문제를 제거하고, "memory 하나로 passage를 인식할 수 있는가"부터 확인하기 위해서다.
-이게 성공하면 그 다음에 `NUM_KV=4` 또는 `NUM_KV=16`으로 올리고 slot diversity를 켠다.
+만약 다른 실험값을 임시로 덮고 싶을 때만 `set MERGEPRAG_...=...`를 사용한다.
 
-`NUM_KV=16` 실험을 다시 할 때:
+`NUM_KV=16` 실험을 다시 할 때만:
 
 ```bat
 set MERGEPRAG_NUM_KV=16
-set MERGEPRAG_SLOT_DIVERSITY_LOSS_WEIGHT=0.05
-set MERGEPRAG_SLOT_DIVERSITY_TARGET=0.75
+set MERGEPRAG_SLOT_DIVERSITY_LOSS_WEIGHT=0.1
+set MERGEPRAG_SLOT_DIVERSITY_TARGET=0.5
 ```
 
 기존 legacy checkpoint를 정말 이어서 쓰고 싶을 때만:
@@ -632,6 +646,34 @@ set MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME=true
 설정이 바뀐 checkpoint를 이어 학습하면 왜 좋아졌는지/나빠졌는지 원인 분석이 흐려진다.
 
 ### 11-4. lecture QA 데이터 변환
+
+데이터셋은 당장 반드시 바꾸지 않아도 된다.
+SQuAD는 학습 루프와 V 분리 설정이 안정적으로 도는지 확인하는 baseline으로 계속 쓸 수 있다.
+
+다만 `A defeated B`와 `B defeated A`처럼 같은 엔티티가 나오지만 관계가 뒤집히는 테스트를 통과하려면 SQuAD만으로는 부족할 가능성이 높다. SQuAD에는 `contrast_id`나 explicit hard negative가 거의 없기 때문이다. 직접 lecture 데이터를 만들 수 없다면 다음 단계는 공개 데이터셋 중 `HotPot_train_processed.jsonl` 또는 `MuSiQue_train.jsonl`을 우선 audit하고, 더 hard-negative가 많은 쪽으로 바꾸는 것이다.
+
+공개 데이터셋 전환 후보:
+
+```bat
+python -m llm_server.mergePRAG.audit_dataset C:\Users\user\Documents\last_project\data\HotPot_train_processed.jsonl --limit 1000
+python -m llm_server.mergePRAG.audit_dataset C:\Users\user\Documents\last_project\data\MuSiQue_train.jsonl --limit 1000
+```
+
+학습 경로만 바꿔 실험할 때:
+
+```bat
+set MERGEPRAG_TRAIN_DATA_PATH=C:\Users\user\Documents\last_project\data\HotPot_train_processed.jsonl
+set MERGEPRAG_VALID_DATA_PATH=C:\Users\user\Documents\last_project\data\HotPot_valid_processed.jsonl
+python -m llm_server.mergePRAG.train
+```
+
+MuSiQue가 현재 loader에서 정상 audit되면 아래도 가능하다.
+
+```bat
+set MERGEPRAG_TRAIN_DATA_PATH=C:\Users\user\Documents\last_project\data\MuSiQue_train.jsonl
+set MERGEPRAG_VALID_DATA_PATH=C:\Users\user\Documents\last_project\data\MuSiQue_valid.jsonl
+python -m llm_server.mergePRAG.train
+```
 
 입력 lecture QA가 준비되어 있으면 아래처럼 변환한다.
 
