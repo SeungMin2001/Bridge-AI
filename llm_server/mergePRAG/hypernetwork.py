@@ -11,8 +11,10 @@ from .config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
+    USE_K_RMS_CLAMP,
     USE_POOLED_KV_SKIP,
     USE_V_RMS_CLAMP,
+    K_RMS_CLAMP,
     V_RMS_CLAMP,
 )
 
@@ -36,6 +38,8 @@ class HyperNetwork(nn.Module):
         self.pooled_kv_skip_scale = POOLED_KV_SKIP_SCALE
         self.pooled_k_skip_scale = POOLED_K_SKIP_SCALE
         self.pooled_v_skip_scale = POOLED_V_SKIP_SCALE
+        self.use_k_rms_clamp = USE_K_RMS_CLAMP
+        self.k_rms_clamp = K_RMS_CLAMP
         self.use_v_rms_clamp = USE_V_RMS_CLAMP
         self.v_rms_clamp = V_RMS_CLAMP
         self.pooling = AttentivePooling(d_model)
@@ -114,11 +118,15 @@ class HyperNetwork(nn.Module):
         }
 
     def normalize_kv(self, K, V):
-        """K는 그대로 두고, V만 RMS clamp로 과주입을 막는다.
+        """K/V RMS clamp로 hook 주입과 attention logit 폭주를 막는다.
 
-        V는 cross-attention 출력의 내용을 직접 결정해서 collapse/폭주가 더 쉽게 난다.
-        현재 실험에선 K 분리는 이미 살아나고 있으므로, V만 보수적으로 제어한다.
+        V는 cross-attention 출력의 내용을 직접 결정하고, K는 attention logit을
+        결정한다. 둘 중 하나가 과도하게 커지면 passage 차이보다 norm이 지배한다.
         """
+        if self.use_k_rms_clamp:
+            k_rms = K.pow(2).mean(dim=-1, keepdim=True).sqrt().clamp_min(1e-8)
+            scale = torch.clamp(self.k_rms_clamp / k_rms, max=1.0)
+            K = K * scale
         if self.use_v_rms_clamp:
             v_rms = V.pow(2).mean(dim=-1, keepdim=True).sqrt().clamp_min(1e-8)
             scale = torch.clamp(self.v_rms_clamp / v_rms, max=1.0)

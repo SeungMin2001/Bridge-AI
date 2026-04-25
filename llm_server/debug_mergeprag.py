@@ -19,10 +19,12 @@ from mergePRAG.config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
+    USE_K_RMS_CLAMP,
     USE_POOLED_KV_SKIP,
     USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
+    K_RMS_CLAMP,
     V_RMS_CLAMP,
     load_critical_layer,
     load_hypernet_state_dict,
@@ -72,6 +74,7 @@ print(
     f"kv_path_mode={KV_PATH_MODE}, "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
     f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}), "
+    f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP}, "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
 
@@ -301,9 +304,15 @@ l_nc_m = loss_of(nc_m["input_ids"], nc_m["labels"])
 l_nc_f = loss_of(nc_f["input_ids"], nc_f["labels"])
 
 print("Passage를 prompt에 포함 (상한선 — model이 도달 가능한 최적):")
-print(f"  loss(Monday)={l_tf_m:.3f}  loss(Friday)={l_tf_f:.3f}  Δ={l_tf_f - l_tf_m:+.3f}")
+print(
+    f"  loss({EXPECTED_ANSWER})={l_tf_m:.3f}  "
+    f"loss({COMPARE_EXPECTED_ANSWER})={l_tf_f:.3f}  Δ={l_tf_f - l_tf_m:+.3f}"
+)
 print("Passage 없음, hook 없음 (하한선 — 정보 0일 때):")
-print(f"  loss(Monday)={l_nc_m:.3f}  loss(Friday)={l_nc_f:.3f}  Δ={l_nc_f - l_nc_m:+.3f}")
+print(
+    f"  loss({EXPECTED_ANSWER})={l_nc_m:.3f}  "
+    f"loss({COMPARE_EXPECTED_ANSWER})={l_nc_f:.3f}  Δ={l_nc_f - l_nc_m:+.3f}"
+)
 
 print("\n해석 가이드:")
 print("  상한 Δ > 2.0: model이 passage만 있으면 정답을 쉽게 구분 → hook의 목표가 분명")
@@ -356,14 +365,19 @@ dist_no = answer_first_dist(score_batch)
 dist_m = answer_first_dist(score_batch, main["K"], main["V"])
 dist_c = answer_first_dist(score_batch, comp["K"], comp["V"])
 
-monday_id = tokenizer(" Monday", add_special_tokens=False)["input_ids"][0]
-friday_id = tokenizer(" Friday", add_special_tokens=False)["input_ids"][0]
-print(f"token id  Monday={monday_id}  Friday={friday_id}")
-print(f"{'case':<20}{'p(Monday)':>12}{'p(Friday)':>12}{'log(M/F)':>12}")
+target_id = tokenizer(f" {EXPECTED_ANSWER}", add_special_tokens=False)["input_ids"][0]
+compare_id = tokenizer(f" {COMPARE_EXPECTED_ANSWER}", add_special_tokens=False)["input_ids"][0]
+print(f"token id  {EXPECTED_ANSWER}={target_id}  {COMPARE_EXPECTED_ANSWER}={compare_id}")
+print(
+    f"{'case':<20}"
+    f"{'p(' + EXPECTED_ANSWER + ')':>18}"
+    f"{'p(' + COMPARE_EXPECTED_ANSWER + ')':>18}"
+    f"{'log(target/comp)':>18}"
+)
 for name, d in [("no hook", dist_no), ("main memory", dist_m), ("compare memory", dist_c)]:
-    pm, pf = d[monday_id].item(), d[friday_id].item()
-    log_ratio = torch.log(torch.tensor(pm / max(pf, 1e-30))).item()
-    print(f"{name:<20}{pm:>12.6f}{pf:>12.6f}{log_ratio:>12.3f}")
+    pt, pc = d[target_id].item(), d[compare_id].item()
+    log_ratio = torch.log(torch.tensor(pt / max(pc, 1e-30))).item()
+    print(f"{name:<20}{pt:>18.6f}{pc:>18.6f}{log_ratio:>18.3f}")
 
 eps = 1e-12
 kl_m_no = (dist_m * (dist_m.clamp_min(eps).log() - dist_no.clamp_min(eps).log())).sum().item()
@@ -380,7 +394,7 @@ for name, d in [("no hook", dist_no), ("main memory", dist_m), ("compare memory"
     print(f"{name} top5: {list(zip(toks, probs))}")
 
 print("\n해석 가이드:")
-print("  성공: log(M/F) > 0 under main, < 0 under compare, KL(main || compare) > 0.5")
+print("  성공: log(target/comp) > 0 under main, < 0 under compare, KL(main || compare) > 0.5")
 print("  collapse: KL(main || compare) < 0.01 → 두 memory가 사실상 같은 분포")
 print("  무효화: KL(main || no_hook) ≈ 0 → hook이 아예 효과 없음")
 
@@ -469,9 +483,12 @@ print("    → critical layer를 더 뒤로 옮기거나 alpha를 올려야 함"
 section("[E] Slot ablation — 각 slot을 0으로 만들었을 때 p(Monday) 변화")
 
 base_dist = answer_first_dist(score_batch, main["K"], main["V"])
-base_pm = base_dist[monday_id].item()
-base_pf = base_dist[friday_id].item()
-print(f"all slots active: p(Monday)={base_pm:.6f}, p(Friday)={base_pf:.6f}")
+base_pm = base_dist[target_id].item()
+base_pf = base_dist[compare_id].item()
+print(
+    f"all slots active: p({EXPECTED_ANSWER})={base_pm:.6f}, "
+    f"p({COMPARE_EXPECTED_ANSWER})={base_pf:.6f}"
+)
 
 deltas = []
 for k in range(NUM_KV):
@@ -480,10 +497,14 @@ for k in range(NUM_KV):
     K_mask[:, k, :] = 0
     V_mask[:, k, :] = 0
     d = answer_first_dist(score_batch, K_mask, V_mask)
-    dpm = d[monday_id].item() - base_pm
-    dpf = d[friday_id].item() - base_pf
+    dpm = d[target_id].item() - base_pm
+    dpf = d[compare_id].item() - base_pf
     deltas.append((k, dpm, dpf))
-    print(f"  slot {k:2d} off: Δp(Monday)={dpm:+.6f}, Δp(Friday)={dpf:+.6f}")
+    print(
+        f"  slot {k:2d} off: "
+        f"Δp({EXPECTED_ANSWER})={dpm:+.6f}, "
+        f"Δp({COMPARE_EXPECTED_ANSWER})={dpf:+.6f}"
+    )
 
 contributing = [d for d in deltas if abs(d[1]) > 1e-6 or abs(d[2]) > 1e-6]
 print(f"\n유효 slot 수: {len(contributing)} / {NUM_KV}")
