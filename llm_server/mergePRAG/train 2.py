@@ -17,45 +17,31 @@ import os
 import time
 from pathlib import Path
 from datetime import datetime
+import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from .config import (
     ALPHA,
-    ALLOW_CONFIG_MISMATCH_RESUME,
-    ALLOW_LEGACY_CHECKPOINT_RESUME,
     CHART_PATH,
     CHECKPOINT_PATH,
-    HIDDEN_SIM_TARGET,
-    K_SIM_TARGET,
     KV_PATH_MODE,
     LOG_PATH,
     MAX_SEQ_LEN,
     MODEL_NAME,
-    NEGATIVE_LOSS_WEIGHT,
-    NEGATIVE_MARGIN,
     NUM_KV,
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
-    QUESTION_NEGATIVE_LOSS_WEIGHT,
-    QUESTION_REPULSION_LOSS_WEIGHT,
     QUERY_POOL_SCALE,
-    REPULSION_LOSS_WEIGHT,
-    SLOT_DIVERSITY_LOSS_WEIGHT,
-    SLOT_DIVERSITY_TARGET,
     TRAIN_DATA_PATH,
-    TRAIN_PROMPT_FORMAT,
     USE_POOLED_KV_SKIP,
     USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     VALID_DATA_PATH,
-    V_SIM_TARGET,
-    V_REPULSION_MULTIPLIER,
     V_RMS_CLAMP,
     WEIGHTS_PATH as SAVE_PATH,
-    build_chat_text,
     load_critical_layer,
 )
 from .embedding import (
@@ -80,6 +66,14 @@ SAVE_EVERY = 500            # 500 step마다 체크포인트 저장
 PATIENCE = 3                # 5→3으로 감소 (overfitting 방지)
 TRAIN_MAX_PASSAGE_SENTENCES = 6
 GRAD_CLIP_NORM = 1.0
+NEGATIVE_MARGIN = 0.2
+NEGATIVE_LOSS_WEIGHT = 0.25
+REPULSION_LOSS_WEIGHT = 0.50
+HIDDEN_SIM_TARGET = 0.97
+K_SIM_TARGET = 0.95
+V_SIM_TARGET = 0.85
+QUESTION_REPULSION_LOSS_WEIGHT = 1.25
+QUESTION_NEGATIVE_LOSS_WEIGHT = 0.50
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -147,59 +141,11 @@ def extract_hotpot_passage(sample: dict, max_sentences: int = TRAIN_MAX_PASSAGE_
     return " ".join(selected).strip()
 
 
-def format_speaker_text(speaker: str | None, text: str) -> str:
-    text = str(text or "").strip()
-    if not text:
-        return ""
-    speaker = str(speaker or "").strip()
-    if speaker:
-        return f"{speaker}: {text}"
-    return text
-
-
-def extract_utterance_passage(sample: dict) -> str:
-    """서비스 데이터는 transcript/chunk 형태일 수 있어 speaker 발화를 passage로 정규화한다."""
-    utterance = sample.get("utterance")
-    if isinstance(utterance, str) and utterance.strip():
-        return format_speaker_text(sample.get("speaker"), utterance)
-
-    for key in ("text", "content", "transcript", "chunk_text"):
-        value = sample.get(key)
-        if isinstance(value, str) and value.strip():
-            return format_speaker_text(sample.get("speaker"), value)
-
-    for key in ("utterances", "messages", "turns"):
-        value = sample.get(key)
-        if not isinstance(value, list):
-            continue
-        lines = []
-        for item in value:
-            if isinstance(item, str):
-                line = item.strip()
-            elif isinstance(item, dict):
-                line = format_speaker_text(
-                    item.get("speaker") or item.get("role") or item.get("name"),
-                    item.get("utterance") or item.get("text") or item.get("content"),
-                )
-            else:
-                line = ""
-            if line:
-                lines.append(line)
-        if lines:
-            return "\n".join(lines)
-
-    return ""
-
-
 def extract_passage(sample: dict) -> str:
     """서비스용 QA-passage 학습에 맞는 근거 passage를 선택한다."""
     passage = sample.get("passage")
     if isinstance(passage, str) and passage.strip():
         return passage.strip()
-
-    utterance_passage = extract_utterance_passage(sample)
-    if utterance_passage:
-        return utterance_passage
 
     hotpot_passage = extract_hotpot_passage(sample)
     if hotpot_passage:
@@ -278,18 +224,10 @@ class MergePRAGDataset(Dataset):
                 })
         self.indices_by_source = {}
         self.indices_by_passage = {}
-        self.indices_by_question = {}
-        self.indices_by_contrast = {}
         for idx, sample in enumerate(self.data):
             source_id = sample.get("source_id") or sample.get("id")
             if source_id is not None:
                 self.indices_by_source.setdefault(str(source_id), []).append(idx)
-            question_key = normalize_passage_text(sample.get("question", ""))
-            if question_key:
-                self.indices_by_question.setdefault(question_key, []).append(idx)
-            contrast_id = sample.get("contrast_id") or sample.get("group_id")
-            if contrast_id is not None:
-                self.indices_by_contrast.setdefault(str(contrast_id), []).append(idx)
             passage_key = normalize_passage_text(sample.get("passage", ""))
             if passage_key:
                 self.indices_by_passage.setdefault(passage_key, []).append(idx)
@@ -408,19 +346,8 @@ def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
     labels    = [-100]*prompt_len + [answer+eos]
     → compute_loss가 logits[:,:-1]과 labels[:,1:]로 shift하면
       prompt 마지막 토큰을 본 후 첫 answer 토큰을 예측."""
-    task_prompt = build_prompt_for_task(question, task)
-    if TRAIN_PROMPT_FORMAT == "chat":
-        prompt = build_chat_text(
-            tokenizer,
-            question=task_prompt,
-            enable_thinking=False,
-        )
-        answer_text = f"{answer}{tokenizer.eos_token}"
-    elif TRAIN_PROMPT_FORMAT == "plain":
-        prompt = task_prompt
-        answer_text = f" {answer}{tokenizer.eos_token}"
-    else:
-        raise ValueError(f"Unsupported MERGEPRAG_TRAIN_PROMPT_FORMAT: {TRAIN_PROMPT_FORMAT}")
+    prompt = build_prompt_for_task(question, task)
+    answer_text = f" {answer}{tokenizer.eos_token}"
 
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
     tok_answer = tokenizer(answer_text, return_tensors="pt", add_special_tokens=False, truncation=True, max_length=MAX_SEQ_LEN)
@@ -439,133 +366,38 @@ def normalize_passage_text(text: str) -> str:
     return " ".join((text or "").split()).strip().lower()
 
 
-def build_inline_negative_sample(sample: dict, raw_negative, fallback_question: str) -> dict | None:
-    if isinstance(raw_negative, str):
-        passage = raw_negative.strip()
-        if not passage:
-            return None
-        return {
-            "question": fallback_question,
-            "answer": "__hard_negative__",
-            "passage": passage,
-            "task": sample.get("task", "final_qa"),
-            "negative_type": "explicit",
-        }
-
-    if isinstance(raw_negative, dict):
-        passage = extract_passage(raw_negative)
-        if not passage:
-            return None
-        return {
-            **raw_negative,
-            "question": str(raw_negative.get("question") or fallback_question).strip(),
-            "answer": extract_answer(raw_negative) or str(
-                raw_negative.get("negative_answer")
-                or raw_negative.get("counterfactual_answer")
-                or "__hard_negative__"
-            ),
-            "passage": passage,
-            "task": raw_negative.get("task") or sample.get("task", "final_qa"),
-            "negative_type": "explicit",
-        }
-
-    return None
-
-
-def iter_explicit_negative_samples(sample: dict):
-    question = str(sample.get("question", "")).strip()
-    for key in (
-        "hard_negative_passage",
-        "negative_passage",
-        "counterfactual_passage",
-        "distractor_passage",
-    ):
-        value = sample.get(key)
-        negative = build_inline_negative_sample(sample, value, question)
-        if negative is not None:
-            yield negative
-
-    for key in ("hard_negatives", "negative_passages", "counterfactuals", "distractors"):
-        values = sample.get(key)
-        if not isinstance(values, list):
-            continue
-        for item in values:
-            negative = build_inline_negative_sample(sample, item, question)
-            if negative is not None:
-                yield negative
-
-
-def is_valid_negative(sample: dict, candidate: dict, *, require_diff_passage: bool = True) -> bool:
-    if candidate is sample:
-        return False
-    sample_answer = sample.get("answer")
-    sample_passage_key = normalize_passage_text(sample.get("passage", ""))
-    candidate_passage_key = normalize_passage_text(candidate.get("passage", ""))
-    if require_diff_passage and candidate_passage_key == sample_passage_key:
-        return False
-    return candidate.get("answer") != sample_answer
-
-
-def select_negative_from_indices(dataset: MergePRAGDataset, sample: dict, index: int, indices: list[int]):
-    candidates = [
-        dataset.data[idx]
-        for idx in indices
-        if idx != index and is_valid_negative(sample, dataset.data[idx])
-    ]
-    if not candidates:
-        return None
-    return candidates[index % len(candidates)]
-
-
 def get_negative_sample(dataset: MergePRAGDataset, index: int):
     sample = dataset[index]
-    for explicit_negative in iter_explicit_negative_samples(sample):
-        if is_valid_negative(sample, explicit_negative):
-            return explicit_negative
-
-    contrast_id = sample.get("contrast_id") or sample.get("group_id")
-    if contrast_id is not None:
-        contrast_negative = select_negative_from_indices(
-            dataset,
-            sample,
-            index,
-            dataset.indices_by_contrast.get(str(contrast_id), []),
-        )
-        if contrast_negative is not None:
-            return contrast_negative
-
-    question_key = normalize_passage_text(sample.get("question", ""))
-    if question_key:
-        same_question_negative = select_negative_from_indices(
-            dataset,
-            sample,
-            index,
-            dataset.indices_by_question.get(question_key, []),
-        )
-        if same_question_negative is not None:
-            return same_question_negative
-
     source_id = sample.get("source_id") or sample.get("id")
+    sample_answer = sample.get("answer")
+    sample_passage_key = normalize_passage_text(sample.get("passage", ""))
+
     if source_id is not None:
-        source_negative = select_negative_from_indices(
-            dataset,
-            sample,
-            index,
-            dataset.indices_by_source.get(str(source_id), []),
-        )
-        if source_negative is not None:
-            return source_negative
+        candidates = [
+            dataset.data[idx]
+            for idx in dataset.indices_by_source.get(str(source_id), [])
+            if (
+                idx != index
+                and dataset.data[idx].get("answer") != sample_answer
+                and normalize_passage_text(dataset.data[idx].get("passage", "")) != sample_passage_key
+            )
+        ]
+        if candidates:
+            return candidates[index % len(candidates)]
 
     dataset_size = len(dataset)
     for offset in range(1, dataset_size):
         candidate = dataset[(index + offset) % dataset_size]
-        if is_valid_negative(sample, candidate):
+        if (
+            candidate.get("answer") != sample_answer
+            and normalize_passage_text(candidate.get("passage", "")) != sample_passage_key
+        ):
             return candidate
 
     # 정말로 다른 passage를 못 찾으면 그때만 기존 fallback을 허용.
     for offset in range(1, dataset_size):
         candidate = dataset[(index + offset) % dataset_size]
-        if is_valid_negative(sample, candidate, require_diff_passage=False):
+        if candidate.get("answer") != sample_answer:
             return candidate
 
     return dataset[(index + 1) % dataset_size]
@@ -600,30 +432,9 @@ def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, del
     loss = (
         torch.relu(hidden_sim - HIDDEN_SIM_TARGET)
         + torch.relu(k_sim - K_SIM_TARGET)
-        + V_REPULSION_MULTIPLIER * torch.relu(v_sim - V_SIM_TARGET)
+        + 2.0 * torch.relu(v_sim - V_SIM_TARGET)
     )
     return loss, hidden_sim, k_sim, v_sim
-
-
-def compute_slot_diversity_loss(delta_k, delta_v):
-    """num_kv>1에서 여러 slot이 같은 방향으로 복제되는 것을 약하게 막는다."""
-    if delta_k.size(1) <= 1:
-        zero = delta_k.new_tensor(0.0)
-        nan = float("nan")
-        return zero, nan, nan
-
-    def offdiag_penalty(x):
-        x = F.normalize(x, dim=-1)
-        sim = torch.matmul(x, x.transpose(1, 2))
-        num_slots = sim.size(-1)
-        mask = ~torch.eye(num_slots, dtype=torch.bool, device=sim.device).unsqueeze(0)
-        offdiag = sim.masked_select(mask)
-        penalty = torch.relu(offdiag.abs() - SLOT_DIVERSITY_TARGET).mean()
-        return penalty, offdiag.abs().mean()
-
-    k_loss, k_abs_sim = offdiag_penalty(delta_k)
-    v_loss, v_abs_sim = offdiag_penalty(delta_v)
-    return k_loss + v_loss, k_abs_sim.item(), v_abs_sim.item()
 
 
 # ── Validation ──
@@ -698,8 +509,6 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
 # ── 차트 저장 ──
 def save_chart(log_data):
     """Train/Val loss 곡선 차트 (발표자료용)"""
-    import matplotlib.pyplot as plt
-
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
     # 좌측: Step별 Train Loss (smoothed)
@@ -749,63 +558,6 @@ def save_chart(log_data):
     print(f"[차트] 저장: {CHART_PATH}")
 
 
-def current_training_config() -> dict:
-    return {
-        "model": MODEL_NAME,
-        "critical_layer": CRITICAL_LAYER,
-        "num_kv": NUM_KV,
-        "alpha": ALPHA,
-        "max_seq_len": MAX_SEQ_LEN,
-        "contextual": USE_CONTEXTUAL_PASSAGE_ENCODER,
-        "question_conditioned": USE_QUESTION_CONDITIONED_MEMORY,
-        "query_pool_scale": QUERY_POOL_SCALE,
-        "kv_path_mode": KV_PATH_MODE,
-        "pooled_kv_skip": USE_POOLED_KV_SKIP,
-        "pooled_k_skip_scale": POOLED_K_SKIP_SCALE,
-        "pooled_v_skip_scale": POOLED_V_SKIP_SCALE,
-        "v_rms_clamp": USE_V_RMS_CLAMP,
-        "v_rms_clamp_value": V_RMS_CLAMP,
-        "v_repulsion_multiplier": V_REPULSION_MULTIPLIER,
-        "train_prompt_format": TRAIN_PROMPT_FORMAT,
-        "train_data_path": TRAIN_DATA_PATH,
-        "valid_data_path": VALID_DATA_PATH,
-        "negative_margin": NEGATIVE_MARGIN,
-        "negative_loss_weight": NEGATIVE_LOSS_WEIGHT,
-        "repulsion_loss_weight": REPULSION_LOSS_WEIGHT,
-        "question_negative_loss_weight": QUESTION_NEGATIVE_LOSS_WEIGHT,
-        "question_repulsion_loss_weight": QUESTION_REPULSION_LOSS_WEIGHT,
-        "slot_diversity_loss_weight": SLOT_DIVERSITY_LOSS_WEIGHT,
-        "slot_diversity_target": SLOT_DIVERSITY_TARGET,
-    }
-
-
-def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> list[str]:
-    checked_keys = (
-        "model",
-        "critical_layer",
-        "num_kv",
-        "alpha",
-        "max_seq_len",
-        "contextual",
-        "question_conditioned",
-        "query_pool_scale",
-        "kv_path_mode",
-        "pooled_kv_skip",
-        "pooled_k_skip_scale",
-        "pooled_v_skip_scale",
-        "v_rms_clamp",
-        "v_rms_clamp_value",
-        "train_prompt_format",
-        "train_data_path",
-        "valid_data_path",
-    )
-    mismatches = []
-    for key in checked_keys:
-        if saved_config.get(key) != current_config.get(key):
-            mismatches.append(f"{key}: checkpoint={saved_config.get(key)!r}, current={current_config.get(key)!r}")
-    return mismatches
-
-
 # ── 학습 메인 ──
 def train():
     print(f"[학습] 모델 로딩: {MODEL_NAME}")
@@ -849,46 +601,25 @@ def train():
 
     # ── 체크포인트 복구 (중간에 끊긴 경우) ──
     resume_step = 0
-    run_config = current_training_config()
     if os.path.exists(CHECKPOINT_PATH):
         ckpt = torch.load(CHECKPOINT_PATH, map_location=device)
         try:
-            checkpoint_config = ckpt.get("config")
-            can_resume = True
-            if checkpoint_config is None:
-                can_resume = ALLOW_LEGACY_CHECKPOINT_RESUME
-                print(
-                    "[경고] 체크포인트에 config snapshot이 없습니다. "
-                    "설정 불일치로 인한 잘못된 재개를 막기 위해 기본값으로는 새 학습을 시작합니다."
-                )
-                if not can_resume:
-                    print("       정말 이어서 학습하려면 MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME=true 를 설정하세요.")
-            else:
-                mismatches = checkpoint_config_mismatches(checkpoint_config, run_config)
-                if mismatches and not ALLOW_CONFIG_MISMATCH_RESUME:
-                    can_resume = False
-                    print("[경고] 현재 설정과 체크포인트 설정이 달라 새 학습을 시작합니다.")
-                    for mismatch in mismatches[:10]:
-                        print(f"       - {mismatch}")
-                    if len(mismatches) > 10:
-                        print(f"       - ... and {len(mismatches) - 10} more")
-                    print("       강제로 재개하려면 MERGEPRAG_ALLOW_CONFIG_MISMATCH_RESUME=true 를 설정하세요.")
-
-            if can_resume:
-                hypernet.load_state_dict(ckpt["hypernet"])
-                optimizer.load_state_dict(ckpt["optimizer"])
-                scheduler.load_state_dict(ckpt["scheduler"])
-                resume_step = ckpt["step"]
-                best_val_loss = ckpt.get("best_val_loss", float("inf"))
-                print(f"[복구] 체크포인트에서 재개: step {resume_step}")
-        except (RuntimeError, KeyError, AttributeError) as e:
+            hypernet.load_state_dict(ckpt["hypernet"])
+            optimizer.load_state_dict(ckpt["optimizer"])
+            scheduler.load_state_dict(ckpt["scheduler"])
+            resume_step = ckpt["step"]
+            best_val_loss = ckpt.get("best_val_loss", float("inf"))
+            print(f"[복구] 체크포인트에서 재개: step {resume_step}")
+        except (RuntimeError, KeyError) as e:
             print(f"[경고] 체크포인트 차원 불일치 (설정 변경됨), 처음부터 학습: {e}")
             resume_step = 0
 
     # ── 로그 ──
     log_data = {
         "config": {
-            **run_config,
+            "model": MODEL_NAME,
+            "critical_layer": CRITICAL_LAYER,
+            "num_kv": NUM_KV,
             "lr": LR,
             "lr_min": LR_MIN,
             "optimizer": "AdamW",
@@ -917,9 +648,7 @@ def train():
         f"k_skip_scale={POOLED_K_SKIP_SCALE}, v_skip_scale={POOLED_V_SKIP_SCALE}, "
         f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}, "
         f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
-        f"query_pool_scale={QUERY_POOL_SCALE}, "
-        f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
-        f"slot_diversity={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}"
+        f"query_pool_scale={QUERY_POOL_SCALE}"
     )
     hypernet.train()
     start_time = time.time()
@@ -984,10 +713,6 @@ def train():
                     delta_V,
                     neg_V,
                 )
-                slot_diversity_loss, slot_k_abs_sim, slot_v_abs_sim = compute_slot_diversity_loss(
-                    delta_K,
-                    delta_V,
-                )
                 question_neg_loss = torch.tensor(0.0, device=device)
                 question_repulsion_loss = torch.tensor(0.0, device=device)
                 question_k_sim = float("nan")
@@ -1031,7 +756,6 @@ def train():
                     + REPULSION_LOSS_WEIGHT * repulsion_loss
                     + QUESTION_NEGATIVE_LOSS_WEIGHT * question_neg_loss
                     + QUESTION_REPULSION_LOSS_WEIGHT * question_repulsion_loss
-                    + SLOT_DIVERSITY_LOSS_WEIGHT * slot_diversity_loss
                 )
                 loss_val = task_loss.item()
                 k_vec_norm = delta_K.detach().norm(dim=-1).mean().item()
@@ -1039,7 +763,6 @@ def train():
                 neg_loss_val = neg_task_loss.item()
                 grounding_val = grounding_loss.item()
                 repulsion_val = repulsion_loss.item()
-                slot_diversity_val = slot_diversity_loss.item()
                 question_neg_val = question_neg_loss.item()
                 question_repulsion_val = question_repulsion_loss.item()
                 same_passage_neg = (
@@ -1096,7 +819,6 @@ def train():
                 "negative_loss": round(neg_loss_val, 4),
                 "grounding_loss": round(grounding_val, 4),
                 "repulsion_loss": round(repulsion_val, 4),
-                "slot_diversity_loss": round(slot_diversity_val, 4),
                 "question_negative_loss": round(question_neg_val, 4),
                 "question_repulsion_loss": round(question_repulsion_val, 4),
             })
@@ -1118,11 +840,9 @@ def train():
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
                     f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
-                    f"slot: {slot_diversity_val:.4f} | "
                     f"qneg: {question_neg_val:.4f} | qrep: {question_repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
                     f"Pcos: {pooled_cos:.4f} | Hcos: {hidden_sim:.4f} | Kcos: {k_sim:.4f} | Vcos: {v_sim:.4f}"
-                    f" | slotK: {slot_k_abs_sim:.4f} | slotV: {slot_v_abs_sim:.4f}"
                     f" | qKcos: {question_k_sim:.4f} | qVcos: {question_v_sim:.4f}"
                     f" | neg_same_passage: {same_passage_neg}"
                     f"{diag} | "
@@ -1137,7 +857,6 @@ def train():
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict(),
                     "best_val_loss": best_val_loss,
-                    "config": run_config,
                 }, CHECKPOINT_PATH)
                 # 중간 로그도 저장 (크래시 대비)
                 with open(LOG_PATH, "w", encoding="utf-8") as f:

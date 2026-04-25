@@ -200,8 +200,26 @@ main = get_kv(PASSAGE, QUESTION)
 comp = get_kv(COMPARE_PASSAGE, QUESTION)
 
 
+def comparable_vector(x):
+    """Variable-length token sequences cannot be flattened directly.
+
+    For sequence tensors such as [B, T, D], compare their mean feature vector so
+    same-passage/different-question diagnostics do not crash when T differs.
+    Fixed-size tensors such as pooled/K/V keep the original flatten behavior.
+    """
+    if x.dim() >= 3:
+        return x.reshape(-1, x.shape[-1]).mean(dim=0)
+    return x.flatten()
+
+
 def vec_cos(a, b):
-    return F.cosine_similarity(a.flatten().unsqueeze(0), b.flatten().unsqueeze(0)).item()
+    va = comparable_vector(a).float()
+    vb = comparable_vector(b).float()
+    if va.numel() != vb.numel():
+        min_len = min(va.numel(), vb.numel())
+        va = va[:min_len]
+        vb = vb[:min_len]
+    return F.cosine_similarity(va.unsqueeze(0), vb.unsqueeze(0)).item()
 
 
 print(f"{'Stage':<12} {'Cosine':>10} {'|main|':>10} {'|comp|':>10}")
