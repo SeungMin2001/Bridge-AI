@@ -46,8 +46,9 @@ MEMORY_ENCODER_INSTRUCTION = os.getenv(
         "negation, and the exact entity that answers the question."
     ),
 )
-# K는 MLP가 분리하고, V는 passage pooled 정보를 직접 싣도록 skip 경로를 기본으로 둔다.
-KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_mlp_v_skip").strip().lower()
+# K MLP가 near-counterfactual 차이를 다시 뭉개는 경우가 있어 K에도 pooled skip을 섞는다.
+# V는 passage pooled 정보를 직접 싣도록 skip 경로를 기본으로 둔다.
+KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_hybrid_v_skip").strip().lower()
 USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)
 POOLED_KV_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_KV_SKIP_SCALE", 1.0)
 POOLED_K_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_K_SKIP_SCALE", POOLED_KV_SKIP_SCALE)

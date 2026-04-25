@@ -103,6 +103,9 @@ class HyperNetwork(nn.Module):
             elif self.kv_path_mode == "k_mlp_v_skip":
                 K_raw = K_mlp
                 V_raw = self.pooled_v_skip_scale * V_skip
+            elif self.kv_path_mode == "k_hybrid_v_skip":
+                K_raw = K_mlp + self.pooled_k_skip_scale * K_skip
+                V_raw = self.pooled_v_skip_scale * V_skip
             else:
                 raise ValueError(f"Unsupported MERGEPRAG_KV_PATH_MODE: {self.kv_path_mode}")
         return {
