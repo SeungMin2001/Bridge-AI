@@ -344,6 +344,22 @@ def masked_mean(hidden, mask):
     return (hidden * weights).sum(dim=1) / denom
 
 
+def build_memory_query_for_task(question: str, task: str = "final_qa") -> str:
+    """Question-conditioned memory에도 task 의도를 넣는다.
+
+    HotPot processed 데이터는 같은 원문 question/passage 조합이 hop_fact와
+    final_qa로 동시에 등장할 수 있다. memory query가 원문 question만 보면
+    두 task가 같은 K/V를 공유하게 되어 supervision 충돌이 생긴다.
+    """
+    question = str(question or "").strip()
+    if task == "hop_fact":
+        return (
+            "Task: identify the supporting fact currently grounded in the passage.\n"
+            f"Question: {question}"
+        )
+    return question
+
+
 def encode_memory(model, hypernet, tokenizer, question: str, passage: str, device):
     if USE_QUESTION_CONDITIONED_MEMORY:
         encoded = tokenize_conditioned_memory(
@@ -640,37 +656,17 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             if idx >= EVAL_MAX_SAMPLES:
                 break
 
-            if USE_QUESTION_CONDITIONED_MEMORY:
-                encoded = tokenize_conditioned_memory(
-                    tokenizer,
-                    sample["question"],
-                    sample["passage"],
-                    device,
-                    max_length=MAX_SEQ_LEN,
-                )
-            else:
-                encoded = tokenize_passage_memory(
-                    tokenizer,
-                    sample["passage"],
-                    device,
-                    max_length=MAX_SEQ_LEN,
-                )
-            input_ids = encoded["input_ids"]
-            attention_mask = encoded["attention_mask"]
-            question_mask = encoded["question_mask"]
-            passage_mask = encoded["passage_mask"]
-            c_emb = encode_passage_states(
-                model,
-                input_ids,
-                attention_mask=attention_mask,
-                use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
+            memory_query = build_memory_query_for_task(
+                sample["question"],
+                sample.get("task", "final_qa"),
             )
-            query = masked_mean(c_emb, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
-            delta_K, delta_V = hypernet(
-                c_emb,
-                attention_mask=attention_mask,
-                query=query,
-                focus_mask=passage_mask,
+            _, c_emb, _, _, delta_K, delta_V = encode_memory(
+                model,
+                hypernet,
+                tokenizer,
+                memory_query,
+                sample["passage"],
+                device,
             )
 
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
@@ -773,6 +769,7 @@ def current_training_config() -> dict:
         "train_prompt_format": TRAIN_PROMPT_FORMAT,
         "train_data_path": TRAIN_DATA_PATH,
         "valid_data_path": VALID_DATA_PATH,
+        "memory_query_format": "task_aware_v1",
         "negative_margin": NEGATIVE_MARGIN,
         "negative_loss_weight": NEGATIVE_LOSS_WEIGHT,
         "repulsion_loss_weight": REPULSION_LOSS_WEIGHT,
@@ -802,6 +799,7 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "train_prompt_format",
         "train_data_path",
         "valid_data_path",
+        "memory_query_format",
     )
     mismatches = []
     for key in checked_keys:
@@ -947,8 +945,10 @@ def train():
             try:
                 # 1. passage → HyperNetwork → delta_K, delta_V (논문: CE loss만)
                 passage = sample["passage"]
+                task = sample.get("task", "final_qa")
+                memory_query = build_memory_query_for_task(sample["question"], task)
                 input_ids, c_emb, pooled_pos, hidden_pos, delta_K, delta_V = encode_memory(
-                    model, hypernet, tokenizer, sample["question"], passage, device
+                    model, hypernet, tokenizer, memory_query, passage, device
                 )
 
                 # 2. Q+A 토큰화 (labels=-100 마스킹)
@@ -957,7 +957,7 @@ def train():
                     sample["question"],
                     sample["answer"],
                     device,
-                    task=sample.get("task", "final_qa"),
+                    task=task,
                 )
 
                 # 3. memory로 정답 loss — 원본 CE objective 유지
@@ -971,7 +971,7 @@ def train():
                     model,
                     hypernet,
                     tokenizer,
-                    sample["question"],
+                    memory_query,
                     negative_sample["passage"],
                     device,
                 )
@@ -999,11 +999,15 @@ def train():
                 question_v_sim = float("nan")
                 same_passage_question_neg = get_same_passage_negative_sample(train_dataset, i)
                 if USE_QUESTION_CONDITIONED_MEMORY and same_passage_question_neg is not None:
+                    same_passage_memory_query = build_memory_query_for_task(
+                        same_passage_question_neg["question"],
+                        same_passage_question_neg.get("task", "final_qa"),
+                    )
                     _, same_passage_emb, _, hidden_same_passage, same_passage_K, same_passage_V = encode_memory(
                         model,
                         hypernet,
                         tokenizer,
-                        same_passage_question_neg["question"],
+                        same_passage_memory_query,
                         same_passage_question_neg["passage"],
                         device,
                     )
