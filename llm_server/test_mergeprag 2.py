@@ -17,14 +17,12 @@ from mergePRAG.config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
-    TRAIN_PROMPT_FORMAT,
     USE_POOLED_KV_SKIP,
     USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     V_RMS_CLAMP,
     WEIGHTS_PATH,
-    build_chat_text,
     load_critical_layer,
     load_hypernet_state_dict,
 )
@@ -53,7 +51,7 @@ EXPECTED_ANSWER = "Manchester United"
 COMPARE_EXPECTED_ANSWER = "Chelsea"
 ALT_EXPECTED_ANSWER = "Chelsea"
 SYSTEM_PROMPT = "Answer in English with one short sentence grounded in the lecture content."
-MAX_NEW_TOKENS = 12
+MAX_NEW_TOKENS = 150
 
 
 def format_mtime(path):
@@ -79,11 +77,6 @@ def fmt_score(score):
     )
 
 
-def fmt_choice(label, score):
-    loss, _, avg_logprob, _ = score
-    return f"{label}: loss={loss:.3f}, avg_logp={avg_logprob:.3f}"
-
-
 def verdict(label: str, ok: bool):
     return f"{label}={'OK' if ok else 'FAIL'}"
 
@@ -97,7 +90,6 @@ print(
     f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER} | "
     f"kv_path_mode={KV_PATH_MODE} | "
     f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY} | "
-    f"train_prompt_format={TRAIN_PROMPT_FORMAT} | "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
     f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}) | "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
@@ -164,11 +156,6 @@ def encode_passage_stats(question: str, passage: str):
         "emb": emb,
         "pooled": pooled,
         "hidden": hidden,
-        "hidden_v": parts["hidden_v"],
-        "K_mlp": parts["K_mlp"],
-        "V_mlp": parts["V_mlp"],
-        "K_skip": parts["K_skip"],
-        "V_skip": parts["V_skip"],
         "K_raw": K_raw,
         "V_raw": V_raw,
         "K": K,
@@ -217,18 +204,6 @@ print(
     f"V_rms={V.pow(2).mean(dim=-1).sqrt().mean().item():.4f}"
 )
 
-section("Component Stats")
-for name in ("hidden_v", "K_mlp", "V_mlp", "K_skip", "V_skip"):
-    left = main_stats.get(name)
-    right = compare_stats.get(name)
-    if left is None or right is None:
-        print(f"{name}: n/a")
-        continue
-    cos = torch.nn.functional.cosine_similarity(left.reshape(1, -1), right.reshape(1, -1)).item()
-    left_rms = left.pow(2).mean(dim=-1).sqrt().mean().item()
-    right_rms = right.pow(2).mean(dim=-1).sqrt().mean().item()
-    print(f"{name}: cos={cos:.4f} | rms={left_rms:.4f}/{right_rms:.4f}")
-
 if USE_QUESTION_CONDITIONED_MEMORY and alt_question_stats is not None:
     alt_pooled = alt_question_stats["pooled"]
     alt_hidden = alt_question_stats["hidden"]
@@ -243,34 +218,16 @@ if USE_QUESTION_CONDITIONED_MEMORY and alt_question_stats is not None:
         f"cos(V)={torch.nn.functional.cosine_similarity(V.view(1,-1), alt_V.view(1,-1)).item():.4f}"
     )
 
-# ── 프롬프트 포맷 ─────────────────────────────────────────────
-# scoring_prompt는 훈련 형식과 일치시켜 loss 비교를 유지한다.
-# generation_prompt는 자유 생성이 "the other team" 같은 일반 답으로 빠지는지 보려고
-# 정답 엔티티만 요구하는 별도 진단 프롬프트를 사용한다.
-def format_prompt(user_prompt: str) -> str:
-    if TRAIN_PROMPT_FORMAT == "chat":
-        return build_chat_text(tokenizer, question=user_prompt, enable_thinking=False)
-    if TRAIN_PROMPT_FORMAT == "plain":
-        return user_prompt
-    raise ValueError(f"Unsupported MERGEPRAG_TRAIN_PROMPT_FORMAT: {TRAIN_PROMPT_FORMAT}")
-
-
-scoring_prompt_text = format_prompt(f"Question: {QUESTION}\nAnswer:")
-generation_prompt_text = format_prompt(
-    f"Question: {QUESTION}\n"
-    "Answer with only the winning team name:"
-)
-scoring_inputs = tokenizer(scoring_prompt_text, return_tensors="pt").to(device)
-generation_inputs = tokenizer(generation_prompt_text, return_tensors="pt").to(device)
+# ── 프롬프트 포맷: 훈련과 정확히 일치시킴 (chat template 쓰지 않음) ──
+# 훈련: "Question: X\nAnswer:" → hypernet K/V가 이 문맥의 hidden state에 맞춰 학습됨.
+# 추론에서 chat template을 쓰면 hidden state 구조가 달라져 K/V가 엉뚱하게 적용됨.
+prompt_text = f"Question: {QUESTION}\nAnswer:"
+inputs = tokenizer(prompt_text, return_tensors="pt").to(device)
 
 
 def build_scoring_batch(answer_text: str):
-    prompt = format_prompt(f"Question: {QUESTION}\nAnswer:")
-    answer = (
-        f"{answer_text}{tokenizer.eos_token}"
-        if TRAIN_PROMPT_FORMAT == "chat"
-        else f" {answer_text}{tokenizer.eos_token}"
-    )
+    prompt = f"Question: {QUESTION}\nAnswer:"
+    answer = f" {answer_text}{tokenizer.eos_token}"
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True)
     tok_answer = tokenizer(answer, return_tensors="pt", add_special_tokens=False, truncation=True)
     prompt_len = tok_prompt["input_ids"].shape[1]
@@ -322,7 +279,7 @@ section("Delta Check")
 # delta vs hidden 크기 진단 (1회만)
 hook = layer.register_forward_hook(make_hook(K, V, alpha=1.0, diag=True))
 with torch.no_grad():
-    _ = model(**scoring_inputs)
+    _ = model(**inputs)
 hook.remove()
 
 STOP_IDS = tokenizer.encode("\nQuestion:", add_special_tokens=False)
@@ -368,16 +325,12 @@ def score_answer_without_memory(answer_text: str):
         logits = model(input_ids=score_inputs["input_ids"])["logits"]
     return compute_answer_loss(logits, score_inputs["labels"])
 
-
-def choose_candidate(score_map: dict[str, tuple]):
-    return min(score_map.items(), key=lambda item: item[1][0])
-
 # Hook 없이 생성
 with torch.no_grad():
     gen_no_hook = model.generate(
-        **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+        **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
     )
-answer_no = decode_answer(gen_no_hook, generation_inputs["input_ids"].shape[1])
+answer_no = decode_answer(gen_no_hook, inputs["input_ids"].shape[1])
 score_no_main = score_answer_without_memory(EXPECTED_ANSWER)
 score_no_compare = score_answer_without_memory(COMPARE_EXPECTED_ANSWER)
 section("Generations")
@@ -390,10 +343,10 @@ for alpha in alpha_list:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(
-            **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+            **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
         )
     hook.remove()
-    answer_hook = decode_answer(gen_hook, generation_inputs["input_ids"].shape[1])
+    answer_hook = decode_answer(gen_hook, inputs["input_ids"].shape[1])
     score_main = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     score_compare = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
     alpha_rows.append((alpha, answer_hook, score_main, score_compare))
@@ -414,19 +367,19 @@ for alpha in flip_alphas:
     hook_main = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_main = model.generate(
-            **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+            **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
         )
     hook_main.remove()
 
     hook_compare = layer.register_forward_hook(make_hook(K2, V2, alpha=alpha))
     with torch.no_grad():
         gen_compare = model.generate(
-            **generation_inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+            **inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
         )
     hook_compare.remove()
 
-    answer_main = decode_answer(gen_main, generation_inputs["input_ids"].shape[1])
-    answer_compare = decode_answer(gen_compare, generation_inputs["input_ids"].shape[1])
+    answer_main = decode_answer(gen_main, inputs["input_ids"].shape[1])
+    answer_compare = decode_answer(gen_compare, inputs["input_ids"].shape[1])
     main_target_score = score_answer_with_memory(K, V, EXPECTED_ANSWER, alpha=alpha)
     main_compare_score = score_answer_with_memory(K, V, COMPARE_EXPECTED_ANSWER, alpha=alpha)
     compare_target_score = score_answer_with_memory(K2, V2, EXPECTED_ANSWER, alpha=alpha)
@@ -460,33 +413,6 @@ for (
     )
     print(f"  main    ans: {answer_main}")
     print(f"  compare ans: {answer_compare}")
-
-section("Candidate Choice")
-candidates = [EXPECTED_ANSWER, COMPARE_EXPECTED_ANSWER]
-for alpha in flip_alphas:
-    main_scores = {
-        candidate: score_answer_with_memory(K, V, candidate, alpha=alpha)
-        for candidate in candidates
-    }
-    compare_scores = {
-        candidate: score_answer_with_memory(K2, V2, candidate, alpha=alpha)
-        for candidate in candidates
-    }
-    main_choice, main_choice_score = choose_candidate(main_scores)
-    compare_choice, compare_choice_score = choose_candidate(compare_scores)
-    print(
-        f"α={alpha:<4} | "
-        f"main_choice={main_choice} ({fmt_choice(main_choice, main_choice_score)}) | "
-        f"compare_choice={compare_choice} ({fmt_choice(compare_choice, compare_choice_score)})"
-    )
-    print(
-        "  main scores    | "
-        + " | ".join(fmt_choice(candidate, score) for candidate, score in main_scores.items())
-    )
-    print(
-        "  compare scores | "
-        + " | ".join(fmt_choice(candidate, score) for candidate, score in compare_scores.items())
-    )
 
 # slot별 차이도 같이 확인
 slot_cos_k = []
