@@ -145,10 +145,18 @@ def load_hypernet_state_dict(map_location=None):
 
     def load_weights():
         state = torch_load(WEIGHTS_PATH, map_location=map_location)
+        if isinstance(state, dict) and "hypernet" in state:
+            return state["hypernet"], {
+                "source": WEIGHTS_PATH,
+                "kind": "weights",
+                "step": state.get("step"),
+                "config": state.get("config"),
+            }
         return state, {
             "source": WEIGHTS_PATH,
             "kind": "weights",
             "step": None,
+            "config": None,
         }
 
     def load_checkpoint():
@@ -158,6 +166,7 @@ def load_hypernet_state_dict(map_location=None):
                 "source": CHECKPOINT_PATH,
                 "kind": "checkpoint",
                 "step": ckpt.get("step"),
+                "config": ckpt.get("config"),
             }
         raise ValueError(f"Checkpoint format invalid: {CHECKPOINT_PATH}")
 

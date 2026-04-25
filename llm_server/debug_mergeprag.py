@@ -19,6 +19,8 @@ from mergePRAG.config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
+    SYSTEM_PROMPT,
+    TRAIN_PROMPT_FORMAT,
     USE_K_RMS_CLAMP,
     USE_POOLED_KV_SKIP,
     USE_V_RMS_CLAMP,
@@ -26,6 +28,7 @@ from mergePRAG.config import (
     USE_QUESTION_CONDITIONED_MEMORY,
     K_RMS_CLAMP,
     V_RMS_CLAMP,
+    build_chat_text,
     load_critical_layer,
     load_hypernet_state_dict,
 )
@@ -72,11 +75,13 @@ print(
 print(
     f"[config] critical_layer={CRITICAL_LAYER}, alpha={ALPHA}, num_kv={NUM_KV}, "
     f"kv_path_mode={KV_PATH_MODE}, "
+    f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
     f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}), "
     f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP}, "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
+print(f"[config] system_prompt={SYSTEM_PROMPT[:160]}")
 
 
 def masked_mean(hidden, mask):
@@ -143,17 +148,24 @@ def make_hook(K, V, alpha=ALPHA):
 
 def build_batch(passage: str, question: str, answer_text: str, use_passage_in_prompt: bool):
     if use_passage_in_prompt:
-        prompt = (
+        user_prompt = (
             "Answer the question using the passage-grounded fact.\n"
             f"Passage: {passage}\n"
             f"Question: {question}\nAnswer:"
         )
     else:
-        prompt = (
+        user_prompt = (
             "Answer the question using the passage-grounded fact.\n"
             f"Question: {question}\nAnswer:"
         )
-    ans = f" {answer_text}{tokenizer.eos_token}"
+    if TRAIN_PROMPT_FORMAT == "chat":
+        prompt = build_chat_text(tokenizer, question=user_prompt, enable_thinking=False)
+        ans = f"{answer_text}{tokenizer.eos_token}"
+    elif TRAIN_PROMPT_FORMAT == "plain":
+        prompt = user_prompt
+        ans = f" {answer_text}{tokenizer.eos_token}"
+    else:
+        raise ValueError(f"Unsupported MERGEPRAG_TRAIN_PROMPT_FORMAT: {TRAIN_PROMPT_FORMAT}")
     tok_p = tokenizer(prompt, return_tensors="pt", truncation=True)
     tok_a = tokenizer(ans, return_tensors="pt", add_special_tokens=False, truncation=True)
     plen = tok_p["input_ids"].shape[1]
@@ -365,8 +377,9 @@ dist_no = answer_first_dist(score_batch)
 dist_m = answer_first_dist(score_batch, main["K"], main["V"])
 dist_c = answer_first_dist(score_batch, comp["K"], comp["V"])
 
-target_id = tokenizer(f" {EXPECTED_ANSWER}", add_special_tokens=False)["input_ids"][0]
-compare_id = tokenizer(f" {COMPARE_EXPECTED_ANSWER}", add_special_tokens=False)["input_ids"][0]
+answer_prefix = "" if TRAIN_PROMPT_FORMAT == "chat" else " "
+target_id = tokenizer(f"{answer_prefix}{EXPECTED_ANSWER}", add_special_tokens=False)["input_ids"][0]
+compare_id = tokenizer(f"{answer_prefix}{COMPARE_EXPECTED_ANSWER}", add_special_tokens=False)["input_ids"][0]
 print(f"token id  {EXPECTED_ANSWER}={target_id}  {COMPARE_EXPECTED_ANSWER}={compare_id}")
 print(
     f"{'case':<20}"
@@ -480,7 +493,7 @@ print("    → critical layer를 더 뒤로 옮기거나 alpha를 올려야 함"
 # ═══════════════════════════════════════════════════════════════
 # [E] Slot ablation — 어떤 slot이 실제로 일하고 있나
 # ═══════════════════════════════════════════════════════════════
-section("[E] Slot ablation — 각 slot을 0으로 만들었을 때 p(Monday) 변화")
+section(f"[E] Slot ablation — 각 slot을 0으로 만들었을 때 p({EXPECTED_ANSWER}) 변화")
 
 base_dist = answer_first_dist(score_batch, main["K"], main["V"])
 base_pm = base_dist[target_id].item()
@@ -517,7 +530,7 @@ print("  건강: 절반 이상 slot이 각기 다른 방향으로 기여")
 # ═══════════════════════════════════════════════════════════════
 # [F] 단일 샘플 overfit — 아키텍처의 학습 capacity 확인
 # ═══════════════════════════════════════════════════════════════
-section("[F] 단일 샘플 overfit — (Monday passage, Q, Monday) 한 쌍으로 200 step")
+section(f"[F] 단일 샘플 overfit — ({EXPECTED_ANSWER} passage, Q, {EXPECTED_ANSWER}) 한 쌍으로 200 step")
 
 orig_state = {k: v.clone() for k, v in hypernet.state_dict().items()}
 hypernet.train()
