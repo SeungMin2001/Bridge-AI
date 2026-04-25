@@ -82,12 +82,15 @@ ALLOW_CONFIG_MISMATCH_RESUME = _get_bool("MERGEPRAG_ALLOW_CONFIG_MISMATCH_RESUME
 SYSTEM_PROMPT = os.getenv(
     "MERGEPRAG_SYSTEM_PROMPT",
     (
-        "You are a helpful QA assistant. "
-        "Answer in English with a concise answer grounded in the provided content."
+        "You are a helpful lecture assistant. "
+        "Answer in the same language as the user's question. "
+        "Use only the provided lecture content as the grounding source, "
+        "and keep the answer concise."
     ),
 )
 
 _BASE_DIR = os.path.dirname(__file__)
+DEFAULT_DATA_DIR = os.getenv("MERGEPRAG_DATA_DIR", r"C:\Users\user\Documents\last_project\data")
 CRITICAL_LAYERS_PATH = os.path.join(_BASE_DIR, "critical_layers.json")
 WEIGHTS_PATH = os.path.join(_BASE_DIR, "hypernet_weights.pt")
 CHECKPOINT_PATH = os.path.join(_BASE_DIR, "hypernet_checkpoint.pt")
@@ -95,11 +98,11 @@ LOG_PATH = os.path.join(_BASE_DIR, "train_log.json")
 CHART_PATH = os.path.join(_BASE_DIR, "train_loss_curve.png")
 TRAIN_DATA_PATH = os.getenv(
     "MERGEPRAG_TRAIN_DATA_PATH",
-    r"C:\Users\user\Documents\last_project\data\HotPot_train_processed.jsonl",
+    os.path.join(DEFAULT_DATA_DIR, "ServiceHardPair_train.jsonl"),
 )
 VALID_DATA_PATH = os.getenv(
     "MERGEPRAG_VALID_DATA_PATH",
-    r"C:\Users\user\Documents\last_project\data\HotPot_valid_processed.jsonl",
+    os.path.join(DEFAULT_DATA_DIR, "ServiceHardPair_valid.jsonl"),
 )
 
 

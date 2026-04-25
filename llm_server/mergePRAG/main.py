@@ -163,6 +163,10 @@ class CourseMemoryManager:
                     merged_k = orthogonal_merging(merged_k, cur_k)
                     merged_v = orthogonal_merging(merged_v, cur_v)
             return merged_k.unsqueeze(0), merged_v.unsqueeze(0)
+        if question and USE_QUESTION_CONDITIONED_MEMORY and not passages:
+            # Question-conditioned memory must be regenerated from original passages.
+            # Stored K/V alone is not enough because a different question changes K/V.
+            return None, None
         return mem["K"].unsqueeze(0), mem["V"].unsqueeze(0)  # [1, NUM_KV, d_model]
 
     def has_memory(self, course_id: str) -> bool:
