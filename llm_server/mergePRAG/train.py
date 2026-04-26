@@ -15,6 +15,7 @@ import torch.nn.functional as F
 import json
 import os
 import time
+from collections import Counter
 from pathlib import Path
 from datetime import datetime
 from torch.utils.data import Dataset
@@ -844,6 +845,20 @@ def save_chart(log_data):
     print(f"[차트] 저장: {CHART_PATH}")
 
 
+def dataset_fingerprint(path: str) -> dict:
+    """Prevent accidental resume when a dataset was regenerated at the same path."""
+    abs_path = os.path.abspath(path)
+    try:
+        stat = os.stat(abs_path)
+    except OSError:
+        return {"path": abs_path, "missing": True}
+    return {
+        "path": abs_path,
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+
+
 def current_training_config() -> dict:
     return {
         "model": MODEL_NAME,
@@ -876,6 +891,8 @@ def current_training_config() -> dict:
         "train_prompt_format": TRAIN_PROMPT_FORMAT,
         "train_data_path": TRAIN_DATA_PATH,
         "valid_data_path": VALID_DATA_PATH,
+        "train_data_fingerprint": dataset_fingerprint(TRAIN_DATA_PATH),
+        "valid_data_fingerprint": dataset_fingerprint(VALID_DATA_PATH),
         "memory_query_format": "task_aware_v1",
         "validation_objective": "hard_pair_answer_rank_v1",
         "memory_encoder_instruction": MEMORY_ENCODER_INSTRUCTION,
@@ -924,6 +941,8 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "train_prompt_format",
         "train_data_path",
         "valid_data_path",
+        "train_data_fingerprint",
+        "valid_data_fingerprint",
         "memory_query_format",
         "validation_objective",
         "memory_encoder_instruction",
@@ -943,6 +962,181 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         if saved_config.get(key) != current_config.get(key):
             mismatches.append(f"{key}: checkpoint={saved_config.get(key)!r}, current={current_config.get(key)!r}")
     return mismatches
+
+
+def short_text(text: str, limit: int = 96) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def language_tag(text: str) -> str:
+    return "ko" if contains_hangul(text) else "en"
+
+
+def format_fingerprint(fingerprint: dict) -> str:
+    if fingerprint.get("missing"):
+        return f"{fingerprint.get('path')} (missing)"
+    size_mb = fingerprint.get("size", 0) / (1024 * 1024)
+    mtime_ns = fingerprint.get("mtime_ns")
+    if mtime_ns is None:
+        mtime = "unknown"
+    else:
+        mtime = datetime.fromtimestamp(mtime_ns / 1_000_000_000).strftime("%Y-%m-%d %H:%M:%S")
+    return f"{fingerprint.get('path')} ({size_mb:.2f} MB, mtime={mtime})"
+
+
+def dataset_health_summary(dataset: MergePRAGDataset) -> dict:
+    task_counts = Counter()
+    question_lang_counts = Counter()
+    passage_lang_counts = Counter()
+    hard_negative_count = 0
+    contrast_count = 0
+    language_mismatch_count = 0
+    same_answer_hard_negative_count = 0
+
+    for sample in dataset.data:
+        question = sample.get("question", "")
+        passage = sample.get("passage", "")
+        answer = sample.get("answer", "")
+        q_lang = language_tag(question)
+        p_lang = language_tag(passage)
+        task_counts[sample.get("task", "final_qa")] += 1
+        question_lang_counts[q_lang] += 1
+        passage_lang_counts[p_lang] += 1
+        if q_lang != p_lang:
+            language_mismatch_count += 1
+        if sample.get("contrast_id") or sample.get("group_id"):
+            contrast_count += 1
+        negatives = list(iter_explicit_negative_samples(sample))
+        if negatives:
+            hard_negative_count += 1
+            if normalize_passage_text(negatives[0].get("answer", "")) == normalize_passage_text(answer):
+                same_answer_hard_negative_count += 1
+
+    return {
+        "rows": len(dataset),
+        "tasks": task_counts,
+        "question_lang": question_lang_counts,
+        "passage_lang": passage_lang_counts,
+        "language_mismatch": language_mismatch_count,
+        "hard_negative": hard_negative_count,
+        "contrast": contrast_count,
+        "same_answer_hard_negative": same_answer_hard_negative_count,
+    }
+
+
+def print_sample_preview(name: str, sample: dict):
+    negatives = list(iter_explicit_negative_samples(sample))
+    print(
+        f"[시작점검] {name} sample | task={sample.get('task', 'final_qa')} | "
+        f"lang(q/p)={language_tag(sample.get('question', ''))}/{language_tag(sample.get('passage', ''))}"
+    )
+    print(f"           q: {short_text(sample.get('question', ''))}")
+    print(f"           a: {short_text(sample.get('answer', ''))}")
+    print(f"           p: {short_text(sample.get('passage', ''))}")
+    if negatives:
+        negative = negatives[0]
+        print(
+            f"           hard_neg_a: {short_text(negative.get('answer', ''))} | "
+            f"hard_neg_p: {short_text(negative.get('passage', ''))}"
+        )
+    else:
+        print("           hard_neg: missing")
+
+
+def print_memory_token_preview(tokenizer, sample: dict, device):
+    if not sample:
+        return
+    memory_query = build_memory_query_for_task(
+        sample.get("question", ""),
+        sample.get("task", "final_qa"),
+    )
+    if USE_QUESTION_CONDITIONED_MEMORY:
+        encoded = tokenize_conditioned_memory(
+            tokenizer,
+            memory_query,
+            sample.get("passage", ""),
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
+    else:
+        encoded = tokenize_passage_memory(
+            tokenizer,
+            sample.get("passage", ""),
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
+    total_tokens = int(encoded["attention_mask"].sum().item())
+    question_tokens = int(encoded["question_mask"].sum().item())
+    passage_tokens = int(encoded["passage_mask"].sum().item())
+    focus_tokens = int(encoded.get("query_focus_mask", torch.zeros_like(encoded["attention_mask"])).sum().item())
+    print(
+        "[시작점검] memory tokens | "
+        f"total={total_tokens}/{MAX_SEQ_LEN}, question={question_tokens}, "
+        f"passage={passage_tokens}, query_focus={focus_tokens}, "
+        f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
+    )
+
+
+def print_environment_overrides():
+    overrides = {
+        key: value
+        for key, value in sorted(os.environ.items())
+        if key.startswith("MERGEPRAG_")
+    }
+    if not overrides:
+        print("[시작점검] MERGEPRAG_* env overrides: none")
+        return
+    print("[시작점검] MERGEPRAG_* env overrides:")
+    for key, value in overrides.items():
+        print(f"           {key}={short_text(value, 120)}")
+
+
+def print_startup_integrity_check(tokenizer, train_dataset, val_dataset, run_config, resume_step, device):
+    print("\n[시작점검] resolved data")
+    print(f"           train: {format_fingerprint(run_config['train_data_fingerprint'])}")
+    print(f"           valid: {format_fingerprint(run_config['valid_data_fingerprint'])}")
+
+    for name, dataset in (("train", train_dataset), ("valid", val_dataset)):
+        summary = dataset_health_summary(dataset)
+        task_text = ", ".join(f"{task}:{count}" for task, count in summary["tasks"].most_common(5))
+        print(
+            f"[시작점검] {name} rows={summary['rows']} | "
+            f"q_lang={dict(summary['question_lang'])} | p_lang={dict(summary['passage_lang'])} | "
+            f"lang_mismatch={summary['language_mismatch']} | "
+            f"hard_neg={summary['hard_negative']}/{summary['rows']} | "
+            f"contrast={summary['contrast']}/{summary['rows']} | "
+            f"same_answer_hard_neg={summary['same_answer_hard_negative']} | "
+            f"tasks={task_text}"
+        )
+
+    if len(train_dataset) > 0:
+        print_sample_preview("train", train_dataset[0])
+        print_memory_token_preview(tokenizer, train_dataset[0], device)
+    if len(val_dataset) > 0:
+        print_sample_preview("valid", val_dataset[0])
+
+    print(
+        "[시작점검] active hyperparams | "
+        f"model={MODEL_NAME}, layer={CRITICAL_LAYER}, num_kv={NUM_KV}, alpha={ALPHA}, "
+        f"kv_path_mode={KV_PATH_MODE}, contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, "
+        f"token_embed_skip={TOKEN_EMBED_SKIP_SCALE}, slotwise={USE_SLOTWISE_POOLING}, "
+        f"query_focus={USE_QUERY_LEXICAL_FOCUS}:{QUERY_LEXICAL_FOCUS_SCALE}/{QUERY_LEXICAL_FOCUS_WINDOW}, "
+        f"k_clamp={USE_K_RMS_CLAMP}:{K_RMS_CLAMP}, v_clamp={USE_V_RMS_CLAMP}:{V_RMS_CLAMP}, "
+        f"prompt={TRAIN_PROMPT_FORMAT}"
+    )
+    print(
+        "[시작점검] losses | "
+        f"neg={NEGATIVE_LOSS_WEIGHT}:{NEGATIVE_MARGIN}, "
+        f"answer_rank={ANSWER_RANK_LOSS_WEIGHT}:{ANSWER_RANK_MARGIN}, "
+        f"repulsion={REPULSION_LOSS_WEIGHT}, qneg={QUESTION_NEGATIVE_LOSS_WEIGHT}, "
+        f"qrep={QUESTION_REPULSION_LOSS_WEIGHT}, slot={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}, "
+        f"v_target={V_SIM_TARGET}, v_mult={V_REPULSION_MULTIPLIER}"
+    )
+    print(f"[시작점검] checkpoint mode | resume_step={resume_step}, source={CHECKPOINT_PATH}")
+    print_environment_overrides()
 
 
 # ── 학습 메인 ──
@@ -1023,6 +1217,8 @@ def train():
         except (RuntimeError, KeyError, AttributeError) as e:
             print(f"[경고] 체크포인트 차원 불일치 (설정 변경됨), 처음부터 학습: {e}")
             resume_step = 0
+
+    print_startup_integrity_check(tokenizer, train_dataset, val_dataset, run_config, resume_step, device)
 
     # ── 로그 ──
     log_data = {

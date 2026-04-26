@@ -30,7 +30,9 @@ from pathlib import Path
 from .eval_cases import SERVICE_DIAGNOSTIC_CASE
 
 
-DEFAULT_OUTPUT_DIR = Path(r"C:\Users\user\Documents\last_project\data")
+PROJECT_DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+WINDOWS_DATA_DIR = Path(r"C:\Users\user\Documents\last_project\data")
+DEFAULT_OUTPUT_DIR = PROJECT_DATA_DIR if PROJECT_DATA_DIR.is_dir() else WINDOWS_DATA_DIR
 HANGUL_RE = re.compile(r"[가-힣]")
 
 
@@ -236,8 +238,14 @@ def build_rows() -> list[dict]:
     for i, (winner, loser) in enumerate(EN_TEAMS):
         speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
         split = "valid" if i % 5 == 4 else "train"
-        pa = f"{speaker}: {winner} defeated {loser} 3-1 in yesterday's class tournament. The winner was {winner}."
-        pb = f"{speaker}: {loser} defeated {winner} 3-1 in yesterday's class tournament. The winner was {loser}."
+        pa = (
+            f"{speaker}: {winner} defeated {loser} 3-1 in yesterday's class tournament. "
+            f"The winner was {winner}. The loser was {loser}."
+        )
+        pb = (
+            f"{speaker}: {loser} defeated {winner} 3-1 in yesterday's class tournament. "
+            f"The winner was {loser}. The loser was {winner}."
+        )
         add_pair(rows, source_id=f"en_match_winner_{i}", question="Who won the match?", passage_a=pa, answer_a=winner, passage_b=pb, answer_b=loser, split=split)
         add_pair(rows, source_id=f"en_match_loser_{i}", question="Which team lost the match?", passage_a=pa, answer_a=loser, passage_b=pb, answer_b=winner, split=split)
 

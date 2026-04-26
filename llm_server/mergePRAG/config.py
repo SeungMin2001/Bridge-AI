@@ -134,7 +134,12 @@ SYSTEM_PROMPT_KO = os.getenv(
 SYSTEM_PROMPT = SYSTEM_PROMPT_EN
 
 _BASE_DIR = os.path.dirname(__file__)
-DEFAULT_DATA_DIR = os.getenv("MERGEPRAG_DATA_DIR", r"C:\Users\user\Documents\last_project\data")
+_PROJECT_DATA_DIR = os.path.abspath(os.path.join(_BASE_DIR, "..", "..", "..", "data"))
+_WINDOWS_DATA_DIR = r"C:\Users\user\Documents\last_project\data"
+DEFAULT_DATA_DIR = os.getenv(
+    "MERGEPRAG_DATA_DIR",
+    _PROJECT_DATA_DIR if os.path.isdir(_PROJECT_DATA_DIR) else _WINDOWS_DATA_DIR,
+)
 CRITICAL_LAYERS_PATH = os.path.join(_BASE_DIR, "critical_layers.json")
 WEIGHTS_PATH = os.path.join(_BASE_DIR, "hypernet_weights.pt")
 CHECKPOINT_PATH = os.path.join(_BASE_DIR, "hypernet_checkpoint.pt")

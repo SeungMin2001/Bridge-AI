@@ -35,6 +35,7 @@ from mergePRAG.config import (
     K_RMS_CLAMP,
     V_RMS_CLAMP,
     build_chat_text,
+    contains_hangul,
     load_critical_layer,
     load_hypernet_state_dict,
     select_memory_encoder_instruction,
@@ -165,16 +166,29 @@ def make_hook(K, V, alpha=ALPHA):
 
 def build_batch(passage: str, question: str, answer_text: str, use_passage_in_prompt: bool):
     if use_passage_in_prompt:
-        user_prompt = (
-            "Answer the question using the passage-grounded fact.\n"
-            f"Passage: {passage}\n"
-            f"Question: {question}\nAnswer:"
-        )
+        if contains_hangul(f"{question}\n{passage}"):
+            user_prompt = (
+                "본문에 근거해서 질문에 답하세요.\n"
+                f"본문: {passage}\n"
+                f"질문: {question}\n답변:"
+            )
+        else:
+            user_prompt = (
+                "Answer the question using the passage-grounded fact.\n"
+                f"Passage: {passage}\n"
+                f"Question: {question}\nAnswer:"
+            )
     else:
-        user_prompt = (
-            "Answer the question using the passage-grounded fact.\n"
-            f"Question: {question}\nAnswer:"
-        )
+        if contains_hangul(question):
+            user_prompt = (
+                "본문에 근거해서 질문에 답하세요.\n"
+                f"질문: {question}\n답변:"
+            )
+        else:
+            user_prompt = (
+                "Answer the question using the passage-grounded fact.\n"
+                f"Question: {question}\nAnswer:"
+            )
     if TRAIN_PROMPT_FORMAT == "chat":
         prompt = build_chat_text(tokenizer, question=user_prompt, enable_thinking=False)
         ans = f"{answer_text}{tokenizer.eos_token}"

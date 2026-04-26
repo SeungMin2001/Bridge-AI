@@ -34,6 +34,7 @@ from mergePRAG.config import (
     V_RMS_CLAMP,
     WEIGHTS_PATH,
     build_chat_text,
+    contains_hangul,
     load_critical_layer,
     load_hypernet_state_dict,
     select_memory_encoder_instruction,
@@ -269,23 +270,38 @@ def format_prompt(user_prompt: str) -> str:
     raise ValueError(f"Unsupported MERGEPRAG_TRAIN_PROMPT_FORMAT: {TRAIN_PROMPT_FORMAT}")
 
 
-scoring_prompt_text = format_prompt(f"Question: {QUESTION}\nAnswer:")
-generation_prompt_text = format_prompt(
-    f"Question: {QUESTION}\n"
-    f"{GENERATION_INSTRUCTION}"
-)
-direct_main_prompt_text = format_prompt(
-    "Answer the question using only the passage.\n"
-    f"Passage: {PASSAGE}\n"
-    f"Question: {QUESTION}\n"
-    f"{GENERATION_INSTRUCTION}"
-)
-direct_compare_prompt_text = format_prompt(
-    "Answer the question using only the passage.\n"
-    f"Passage: {COMPARE_PASSAGE}\n"
-    f"Question: {QUESTION}\n"
-    f"{GENERATION_INSTRUCTION}"
-)
+def build_scoring_user_prompt(question: str) -> str:
+    if contains_hangul(question):
+        return f"질문: {question}\n답변:"
+    return f"Question: {question}\nAnswer:"
+
+
+def build_generation_user_prompt(question: str) -> str:
+    if contains_hangul(question):
+        return f"질문: {question}\n{GENERATION_INSTRUCTION}"
+    return f"Question: {question}\n{GENERATION_INSTRUCTION}"
+
+
+def build_direct_user_prompt(question: str, passage: str) -> str:
+    if contains_hangul(f"{question}\n{passage}"):
+        return (
+            "본문만 사용해서 질문에 답하세요.\n"
+            f"본문: {passage}\n"
+            f"질문: {question}\n"
+            f"{GENERATION_INSTRUCTION}"
+        )
+    return (
+        "Answer the question using only the passage.\n"
+        f"Passage: {passage}\n"
+        f"Question: {question}\n"
+        f"{GENERATION_INSTRUCTION}"
+    )
+
+
+scoring_prompt_text = format_prompt(build_scoring_user_prompt(QUESTION))
+generation_prompt_text = format_prompt(build_generation_user_prompt(QUESTION))
+direct_main_prompt_text = format_prompt(build_direct_user_prompt(QUESTION, PASSAGE))
+direct_compare_prompt_text = format_prompt(build_direct_user_prompt(QUESTION, COMPARE_PASSAGE))
 scoring_inputs = tokenizer(scoring_prompt_text, return_tensors="pt").to(device)
 generation_inputs = tokenizer(generation_prompt_text, return_tensors="pt").to(device)
 direct_main_inputs = tokenizer(direct_main_prompt_text, return_tensors="pt").to(device)
@@ -293,7 +309,7 @@ direct_compare_inputs = tokenizer(direct_compare_prompt_text, return_tensors="pt
 
 
 def build_scoring_batch(answer_text: str):
-    prompt = format_prompt(f"Question: {QUESTION}\nAnswer:")
+    prompt = format_prompt(build_scoring_user_prompt(QUESTION))
     answer = (
         f"{answer_text}{tokenizer.eos_token}"
         if TRAIN_PROMPT_FORMAT == "chat"
@@ -353,15 +369,21 @@ with torch.no_grad():
     _ = model(**scoring_inputs)
 hook.remove()
 
-STOP_IDS = tokenizer.encode("\nQuestion:", add_special_tokens=False)
+STOP_TOKEN_SEQUENCES = [
+    tokenizer.encode("\nQuestion:", add_special_tokens=False),
+    tokenizer.encode("\n질문:", add_special_tokens=False),
+]
 
 def decode_answer(gen, input_len):
     tokens = gen[0][input_len:].tolist()
-    # "Question:" 이 나오면 그 앞에서 자름
-    for i in range(len(tokens) - len(STOP_IDS) + 1):
-        if tokens[i:i+len(STOP_IDS)] == STOP_IDS:
-            tokens = tokens[:i]
-            break
+    # 다음 QA 라벨이 나오면 그 앞에서 자름
+    for stop_ids in STOP_TOKEN_SEQUENCES:
+        if not stop_ids:
+            continue
+        for i in range(len(tokens) - len(stop_ids) + 1):
+            if tokens[i:i+len(stop_ids)] == stop_ids:
+                tokens = tokens[:i]
+                break
     # think 태그 제거
     text = tokenizer.decode(tokens, skip_special_tokens=True)
     import re
