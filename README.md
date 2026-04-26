@@ -311,11 +311,48 @@ hypernet=checkpoint
 
 이 경우 best validation weights가 아니라 마지막 checkpoint일 수 있으므로 결과 해석에 주의해야 한다.
 
-### 4. 심층 디버그
+### 4. 사전지식 없는 synthetic 진단
+
+요일/마감일처럼 모델 prior가 섞일 수 있는 케이스와 별도로, 무의미한 코드명 매핑으로 passage 주입만 검사할 수 있다.
+
+```bat
+cd C:\Users\user\Documents\last_project\Group-Chat-agent\llm_server
+set MERGEPRAG_LOAD_SOURCE=checkpoint
+python test_mergeprag_synthetic.py
+```
+
+사용되는 핵심 구조:
+
+```text
+question: What code word is assigned to the daxmel marker?
+main passage:    daxmel -> virel,  norqu -> jandor
+compare passage: daxmel -> jandor, norqu -> virel
+
+원하는 결과:
+main memory    -> virel
+compare memory -> jandor
+```
+
+같은 스크립트를 환경변수로도 선택할 수 있다.
+
+```bat
+set MERGEPRAG_DIAGNOSTIC_CASE=synthetic
+python test_mergeprag.py
+```
+
+### 5. 심층 디버그
 
 ```bat
 set MERGEPRAG_LOAD_SOURCE=weights
 python llm_server\debug_mergeprag.py
+```
+
+synthetic 심층 디버그:
+
+```bat
+cd C:\Users\user\Documents\last_project\Group-Chat-agent\llm_server
+set MERGEPRAG_LOAD_SOURCE=checkpoint
+python debug_mergeprag_synthetic.py
 ```
 
 ## 진단 출력 해석법
