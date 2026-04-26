@@ -321,6 +321,14 @@ set MERGEPRAG_LOAD_SOURCE=checkpoint
 python test_mergeprag_synthetic.py
 ```
 
+한국어 synthetic 진단:
+
+```bat
+cd C:\Users\user\Documents\last_project\Group-Chat-agent\llm_server
+set MERGEPRAG_LOAD_SOURCE=checkpoint
+python test_mergeprag_synthetic_ko.py
+```
+
 사용되는 핵심 구조:
 
 ```text
@@ -333,10 +341,25 @@ main memory    -> virel
 compare memory -> jandor
 ```
 
+한국어 synthetic 구조:
+
+```text
+question: 닥스멜 표식에 배정된 암호어는 뭐야?
+main passage:    닥스멜 -> 비렐,  노르쿠 -> 잔도르
+compare passage: 닥스멜 -> 잔도르, 노르쿠 -> 비렐
+
+원하는 결과:
+main memory    -> 비렐
+compare memory -> 잔도르
+```
+
 같은 스크립트를 환경변수로도 선택할 수 있다.
 
 ```bat
 set MERGEPRAG_DIAGNOSTIC_CASE=synthetic
+python test_mergeprag.py
+
+set MERGEPRAG_DIAGNOSTIC_CASE=synthetic_ko
 python test_mergeprag.py
 ```
 
@@ -353,6 +376,8 @@ synthetic 심층 디버그:
 cd C:\Users\user\Documents\last_project\Group-Chat-agent\llm_server
 set MERGEPRAG_LOAD_SOURCE=checkpoint
 python debug_mergeprag_synthetic.py
+
+python debug_mergeprag_synthetic_ko.py
 ```
 
 ## 진단 출력 해석법

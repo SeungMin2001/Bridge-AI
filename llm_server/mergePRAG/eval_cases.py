@@ -48,11 +48,34 @@ SYNTHETIC_CODE_DIAGNOSTIC_CASE = {
 }
 
 
+SYNTHETIC_KO_DIAGNOSTIC_CASE = {
+    "case_name": "synthetic_ko",
+    "question": "닥스멜 표식에 배정된 암호어는 뭐야?",
+    "alt_question": "노르쿠 표식에 배정된 암호어는 뭐야?",
+    "passage": (
+        "비공개 수업 기록 ZX-91에는 닥스멜 표식의 암호어가 비렐이라고 적혀 있습니다. "
+        "노르쿠 표식의 암호어는 잔도르입니다. "
+        "정확히 기억하세요: 닥스멜 -> 비렐; 노르쿠 -> 잔도르."
+    ),
+    "compare_passage": (
+        "비공개 수업 기록 ZX-91에는 닥스멜 표식의 암호어가 잔도르라고 적혀 있습니다. "
+        "노르쿠 표식의 암호어는 비렐입니다. "
+        "정확히 기억하세요: 닥스멜 -> 잔도르; 노르쿠 -> 비렐."
+    ),
+    "answer": "비렐",
+    "compare_answer": "잔도르",
+    "alt_answer": "잔도르",
+    "generation_instruction": "정확한 암호어만 답하세요:",
+}
+
+
 DIAGNOSTIC_CASES = {
     "service": SERVICE_DIAGNOSTIC_CASE,
     "default": SERVICE_DIAGNOSTIC_CASE,
     "synthetic": SYNTHETIC_CODE_DIAGNOSTIC_CASE,
     "synthetic_code": SYNTHETIC_CODE_DIAGNOSTIC_CASE,
+    "synthetic_ko": SYNTHETIC_KO_DIAGNOSTIC_CASE,
+    "ko_synthetic": SYNTHETIC_KO_DIAGNOSTIC_CASE,
 }
 
 
