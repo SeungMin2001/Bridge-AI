@@ -408,10 +408,11 @@ print(f"no_hook      | ans={answer_no}")
 print(f"direct main  | ans={answer_direct_main}")
 print(f"direct comp  | ans={answer_direct_compare}")
 
-# 여러 alpha로 생성 비교 (main passage) — ALPHA 중복 제거
+ALPHA_SWEEP = [round(i / 10, 1) for i in range(1, 8)]
+
+# 여러 alpha로 생성 비교 (main passage)
 alpha_rows = []
-alpha_list = sorted({0.1, ALPHA, 1.0})
-for alpha in alpha_list:
+for alpha in ALPHA_SWEEP:
     hook = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_hook = model.generate(
@@ -434,8 +435,7 @@ for alpha, answer_hook, score_main, score_compare in alpha_rows:
 # 비교 passage도 같은 alpha로 직접 생성
 section("Passage Flip")
 flip_rows = []
-flip_alphas = sorted({ALPHA, 1.0})
-for alpha in flip_alphas:
+for alpha in ALPHA_SWEEP:
     hook_main = layer.register_forward_hook(make_hook(K, V, alpha=alpha))
     with torch.no_grad():
         gen_main = model.generate(
@@ -488,7 +488,7 @@ for (
 
 section("Candidate Choice")
 candidates = [EXPECTED_ANSWER, COMPARE_EXPECTED_ANSWER]
-for alpha in flip_alphas:
+for alpha in ALPHA_SWEEP:
     main_scores = {
         candidate: score_answer_with_memory(K, V, candidate, alpha=alpha)
         for candidate in candidates
