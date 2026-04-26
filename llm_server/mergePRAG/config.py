@@ -184,14 +184,14 @@ def select_memory_encoder_instruction(question: str, passage: str = "") -> str:
 
 
 def load_hypernet_state_dict(map_location=None):
-    """기본은 최신 파일을 사용한다.
+    """기본은 validation best weights를 사용한다.
 
     MERGEPRAG_LOAD_SOURCE:
-      - latest (default): 수정 시각이 더 최신인 weights/checkpoint 사용
-      - weights: hypernet_weights.pt 우선
+      - weights (default): validation best hypernet_weights.pt 우선
       - checkpoint: hypernet_checkpoint.pt 우선
+      - latest: 수정 시각이 더 최신인 weights/checkpoint 사용
     """
-    load_source = os.getenv("MERGEPRAG_LOAD_SOURCE", "latest").strip().lower()
+    load_source = os.getenv("MERGEPRAG_LOAD_SOURCE", "weights").strip().lower()
 
     weights_exists = os.path.exists(WEIGHTS_PATH)
     checkpoint_exists = os.path.exists(CHECKPOINT_PATH)
