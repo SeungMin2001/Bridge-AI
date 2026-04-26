@@ -39,6 +39,13 @@ MAX_SEQ_LEN = _get_int("MERGEPRAG_MAX_SEQ_LEN", 512)
 USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", True)
 QUERY_POOL_SCALE = _get_float("MERGEPRAG_QUERY_POOL_SCALE", 4.0)
+# Single-vector attentive pooling was collapsing near-counterfactual passages that
+# contain the same answer candidates in swapped roles. Lexical focus is a
+# question-only boost around matched query terms in the passage; it does not use
+# the gold answer, so it is safe for inference.
+USE_QUERY_LEXICAL_FOCUS = _get_bool("MERGEPRAG_USE_QUERY_LEXICAL_FOCUS", True)
+QUERY_LEXICAL_FOCUS_SCALE = _get_float("MERGEPRAG_QUERY_LEXICAL_FOCUS_SCALE", 6.0)
+QUERY_LEXICAL_FOCUS_WINDOW = _get_int("MERGEPRAG_QUERY_LEXICAL_FOCUS_WINDOW", 6)
 _HANGUL_RE = re.compile(r"[가-힣]")
 
 
@@ -63,9 +70,10 @@ MEMORY_ENCODER_INSTRUCTION_KO = os.getenv(
     ),
 )
 MEMORY_ENCODER_INSTRUCTION = MEMORY_ENCODER_INSTRUCTION_EN
-# K MLP가 near-counterfactual 차이를 다시 뭉개는 경우가 있어 K에도 pooled skip을 섞는다.
-# V는 passage pooled 정보를 직접 싣도록 skip 경로를 기본으로 둔다.
-KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_hybrid_v_skip").strip().lower()
+# Same-question swapped-role passages made V_skip collapse to identical vectors.
+# Keep K on the MLP path and let V combine learned nonlinear features with pooled
+# skip information unless an experiment overrides it.
+KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_mlp_v_hybrid").strip().lower()
 USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)
 POOLED_KV_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_KV_SKIP_SCALE", 1.0)
 POOLED_K_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_K_SKIP_SCALE", POOLED_KV_SKIP_SCALE)

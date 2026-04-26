@@ -77,6 +77,7 @@ def encode_passage(model, tokenizer, hypernet, question: str, passage: str, devi
         attention_mask = encoded["attention_mask"]
         question_mask = encoded["question_mask"]
         passage_mask = encoded["passage_mask"]
+        query_focus_mask = encoded.get("query_focus_mask")
         emb = encode_passage_states(
             model,
             ids,
@@ -89,6 +90,7 @@ def encode_passage(model, tokenizer, hypernet, question: str, passage: str, devi
             attention_mask=attention_mask,
             query=query,
             focus_mask=passage_mask,
+            query_focus_mask=query_focus_mask,
         )
         pooled = parts["pooled"]
         hidden = parts["hidden"]

@@ -18,6 +18,8 @@ from mergePRAG.config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
+    QUERY_LEXICAL_FOCUS_SCALE,
+    QUERY_LEXICAL_FOCUS_WINDOW,
     SYSTEM_PROMPT,
     TRAIN_PROMPT_FORMAT,
     USE_K_RMS_CLAMP,
@@ -25,6 +27,7 @@ from mergePRAG.config import (
     USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
+    USE_QUERY_LEXICAL_FOCUS,
     K_RMS_CLAMP,
     V_RMS_CLAMP,
     WEIGHTS_PATH,
@@ -97,6 +100,7 @@ print(
     f"train_prompt_format={TRAIN_PROMPT_FORMAT} | "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
     f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}) | "
+    f"query_lexical_focus={USE_QUERY_LEXICAL_FOCUS}:{QUERY_LEXICAL_FOCUS_SCALE}/{QUERY_LEXICAL_FOCUS_WINDOW} | "
     f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP} | "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
@@ -140,6 +144,7 @@ def encode_passage_stats(question: str, passage: str):
         attention_mask = encoded["attention_mask"]
         question_mask = encoded["question_mask"]
         passage_mask = encoded["passage_mask"]
+        query_focus_mask = encoded.get("query_focus_mask")
         emb = encode_passage_states(
             model,
             ids,
@@ -152,6 +157,7 @@ def encode_passage_stats(question: str, passage: str):
             attention_mask=attention_mask,
             query=query,
             focus_mask=passage_mask,
+            query_focus_mask=query_focus_mask,
         )
         pooled = parts["pooled"]
         hidden = parts["hidden"]

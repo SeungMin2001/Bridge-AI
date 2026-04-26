@@ -2,7 +2,7 @@
 
 이 문서는 프로젝트 전체 소개가 아니라, 현재 우리가 집중하고 있는 `llm_server/mergePRAG` 개발 상태를 다른 AI나 개발자가 바로 이어받기 위한 인수인계 문서다. 목표는 "수업 발화 passage를 모델 내부 K/V memory로 주입하고, 사용자의 질문에 대해 그 발화 내용을 근거로 답하게 하는 것"이다.
 
-현재 결론부터 말하면, 코드는 단순 실험 뼈대를 넘어서 실제 학습, 진단, API 연결까지 구현되어 있다. 다만 아직 최종 성공은 아니며, 현재 가장 큰 미해결 문제는 `compare passage`에서 답이 뒤집혀야 할 때 `V` memory가 거의 같게 나와 답이 고정되는 현상이다.
+현재 결론부터 말하면, 코드는 단순 실험 뼈대를 넘어서 실제 학습, 진단, API 연결까지 구현되어 있다. 다만 아직 최종 성공은 아니며, 최근 병목은 더 구체화됐다. `k_mlp_v_hybrid`로 V 경로를 바꿔도 고정 진단 pair에서는 `pooled` 단계가 이미 main/compare를 거의 같은 벡터로 만들어 `K/V`가 함께 collapse된다. 즉 지금 1순위는 V projection 자체가 아니라 **same-question swapped-role passage에서 single pooled vector가 관계를 보존하지 못하는 문제**다.
 
 ## 현재 목표
 
@@ -34,30 +34,38 @@ compare memory -> Friday
 
 ## 현재 중요한 진단 결과
 
-최근 `hypernet_weights.pt` best weights 기준 진단:
+최근 `k_mlp_v_hybrid` + checkpoint 500 기준 진단:
 
 ```text
-hypernet=weights, checkpoint step=500
+hypernet=checkpoint, checkpoint step=500
+kv_path_mode=k_mlp_v_hybrid
 
-no_hook      | Not provided
 direct main  | Monday
 direct comp  | Friday
-main hook    | Monday
-compare hook | Monday
 
-cos(K)=0.9684
-cos(V)=0.9988
+cos(pooled)=0.9999
+cos(hidden)=0.9998
+cos(K)=0.9997
+cos(V)=1.0000
+
+Same Passage / Different Question:
+cos(K)=0.8451
+cos(V)=0.8145
 ```
 
 해석:
 
-- `no_hook=Not provided`: passage 없이 모델이 추측하지 않는 것은 좋다.
 - `direct main=Monday`, `direct comp=Friday`: base LLM은 passage를 prompt에 직접 넣으면 내용을 이해한다.
-- `main hook=Monday`: K/V 주입이 완전히 무효는 아니다.
-- `compare hook=Monday`: 아직 passage flip은 실패한다.
-- `cos(V)=0.9988`: 가장 큰 문제다. K는 조금 갈라졌지만 V가 거의 같아서 compare passage 내용이 다르게 주입되지 않는다.
+- 같은 passage에서 질문만 바꾸면 K/V가 어느 정도 갈라진다. question conditioning 자체는 동작한다.
+- 같은 질문에서 passage의 날짜/역할만 뒤집으면 `pooled`부터 0.9999로 붙는다. 따라서 hypernetwork 뒤쪽을 더 학습하기보다 pooling 입력에서 answer 주변 token을 살려야 한다.
 
-주의: 위 진단 이후 `train.py`의 validation objective를 hard-pair 기준으로 수정했다. 따라서 현재 디스크의 기존 `hypernet_weights.pt`는 새 validation 기준으로 저장된 모델이 아니다. 다음 판단은 반드시 새로 학습한 weights로 해야 한다.
+최근 대응:
+
+- `KV_PATH_MODE` 기본값을 `k_mlp_v_hybrid`로 바꿨다.
+- `embedding.py`에서 질문 핵심 단어가 passage에 등장한 주변 window를 `query_focus_mask`로 만든다.
+- `pooling.py`에서 `query_focus_mask` 위치에 attention score boost를 준다.
+- 이 변경은 gold answer를 사용하지 않으므로 inference에도 적용 가능하다.
+- 기존 checkpoint/weights는 새 pooling 구조 기준으로 다시 학습해야 한다.
 
 ## 핵심 파일 지도
 
@@ -76,14 +84,16 @@ cos(V)=0.9988
   - passage 또는 question-conditioned memory sequence를 tokenization한다.
   - 영어/한국어에 따라 memory instruction과 label을 바꾼다.
   - `question_mask`, `passage_mask`를 만들어 query와 pooling 영역을 분리한다.
+  - `query_focus_mask`를 만들어 질문 핵심 단어가 passage에 나온 주변 token window를 표시한다.
 - `llm_server/mergePRAG/pooling.py`
   - `AttentivePooling`.
   - question query와 passage token 유사도를 attention score에 더한다.
+  - `query_focus_mask`가 있으면 해당 window에 추가 attention boost를 준다.
 - `llm_server/mergePRAG/hypernetwork.py`
   - passage hidden -> pooled -> MLP -> K/V projection.
-  - 현재 `k_hybrid_v_skip` 기본값:
-    - `K_raw = K_mlp + K_skip`
-    - `V_raw = V_skip`
+  - 현재 `k_mlp_v_hybrid` 기본값:
+    - `K_raw = K_mlp`
+    - `V_raw = V_mlp + V_skip`
   - K/V RMS clamp를 적용한다.
 - `llm_server/mergePRAG/cross_attention.py`
   - hook에서 사용하는 cross-attention 계산.
@@ -134,7 +144,10 @@ critical layer = critical_layers.json 첫 번째 값, 현재 11
 USE_CONTEXTUAL_PASSAGE_ENCODER = True
 USE_QUESTION_CONDITIONED_MEMORY = True
 QUERY_POOL_SCALE = 4.0
-KV_PATH_MODE = k_hybrid_v_skip
+USE_QUERY_LEXICAL_FOCUS = True
+QUERY_LEXICAL_FOCUS_SCALE = 6.0
+QUERY_LEXICAL_FOCUS_WINDOW = 6
+KV_PATH_MODE = k_mlp_v_hybrid
 USE_POOLED_KV_SKIP = True
 POOLED_K_SKIP_SCALE = 1.0
 POOLED_V_SKIP_SCALE = 1.0
@@ -339,32 +352,41 @@ cos(V) ideally < 0.95, 더 좋으면 < 0.8
 현재 마지막 알려진 실패 상태:
 
 ```text
-main hook    -> Monday
-compare hook -> Monday
-cos(V)=0.9988
+kv_path_mode=k_mlp_v_hybrid
+cos(pooled)=0.9999
+cos(K)=0.9997
+cos(V)=1.0000
+main/compare Candidate Choice가 동일하게 움직임
 ```
 
 ## 지금 남은 핵심 문제
 
-### 1. V collapse
+### 1. Pooling collapse
 
-현재 가장 큰 병목은 V가 passage별 정보를 보존하지 못하는 것이다.
+현재 가장 큰 병목은 V만이 아니라 `pooled` 단계가 passage별 관계를 보존하지 못하는 것이다.
 
 관찰:
 
 ```text
-cos(K)=0.9684
-cos(V)=0.9988
+cos(pooled)=0.9999
+cos(hidden)=0.9998
+cos(K)=0.9997
+cos(V)=1.0000
 ```
 
-K는 일부 달라지지만 V는 거의 같다. cross-attention에서 K는 "어디를 볼지", V는 "무엇을 주입할지"에 가까우므로, V가 같으면 compare memory도 같은 답으로 밀린다.
+같은 질문에서 passage만 바뀔 때 이미 pooled가 같아진다. cross-attention에서 K는 "어디를 볼지", V는 "무엇을 주입할지"에 가까우므로, pooled가 같으면 K/V도 같이 붙고 compare memory도 같은 답으로 밀린다.
 
-다음 후보 작업:
+최근 적용한 작업:
 
-- V 전용 repulsion을 더 강하게 적용.
-- V path를 단순 pooled skip에서 slot별/answer-aware path로 개선.
-- `V_SIM_TARGET`, `V_REPULSION_MULTIPLIER`, `ANSWER_RANK_LOSS_WEIGHT` 실험.
-- validation 주기를 줄여 early overfit 전에 best weights를 잡기.
+- `query_focus_mask`: gold answer 없이 질문 핵심 단어 주변 passage window를 표시.
+- `AttentivePooling`: 해당 window에 `QUERY_LEXICAL_FOCUS_SCALE`만큼 attention boost.
+- `KV_PATH_MODE`: 기본값을 `k_mlp_v_hybrid`로 변경.
+
+다음 판단:
+
+- 이 코드 변경 후 기존 `.pt`를 제거하거나 이름을 바꾸고 처음부터 재학습한다.
+- 500 step에서 `test_mergeprag.py`를 `checkpoint` 기준으로 본다.
+- 성공 신호는 `cos(pooled)`가 0.9999에서 내려가고, Candidate Choice가 `main=Monday`, `compare=Friday`로 갈리는 것이다.
 
 ### 2. Validation 주기
 
@@ -405,6 +427,6 @@ SAVE_EVERY = 250 또는 500
 3. `MERGEPRAG_LOAD_SOURCE=weights`로 `test_mergeprag.py`를 실행한다.
 4. `main_choice=Monday`, `compare_choice=Friday`가 되는지 확인한다.
 5. 실패하면 `debug_mergeprag.py`에서 V가 어디서 collapse되는지 본다.
-6. 우선순위는 V 분리 강화다. K보다 V cosine을 낮추는 것이 현재 핵심이다.
+6. 우선순위는 pooling collapse 해소다. `cos(pooled)`가 0.9999면 뒤쪽 K/V 학습만으로는 해결이 어렵다.
 
 현재 프로젝트의 방향은 "외부 데이터셋 일반 QA 성능"보다 "주입된 발화 passage가 답변을 실제로 뒤집는가"에 맞춰져 있다. 다른 AI가 이어받을 때도 이 기준을 최우선으로 봐야 한다.

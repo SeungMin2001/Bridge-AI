@@ -20,6 +20,8 @@ from mergePRAG.config import (
     POOLED_KV_SKIP_SCALE,
     POOLED_K_SKIP_SCALE,
     POOLED_V_SKIP_SCALE,
+    QUERY_LEXICAL_FOCUS_SCALE,
+    QUERY_LEXICAL_FOCUS_WINDOW,
     SYSTEM_PROMPT,
     TRAIN_PROMPT_FORMAT,
     USE_K_RMS_CLAMP,
@@ -27,6 +29,7 @@ from mergePRAG.config import (
     USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
+    USE_QUERY_LEXICAL_FOCUS,
     K_RMS_CLAMP,
     V_RMS_CLAMP,
     build_chat_text,
@@ -80,6 +83,7 @@ print(
     f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
     f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}), "
+    f"query_lexical_focus={USE_QUERY_LEXICAL_FOCUS}:{QUERY_LEXICAL_FOCUS_SCALE}/{QUERY_LEXICAL_FOCUS_WINDOW}, "
     f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP}, "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
@@ -104,6 +108,7 @@ def get_kv(passage: str, question: str, grad: bool = False):
     attn = encoded["attention_mask"]
     qmask = encoded["question_mask"]
     pmask = encoded["passage_mask"]
+    qfocus = encoded.get("query_focus_mask")
 
     # Qwen forward는 항상 no_grad — contextualize가 내부에서 처리.
     emb = encode_passage_states(model, ids, attn, USE_CONTEXTUAL_PASSAGE_ENCODER)
@@ -116,6 +121,7 @@ def get_kv(passage: str, question: str, grad: bool = False):
             attention_mask=attn,
             query=query,
             focus_mask=pmask,
+            query_focus_mask=qfocus,
         )
         pooled = parts["pooled"]
         hidden = parts["hidden"]

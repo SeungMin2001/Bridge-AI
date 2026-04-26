@@ -55,7 +55,14 @@ class HyperNetwork(nn.Module):
             self.pooled_to_k = nn.Linear(d_model, k * d_model)
             self.pooled_to_v = nn.Linear(d_model, k * d_model)
 
-    def encode_embedded(self, embedded, attention_mask=None, query=None, focus_mask=None):
+    def encode_embedded(
+        self,
+        embedded,
+        attention_mask=None,
+        query=None,
+        focus_mask=None,
+        query_focus_mask=None,
+    ):
         """debug/train 호환 — 중간 stage tensor 반환.
 
         returns: (pooled, hidden, K_raw, V_raw)
@@ -65,10 +72,18 @@ class HyperNetwork(nn.Module):
             attention_mask=attention_mask,
             query=query,
             focus_mask=focus_mask,
+            query_focus_mask=query_focus_mask,
         )
         return stats["pooled"], stats["hidden"], stats["K_raw"], stats["V_raw"]
 
-    def encode_embedded_components(self, embedded, attention_mask=None, query=None, focus_mask=None):
+    def encode_embedded_components(
+        self,
+        embedded,
+        attention_mask=None,
+        query=None,
+        focus_mask=None,
+        query_focus_mask=None,
+    ):
         """중간 구성요소를 모두 반환.
 
         debug 용도:
@@ -76,7 +91,11 @@ class HyperNetwork(nn.Module):
         - pooled->kv skip 이 실제로 차이를 보존하는지
         """
         pooled = self.pooling(
-            embedded, mask=attention_mask, focus_mask=focus_mask, query=query
+            embedded,
+            mask=attention_mask,
+            focus_mask=focus_mask,
+            query=query,
+            query_focus_mask=query_focus_mask,
         )
         hidden = self.mlp(pooled)
         hidden_v = self.v_mlp(pooled)
@@ -136,12 +155,20 @@ class HyperNetwork(nn.Module):
             V = V * scale
         return K, V
 
-    def forward(self, embedded, attention_mask=None, query=None, focus_mask=None):
+    def forward(
+        self,
+        embedded,
+        attention_mask=None,
+        query=None,
+        focus_mask=None,
+        query_focus_mask=None,
+    ):
         _, _, K, V = self.encode_embedded(
             embedded,
             attention_mask=attention_mask,
             query=query,
             focus_mask=focus_mask,
+            query_focus_mask=query_focus_mask,
         )
         return self.normalize_kv(K, V)
 

@@ -44,6 +44,8 @@ from .config import (
     POOLED_V_SKIP_SCALE,
     QUESTION_NEGATIVE_LOSS_WEIGHT,
     QUESTION_REPULSION_LOSS_WEIGHT,
+    QUERY_LEXICAL_FOCUS_SCALE,
+    QUERY_LEXICAL_FOCUS_WINDOW,
     QUERY_POOL_SCALE,
     REPULSION_LOSS_WEIGHT,
     SLOT_DIVERSITY_LOSS_WEIGHT,
@@ -57,6 +59,7 @@ from .config import (
     USE_V_RMS_CLAMP,
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
+    USE_QUERY_LEXICAL_FOCUS,
     K_RMS_CLAMP,
     VALID_DATA_PATH,
     V_SIM_TARGET,
@@ -387,6 +390,7 @@ def encode_memory(model, hypernet, tokenizer, question: str, passage: str, devic
     attention_mask = encoded["attention_mask"]
     question_mask = encoded["question_mask"]
     passage_mask = encoded["passage_mask"]
+    query_focus_mask = encoded.get("query_focus_mask")
     embedded = encode_passage_states(
         model,
         input_ids,
@@ -399,6 +403,7 @@ def encode_memory(model, hypernet, tokenizer, question: str, passage: str, devic
         attention_mask=attention_mask,
         query=query,
         focus_mask=passage_mask,
+        query_focus_mask=query_focus_mask,
     )
     delta_K, delta_V = hypernet.normalize_kv(raw_K, raw_V)
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
@@ -847,6 +852,9 @@ def current_training_config() -> dict:
         "contextual": USE_CONTEXTUAL_PASSAGE_ENCODER,
         "question_conditioned": USE_QUESTION_CONDITIONED_MEMORY,
         "query_pool_scale": QUERY_POOL_SCALE,
+        "query_lexical_focus": USE_QUERY_LEXICAL_FOCUS,
+        "query_lexical_focus_scale": QUERY_LEXICAL_FOCUS_SCALE,
+        "query_lexical_focus_window": QUERY_LEXICAL_FOCUS_WINDOW,
         "kv_path_mode": KV_PATH_MODE,
         "pooled_kv_skip": USE_POOLED_KV_SKIP,
         "pooled_k_skip_scale": POOLED_K_SKIP_SCALE,
@@ -890,6 +898,9 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "contextual",
         "question_conditioned",
         "query_pool_scale",
+        "query_lexical_focus",
+        "query_lexical_focus_scale",
+        "query_lexical_focus_window",
         "kv_path_mode",
         "pooled_kv_skip",
         "pooled_k_skip_scale",
@@ -1041,6 +1052,7 @@ def train():
         f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}, "
         f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
         f"query_pool_scale={QUERY_POOL_SCALE}, "
+        f"query_lexical_focus={USE_QUERY_LEXICAL_FOCUS}:{QUERY_LEXICAL_FOCUS_SCALE}/{QUERY_LEXICAL_FOCUS_WINDOW}, "
         f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
         f"slot_diversity={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}, "
         f"answer_rank={ANSWER_RANK_LOSS_WEIGHT}:{ANSWER_RANK_MARGIN}"
