@@ -1,14 +1,15 @@
 <!-- 워크스페이스의 왼쪽 사이드바 본체로, 폴더 탐색기와 음성 전사 탭을 전환하며 보여줍니다. -->
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import FolderSideTab from './FolderSideTab.vue'
 import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
 
-defineProps({
+const props = defineProps({
   fileTree: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() },
   transcriptions: { type: Array, default: () => [] },
   recordingMode: { type: String, default: 'lecture' },
+  activeFileId: { type: String, default: '' },
   isCollapsed: { type: Boolean, default: false }
 })
 
@@ -19,6 +20,7 @@ const emit = defineEmits([
   'update:favorites',
   'addToNote',
   'askAi',
+  'openStoredMaterial',
   'toggle'
 ])
 
@@ -26,6 +28,9 @@ const activeTab = ref('voice')
 const width = ref(340)
 const toastMsg = ref('')
 const isResizing = ref(false)
+const selectedTranscriptSource = ref(null)
+
+const visibleTranscriptions = computed(() => selectedTranscriptSource.value?.transcriptions || props.transcriptions)
 
 const handleMouseMove = (e) => {
   if (!isResizing.value) return
@@ -62,6 +67,44 @@ const showToast = (msg) => {
   toastMsg.value = msg
   setTimeout(() => toastMsg.value = '', 2000)
 }
+
+const handleShowLiveTranscripts = () => {
+  selectedTranscriptSource.value = null
+  activeTab.value = 'voice'
+}
+
+const handleOpenMaterial = ({ fileId, node, materialId, recording }) => {
+  if (fileId && node) {
+    emit('fileSelect', fileId, node)
+  }
+
+  if (recording) {
+    selectedTranscriptSource.value = {
+      title: recording.title || '연결된 녹음',
+      transcriptions: recording.transcriptions || []
+    }
+  } else {
+    selectedTranscriptSource.value = {
+      title: '연결된 전사 없음',
+      transcriptions: []
+    }
+  }
+
+  activeTab.value = 'voice'
+  emit('openStoredMaterial', materialId)
+}
+
+const handleOpenRecording = ({ fileId, node, recording }) => {
+  if (fileId && node) {
+    emit('fileSelect', fileId, node)
+  }
+
+  selectedTranscriptSource.value = {
+    title: recording?.title || '저장된 녹음',
+    transcriptions: recording?.transcriptions || []
+  }
+  activeTab.value = 'voice'
+}
 </script>
 
 <template>
@@ -92,7 +135,7 @@ const showToast = (msg) => {
         <button
           class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
           :class="{ 'is-active text-black': activeTab === 'voice' }"
-          @click="activeTab = 'voice'"
+          @click="handleShowLiveTranscripts"
         >전사 내용</button>
         <button
           class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
@@ -107,20 +150,32 @@ const showToast = (msg) => {
           v-if="activeTab === 'folders'"
           :fileTree="fileTree"
           :favorites="favorites"
+          :active-file-id="activeFileId"
           @update:fileTree="emit('update:fileTree', $event)"
           @update:favorites="emit('update:favorites', $event)"
           @fileSelect="(id, node) => emit('fileSelect', id, node)"
+          @openMaterial="handleOpenMaterial"
+          @openRecording="handleOpenRecording"
           @showToast="showToast"
           class="sidebar-content-animate"
         />
-        <VoiceTransferSideTab 
-          v-else
-          :transcriptions="transcriptions"
-          :recording-mode="recordingMode"
-          @addToNote="(text, source) => emit('addToNote', text, source)"
-          @askAi="emit('askAi', $event)"
-          class="sidebar-content-animate"
-        />
+        <div v-else class="flex flex-col flex-1 min-h-0 sidebar-content-animate">
+          <div v-if="selectedTranscriptSource" class="selected-transcript-source">
+            <div class="min-w-0">
+              <p>{{ selectedTranscriptSource.title }}</p>
+              <span>저장된 전사 스크립트</span>
+            </div>
+            <button type="button" title="실시간 전사로 돌아가기" @click="handleShowLiveTranscripts">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
+          <VoiceTransferSideTab
+            :transcriptions="visibleTranscriptions"
+            :recording-mode="recordingMode"
+            @addToNote="(text, source) => emit('addToNote', text, source)"
+            @askAi="emit('askAi', $event)"
+          />
+        </div>
       </div>
 
       <!-- Home Button -->
@@ -164,5 +219,52 @@ const showToast = (msg) => {
 
 .workspace-sidebar-card::after {
   border-color: var(--workspace-sidebar-card-inner-border);
+}
+
+.selected-transcript-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(229, 229, 234, 0.82);
+}
+
+.selected-transcript-source p {
+  margin: 0;
+  overflow: hidden;
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-transcript-source span {
+  display: block;
+  margin-top: 3px;
+  color: #8e8e93;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.selected-transcript-source button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  color: #8e8e93;
+  background: rgba(242, 242, 247, 0.92);
+}
+
+.selected-transcript-source button .material-symbols-outlined {
+  font-size: 15px;
 }
 </style>

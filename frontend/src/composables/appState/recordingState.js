@@ -4,13 +4,19 @@ import { computed, ref } from 'vue'
 const USE_MOCK_DATA = true
 const mockTranscriptPlanByMode = {
   lecture: [
-    { text: '안녕하세요, 실시간 음성 전사 테스트 중입니다.', delay: 3000 },
-    { text: '현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.', delay: 7000 }
+    { speakerId: 'speaker-me', speaker: '나', text: '안녕하세요, 실시간 음성 전사 테스트 중입니다.', delay: 3000 },
+    { speakerId: 'speaker-a', speaker: '화자 A', text: '저도 테스트 회의에 참여했습니다. 다른 화자가 말하면 카드가 자동으로 추가되어야 합니다.', delay: 6000 },
+    { speakerId: 'speaker-me', speaker: '나', text: '현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.', delay: 9000 },
+    { speakerId: 'speaker-b', speaker: '화자 B', text: '새 화자가 들어왔을 때 AI 요약 탭에 별도 카드가 생기는지 확인해보겠습니다.', delay: 12000 },
+    { speakerId: 'speaker-a', speaker: '화자 A', text: '제가 다시 말하면 기존 화자 A 카드에 발화가 누적되어야 합니다.', delay: 15000 }
   ],
   meeting: [
-    { speaker: '화자 1', text: '회의 파일에서는 화자가 구분된 전사 흐름을 보여주고 있습니다.', delay: 2600 },
-    { speaker: '화자 2', text: '좋아요. 이렇게 하면 사용자가 회의용 파일이라는 걸 바로 이해할 수 있겠네요.', delay: 5200 },
-    { speaker: '화자 1', text: '실제 백엔드 화자 분리 모델이 붙으면 이 형식으로 회의록을 표시하면 됩니다.', delay: 8200 }
+    { speakerId: 'speaker-a', speaker: '화자 A', text: '오늘 회의에서는 실시간 전사와 화자별 요약 화면을 먼저 확인해보겠습니다.', delay: 2600 },
+    { speakerId: 'speaker-b', speaker: '화자 B', text: '좋아요. 백엔드가 없더라도 테스트 데이터로 화자가 늘어나는 흐름을 볼 수 있으면 충분할 것 같습니다.', delay: 5200 },
+    { speakerId: 'speaker-a', speaker: '화자 A', text: '우선 전사 데이터에 화자 아이디를 붙이고 AI 요약 탭에서는 그 아이디 기준으로 묶으면 됩니다.', delay: 8200 },
+    { speakerId: 'speaker-c', speaker: '화자 C', text: '저는 새 화자가 들어왔을 때 카드가 자동으로 추가되는지 확인하고 싶습니다.', delay: 11200 },
+    { speakerId: 'speaker-b', speaker: '화자 B', text: '각 화자 카드에는 방금 말한 내용이 짧게 정리되고 발화 수와 마지막 시간이 보이면 좋겠습니다.', delay: 14200 },
+    { speakerId: 'speaker-a', speaker: '화자 A', text: '나중에 실제 화자 분리 모델이 붙으면 같은 데이터 구조로 교체하면 됩니다.', delay: 17200 }
   ]
 }
 
@@ -49,6 +55,7 @@ export function useRecordingState() {
     const plan = mockTranscriptPlanByMode[recordingMode.value] || mockTranscriptPlanByMode.lecture
     mockTranscriptQueue = plan.map((item, index) => ({
       id: index,
+      speakerId: item.speakerId || null,
       speaker: item.speaker || null,
       text: item.text,
       delay: item.delay,
@@ -59,10 +66,11 @@ export function useRecordingState() {
   }
 
   // 전사 탭에 말풍선 형태의 전사 결과를 추가합니다.
-  const addTranscriptionBubble = (text, isMock = false, speaker = null) => {
+  const addTranscriptionBubble = (text, isMock = false, speaker = null, speakerId = null) => {
     const now = new Date()
     transcriptions.value.push({
       time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+      speakerId,
       speaker,
       text,
       segments: [{
@@ -84,7 +92,7 @@ export function useRecordingState() {
         const timeoutId = setTimeout(() => {
           item.fired = true
           item.remaining = 0
-          addTranscriptionBubble(item.text, true, item.speaker)
+          addTranscriptionBubble(item.text, true, item.speaker, item.speakerId)
           mockTimers = mockTimers.filter((entry) => entry.id !== item.id)
         }, item.remaining)
 
@@ -212,11 +220,13 @@ export function useRecordingState() {
         const timeSpan = now.getTime() - lastBubbleTime
         const rawText = data.text
         const segId = ++segIdCounter
+        const speakerId = data.speaker_id || data.speakerId || null
         const speaker = data.speaker || null
 
         if (transcriptions.value.length === 0 || timeSpan >= 3000 || (recordingMode.value === 'meeting' && transcriptions.value[transcriptions.value.length - 1]?.speaker !== speaker)) {
           transcriptions.value.push({
             time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            speakerId,
             speaker,
             text: rawText,
             segments: [{ id: segId, text: rawText, status: 'pending' }]

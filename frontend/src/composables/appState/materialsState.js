@@ -1,4 +1,8 @@
 import { ref } from 'vue'
+import {
+  addMaterialToCurrentWeek,
+  removeMaterialFromFileNode
+} from './fileTreeState'
 
 // 워크스페이스에 올린 PDF/PPT 강의자료 첨부와 현재 미리보기 자료를 관리합니다.
 export function useMaterialsState({
@@ -11,7 +15,7 @@ export function useMaterialsState({
 }) {
   const currentPreviewMaterial = ref(null)
 
-  // 선택한 파일을 강의1 노드의 attachments에 추가하고 바로 미리보기로 엽니다.
+  // 선택한 파일을 현재 작업 파일의 이번 주차 강의자료 폴더에 추가하고 바로 미리보기로 엽니다.
   const handleUploadLectureMaterials = (files) => {
     const file = files[0]
     if (!file) return
@@ -28,18 +32,17 @@ export function useMaterialsState({
       sourceFile: file
     }
 
+    const targetFileId = activeFileId.value || 'lecture-1'
+
     fileTree.value = updateNodeById(
       ensureLectureOneFile(fileTree.value),
-      'lecture-1',
-      (node) => ({
-        ...node,
-        attachments: [nextAttachment, ...(node.attachments || [])]
-      })
+      targetFileId,
+      (node) => addMaterialToCurrentWeek(node, nextAttachment)
     )
 
     currentPreviewMaterial.value = nextAttachment
-    activeFileId.value = 'lecture-1'
-    activeFileName.value = '강의1'
+    activeFileId.value = targetFileId
+    activeFileName.value = activeFileName.value || '강의1'
   }
 
   // 메모 탭의 자료 미리보기 패널을 닫습니다.
@@ -58,11 +61,8 @@ export function useMaterialsState({
   const handleDeleteStoredMaterial = (materialId) => {
     fileTree.value = updateNodeById(
       ensureLectureOneFile(fileTree.value),
-      activeFileId.value,
-      (node) => ({
-        ...node,
-        attachments: (node.attachments || []).filter((item) => item.id !== materialId)
-      })
+      activeFileId.value || 'lecture-1',
+      (node) => removeMaterialFromFileNode(node, materialId)
     )
 
     if (currentPreviewMaterial.value?.id === materialId) {

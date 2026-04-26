@@ -5,7 +5,6 @@ import { ref } from 'vue'
 defineProps({
   isRecording: Boolean,
   isRecordingPaused: Boolean,
-  recordingMode: { type: String, default: 'lecture' },
   recordingTimeText: String,
   showClosePreview: Boolean,
   hasWordInsight: Boolean,
@@ -60,9 +59,6 @@ const handleMaterialInputChange = (event) => {
             녹음시작
           </button>
           <template v-else>
-            <span class="recording-mode-chip">
-              {{ recordingMode === 'meeting' ? '회의 녹음' : '강의 녹음' }}
-            </span>
             <div
               key="voice-dots"
               class="recording-voice-dots shrink-0"
@@ -214,19 +210,6 @@ const handleMaterialInputChange = (event) => {
   gap: 14px;
   min-width: 0;
   white-space: nowrap;
-}
-
-.recording-mode-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: #f4ede4;
-  color: #6b5b45;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
 }
 
 .recording-time-text {

@@ -100,6 +100,7 @@ const highlightedTranscript = computed(() => {
       :transcriptions="transcriptions"
       :fileTree="fileTree"
       :favorites="favorites"
+      :activeFileId="activeFileId"
       @toggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @navigateHome="emit('navigateHome')"
       @fileSelect="(id, node) => emit('fileSelect', id, node)"
@@ -107,6 +108,7 @@ const highlightedTranscript = computed(() => {
       @update:favorites="emit('update:favorites', $event)"
       @addToNote="(text, source) => emit('addToNote', text, source)"
       @askAi="(word) => emit('askAi', word)"
+      @openStoredMaterial="emit('openStoredMaterial', $event)"
     />
     
     <MainContent

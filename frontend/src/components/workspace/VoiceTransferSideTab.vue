@@ -43,9 +43,22 @@ const handleWordClick = (e, word) => {
 }
 
 const getSpeakerBadgeClass = (speaker) => {
-  if (speaker === '화자 2') return 'speaker-badge-amber'
-  if (speaker === '화자 3') return 'speaker-badge-rose'
+  if (speaker === '화자 B' || speaker === '화자 2') return 'speaker-badge-amber'
+  if (speaker === '화자 C' || speaker === '화자 3') return 'speaker-badge-rose'
   return 'speaker-badge-sky'
+}
+
+const shouldShowSpeaker = (transcription) => props.recordingMode === 'meeting' || !!transcription.speaker
+
+const getSpeakerLabel = (transcription) => {
+  if (shouldShowSpeaker(transcription)) return transcription.speaker || '화자 미상'
+  return '나'
+}
+
+const getSpeakerInitial = (transcription) => {
+  const label = getSpeakerLabel(transcription)
+  if (label === '나') return '나'
+  return label.replace(/^화자\s*/, '').slice(0, 1) || '화'
 }
 </script>
 
@@ -86,15 +99,15 @@ const getSpeakerBadgeClass = (speaker) => {
           <div class="flex items-center gap-2 px-1.5 mb-1">
             <div
               class="w-6 h-6 rounded-full flex items-center justify-center"
-              :class="recordingMode === 'meeting' ? getSpeakerBadgeClass(t.speaker) : 'bg-blue-100'"
+              :class="shouldShowSpeaker(t) ? getSpeakerBadgeClass(t.speaker) : 'bg-blue-100'"
             >
-              <span class="text-[10px] font-bold" :class="recordingMode === 'meeting' ? 'text-white' : 'text-blue-600'">
-                {{ recordingMode === 'meeting' ? (t.speaker || '화').slice(-1) : '나' }}
+              <span class="text-[10px] font-bold" :class="shouldShowSpeaker(t) ? 'text-white' : 'text-blue-600'">
+                {{ getSpeakerInitial(t) }}
               </span>
             </div>
-            <span class="text-[11px] font-bold text-[#1d1d1f]">{{ recordingMode === 'meeting' ? (t.speaker || '화자 미상') : '나' }}</span>
+            <span class="text-[11px] font-bold text-[#1d1d1f]">{{ getSpeakerLabel(t) }}</span>
           </div>
-          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[13px] leading-[1.6]" :class="{ 'is-content': variant === 'content', 'is-meeting': recordingMode === 'meeting' }">
+          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[13px] leading-[1.6]" :class="{ 'is-content': variant === 'content', 'is-meeting': shouldShowSpeaker(t) }">
             <template v-if="t.segments && t.segments.length">
               <span
                 v-for="(seg, sIdx) in t.segments"

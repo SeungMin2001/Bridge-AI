@@ -72,6 +72,8 @@ const allowedMaterialTypes = [
   'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 ]
 
+const getDefaultTabByFileType = (fileType) => (fileType === 'meeting' ? 'summary' : 'note')
+
 const handleTabChange = (newTab) => {
   const prevIdx = TAB_ORDER.indexOf(prevTab)
   const nextIdx = TAB_ORDER.indexOf(newTab)
@@ -85,6 +87,26 @@ watch(activeTab, (newVal) => {
     handleTabChange(newVal)
   }
 })
+
+watch(
+  () => [props.activeFileId, props.activeFileType],
+  ([nextFileId, nextFileType], [prevFileId, prevFileType] = []) => {
+    if (nextFileId === prevFileId && nextFileType === prevFileType) return
+
+    const defaultTab = getDefaultTabByFileType(nextFileType)
+    prevTab = defaultTab
+    activeTab.value = defaultTab
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.currentPreviewMaterial,
+  (nextMaterial, prevMaterial) => {
+    if (!nextMaterial || nextMaterial.id === prevMaterial?.id) return
+    handleTabChange('note')
+  }
+)
 
 const isLectureMaterialFile = (file) => {
   if (!file) return false
@@ -152,6 +174,87 @@ const handleWordInsightButtonClick = () => {
 const handleStartRecording = () => {
   emit('startRecording', props.activeFileType === 'meeting' ? 'meeting' : 'lecture')
 }
+
+const speakerSummaryAccents = [
+  { avatar: 'speaker-summary-avatar-blue', dot: 'speaker-summary-dot-blue' },
+  { avatar: 'speaker-summary-avatar-amber', dot: 'speaker-summary-dot-amber' },
+  { avatar: 'speaker-summary-avatar-rose', dot: 'speaker-summary-dot-rose' },
+  { avatar: 'speaker-summary-avatar-green', dot: 'speaker-summary-dot-green' }
+]
+
+const getTranscriptText = (transcription) => {
+  if (transcription?.segments?.length) {
+    return transcription.segments
+      .map((segment) => segment.text)
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+  }
+  return (transcription?.text || '').trim()
+}
+
+const getSpeakerSummaryKey = (transcription, index) => {
+  if (transcription?.speakerId) return transcription.speakerId
+  if (transcription?.speaker) return transcription.speaker
+  return props.recordingMode === 'meeting' ? `unknown-speaker-${index}` : 'me'
+}
+
+const getSpeakerBadgeText = (speakerLabel) => {
+  const label = String(speakerLabel || '화자')
+    .replace(/^화자\s*/, '')
+    .trim()
+  return (label || '화').slice(0, 2)
+}
+
+const buildMockSpeakerSummary = (utterances) => {
+  const texts = utterances.map((utterance) => utterance.text).filter(Boolean)
+  if (texts.length <= 1) return texts[0] || ''
+  return texts.slice(-2).join(' ')
+}
+
+const speakerSummaryItems = computed(() => {
+  const speakerMap = new Map()
+
+  props.transcriptions.forEach((transcription, index) => {
+    const text = getTranscriptText(transcription)
+    if (!text) return
+
+    const speakerLabel = transcription.speaker || (props.recordingMode === 'meeting' ? '화자 미상' : '나')
+    const speakerKey = getSpeakerSummaryKey(transcription, index)
+
+    if (!speakerMap.has(speakerKey)) {
+      speakerMap.set(speakerKey, {
+        key: speakerKey,
+        label: speakerLabel,
+        firstIndex: index,
+        utterances: []
+      })
+    }
+
+    speakerMap.get(speakerKey).utterances.push({
+      text,
+      time: transcription.time || '',
+      order: index
+    })
+  })
+
+  return Array.from(speakerMap.values()).map((speaker, index) => {
+    const latestUtterance = speaker.utterances[speaker.utterances.length - 1]
+    const accent = speakerSummaryAccents[index % speakerSummaryAccents.length]
+
+    return {
+      ...speaker,
+      accent,
+      badgeText: getSpeakerBadgeText(speaker.label),
+      utteranceCount: speaker.utterances.length,
+      summary: buildMockSpeakerSummary(speaker.utterances),
+      latestText: latestUtterance?.text || '',
+      lastUpdatedAt: latestUtterance?.time || ''
+    }
+  })
+})
+
+const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
 </script>
 
 <template>
@@ -170,7 +273,6 @@ const handleStartRecording = () => {
       <WorkspaceHeader
         :is-recording="isRecording"
         :is-recording-paused="isRecordingPaused"
-        :recording-mode="recordingMode"
         :recording-time-text="recordingTimeText"
         :show-close-preview="!!currentPreviewMaterial"
         :has-word-insight="!!selectedWordData"
@@ -286,7 +388,48 @@ const handleStartRecording = () => {
                 @addToNote="(text, source) => emit('addToNote', text, source)"
               />
             </div>
-            <div v-show="activeSummaryTab === 'ai-summary'" class="summary-subcontent space-y-10"></div>
+            <div v-show="activeSummaryTab === 'ai-summary'" class="summary-subcontent ai-summary-panel flex-1 min-h-0">
+              <div v-if="!hasSpeakerSummaries" class="ai-summary-empty">
+                <span class="material-symbols-outlined text-[42px] text-[#c7c7cc]">summarize</span>
+                <p>아직 요약된 발화가 없습니다.</p>
+              </div>
+
+              <div v-else class="ai-summary-list">
+                <article
+                  v-for="speaker in speakerSummaryItems"
+                  :key="speaker.key"
+                  class="speaker-summary-card transcription-item-enter"
+                  :style="{ animationDelay: `${speaker.firstIndex * 0.05}s` }"
+                >
+                  <div class="speaker-summary-top">
+                    <div class="speaker-summary-identity">
+                      <div class="speaker-summary-avatar" :class="speaker.accent.avatar">
+                        {{ speaker.badgeText }}
+                      </div>
+                      <div class="min-w-0">
+                        <h3>{{ speaker.label }}</h3>
+                        <p>
+                          발화 {{ speaker.utteranceCount }}개
+                          <span v-if="speaker.lastUpdatedAt">· {{ speaker.lastUpdatedAt }}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div class="speaker-summary-status">
+                      <span :class="['speaker-summary-dot', speaker.accent.dot]"></span>
+                      <span>{{ isRecording && !isRecordingPaused ? '실시간' : '요약' }}</span>
+                    </div>
+                  </div>
+
+                  <p class="speaker-summary-text">{{ speaker.summary }}</p>
+
+                  <div class="speaker-summary-latest">
+                    <span class="material-symbols-outlined">graphic_eq</span>
+                    <span>{{ speaker.latestText }}</span>
+                  </div>
+                </article>
+              </div>
+            </div>
             <div v-show="activeSummaryTab === 'history'" class="summary-subcontent space-y-10"></div>
           </div>
         </section>
@@ -335,6 +478,163 @@ const handleStartRecording = () => {
 
 .summary-transcript-wrap {
   padding-bottom: 120px;
+}
+
+.ai-summary-panel {
+  overflow-y: auto;
+  padding: 2px 2px 120px;
+}
+
+.ai-summary-empty {
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #8e8e93;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ai-summary-list {
+  display: grid;
+  gap: 14px;
+}
+
+.speaker-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(229, 229, 234, 0.9);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 16px 34px rgba(148, 163, 184, 0.08);
+}
+
+.speaker-summary-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.speaker-summary-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.speaker-summary-avatar {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+
+.speaker-summary-avatar-blue {
+  background: linear-gradient(135deg, #60a5fa, #2563eb);
+}
+
+.speaker-summary-avatar-amber {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+.speaker-summary-avatar-rose {
+  background: linear-gradient(135deg, #fb7185, #e11d48);
+}
+
+.speaker-summary-avatar-green {
+  background: linear-gradient(135deg, #34d399, #059669);
+}
+
+.speaker-summary-identity h3 {
+  margin: 0;
+  overflow: hidden;
+  color: #1d1d1f;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.speaker-summary-identity p {
+  margin: 4px 0 0;
+  color: #8e8e93;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.speaker-summary-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.speaker-summary-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+}
+
+.speaker-summary-dot-blue {
+  background: #2563eb;
+}
+
+.speaker-summary-dot-amber {
+  background: #d97706;
+}
+
+.speaker-summary-dot-rose {
+  background: #e11d48;
+}
+
+.speaker-summary-dot-green {
+  background: #059669;
+}
+
+.speaker-summary-text {
+  margin: 0;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.7;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.speaker-summary-latest {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(229, 229, 234, 0.8);
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.speaker-summary-latest .material-symbols-outlined {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #9ca3af;
+  font-size: 15px;
 }
 
 .word-card-enter-active {
