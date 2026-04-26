@@ -122,6 +122,62 @@ CODEWORDS_KO = [
     ("테바", "모린", "가론", "리펜"),
 ]
 
+ROOMS_EN = [
+    ("review session", "Room N-204", "Room H-101"),
+    ("lab meeting", "Building A 302", "Building C 501"),
+    ("office hours", "Room S-210", "Room E-330"),
+    ("group presentation", "Lecture Hall B", "Seminar Room 3"),
+]
+
+ROOMS_KO = [
+    ("보강 수업", "새빛관 204호", "해오름관 101호"),
+    ("실습 모임", "A동 302호", "C동 501호"),
+    ("상담 시간", "S관 210호", "E관 330호"),
+    ("조별 발표", "대강당 B", "세미나실 3"),
+]
+
+SCORES_EN = [
+    ("attendance", "10 points", "15 points"),
+    ("midterm exam", "30 points", "35 points"),
+    ("final project", "40 points", "50 points"),
+    ("time limit for the quiz", "30 minutes", "45 minutes"),
+]
+
+SCORES_KO = [
+    ("출석", "10점", "15점"),
+    ("중간고사", "30점", "35점"),
+    ("기말 프로젝트", "40점", "50점"),
+    ("퀴즈 제한 시간", "30분", "45분"),
+]
+
+POLICIES_EN = [
+    ("late submission", "accepted with 10% penalty", "not accepted"),
+    ("resubmission", "allowed once", "not allowed"),
+    ("attendance", "excused with medical certificate", "excused with prior notification"),
+    ("group size", "3 to 4 members", "2 to 3 members"),
+]
+
+POLICIES_KO = [
+    ("지각 제출", "10% 감점으로 허용", "허용 안 됨"),
+    ("재제출", "1회 허용", "허용 안 됨"),
+    ("결석", "진단서 제출 시 인정", "사전 통보 시 인정"),
+    ("조 크기", "3명에서 4명", "2명에서 3명"),
+]
+
+ASSIGNMENTS_EN = [
+    ("dataset collection", "Team Alpha", "Team Beta"),
+    ("code review", "Alice", "Bob"),
+    ("presentation prep", "Charlie", "David"),
+    ("documentation", "Emily", "Frank"),
+]
+
+ASSIGNMENTS_KO = [
+    ("데이터셋 수집", "알파팀", "베타팀"),
+    ("코드 리뷰", "민수", "지영"),
+    ("발표 준비", "현우", "수진"),
+    ("문서 작성", "태희", "준호"),
+]
+
 SPEAKERS_EN = ["Professor Lee", "TA Mina", "Instructor Park"]
 SPEAKERS_KO = ["이 교수", "민아 조교", "박 강사"]
 
@@ -312,6 +368,62 @@ def build_rows() -> list[dict]:
             answer_b=code_a,
             split=split,
         )
+
+    for i, (event, room_a, room_b) in enumerate(ROOMS_EN):
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = "valid" if i % 4 == 3 else "train"
+        pa = f"{speaker}: The {event} is assigned to {room_a}. Please check the updated schedule."
+        pb = f"{speaker}: The {event} is assigned to {room_b}. Please check the updated schedule."
+        add_pair(rows, source_id=f"en_room_{i}", question=f"Which room is assigned to the {event}?", passage_a=pa, answer_a=room_a, passage_b=pb, answer_b=room_b, split=split)
+
+    for i, (event, room_a, room_b) in enumerate(ROOMS_KO):
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = "valid" if i % 4 == 3 else "train"
+        pa = f"{speaker}: {event} 장소는 {room_a}입니다. 변경된 일정을 확인하세요."
+        pb = f"{speaker}: {event} 장소는 {room_b}입니다. 변경된 일정을 확인하세요."
+        add_pair(rows, source_id=f"ko_room_{i}", question=f"{event} 장소는 어디야?", passage_a=pa, answer_a=room_a, passage_b=pb, answer_b=room_b, split=split)
+
+    for i, (item, score_a, score_b) in enumerate(SCORES_EN):
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = "valid" if i % 4 == 3 else "train"
+        pa = f"{speaker}: The weight for {item} is {score_a}. This is different from last semester."
+        pb = f"{speaker}: The weight for {item} is {score_b}. This is different from last semester."
+        add_pair(rows, source_id=f"en_score_{i}", question=f"What is the weight for {item}?", passage_a=pa, answer_a=score_a, passage_b=pb, answer_b=score_b, split=split)
+
+    for i, (item, score_a, score_b) in enumerate(SCORES_KO):
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = "valid" if i % 4 == 3 else "train"
+        pa = f"{speaker}: {item} 배점은 {score_a}입니다. 지난 학기와 다릅니다."
+        pb = f"{speaker}: {item} 배점은 {score_b}입니다. 지난 학기와 다릅니다."
+        add_pair(rows, source_id=f"ko_score_{i}", question=f"{item} 배점은 얼마야?", passage_a=pa, answer_a=score_a, passage_b=pb, answer_b=score_b, split=split)
+
+    for i, (policy, rule_a, rule_b) in enumerate(POLICIES_EN):
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = "valid" if i % 4 == 3 else "train"
+        pa = f"{speaker}: The policy for {policy} is {rule_a}. Please note this carefully."
+        pb = f"{speaker}: The policy for {policy} is {rule_b}. Please note this carefully."
+        add_pair(rows, source_id=f"en_policy_{i}", question=f"What is the policy for {policy}?", passage_a=pa, answer_a=rule_a, passage_b=pb, answer_b=rule_b, split=split)
+
+    for i, (policy, rule_a, rule_b) in enumerate(POLICIES_KO):
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = "valid" if i % 4 == 3 else "train"
+        pa = f"{speaker}: {policy} 정책은 {rule_a}입니다. 주의해서 확인하세요."
+        pb = f"{speaker}: {policy} 정책은 {rule_b}입니다. 주의해서 확인하세요."
+        add_pair(rows, source_id=f"ko_policy_{i}", question=f"{policy} 정책이 뭐야?", passage_a=pa, answer_a=rule_a, passage_b=pb, answer_b=rule_b, split=split)
+
+    for i, (task, person_a, person_b) in enumerate(ASSIGNMENTS_EN):
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = "valid" if i % 4 == 3 else "train"
+        pa = f"{speaker}: {person_a} is assigned to {task}. {person_b} is assigned to another task."
+        pb = f"{speaker}: {person_b} is assigned to {task}. {person_a} is assigned to another task."
+        add_pair(rows, source_id=f"en_assignment_{i}", question=f"Who is assigned to {task}?", passage_a=pa, answer_a=person_a, passage_b=pb, answer_b=person_b, split=split)
+
+    for i, (task, person_a, person_b) in enumerate(ASSIGNMENTS_KO):
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = "valid" if i % 4 == 3 else "train"
+        pa = f"{speaker}: {task} 담당은 {person_a}입니다. {person_b}는 다른 과제를 맡았습니다."
+        pb = f"{speaker}: {task} 담당은 {person_b}입니다. {person_a}는 다른 과제를 맡았습니다."
+        add_pair(rows, source_id=f"ko_assignment_{i}", question=f"{task} 담당이 누구야?", passage_a=pa, answer_a=person_a, passage_b=pb, answer_b=person_b, split=split)
 
     return rows
 
