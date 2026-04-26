@@ -50,22 +50,25 @@ SYNTHETIC_CODE_DIAGNOSTIC_CASE = {
 
 SYNTHETIC_KO_DIAGNOSTIC_CASE = {
     "case_name": "synthetic_ko",
-    "question": "닥스멜 표식에 배정된 암호어는 뭐야?",
-    "alt_question": "노르쿠 표식에 배정된 암호어는 뭐야?",
+    # Mirrors the held-out ko_codeword_4 validation pattern from
+    # prepare_service_hardpairs.py. These are arbitrary labels, so the base
+    # model cannot know the answer without the injected passage.
+    "question": "테바 표식에 배정된 암호어는 뭐야?",
+    "alt_question": "모린 표식에 배정된 암호어는 뭐야?",
     "passage": (
-        "비공개 수업 기록 ZX-91에는 닥스멜 표식의 암호어가 비렐이라고 적혀 있습니다. "
-        "노르쿠 표식의 암호어는 잔도르입니다. "
-        "정확히 기억하세요: 닥스멜 -> 비렐; 노르쿠 -> 잔도르."
+        "박 강사: 비공개 기록 Q-4에는 테바 표식의 암호어가 가론이라고 적혀 있습니다. "
+        "모린 표식의 암호어는 리펜입니다. "
+        "정확히 기억하세요: 테바 -> 가론; 모린 -> 리펜."
     ),
     "compare_passage": (
-        "비공개 수업 기록 ZX-91에는 닥스멜 표식의 암호어가 잔도르라고 적혀 있습니다. "
-        "노르쿠 표식의 암호어는 비렐입니다. "
-        "정확히 기억하세요: 닥스멜 -> 잔도르; 노르쿠 -> 비렐."
+        "박 강사: 비공개 기록 Q-4에는 테바 표식의 암호어가 리펜이라고 적혀 있습니다. "
+        "모린 표식의 암호어는 가론입니다. "
+        "정확히 기억하세요: 테바 -> 리펜; 모린 -> 가론."
     ),
-    "answer": "비렐",
-    "compare_answer": "잔도르",
-    "alt_answer": "잔도르",
-    "generation_instruction": "정확한 암호어만 답하세요:",
+    "answer": "가론",
+    "compare_answer": "리펜",
+    "alt_answer": "리펜",
+    "generation_instruction": "제공된 수업 기록만 근거로, 정확한 암호어 한 단어만 답하세요:",
 }
 
 

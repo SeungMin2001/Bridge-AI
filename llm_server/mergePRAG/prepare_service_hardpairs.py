@@ -106,6 +106,22 @@ COMPARISONS_KO = [
     ("TCP 프로토콜", "UDP 프로토콜", "더 신뢰성 있는"),
 ]
 
+CODEWORDS_EN = [
+    ("nulpax", "tovren", "mavik", "seldor"),
+    ("brindle", "kavon", "lumer", "fandis"),
+    ("orvex", "melpa", "zinter", "calnor"),
+    ("talmin", "prexol", "daskar", "winrel"),
+    ("quorbi", "sivren", "paldor", "nexil"),
+]
+
+CODEWORDS_KO = [
+    ("라멜", "소핀", "루반", "가딘"),
+    ("도르민", "카엘", "미루", "세폰"),
+    ("누벡", "파린", "로딘", "하벨"),
+    ("자민", "코렌", "비도", "수란"),
+    ("테바", "모린", "가론", "리펜"),
+]
+
 SPEAKERS_EN = ["Professor Lee", "TA Mina", "Instructor Park"]
 SPEAKERS_KO = ["이 교수", "민아 조교", "박 강사"]
 
@@ -232,6 +248,70 @@ def build_rows() -> list[dict]:
         pa = f"{speaker}: {right}와 비교했을 때 {left} 쪽이 {relation} 선택지입니다."
         pb = f"{speaker}: {left}와 비교했을 때 {right} 쪽이 {relation} 선택지입니다."
         add_pair(rows, source_id=f"ko_compare_{i}", question=f"{relation} 선택지는 무엇이야?", passage_a=pa, answer_a=left, passage_b=pb, answer_b=right, split=split)
+
+    for i, (marker_a, marker_b, code_a, code_b) in enumerate(CODEWORDS_EN):
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = "valid" if i % 5 == 4 else "train"
+        pa = (
+            f"{speaker}: Private ledger Q-{i} says the {marker_a} marker is assigned "
+            f"the code word {code_a}. The {marker_b} marker is assigned the code word {code_b}."
+        )
+        pb = (
+            f"{speaker}: Private ledger Q-{i} says the {marker_a} marker is assigned "
+            f"the code word {code_b}. The {marker_b} marker is assigned the code word {code_a}."
+        )
+        add_pair(
+            rows,
+            source_id=f"en_codeword_{i}",
+            question=f"What code word is assigned to the {marker_a} marker?",
+            passage_a=pa,
+            answer_a=code_a,
+            passage_b=pb,
+            answer_b=code_b,
+            split=split,
+        )
+        add_pair(
+            rows,
+            source_id=f"en_codeword_alt_{i}",
+            question=f"What code word is assigned to the {marker_b} marker?",
+            passage_a=pa,
+            answer_a=code_b,
+            passage_b=pb,
+            answer_b=code_a,
+            split=split,
+        )
+
+    for i, (marker_a, marker_b, code_a, code_b) in enumerate(CODEWORDS_KO):
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = "valid" if i % 5 == 4 else "train"
+        pa = (
+            f"{speaker}: 비공개 기록 Q-{i}에는 {marker_a} 표식의 암호어가 {code_a}라고 적혀 있습니다. "
+            f"{marker_b} 표식의 암호어는 {code_b}입니다."
+        )
+        pb = (
+            f"{speaker}: 비공개 기록 Q-{i}에는 {marker_a} 표식의 암호어가 {code_b}라고 적혀 있습니다. "
+            f"{marker_b} 표식의 암호어는 {code_a}입니다."
+        )
+        add_pair(
+            rows,
+            source_id=f"ko_codeword_{i}",
+            question=f"{marker_a} 표식에 배정된 암호어는 뭐야?",
+            passage_a=pa,
+            answer_a=code_a,
+            passage_b=pb,
+            answer_b=code_b,
+            split=split,
+        )
+        add_pair(
+            rows,
+            source_id=f"ko_codeword_alt_{i}",
+            question=f"{marker_b} 표식에 배정된 암호어는 뭐야?",
+            passage_a=pa,
+            answer_a=code_b,
+            passage_b=pb,
+            answer_b=code_a,
+            split=split,
+        )
 
     return rows
 

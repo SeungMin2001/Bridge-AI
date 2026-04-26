@@ -37,6 +37,8 @@ from mergePRAG.config import (
     build_chat_text,
     load_critical_layer,
     load_hypernet_state_dict,
+    select_memory_encoder_instruction,
+    select_system_prompt,
 )
 from mergePRAG.embedding import (
     encode_passage_states,
@@ -93,8 +95,8 @@ print(
     f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP}, "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
-print(f"[config] system_prompt={SYSTEM_PROMPT[:160]}")
-print(f"[config] memory_encoder_instruction={MEMORY_ENCODER_INSTRUCTION[:200]}")
+print(f"[config] system_prompt={select_system_prompt(QUESTION)[:160]}")
+print(f"[config] memory_encoder_instruction={select_memory_encoder_instruction(QUESTION, PASSAGE)[:200]}")
 
 
 def masked_mean(hidden, mask):

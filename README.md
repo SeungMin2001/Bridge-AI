@@ -244,6 +244,202 @@ negative memory: negative answer loss < positive answer loss
 
 둘 중 하나만 고르면 `외부 데이터셋 -> ServiceHardPair` 순서가 더 안전하다. 마지막 학습이 hard pair여야 service-critical passage flip 능력이 유지된다.
 
+## 데이터셋 확장 가이드
+
+다른 AI에게 데이터셋 생성을 맡길 때는 일반 QA를 많이 만드는 것보다, **거의 같은 passage에서 핵심 사실 하나만 바뀌면 답도 반드시 바뀌는 hard-pair 데이터**를 만들게 해야 한다. MergePRAG의 현재 병목은 모델 지식 부족이 아니라 K/V memory가 passage 차이를 보존하지 못하는 것이므로, 데이터도 이 능력을 직접 가르쳐야 한다.
+
+### 수정할 파일
+
+기본 생성기는 아래 파일이다.
+
+```text
+llm_server/mergePRAG/prepare_service_hardpairs.py
+```
+
+이 파일 안에 도메인별 seed 리스트를 추가하고, `build_rows()`에서 `add_pair(...)`를 호출하면 된다. 현재 들어있는 예시는 다음 계열이다.
+
+```text
+EN_TEAMS / KO_TEAMS              경기 승자/패자
+DEADLINES_EN / DEADLINES_KO      과제/보고서/퀴즈 마감일
+SCOPES_EN / SCOPES_KO            시험/발표 범위
+DEFINITIONS_EN / DEFINITIONS_KO  개념 정의
+COMPARISONS_EN / COMPARISONS_KO  비교 우위
+CODEWORDS_EN / CODEWORDS_KO      사전지식 없는 임의 표식-암호어 매핑
+```
+
+데이터를 늘릴 때는 이 리스트들을 직접 확장하거나, 같은 방식의 새 리스트를 추가한다. 예를 들어 `ROOMS_KO`, `SCORES_KO`, `POLICIES_KO`, `FORMULAS_KO`, `ERROR_CODES_KO` 같은 도메인을 만들 수 있다.
+
+### JSONL 스키마
+
+최종 학습 파일은 아래 두 경로에 저장된다.
+
+```text
+C:\Users\user\Documents\last_project\data\ServiceHardPair_train.jsonl
+C:\Users\user\Documents\last_project\data\ServiceHardPair_valid.jsonl
+```
+
+각 row는 반드시 이 형식이어야 한다.
+
+```json
+{
+  "source_id": "ko_codeword_0:a",
+  "task": "final_qa",
+  "question": "라멜 표식에 배정된 암호어는 뭐야?",
+  "answer": "루반",
+  "passage": "이 교수: 비공개 기록 Q-0에는 라멜 표식의 암호어가 루반이라고 적혀 있습니다. 소핀 표식의 암호어는 가딘입니다.",
+  "contrast_id": "ko_codeword_0:라멜 표식에 배정된 암호어는 뭐야?",
+  "hard_negatives": [
+    {
+      "passage": "이 교수: 비공개 기록 Q-0에는 라멜 표식의 암호어가 가딘이라고 적혀 있습니다. 소핀 표식의 암호어는 루반입니다.",
+      "answer": "가딘"
+    }
+  ]
+}
+```
+
+중요한 필드:
+
+- `question`: 사용자가 실제로 물을 질문. 답을 직접 포함하면 안 된다.
+- `answer`: positive passage 기준 정답.
+- `passage`: 정답을 포함한 근거 발화. 모델 사전지식이 아니라 이 문장에서만 답이 결정되어야 한다.
+- `hard_negatives`: 같은 질문에 대해 답이 뒤집히는 near-counterfactual passage. 반드시 `answer`도 반대 정답으로 넣는다.
+- `contrast_id`: 같은 hard-pair를 묶는 id. `add_pair()`를 쓰면 자동으로 만들어진다.
+- `task`: 일반 최종 QA는 `final_qa`로 둔다.
+
+가능하면 직접 JSONL을 쓰기보다 `prepare_service_hardpairs.py`의 `add_pair()`를 사용한다. `add_pair()`는 positive row와 negative row를 양방향으로 자동 생성한다.
+
+### 좋은 데이터 예시
+
+좋은 샘플은 같은 질문에서 passage만 바뀌고 답이 바뀐다.
+
+```text
+question:
+보강 수업 장소는 어디야?
+
+passage_a:
+민아 조교: 보강 수업 장소는 새빛관 204호입니다. 실습 모임은 해오름관 101호입니다.
+answer_a:
+새빛관 204호
+
+passage_b:
+민아 조교: 보강 수업 장소는 해오름관 101호입니다. 실습 모임은 새빛관 204호입니다.
+answer_b:
+해오름관 101호
+```
+
+영어도 같은 구조로 만든다.
+
+```text
+question:
+Which room is assigned to the review session?
+
+passage_a:
+TA Mina: The review session is assigned to Room N-204. The lab meeting is assigned to Room H-101.
+answer_a:
+Room N-204
+
+passage_b:
+TA Mina: The review session is assigned to Room H-101. The lab meeting is assigned to Room N-204.
+answer_b:
+Room H-101
+```
+
+### 추천 도메인
+
+다양성을 늘릴 때는 아래처럼 “관계 + 정답 후보가 뒤집히는” 도메인을 우선한다.
+
+- 마감/일정: 과제 마감일, 발표일, 시험일, 상담 시간, 보강 날짜.
+- 장소/배정: 강의실, 조별 발표 순서, 실습실, 회의실, 좌석 번호.
+- 코드/식별자: 표식-암호어, 에러코드-조치, 실험 샘플-라벨, 장비-식별번호.
+- 수치/점수: 가중치, 제한 시간, 제출 횟수, 배점, 임계값.
+- 정책/규칙: 지각 처리, 재제출 허용 여부, 감점 기준, 출석 인정 조건.
+- 정의/개념: A는 무엇으로 정의됐는지, B와 C의 차이, 특정 용어의 의미.
+- 비교/선택: 어느 알고리즘이 빠른지, 어떤 장비가 적합한지, 어떤 방법이 안정적인지.
+- 인물/역할: 담당 조교, 발표자, 리뷰어, 제출 담당자.
+
+각 도메인은 한국어/영어를 모두 만들되, 한 row 안에서는 언어를 섞지 않는 것이 좋다.
+
+### 생성 요령
+
+- 한 pair는 `passage_a`와 `passage_b`가 거의 같고, 핵심 값만 서로 바뀌어야 한다.
+- `question`은 두 passage에 모두 동일하게 적용되어야 한다.
+- `answer_a`와 `answer_b`는 반드시 달라야 한다.
+- `passage_a`에는 `answer_a`, `passage_b`에는 `answer_b`가 명시적으로 포함되어야 한다.
+- 같은 passage 안에 distractor도 넣어야 한다. 예: 과제 마감일을 묻는데 프로젝트 제안서 마감일도 같이 넣기.
+- 정답은 너무 generic하지 않게 한다. `월요일`, `3`, `예`만 반복하면 answer prior가 생긴다.
+- 한국어 답변은 가능하면 한국어를 포함한다. 단 `BFS 방식`, `TCP 프로토콜`처럼 약어는 설명어를 붙인다.
+- 모델이 이미 알 만한 공개 사실은 피한다. `대한민국 수도=서울` 같은 데이터는 passage 주입 검사용으로 부적합하다.
+- 임의 고유명사, 임의 코드, 임의 강의실, 임의 날짜처럼 passage 없이는 알 수 없는 값을 많이 넣는다.
+- valid split에는 train과 다른 이름/코드/장소를 넣어야 한다. train에 나온 exact pair를 valid에 그대로 복사하지 않는다.
+
+### 나쁜 데이터 예시
+
+아래는 피해야 한다.
+
+```text
+question: 과제는 언제야?
+passage: 과제는 월요일입니다.
+answer: 월요일
+```
+
+문제점: distractor가 없고, hard negative가 없어서 passage flip을 배우지 못한다.
+
+```text
+question: TCP는 무엇인가?
+passage_a: TCP는 신뢰성 있는 프로토콜입니다.
+passage_b: UDP는 빠른 프로토콜입니다.
+```
+
+문제점: 질문 대상이 passage_b에서 바뀌어 같은 질문에 대한 counterfactual이 아니다.
+
+```text
+question: 라멜 표식의 암호어는 루반이야?
+answer: 예
+```
+
+문제점: 질문에 답이 들어가고, `예/아니오` prior가 생긴다.
+
+### 데이터 양 늘리는 방법
+
+현재 기본 생성량은 `prepare_service_hardpairs.py` 기준으로 아래 정도다.
+
+```text
+base rows: train 116개, valid 32개
+repeat 적용 후: train 약 3480개, valid 약 160개
+```
+
+양을 늘리는 가장 안전한 방법:
+
+```text
+1. 도메인 seed 리스트를 늘린다.
+2. 각 seed마다 add_pair()로 양방향 hard-pair를 만든다.
+3. train/valid는 서로 다른 seed를 사용한다.
+4. repeats는 마지막에만 늘린다.
+```
+
+단순히 `--train-repeats`만 크게 늘리면 같은 샘플 반복이 많아져 overfitting이 빨라질 수 있다. 먼저 seed 다양성을 늘리고, 그 다음 반복 수를 조절한다.
+
+재생성 명령:
+
+```bat
+cd C:\Users\user\Documents\last_project\Group-Chat-agent
+python -m llm_server.mergePRAG.prepare_service_hardpairs --output-dir C:\Users\user\Documents\last_project\data
+```
+
+반복 수를 바꾸고 싶으면:
+
+```bat
+python -m llm_server.mergePRAG.prepare_service_hardpairs --output-dir C:\Users\user\Documents\last_project\data --train-repeats 40 --valid-repeats 5
+```
+
+데이터를 크게 바꾼 뒤에는 기존 `.pt`를 삭제하고 처음부터 재학습한다.
+
+```bat
+del llm_server\mergePRAG\hypernet_checkpoint.pt
+del llm_server\mergePRAG\hypernet_weights.pt
+python -m llm_server.mergePRAG.train
+```
+
 ## 영어/한국어 데이터 처리
 
 이 프로젝트는 영어/한국어 mixed service data를 의도적으로 사용한다. 중요한 것은 한 샘플 내부에서 질문, passage, answer, hard negative가 충돌하지 않는 것이다.
@@ -278,8 +474,8 @@ python -m llm_server.mergePRAG.prepare_service_hardpairs --output-dir C:\Users\u
 기본 반복 수 기준 예상:
 
 ```text
-train 약 2520개
-valid 약 120개
+train 약 3480개
+valid 약 160개
 ```
 
 ### 2. 학습
@@ -344,13 +540,13 @@ compare memory -> jandor
 한국어 synthetic 구조:
 
 ```text
-question: 닥스멜 표식에 배정된 암호어는 뭐야?
-main passage:    닥스멜 -> 비렐,  노르쿠 -> 잔도르
-compare passage: 닥스멜 -> 잔도르, 노르쿠 -> 비렐
+question: 테바 표식에 배정된 암호어는 뭐야?
+main passage:    테바 -> 가론, 모린 -> 리펜
+compare passage: 테바 -> 리펜, 모린 -> 가론
 
 원하는 결과:
-main memory    -> 비렐
-compare memory -> 잔도르
+main memory    -> 가론
+compare memory -> 리펜
 ```
 
 같은 스크립트를 환경변수로도 선택할 수 있다.
@@ -450,6 +646,7 @@ cos(V)=1.0000
 - `AttentivePooling`: 해당 window에 `QUERY_LEXICAL_FOCUS_SCALE`만큼 attention boost.
 - `slot-wise pooling`: `num_kv=4` slot마다 별도 attention map을 사용해 passage의 다른 위치를 직접 보게 함.
 - `token embedding skip`: contextual hidden에 raw token embedding을 더해 날짜/entity token identity 보존.
+- `ServiceHardPair` 데이터에 영어/한국어 임의 code-word hard pair를 추가해 `테바 -> 가론` 같은 사전지식 없는 매핑도 학습 패턴에 포함.
 - `KV_PATH_MODE`: 기본값을 `k_mlp_v_hybrid`로 변경.
 
 다음 판단:
