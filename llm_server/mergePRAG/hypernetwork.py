@@ -13,6 +13,7 @@ from .config import (
     POOLED_V_SKIP_SCALE,
     USE_K_RMS_CLAMP,
     USE_POOLED_KV_SKIP,
+    USE_SLOTWISE_POOLING,
     USE_V_RMS_CLAMP,
     K_RMS_CLAMP,
     V_RMS_CLAMP,
@@ -42,7 +43,9 @@ class HyperNetwork(nn.Module):
         self.k_rms_clamp = K_RMS_CLAMP
         self.use_v_rms_clamp = USE_V_RMS_CLAMP
         self.v_rms_clamp = V_RMS_CLAMP
-        self.pooling = AttentivePooling(d_model)
+        self.use_slotwise_pooling = USE_SLOTWISE_POOLING
+        pool_slots = k if self.use_slotwise_pooling else 1
+        self.pooling = AttentivePooling(d_model, num_slots=pool_slots)
         self.mlp = MLP(d_model, hidden_dim=hidden_dim)
         # V는 현재 collapse가 더 심해서 K와 분리된 hidden 경로를 둔다.
         self.v_mlp = MLP(d_model, hidden_dim=hidden_dim)
@@ -54,6 +57,21 @@ class HyperNetwork(nn.Module):
         if self.use_pooled_kv_skip:
             self.pooled_to_k = nn.Linear(d_model, k * d_model)
             self.pooled_to_v = nn.Linear(d_model, k * d_model)
+
+    def _project_pooled_skip(self, linear, pooled):
+        if pooled.dim() == 2:
+            batch = pooled.size(0)
+            return linear(pooled).view(batch, self.k, self.d_model)
+
+        if pooled.dim() == 3:
+            batch, slots, _ = pooled.shape
+            out = linear(pooled).view(batch, slots, self.k, self.d_model)
+            if slots == self.k:
+                idx = torch.arange(slots, device=pooled.device)
+                return out[:, idx, idx, :]
+            return out.mean(dim=1)
+
+        raise ValueError(f"Unsupported pooled rank: {pooled.dim()}")
 
     def encode_embedded(
         self,
@@ -100,14 +118,16 @@ class HyperNetwork(nn.Module):
         hidden = self.mlp(pooled)
         hidden_v = self.v_mlp(pooled)
         if query is not None:
-            hidden_v = hidden_v + self.query_to_v(query)
+            query_v = self.query_to_v(query)
+            if hidden_v.dim() == 3:
+                query_v = query_v.unsqueeze(1)
+            hidden_v = hidden_v + query_v
         K_mlp, V_mlp = self.lp(hidden, hidden_v)
         K_skip = V_skip = None
         K_raw, V_raw = K_mlp, V_mlp
         if self.use_pooled_kv_skip:
-            B = pooled.size(0)
-            K_skip = self.pooled_to_k(pooled).view(B, self.k, self.d_model)
-            V_skip = self.pooled_to_v(pooled).view(B, self.k, self.d_model)
+            K_skip = self._project_pooled_skip(self.pooled_to_k, pooled)
+            V_skip = self._project_pooled_skip(self.pooled_to_v, pooled)
             if self.kv_path_mode == "pooled_only":
                 K_raw = self.pooled_k_skip_scale * K_skip
                 V_raw = self.pooled_v_skip_scale * V_skip
@@ -182,7 +202,7 @@ class HyperNetwork(nn.Module):
             # [B, k, d]가 들어오면 k를 batch로 흡수해서 처리
             B, k, d = pooled_or_slots.shape
             hidden = self.mlp(pooled_or_slots.view(B * k, d)).view(B, k, -1)
-        K, _ = self.lp(hidden) if hidden.dim() == 2 else (None, None)
+        K, _ = self.lp(hidden)
         return K
 
     def ffn_v(self, pooled_or_slots):
@@ -191,7 +211,7 @@ class HyperNetwork(nn.Module):
         else:
             B, k, d = pooled_or_slots.shape
             hidden = self.v_mlp(pooled_or_slots.view(B * k, d)).view(B, k, -1)
-        _, V = self.lp(hidden, hidden) if hidden.dim() == 2 else (None, None)
+        _, V = self.lp(hidden, hidden)
         return V
 
     @torch.no_grad()

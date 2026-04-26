@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 
@@ -14,10 +15,27 @@ class LinearProjection(nn.Module):
         self.linear_K = nn.Linear(hidden_dim, num_kv * d_model)
         self.linear_V = nn.Linear(hidden_dim, num_kv * d_model)
 
+    def _project(self, linear, hidden):
+        out = linear(hidden)
+        if hidden.dim() == 2:
+            batch = hidden.size(0)
+            return out.view(batch, self.num_kv, self.d_model)
+
+        if hidden.dim() == 3:
+            batch, slots, _ = hidden.shape
+            out = out.view(batch, slots, self.num_kv, self.d_model)
+            if slots == self.num_kv:
+                # Each pooled slot owns the matching output block. This keeps the
+                # old num_kv*d projection shape while letting slots specialize.
+                idx = torch.arange(slots, device=hidden.device)
+                return out[:, idx, idx, :]
+            return out.mean(dim=1)
+
+        raise ValueError(f"Unsupported hidden rank for LinearProjection: {hidden.dim()}")
+
     def forward(self, h_k, h_v=None):
         if h_v is None:
             h_v = h_k
-        B = h_k.size(0)
-        K = self.linear_K(h_k).view(B, self.num_kv, self.d_model)
-        V = self.linear_V(h_v).view(B, self.num_kv, self.d_model)
+        K = self._project(self.linear_K, h_k)
+        V = self._project(self.linear_V, h_v)
         return K, V

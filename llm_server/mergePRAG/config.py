@@ -46,6 +46,10 @@ QUERY_POOL_SCALE = _get_float("MERGEPRAG_QUERY_POOL_SCALE", 4.0)
 USE_QUERY_LEXICAL_FOCUS = _get_bool("MERGEPRAG_USE_QUERY_LEXICAL_FOCUS", True)
 QUERY_LEXICAL_FOCUS_SCALE = _get_float("MERGEPRAG_QUERY_LEXICAL_FOCUS_SCALE", 6.0)
 QUERY_LEXICAL_FOCUS_WINDOW = _get_int("MERGEPRAG_QUERY_LEXICAL_FOCUS_WINDOW", 6)
+# num_kv>1이어도 single pooled vector 하나를 projection하면 slots가 같은
+# evidence를 공유한다. Slot-wise pooling lets each memory slot attend to a
+# different passage region before K/V projection.
+USE_SLOTWISE_POOLING = _get_bool("MERGEPRAG_USE_SLOTWISE_POOLING", True)
 _HANGUL_RE = re.compile(r"[가-힣]")
 
 

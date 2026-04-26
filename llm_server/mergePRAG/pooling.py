@@ -8,12 +8,14 @@ from .config import QUERY_LEXICAL_FOCUS_SCALE, QUERY_POOL_SCALE, USE_QUERY_LEXIC
 class AttentivePooling(nn.Module):
     """논문 `HyperKVGeneratorFixed`의 att_pool을 충실히 재현.
 
-    c_emb [B, T, d] → att_weights softmax → weighted sum → pooled [B, d]
+    c_emb [B, T, d] → att_weights softmax → weighted sum.
+    num_slots=1이면 pooled [B, d], num_slots>1이면 pooled [B, S, d].
     """
 
-    def __init__(self, d_model):
+    def __init__(self, d_model, num_slots=1):
         super().__init__()
-        self.att_pool = nn.Linear(d_model, 1)
+        self.num_slots = int(num_slots)
+        self.att_pool = nn.Linear(d_model, self.num_slots)
 
     def forward(
         self,
@@ -24,7 +26,7 @@ class AttentivePooling(nn.Module):
         query_focus_mask=None,
         **_ignored,
     ):
-        att_scores = self.att_pool(c_emb)  # [B, T, 1]
+        att_scores = self.att_pool(c_emb)  # [B, T, S]
         if query is not None:
             # 질문 평균 query와 passage token의 방향 유사도를 더해
             # question-conditioned mode가 실제 token selection에 반영되게 한다.
@@ -48,5 +50,7 @@ class AttentivePooling(nn.Module):
         elif mask is not None:
             att_scores = att_scores.masked_fill(mask.unsqueeze(-1) == 0, float("-inf"))
         att_weights = torch.softmax(att_scores, dim=1)
-        pooled = (c_emb * att_weights).sum(dim=1)  # [B, d]
+        pooled = torch.einsum("btd,bts->bsd", c_emb, att_weights)
+        if self.num_slots == 1:
+            pooled = pooled[:, 0, :]
         return pooled

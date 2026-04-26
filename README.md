@@ -64,6 +64,8 @@ cos(V)=0.8145
 - `KV_PATH_MODE` 기본값을 `k_mlp_v_hybrid`로 바꿨다.
 - `embedding.py`에서 질문 핵심 단어가 passage에 등장한 주변 window를 `query_focus_mask`로 만든다.
 - `pooling.py`에서 `query_focus_mask` 위치에 attention score boost를 준다.
+- 500 step 진단에서 `cos(pooled)=0.9909`, `cos(V)=0.9985`로 여전히 same-question swapped passage가 붙어 있어, single pooled vector 병목을 깨기 위해 slot-wise pooling을 추가했다.
+- slot-wise pooling은 `num_kv=4`일 때 4개 slot이 각자 다른 attention map으로 passage를 pooling한 뒤 K/V로 projection한다. 기존처럼 pooled 하나를 4개 slot으로 펼치지 않는다.
 - 이 변경은 gold answer를 사용하지 않으므로 inference에도 적용 가능하다.
 - 기존 checkpoint/weights는 새 pooling 구조 기준으로 다시 학습해야 한다.
 
@@ -89,6 +91,7 @@ cos(V)=0.8145
   - `AttentivePooling`.
   - question query와 passage token 유사도를 attention score에 더한다.
   - `query_focus_mask`가 있으면 해당 window에 추가 attention boost를 준다.
+  - `USE_SLOTWISE_POOLING=True`이면 `num_kv`개 attention map을 만들어 pooled를 `[B, num_kv, d]`로 반환한다.
 - `llm_server/mergePRAG/hypernetwork.py`
   - passage hidden -> pooled -> MLP -> K/V projection.
   - 현재 `k_mlp_v_hybrid` 기본값:
@@ -147,6 +150,7 @@ QUERY_POOL_SCALE = 4.0
 USE_QUERY_LEXICAL_FOCUS = True
 QUERY_LEXICAL_FOCUS_SCALE = 6.0
 QUERY_LEXICAL_FOCUS_WINDOW = 6
+USE_SLOTWISE_POOLING = True
 KV_PATH_MODE = k_mlp_v_hybrid
 USE_POOLED_KV_SKIP = True
 POOLED_K_SKIP_SCALE = 1.0
@@ -380,6 +384,7 @@ cos(V)=1.0000
 
 - `query_focus_mask`: gold answer 없이 질문 핵심 단어 주변 passage window를 표시.
 - `AttentivePooling`: 해당 window에 `QUERY_LEXICAL_FOCUS_SCALE`만큼 attention boost.
+- `slot-wise pooling`: `num_kv=4` slot마다 별도 attention map을 사용해 passage의 다른 위치를 직접 보게 함.
 - `KV_PATH_MODE`: 기본값을 `k_mlp_v_hybrid`로 변경.
 
 다음 판단:

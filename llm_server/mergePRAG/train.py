@@ -60,6 +60,7 @@ from .config import (
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     USE_QUERY_LEXICAL_FOCUS,
+    USE_SLOTWISE_POOLING,
     K_RMS_CLAMP,
     VALID_DATA_PATH,
     V_SIM_TARGET,
@@ -653,7 +654,7 @@ def get_same_passage_negative_sample(dataset: MergePRAGDataset, index: int):
 
 
 def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
-    hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
+    hidden_sim = F.cosine_similarity(hidden_pos.flatten(1), hidden_neg.flatten(1)).mean()
     k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
     v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
     loss = (
@@ -855,6 +856,7 @@ def current_training_config() -> dict:
         "query_lexical_focus": USE_QUERY_LEXICAL_FOCUS,
         "query_lexical_focus_scale": QUERY_LEXICAL_FOCUS_SCALE,
         "query_lexical_focus_window": QUERY_LEXICAL_FOCUS_WINDOW,
+        "slotwise_pooling": USE_SLOTWISE_POOLING,
         "kv_path_mode": KV_PATH_MODE,
         "pooled_kv_skip": USE_POOLED_KV_SKIP,
         "pooled_k_skip_scale": POOLED_K_SKIP_SCALE,
@@ -901,6 +903,7 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "query_lexical_focus",
         "query_lexical_focus_scale",
         "query_lexical_focus_window",
+        "slotwise_pooling",
         "kv_path_mode",
         "pooled_kv_skip",
         "pooled_k_skip_scale",
@@ -1053,6 +1056,7 @@ def train():
         f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
         f"query_pool_scale={QUERY_POOL_SCALE}, "
         f"query_lexical_focus={USE_QUERY_LEXICAL_FOCUS}:{QUERY_LEXICAL_FOCUS_SCALE}/{QUERY_LEXICAL_FOCUS_WINDOW}, "
+        f"slotwise_pooling={USE_SLOTWISE_POOLING}, "
         f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
         f"slot_diversity={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}, "
         f"answer_rank={ANSWER_RANK_LOSS_WEIGHT}:{ANSWER_RANK_MARGIN}"
@@ -1234,7 +1238,10 @@ def train():
                     normalize_passage_text(negative_sample.get("passage", ""))
                     == normalize_passage_text(sample.get("passage", ""))
                 )
-                pooled_cos = F.cosine_similarity(pooled_pos, pooled_neg).mean().item()
+                pooled_cos = F.cosine_similarity(
+                    pooled_pos.flatten(1),
+                    pooled_neg.flatten(1),
+                ).mean().item()
                 hidden_sim = hidden_sim_t.item()
                 k_sim = k_sim_t.item()
                 v_sim = v_sim_t.item()

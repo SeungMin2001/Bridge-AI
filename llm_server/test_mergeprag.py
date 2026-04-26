@@ -28,6 +28,7 @@ from mergePRAG.config import (
     USE_CONTEXTUAL_PASSAGE_ENCODER,
     USE_QUESTION_CONDITIONED_MEMORY,
     USE_QUERY_LEXICAL_FOCUS,
+    USE_SLOTWISE_POOLING,
     K_RMS_CLAMP,
     V_RMS_CLAMP,
     WEIGHTS_PATH,
@@ -101,6 +102,7 @@ print(
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
     f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}) | "
     f"query_lexical_focus={USE_QUERY_LEXICAL_FOCUS}:{QUERY_LEXICAL_FOCUS_SCALE}/{QUERY_LEXICAL_FOCUS_WINDOW} | "
+    f"slotwise_pooling={USE_SLOTWISE_POOLING} | "
     f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP} | "
     f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}"
 )
