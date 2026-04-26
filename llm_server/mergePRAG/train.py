@@ -682,7 +682,12 @@ def compute_slot_diversity_loss(delta_k, delta_v):
 
 # ── Validation ──
 def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
-    """Validation loss 계산 (hook per sample, no gradient)"""
+    """Validation objective 계산.
+
+    Positive answer CE만 보면 "main은 맞지만 hard-pair flip은 실패"하는
+    checkpoint가 best로 저장될 수 있다. Validation도 explicit hard negative와
+    answer-rank margin을 포함해 실제 서비스 목표와 맞춘다.
+    """
     hypernet.eval()
     total_loss = 0
     count = 0
@@ -718,7 +723,56 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
 
             loss = compute_loss(logits, tok["labels"])
             if loss is not None:
-                total_loss += loss.item()
+                objective = loss
+                negative_sample = get_negative_sample(dataset, idx)
+                _, _, _, hidden_neg, neg_K, neg_V = encode_memory(
+                    model,
+                    hypernet,
+                    tokenizer,
+                    memory_query,
+                    negative_sample["passage"],
+                    device,
+                )
+                neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
+                neg_task_loss = compute_loss(neg_logits, tok["labels"])
+                if neg_task_loss is None:
+                    neg_task_loss = loss.detach()
+
+                grounding_loss = torch.relu(NEGATIVE_MARGIN + loss - neg_task_loss)
+                objective = objective + NEGATIVE_LOSS_WEIGHT * grounding_loss
+
+                if has_valid_contrast_answer(sample, negative_sample):
+                    neg_answer_tok = tokenize_qa(
+                        tokenizer,
+                        sample["question"],
+                        negative_sample["answer"],
+                        device,
+                        task=sample.get("task", "final_qa"),
+                    )
+                    pos_wrong_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        delta_K,
+                        delta_V,
+                        neg_answer_tok,
+                    )
+                    pos_wrong_loss = compute_loss(pos_wrong_logits, neg_answer_tok["labels"])
+                    neg_correct_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        neg_K,
+                        neg_V,
+                        neg_answer_tok,
+                    )
+                    neg_correct_loss = compute_loss(neg_correct_logits, neg_answer_tok["labels"])
+                    if pos_wrong_loss is not None and neg_correct_loss is not None:
+                        answer_rank_loss = (
+                            torch.relu(ANSWER_RANK_MARGIN + loss - pos_wrong_loss)
+                            + torch.relu(ANSWER_RANK_MARGIN + neg_correct_loss - neg_task_loss)
+                        )
+                        objective = objective + ANSWER_RANK_LOSS_WEIGHT * answer_rank_loss
+
+                total_loss += objective.item()
                 count += 1
 
             # VRAM 정리
@@ -811,6 +865,7 @@ def current_training_config() -> dict:
         "train_data_path": TRAIN_DATA_PATH,
         "valid_data_path": VALID_DATA_PATH,
         "memory_query_format": "task_aware_v1",
+        "validation_objective": "hard_pair_answer_rank_v1",
         "memory_encoder_instruction": MEMORY_ENCODER_INSTRUCTION,
         "memory_encoder_instruction_ko": MEMORY_ENCODER_INSTRUCTION_KO,
         "answer_rank_margin": ANSWER_RANK_MARGIN,
@@ -853,6 +908,7 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "train_data_path",
         "valid_data_path",
         "memory_query_format",
+        "validation_objective",
         "memory_encoder_instruction",
         "memory_encoder_instruction_ko",
         "answer_rank_margin",
