@@ -4,6 +4,7 @@ import torch
 
 from .config import (
     QUERY_LEXICAL_FOCUS_WINDOW,
+    TOKEN_EMBED_SKIP_SCALE,
     USE_QUERY_LEXICAL_FOCUS,
     contains_hangul,
     select_memory_encoder_instruction,
@@ -177,9 +178,13 @@ def encode_passage_states(model, input_ids, attention_mask=None, use_contextual=
     use_contextual=True는 실험적 옵션 (Qwen 전체를 통과시켜 hidden state를 씀).
     논문 재현이 목적이라면 False가 기본.
     """
+    raw_emb = token_embed(model, input_ids)
     if use_contextual:
-        return contextualize(model, input_ids, attention_mask=attention_mask)
-    return token_embed(model, input_ids)
+        contextual = contextualize(model, input_ids, attention_mask=attention_mask)
+        if TOKEN_EMBED_SKIP_SCALE:
+            return contextual + TOKEN_EMBED_SKIP_SCALE * raw_emb
+        return contextual
+    return raw_emb
 
 
 def tokenize_conditioned_memory(tokenizer, question, passage, device, max_length=512):

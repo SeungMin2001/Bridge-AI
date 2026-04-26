@@ -66,6 +66,7 @@ cos(V)=0.8145
 - `pooling.py`에서 `query_focus_mask` 위치에 attention score boost를 준다.
 - 500 step 진단에서 `cos(pooled)=0.9909`, `cos(V)=0.9985`로 여전히 same-question swapped passage가 붙어 있어, single pooled vector 병목을 깨기 위해 slot-wise pooling을 추가했다.
 - slot-wise pooling은 `num_kv=4`일 때 4개 slot이 각자 다른 attention map으로 passage를 pooling한 뒤 K/V로 projection한다. 기존처럼 pooled 하나를 4개 slot으로 펼치지 않는다.
+- slot-wise 500 step에서도 `cos(V)=0.9986`으로 높게 유지되어, contextual hidden에 raw token embedding을 더하는 `TOKEN_EMBED_SKIP_SCALE=1.0`을 추가했다. 목적은 Monday/Friday 같은 표면 token identity가 V에 남게 하는 것이다.
 - 이 변경은 gold answer를 사용하지 않으므로 inference에도 적용 가능하다.
 - 기존 checkpoint/weights는 새 pooling 구조 기준으로 다시 학습해야 한다.
 
@@ -145,6 +146,7 @@ ALPHA = 0.1
 MAX_SEQ_LEN = 512
 critical layer = critical_layers.json 첫 번째 값, 현재 11
 USE_CONTEXTUAL_PASSAGE_ENCODER = True
+TOKEN_EMBED_SKIP_SCALE = 1.0
 USE_QUESTION_CONDITIONED_MEMORY = True
 QUERY_POOL_SCALE = 4.0
 USE_QUERY_LEXICAL_FOCUS = True
@@ -385,6 +387,7 @@ cos(V)=1.0000
 - `query_focus_mask`: gold answer 없이 질문 핵심 단어 주변 passage window를 표시.
 - `AttentivePooling`: 해당 window에 `QUERY_LEXICAL_FOCUS_SCALE`만큼 attention boost.
 - `slot-wise pooling`: `num_kv=4` slot마다 별도 attention map을 사용해 passage의 다른 위치를 직접 보게 함.
+- `token embedding skip`: contextual hidden에 raw token embedding을 더해 날짜/entity token identity 보존.
 - `KV_PATH_MODE`: 기본값을 `k_mlp_v_hybrid`로 변경.
 
 다음 판단:

@@ -21,6 +21,7 @@ from mergePRAG.config import (
     QUERY_LEXICAL_FOCUS_SCALE,
     QUERY_LEXICAL_FOCUS_WINDOW,
     SYSTEM_PROMPT,
+    TOKEN_EMBED_SKIP_SCALE,
     TRAIN_PROMPT_FORMAT,
     USE_K_RMS_CLAMP,
     USE_POOLED_KV_SKIP,
@@ -41,19 +42,20 @@ from mergePRAG.embedding import (
     tokenize_conditioned_memory,
     tokenize_passage_memory,
 )
-from mergePRAG.eval_cases import SERVICE_DIAGNOSTIC_CASE
+from mergePRAG.eval_cases import get_diagnostic_case
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
-QUESTION = SERVICE_DIAGNOSTIC_CASE["question"]
-ALT_QUESTION = SERVICE_DIAGNOSTIC_CASE["alt_question"]
+DIAGNOSTIC_CASE = get_diagnostic_case()
+QUESTION = DIAGNOSTIC_CASE["question"]
+ALT_QUESTION = DIAGNOSTIC_CASE["alt_question"]
 CRITICAL_LAYER = load_critical_layer()
-PASSAGE = SERVICE_DIAGNOSTIC_CASE["passage"]
-COMPARE_PASSAGE = SERVICE_DIAGNOSTIC_CASE["compare_passage"]
-EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["answer"]
-COMPARE_EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["compare_answer"]
-ALT_EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["alt_answer"]
-GENERATION_INSTRUCTION = SERVICE_DIAGNOSTIC_CASE["generation_instruction"]
+PASSAGE = DIAGNOSTIC_CASE["passage"]
+COMPARE_PASSAGE = DIAGNOSTIC_CASE["compare_passage"]
+EXPECTED_ANSWER = DIAGNOSTIC_CASE["answer"]
+COMPARE_EXPECTED_ANSWER = DIAGNOSTIC_CASE["compare_answer"]
+ALT_EXPECTED_ANSWER = DIAGNOSTIC_CASE["alt_answer"]
+GENERATION_INSTRUCTION = DIAGNOSTIC_CASE["generation_instruction"]
 MAX_NEW_TOKENS = 12
 
 
@@ -93,9 +95,11 @@ print("모델 로딩...")
 model, tokenizer = run_model()
 device = next(model.parameters()).device
 section("Config")
+print(f"diagnostic_case={DIAGNOSTIC_CASE.get('case_name')}")
 print(f"layer={CRITICAL_LAYER} | num_kv={NUM_KV} | alpha={ALPHA}")
 print(
     f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER} | "
+    f"token_embed_skip_scale={TOKEN_EMBED_SKIP_SCALE} | "
     f"kv_path_mode={KV_PATH_MODE} | "
     f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY} | "
     f"train_prompt_format={TRAIN_PROMPT_FORMAT} | "

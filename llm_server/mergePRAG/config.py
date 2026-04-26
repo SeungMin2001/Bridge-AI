@@ -37,6 +37,10 @@ MAX_SEQ_LEN = _get_int("MERGEPRAG_MAX_SEQ_LEN", 512)
 # 논문은 token embedding only를 썼지만, 현재처럼 역할이 뒤바뀐 near-counterfactual passage에서는
 # 순서/구문 정보를 잃기 쉬워 contextual hidden이 더 안정적이다.
 USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
+# Contextual hidden states preserve syntax/role, but Qwen's final hidden can
+# smooth away one-token swaps such as Monday <-> Friday. Add raw token embeddings
+# back into the memory encoder input so V can carry exact entity/date identity.
+TOKEN_EMBED_SKIP_SCALE = _get_float("MERGEPRAG_TOKEN_EMBED_SKIP_SCALE", 1.0)
 USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", True)
 QUERY_POOL_SCALE = _get_float("MERGEPRAG_QUERY_POOL_SCALE", 4.0)
 # Single-vector attentive pooling was collapsing near-counterfactual passages that

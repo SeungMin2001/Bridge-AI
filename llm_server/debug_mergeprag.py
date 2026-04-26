@@ -23,6 +23,7 @@ from mergePRAG.config import (
     QUERY_LEXICAL_FOCUS_SCALE,
     QUERY_LEXICAL_FOCUS_WINDOW,
     SYSTEM_PROMPT,
+    TOKEN_EMBED_SKIP_SCALE,
     TRAIN_PROMPT_FORMAT,
     USE_K_RMS_CLAMP,
     USE_POOLED_KV_SKIP,
@@ -42,19 +43,20 @@ from mergePRAG.embedding import (
     tokenize_conditioned_memory,
     tokenize_passage_memory,
 )
-from mergePRAG.eval_cases import SERVICE_DIAGNOSTIC_CASE
+from mergePRAG.eval_cases import get_diagnostic_case
 from mergePRAG.hypernetwork import HyperNetwork
 from mergePRAG.cross_attention import cross_attention
 
 
-# ── 테스트 케이스 (원하는 대로 변경 가능) ──
-QUESTION = SERVICE_DIAGNOSTIC_CASE["question"]
-PASSAGE = SERVICE_DIAGNOSTIC_CASE["passage"]
-COMPARE_PASSAGE = SERVICE_DIAGNOSTIC_CASE["compare_passage"]
-EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["answer"]
-COMPARE_EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["compare_answer"]
-ALT_QUESTION = SERVICE_DIAGNOSTIC_CASE["alt_question"]
-ALT_EXPECTED_ANSWER = SERVICE_DIAGNOSTIC_CASE["alt_answer"]
+# ── 테스트 케이스 (MERGEPRAG_DIAGNOSTIC_CASE=service|synthetic) ──
+DIAGNOSTIC_CASE = get_diagnostic_case()
+QUESTION = DIAGNOSTIC_CASE["question"]
+PASSAGE = DIAGNOSTIC_CASE["passage"]
+COMPARE_PASSAGE = DIAGNOSTIC_CASE["compare_passage"]
+EXPECTED_ANSWER = DIAGNOSTIC_CASE["answer"]
+COMPARE_EXPECTED_ANSWER = DIAGNOSTIC_CASE["compare_answer"]
+ALT_QUESTION = DIAGNOSTIC_CASE["alt_question"]
+ALT_EXPECTED_ANSWER = DIAGNOSTIC_CASE["alt_answer"]
 
 CRITICAL_LAYER = load_critical_layer()
 
@@ -80,7 +82,9 @@ print(
 )
 print(
     f"[config] critical_layer={CRITICAL_LAYER}, alpha={ALPHA}, num_kv={NUM_KV}, "
+    f"diagnostic_case={DIAGNOSTIC_CASE.get('case_name')}, "
     f"kv_path_mode={KV_PATH_MODE}, "
+    f"token_embed_skip_scale={TOKEN_EMBED_SKIP_SCALE}, "
     f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
     f"pooled_kv_skip={USE_POOLED_KV_SKIP} "
     f"(k_scale={POOLED_K_SKIP_SCALE}, v_scale={POOLED_V_SKIP_SCALE}, default={POOLED_KV_SKIP_SCALE}), "

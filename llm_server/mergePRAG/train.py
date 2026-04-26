@@ -52,6 +52,7 @@ from .config import (
     SLOT_DIVERSITY_TARGET,
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_KO,
+    TOKEN_EMBED_SKIP_SCALE,
     TRAIN_DATA_PATH,
     TRAIN_PROMPT_FORMAT,
     USE_POOLED_KV_SKIP,
@@ -851,6 +852,7 @@ def current_training_config() -> dict:
         "alpha": ALPHA,
         "max_seq_len": MAX_SEQ_LEN,
         "contextual": USE_CONTEXTUAL_PASSAGE_ENCODER,
+        "token_embed_skip_scale": TOKEN_EMBED_SKIP_SCALE,
         "question_conditioned": USE_QUESTION_CONDITIONED_MEMORY,
         "query_pool_scale": QUERY_POOL_SCALE,
         "query_lexical_focus": USE_QUERY_LEXICAL_FOCUS,
@@ -898,6 +900,7 @@ def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> li
         "alpha",
         "max_seq_len",
         "contextual",
+        "token_embed_skip_scale",
         "question_conditioned",
         "query_pool_scale",
         "query_lexical_focus",
@@ -1050,6 +1053,7 @@ def train():
     print(
         f"[학습] config | num_kv={NUM_KV}, alpha={ALPHA}, "
         f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, kv_path_mode={KV_PATH_MODE}, "
+        f"token_embed_skip_scale={TOKEN_EMBED_SKIP_SCALE}, "
         f"k_skip_scale={POOLED_K_SKIP_SCALE}, v_skip_scale={POOLED_V_SKIP_SCALE}, "
         f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP}, "
         f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}, "
