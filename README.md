@@ -2,7 +2,7 @@
 
 이 문서는 프로젝트 전체 소개가 아니라, 현재 우리가 집중하고 있는 `llm_server/mergePRAG` 개발 상태를 다른 AI나 개발자가 바로 이어받기 위한 인수인계 문서다. 목표는 "수업 발화 passage를 모델 내부 K/V memory로 주입하고, 사용자의 질문에 대해 그 발화 내용을 근거로 답하게 하는 것"이다.
 
-현재 결론부터 말하면, 코드는 단순 실험 뼈대를 넘어서 실제 학습, 진단, API 연결까지 구현되어 있다. 다만 아직 최종 성공은 아니며, 최근 병목은 더 구체화됐다. `k_mlp_v_hybrid`로 V 경로를 바꿔도 고정 진단 pair에서는 `pooled` 단계가 이미 main/compare를 거의 같은 벡터로 만들어 `K/V`가 함께 collapse된다. 즉 지금 1순위는 V projection 자체가 아니라 **same-question swapped-role passage에서 single pooled vector가 관계를 보존하지 못하는 문제**다.
+현재 결론부터 말하면, 코드는 단순 실험 뼈대를 넘어서 실제 학습, 진단, API 연결까지 구현되어 있다. 다만 아직 최종 성공은 아니며, 최근 병목은 더 구체화됐다. `k_mlp_v_hybrid`, query lexical focus, slot-wise pooling, token embedding skip까지 들어간 뒤에는 same-passage/different-question 분리는 좋아졌지만, **same-question swapped passage에서 main/compare memory가 여전히 같은 답 후보로 쏠리는 문제**가 남아 있다. 그래서 지금 1순위는 구조 변경만 더하는 것이 아니라, 새로 확장한 `ServiceHardPair` hard-pair 데이터로 처음부터 재학습하고 synthetic 진단에서 실제 passage flip이 되는지 확인하는 것이다.
 
 ## 현재 목표
 
@@ -34,30 +34,31 @@ compare memory -> Friday
 
 ## 현재 중요한 진단 결과
 
-최근 `k_mlp_v_hybrid` + checkpoint 500 기준 진단:
+최근 진행 흐름:
 
 ```text
-hypernet=checkpoint, checkpoint step=500
-kv_path_mode=k_mlp_v_hybrid
+1) k_mlp_v_hybrid + query lexical focus, checkpoint 500
+   cos(pooled)=0.9909, cos(K)=0.9949, cos(V)=0.9985
+   Same Passage / Different Question: cos(K)=0.6621, cos(V)=0.5169
+   -> 질문 조건 분리는 좋아졌지만, same-question passage flip은 실패.
 
-direct main  | Monday
-direct comp  | Friday
+2) slot-wise pooling 추가 후 checkpoint 500
+   cos(pooled)=0.9951, cos(K)=0.9901, cos(V)=0.9986
+   Same Passage / Different Question: cos(K)=0.5018, cos(V)=0.4969
+   -> slot별 분리는 생겼지만, main/compare 후보 선택은 여전히 같이 움직임.
 
-cos(pooled)=0.9999
-cos(hidden)=0.9998
-cos(K)=0.9997
-cos(V)=1.0000
-
-Same Passage / Different Question:
-cos(K)=0.8451
-cos(V)=0.8145
+3) token embedding skip + synthetic_ko checkpoint 500
+   cos(pooled)=0.9798, cos(K)=0.9793, cos(V)=0.9780
+   direct main=정답, direct comp=반대 정답, no_hook=내용 모름
+   -> V cosine은 드디어 0.99 아래로 내려왔지만 compare memory가 아직 반대 답으로 뒤집히지 않음.
 ```
 
 해석:
 
 - `direct main=Monday`, `direct comp=Friday`: base LLM은 passage를 prompt에 직접 넣으면 내용을 이해한다.
-- 같은 passage에서 질문만 바꾸면 K/V가 어느 정도 갈라진다. question conditioning 자체는 동작한다.
-- 같은 질문에서 passage의 날짜/역할만 뒤집으면 `pooled`부터 0.9999로 붙는다. 따라서 hypernetwork 뒤쪽을 더 학습하기보다 pooling 입력에서 answer 주변 token을 살려야 한다.
+- 같은 passage에서 질문만 바꾸면 K/V가 크게 갈라진다. question conditioning 자체는 동작한다.
+- 같은 질문에서 passage의 관계만 뒤집는 경우가 아직 핵심 실패 케이스다.
+- synthetic_ko처럼 모델 사전지식이 거의 없는 케이스에서도 direct prompt는 성공하므로, base LLM 문제가 아니라 주입 memory가 passage relation을 충분히 담지 못하는 문제다.
 
 최근 대응:
 
@@ -68,6 +69,7 @@ cos(V)=0.8145
 - slot-wise pooling은 `num_kv=4`일 때 4개 slot이 각자 다른 attention map으로 passage를 pooling한 뒤 K/V로 projection한다. 기존처럼 pooled 하나를 4개 slot으로 펼치지 않는다.
 - slot-wise 500 step에서도 `cos(V)=0.9986`으로 높게 유지되어, contextual hidden에 raw token embedding을 더하는 `TOKEN_EMBED_SKIP_SCALE=1.0`을 추가했다. 목적은 Monday/Friday 같은 표면 token identity가 V에 남게 하는 것이다.
 - 이 변경은 gold answer를 사용하지 않으므로 inference에도 적용 가능하다.
+- 한국어/영어 code-word hard pair와 장소, 점수, 정책, 담당자 도메인을 추가해 사전지식 없는 arbitrary mapping도 학습 데이터에 포함했다.
 - 기존 checkpoint/weights는 새 pooling 구조 기준으로 다시 학습해야 한다.
 
 ## 핵심 파일 지도
@@ -265,9 +267,13 @@ SCOPES_EN / SCOPES_KO            시험/발표 범위
 DEFINITIONS_EN / DEFINITIONS_KO  개념 정의
 COMPARISONS_EN / COMPARISONS_KO  비교 우위
 CODEWORDS_EN / CODEWORDS_KO      사전지식 없는 임의 표식-암호어 매핑
+ROOMS_EN / ROOMS_KO              보강/실습/상담 장소 배정
+SCORES_EN / SCORES_KO            항목별 점수/가중치
+POLICIES_EN / POLICIES_KO        수업 정책/규칙
+ASSIGNMENTS_EN / ASSIGNMENTS_KO  담당자/역할 배정
 ```
 
-데이터를 늘릴 때는 이 리스트들을 직접 확장하거나, 같은 방식의 새 리스트를 추가한다. 예를 들어 `ROOMS_KO`, `SCORES_KO`, `POLICIES_KO`, `FORMULAS_KO`, `ERROR_CODES_KO` 같은 도메인을 만들 수 있다.
+데이터를 늘릴 때는 이 리스트들을 직접 확장하거나, 같은 방식의 새 리스트를 추가한다. 예를 들어 `FORMULAS_KO`, `ERROR_CODES_KO`, `EQUIPMENT_KO`, `RUBRICS_KO`, `SCHEDULES_KO` 같은 도메인을 만들 수 있다.
 
 ### JSONL 스키마
 
@@ -404,8 +410,8 @@ answer: 예
 현재 기본 생성량은 `prepare_service_hardpairs.py` 기준으로 아래 정도다.
 
 ```text
-base rows: train 116개, valid 32개
-repeat 적용 후: train 약 3480개, valid 약 160개
+base rows: train 164개, valid 48개
+repeat 적용 후: train 4920개, valid 240개
 ```
 
 양을 늘리는 가장 안전한 방법:
@@ -424,6 +430,20 @@ repeat 적용 후: train 약 3480개, valid 약 160개
 ```bat
 cd C:\Users\user\Documents\last_project\Group-Chat-agent
 python -m llm_server.mergePRAG.prepare_service_hardpairs --output-dir C:\Users\user\Documents\last_project\data
+```
+
+현재 코드가 최신이면 출력은 아래처럼 나와야 한다.
+
+```text
+[service_hardpairs] train=4920 -> C:\Users\user\Documents\last_project\data\ServiceHardPair_train.jsonl
+[service_hardpairs] valid=240 -> C:\Users\user\Documents\last_project\data\ServiceHardPair_valid.jsonl
+```
+
+만약 `train=3480`, `valid=160`이 나오면 확장 도메인 코드가 적용되기 전 파일로 생성했거나, 오래된 브랜치/터미널 상태일 가능성이 있다. 이때는 아래 확인을 먼저 한다.
+
+```bat
+findstr /n "ROOMS_KO SCORES_KO POLICIES_KO ASSIGNMENTS_KO" llm_server\mergePRAG\prepare_service_hardpairs.py
+findstr /n "ko_room ko_score ko_policy ko_assignment" llm_server\mergePRAG\prepare_service_hardpairs.py
 ```
 
 반복 수를 바꾸고 싶으면:
@@ -474,8 +494,8 @@ python -m llm_server.mergePRAG.prepare_service_hardpairs --output-dir C:\Users\u
 기본 반복 수 기준 예상:
 
 ```text
-train 약 3480개
-valid 약 160개
+train 4920개
+valid 240개
 ```
 
 ### 2. 학습
@@ -598,7 +618,7 @@ cos(V)
 - `main hook`: K/V 주입만으로 main answer가 나오는지 본다.
 - `compare hook`: K/V 주입만으로 compare answer로 뒤집히는지 본다.
 - `Candidate Choice`: free generation보다 더 믿을 수 있는 정량 지표다.
-- `cos(V)`: 현재 가장 중요한 실패 지표다. main/compare 간 V cosine이 0.99 이상이면 사실상 같은 내용을 주입하는 것이다.
+- `cos(V)`: main/compare memory가 얼마나 다른지 보는 핵심 보조 지표다. 0.99 이상이면 거의 같은 내용을 주입하는 것이고, 0.98 근처까지 내려와도 Candidate Choice가 안 갈리면 아직 relation grounding은 실패로 본다.
 
 성공에 가까운 상태:
 
@@ -610,35 +630,39 @@ main hook    -> Monday
 compare hook -> Friday
 main_choice=Monday
 compare_choice=Friday
+synthetic_ko main_choice=가론
+synthetic_ko compare_choice=리펜
 cos(V) ideally < 0.95, 더 좋으면 < 0.8
 ```
 
 현재 마지막 알려진 실패 상태:
 
 ```text
-kv_path_mode=k_mlp_v_hybrid
-cos(pooled)=0.9999
-cos(K)=0.9997
-cos(V)=1.0000
-main/compare Candidate Choice가 동일하게 움직임
+token embedding skip + slot-wise pooling + synthetic_ko, checkpoint 500
+cos(pooled)=0.9798
+cos(K)=0.9793
+cos(V)=0.9780
+direct main/direct comp는 성공
+Candidate Choice는 main/compare가 여전히 같은 답으로 움직임
 ```
 
 ## 지금 남은 핵심 문제
 
-### 1. Pooling collapse
+### 1. Passage-relation grounding 부족
 
-현재 가장 큰 병목은 V만이 아니라 `pooled` 단계가 passage별 관계를 보존하지 못하는 것이다.
+초기에는 V만 높은 것이 문제처럼 보였지만, 진단을 분해해 보면 더 정확한 병목은 "질문 대상과 passage 안의 값 사이 관계"가 K/V memory에 안정적으로 들어가지 않는 것이다.
 
-관찰:
+현재까지 관찰:
 
 ```text
-cos(pooled)=0.9999
-cos(hidden)=0.9998
-cos(K)=0.9997
-cos(V)=1.0000
+direct prompt: passage를 직접 넣으면 base LLM은 정답/반대정답을 구분한다.
+no_hook: passage 없이는 synthetic_ko 내용을 모른다.
+hook: K/V 주입은 logit을 크게 바꾸지만 main memory와 compare memory의 분포 차이는 아직 작다.
+same passage + different question: 분리력이 좋아졌다.
+same question + swapped passage: 아직 반대 답으로 flip이 약하다.
 ```
 
-같은 질문에서 passage만 바뀔 때 이미 pooled가 같아진다. cross-attention에서 K는 "어디를 볼지", V는 "무엇을 주입할지"에 가까우므로, pooled가 같으면 K/V도 같이 붙고 compare memory도 같은 답으로 밀린다.
+즉 hook 자체는 동작한다. 문제는 hook이 주입하는 memory가 "닥스멜/테바가 어떤 값에 연결되는지" 같은 relation을 충분히 분리하지 못한다는 점이다.
 
 최근 적용한 작업:
 
@@ -647,13 +671,15 @@ cos(V)=1.0000
 - `slot-wise pooling`: `num_kv=4` slot마다 별도 attention map을 사용해 passage의 다른 위치를 직접 보게 함.
 - `token embedding skip`: contextual hidden에 raw token embedding을 더해 날짜/entity token identity 보존.
 - `ServiceHardPair` 데이터에 영어/한국어 임의 code-word hard pair를 추가해 `테바 -> 가론` 같은 사전지식 없는 매핑도 학습 패턴에 포함.
+- 장소, 점수, 정책, 담당자 도메인 hard pair를 추가해 relation flip 패턴을 넓혔다.
 - `KV_PATH_MODE`: 기본값을 `k_mlp_v_hybrid`로 변경.
 
 다음 판단:
 
-- 이 코드 변경 후 기존 `.pt`를 제거하거나 이름을 바꾸고 처음부터 재학습한다.
-- 500 step에서 `test_mergeprag.py`를 `checkpoint` 기준으로 본다.
-- 성공 신호는 `cos(pooled)`가 0.9999에서 내려가고, Candidate Choice가 `main=Monday`, `compare=Friday`로 갈리는 것이다.
+- 현재 코드 변경과 데이터셋 확장은 기존 `.pt`와 호환되는 실험이 아니므로 기존 `.pt`를 제거하고 처음부터 재학습한다.
+- 재생성된 데이터셋 크기가 `train=4920`, `valid=240`인지 먼저 확인한다.
+- 500 step에서 `test_mergeprag.py`, `test_mergeprag_synthetic.py`, `test_mergeprag_synthetic_ko.py`를 `checkpoint` 기준으로 본다.
+- 성공 신호는 service case에서 `main=Monday`, `compare=Friday`, synthetic_ko에서 `main=가론`, `compare=리펜`으로 Candidate Choice와 generation이 동시에 갈리는 것이다.
 
 ### 2. Validation 주기
 
@@ -689,11 +715,12 @@ SAVE_EVERY = 250 또는 500
 
 ## 다음 AI가 바로 해야 할 일
 
-1. 현재 README 기준 코드로 ServiceHardPair 데이터를 다시 생성한다.
-2. 기존 weights/checkpoint가 새 validation 기준 이전 것이라면 새로 학습한다.
-3. `MERGEPRAG_LOAD_SOURCE=weights`로 `test_mergeprag.py`를 실행한다.
-4. `main_choice=Monday`, `compare_choice=Friday`가 되는지 확인한다.
-5. 실패하면 `debug_mergeprag.py`에서 V가 어디서 collapse되는지 본다.
-6. 우선순위는 pooling collapse 해소다. `cos(pooled)`가 0.9999면 뒤쪽 K/V 학습만으로는 해결이 어렵다.
+1. `prepare_service_hardpairs.py`에 `ROOMS`, `SCORES`, `POLICIES`, `ASSIGNMENTS` 계열이 들어있는지 확인한다.
+2. ServiceHardPair 데이터를 다시 생성하고 출력이 `train=4920`, `valid=240`인지 확인한다.
+3. 기존 `hypernet_checkpoint.pt`, `hypernet_weights.pt`를 제거한 뒤 처음부터 재학습한다.
+4. 500 step에서 `MERGEPRAG_LOAD_SOURCE=checkpoint`로 service, synthetic, synthetic_ko 진단을 모두 실행한다.
+5. service case는 `main=Monday`, `compare=Friday`, synthetic_ko는 `main=가론`, `compare=리펜`으로 Candidate Choice가 갈리는지 본다.
+6. 실패하면 `debug_mergeprag.py`와 `debug_mergeprag_synthetic_ko.py`에서 `KL(main || compare)`, `cos(pooled)`, `cos(K)`, `cos(V)`, slot ablation을 같이 본다.
+7. 우선순위는 "K/V cosine 숫자만 낮추기"가 아니라 "주입 후 답이 passage에 맞게 뒤집히는지"다.
 
 현재 프로젝트의 방향은 "외부 데이터셋 일반 QA 성능"보다 "주입된 발화 passage가 답변을 실제로 뒤집는가"에 맞춰져 있다. 다른 AI가 이어받을 때도 이 기준을 최우선으로 봐야 한다.
