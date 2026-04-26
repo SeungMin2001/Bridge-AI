@@ -1381,9 +1381,6 @@ def train():
 
     save_chart(log_data)
 
-    if not early_stopped:
-        torch.save(hypernet.state_dict(), SAVE_PATH)
-
     print(f"\n[학습] 완료! 총 {elapsed_total/60:.1f}분 소요")
     print(f"[학습] best_val_loss: {best_val_loss:.4f}, 가중치: {SAVE_PATH}")
 
