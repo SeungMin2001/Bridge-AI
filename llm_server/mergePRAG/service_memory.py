@@ -25,7 +25,8 @@ SERVICE_SYSTEM_PROMPT_EN = os.getenv(
     "MERGEPRAG_SERVICE_SYSTEM_PROMPT",
     (
         "You are a helpful lecture assistant. "
-        "Answer using the injected lecture memory. "
+        "Answer using only the injected lecture memory or provided lecture content. "
+        "If there is no supporting memory or content, answer 'Unknown'. "
         "Keep the answer concise and use the same language as the question."
     ),
 )
@@ -33,7 +34,8 @@ SERVICE_SYSTEM_PROMPT_KO = os.getenv(
     "MERGEPRAG_SERVICE_SYSTEM_PROMPT_KO",
     (
         "당신은 수업 내용을 기억해 답하는 조교입니다. "
-        "주입된 강의 메모리를 사용해 답하세요. "
+        "주입된 강의 메모리 또는 제공된 강의 내용만 근거로 답하세요. "
+        "근거가 없으면 '모름'이라고 답하세요. "
         "질문과 같은 언어로 간결하게 답하세요."
     ),
 )
