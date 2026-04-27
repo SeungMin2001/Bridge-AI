@@ -474,10 +474,12 @@ const TreeItemComponent = defineComponent({
         h('span', {
           class: 'week-tree-copy'
         }, [
-          h('span', { class: 'week-tree-title' }, title),
+          h('span', { class: 'week-tree-title-line' }, [
+            h('span', { class: 'week-tree-title' }, title),
+            ...(count ? [h('span', { class: 'week-tree-count' }, count)] : [])
+          ]),
           ...(meta ? [h('span', { class: 'week-tree-meta' }, meta)] : [])
         ]),
-        ...(count ? [h('span', { class: 'week-tree-count' }, count)] : []),
         ...(trailingIcon ? [
           h('span', { class: 'material-symbols-outlined week-tree-open' }, trailingIcon)
         ] : []),
@@ -891,6 +893,13 @@ export default {
   gap: 2px;
 }
 
+.week-tree-title-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .week-tree-title {
   overflow: hidden;
   color: #1f2937;
@@ -923,7 +932,7 @@ export default {
 
 .week-tree-count {
   flex: 0 0 auto;
-  padding: 5px 8px;
+  padding: 3px 7px;
   border-radius: 999px;
   background: rgba(29, 29, 31, 0.06);
   color: #6b7280;

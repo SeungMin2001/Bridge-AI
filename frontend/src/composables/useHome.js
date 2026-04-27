@@ -3,15 +3,26 @@ import { ref, onMounted, onUnmounted } from 'vue'
 const FOLDER_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6']
 const LECTURE_FILE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6']
 const MEETING_FILE_COLORS = ['#ec4899', '#f97316', '#14b8a6', '#6366f1', '#0ea5e9']
+const FILE_TAGS = ['수업', '회의', '프로젝트', '개인', '중요']
+const FILE_ICONS = ['article', 'groups_2', 'workspaces', 'person', 'priority_high', 'star', 'task_alt', 'lightbulb', 'bookmark', 'school']
+
+const getDefaultIconForTag = (tag = '') => {
+  if (tag === '회의') return 'groups_2'
+  if (tag === '프로젝트') return 'workspaces'
+  if (tag === '개인') return 'person'
+  if (tag === '중요') return 'priority_high'
+  return 'article'
+}
 
 // 홈/작업 폴더 화면의 모달, 폴더 이동, 파일/폴더 생성 액션을 관리합니다.
 export function useHome(props, emit) {
   const isSidebarCollapsed = ref(false)
   const isFolderModalOpen = ref(false)
   const isFileModalOpen = ref(false)
-  const isMeetingFileModalOpen = ref(false)
   const isEditItemModalOpen = ref(false)
   const selectedColor = ref('#3b82f6')
+  const selectedTag = ref('수업')
+  const selectedFileIcon = ref(getDefaultIconForTag('수업'))
   const navigationStack = ref([]) // [{id, name}]
   const editingItemId = ref(null)
   const editingItemType = ref('file')
@@ -23,7 +34,6 @@ export function useHome(props, emit) {
   const closeAllModals = () => {
     isFolderModalOpen.value = false
     isFileModalOpen.value = false
-    isMeetingFileModalOpen.value = false
     isEditItemModalOpen.value = false
   }
 
@@ -32,6 +42,18 @@ export function useHome(props, emit) {
     editingItemType.value = 'file'
     editingFileKind.value = 'lecture'
     newFileName.value = ''
+  }
+
+  const handleFileTagChange = (tag = '수업') => {
+    selectedTag.value = tag
+    selectedFileIcon.value = getDefaultIconForTag(tag)
+  }
+
+  const openFileCreateModal = () => {
+    newFileName.value = ''
+    selectedColor.value = LECTURE_FILE_COLORS[0]
+    handleFileTagChange('수업')
+    isFileModalOpen.value = true
   }
 
   // 모달 바깥 배경을 클릭하면 생성/수정 모달을 닫습니다.
@@ -140,18 +162,19 @@ export function useHome(props, emit) {
     name: newFileName.value,
     date: formatNow(),
     color: selectedColor.value,
+    tag: selectedTag.value,
+    fileIcon: selectedFileIcon.value || getDefaultIconForTag(selectedTag.value),
     content: '',
     attachments: []
   })
 
-  const handleCreateFile = (fileKind = 'lecture') => {
+  const handleCreateFile = (fileKind = selectedTag.value === '회의' ? 'meeting' : 'lecture') => {
     if (!newFileName.value.trim()) return
     const newFile = createFileNode(fileKind)
 
     const currentFolderId = navigationStack.value.length > 0 ? navigationStack.value[navigationStack.value.length - 1].id : null
     emit('update:fileTree', addItemToTree(props.fileTree, currentFolderId, newFile))
     isFileModalOpen.value = false
-    isMeetingFileModalOpen.value = false
     newFileName.value = ''
   }
 
@@ -163,6 +186,8 @@ export function useHome(props, emit) {
     editingItemType.value = targetNode.type || 'file'
     editingFileKind.value = targetNode.fileKind || 'lecture'
     newFileName.value = targetNode.name || ''
+    selectedTag.value = targetNode.tag || (editingFileKind.value === 'meeting' ? '회의' : '수업')
+    selectedFileIcon.value = targetNode.fileIcon || getDefaultIconForTag(selectedTag.value)
 
     if (targetNode.type === 'folder') {
       selectedColor.value = targetNode.color || FOLDER_COLORS[0]
@@ -184,7 +209,13 @@ export function useHome(props, emit) {
     emit('update:fileTree', updateItemInTree(props.fileTree, editingItemId.value, (node) => ({
       ...node,
       name: newFileName.value.trim(),
-      color: selectedColor.value
+      color: selectedColor.value,
+      ...(node.type === 'file'
+        ? {
+            tag: selectedTag.value,
+            fileIcon: selectedFileIcon.value || getDefaultIconForTag(selectedTag.value)
+          }
+        : {})
     })))
 
     closeEditItemModal()
@@ -219,9 +250,10 @@ export function useHome(props, emit) {
     isSidebarCollapsed,
     isFolderModalOpen,
     isFileModalOpen,
-    isMeetingFileModalOpen,
     isEditItemModalOpen,
     selectedColor,
+    selectedTag,
+    selectedFileIcon,
     navigationStack,
     editingItemType,
     editingFileKind,
@@ -230,7 +262,11 @@ export function useHome(props, emit) {
     FOLDER_COLORS,
     LECTURE_FILE_COLORS,
     MEETING_FILE_COLORS,
+    FILE_TAGS,
+    FILE_ICONS,
     toggleStar,
+    openFileCreateModal,
+    handleFileTagChange,
     handleCreateFolder,
     handleCreateFile,
     openItemEditModal,

@@ -175,7 +175,12 @@ const selectedSchedules = computed(() => {
 
 function getFavoriteIcon(item) {
   if (item.type === 'folder') return 'folder'
-  return item.fileKind === 'meeting' ? 'groups_2' : 'description'
+  if (item.fileIcon) return item.fileIcon
+  if (item.tag === '회의' || item.fileKind === 'meeting') return 'groups_2'
+  if (item.tag === '프로젝트') return 'workspaces'
+  if (item.tag === '개인') return 'person'
+  if (item.tag === '중요') return 'priority_high'
+  return 'description'
 }
 
 function getFavoriteIconStyle(item) {
@@ -183,11 +188,38 @@ function getFavoriteIconStyle(item) {
     return { color: item.color, fontVariationSettings: "'FILL' 1" }
   }
 
-  if (item.fileKind === 'meeting') {
+  if (item.fileIcon || item.fileKind === 'meeting') {
     return { color: item.color || '#ec4899', fontVariationSettings: "'FILL' 1" }
   }
 
   return { color: item.color, fontVariationSettings: "'FILL' 0" }
+}
+
+function colorWithAlpha(color = '#6366f1', alpha = 0.12) {
+  const hex = String(color).trim()
+  const fullHex = /^#[0-9a-fA-F]{6}$/.test(hex)
+    ? hex
+    : (/^#[0-9a-fA-F]{3}$/.test(hex)
+        ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+        : '#6366f1')
+  const value = fullHex.slice(1)
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+function getFavoriteTag(item) {
+  if (item.type === 'folder') return ''
+  return item.tag || (item.fileKind === 'meeting' ? '회의' : '수업')
+}
+
+function getFavoriteTagStyle(item) {
+  const color = item.color || '#6366f1'
+  return {
+    color,
+    background: colorWithAlpha(color, 0.12)
+  }
 }
 
 watch(() => props.isCollapsed, (collapsed) => {
@@ -306,7 +338,13 @@ onUnmounted(() => {
               {{ getFavoriteIcon(fav) }}
             </span>
             <span class="nav-text truncate collapsible-content">{{ fav.name }}</span>
-            <span v-if="fav.fileKind === 'meeting'" class="home-sidebar-kind-badge collapsible-content">회의</span>
+            <span
+              v-if="getFavoriteTag(fav)"
+              class="home-sidebar-kind-badge collapsible-content"
+              :style="getFavoriteTagStyle(fav)"
+            >
+              {{ getFavoriteTag(fav) }}
+            </span>
             <span v-if="fav.type === 'folder'" class="material-symbols-outlined text-[#8e8e93] text-[18px] collapsible-content">expand_more</span>
           </div>
         </div>

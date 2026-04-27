@@ -173,8 +173,8 @@ aside:last-of-type {
 }
 
 .workspace-inset-pill.is-active {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.72));
-  border-color: rgba(255, 255, 255, 0.82);
+  background: linear-gradient(180deg, rgba(232, 218, 198, 0.96), rgba(219, 202, 176, 0.88));
+  border-color: rgba(205, 184, 153, 0.62);
   box-shadow: none;
   backdrop-filter: blur(14px) saturate(135%);
   -webkit-backdrop-filter: blur(14px) saturate(135%);

@@ -67,7 +67,7 @@ const allowedMaterialTypes = [
   'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 ]
 
-const getDefaultTabByFileType = (fileType) => (fileType === 'meeting' ? 'summary' : 'note')
+const getDefaultTabByFileType = () => 'note'
 
 const handleTabChange = (newTab) => {
   const prevIdx = TAB_ORDER.indexOf(prevTab)

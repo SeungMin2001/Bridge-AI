@@ -28,8 +28,7 @@ const emit = defineEmits([
   'openFile',
   'goBack',
   'openFolderModal',
-  'openFileModal',
-  'openMeetingFileModal'
+  'openFileModal'
 ])
 
 const filterType = ref('all')
@@ -54,6 +53,52 @@ const selectFilter = (type) => {
   filterType.value = type
   isFilterOpen.value = false
 }
+
+const colorWithAlpha = (color = '#6366f1', alpha = 0.12) => {
+  const hex = String(color).trim()
+  const fullHex = /^#[0-9a-fA-F]{6}$/.test(hex)
+    ? hex
+    : (/^#[0-9a-fA-F]{3}$/.test(hex)
+        ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+        : '#6366f1')
+  const value = fullHex.slice(1)
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+const isMeetingCard = (item) => item?.fileKind === 'meeting' || item?.tag === '회의'
+
+const getDefaultFileIcon = (item) => {
+  if (item?.tag === '프로젝트') return 'workspaces'
+  if (item?.tag === '개인') return 'person'
+  if (item?.tag === '중요') return 'priority_high'
+  return isMeetingCard(item) ? 'groups_2' : 'article'
+}
+
+const getFileCardIcon = (item) => item?.fileIcon || getDefaultFileIcon(item)
+
+const getFileIconBoxStyle = (item) => ({
+  width: '36px',
+  height: '36px',
+  background: colorWithAlpha(item?.color, 0.14),
+  borderRadius: '10px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flex: '0 0 auto'
+})
+
+const getFileTagStyle = (item) => ({
+  fontSize: '10px',
+  fontWeight: '700',
+  color: item?.color || '#6366f1',
+  background: colorWithAlpha(item?.color, 0.12),
+  padding: '2px 8px',
+  borderRadius: '100px',
+  letterSpacing: '0.04em'
+})
 
 // Close dropdown on outside click
 import { onMounted, onUnmounted } from 'vue'
@@ -90,10 +135,6 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
             <button class="header-action-btn group" @click="emit('openFileModal')">
               <span class="material-symbols-outlined group-hover:scale-110 transition-transform">description</span>
               <span>새 파일</span>
-            </button>
-            <button class="header-action-btn group" @click="emit('openMeetingFileModal')">
-              <span class="material-symbols-outlined group-hover:scale-110 transition-transform">groups_2</span>
-              <span>회의 파일</span>
             </button>
           </div>
 
@@ -160,7 +201,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
             <div style="height: 10px; flex-shrink: 0;"></div>
             <div style="background: #fff; border-radius: 14px; padding: 0; flex: 1; position: relative; overflow: hidden; box-shadow: 2px 3px 0px #e0e0e8; border: 1.5px solid #e5e5ea; display: flex; flex-direction: column;">
               <div :style="{ height: '6px', background: item.color || '#6366f1', borderRadius: '12px 12px 0 0' }"></div>
-              <div style="position: absolute; top: 30px; left: 0; right: 0; bottom: 0; background-image: repeating-linear-gradient(transparent, transparent 22px, #f0f0f5 22px, #f0f0f5 23px); opacity: 0.6;"></div>
+              <div style="position: absolute; top: 58px; left: 0; right: 0; bottom: 0; background-image: repeating-linear-gradient(transparent, transparent 22px, #f0f0f5 22px, #f0f0f5 23px); opacity: 0.6;"></div>
               <div style="position: relative; z-index: 1; padding: 14px; display: flex; flex-direction: column; flex: 1;">
                 <div class="file-card-actions">
                   <button class="file-card-action-btn" title="파일 설정" @click.stop="emit('openItemEditModal', item.id)">
@@ -174,13 +215,11 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
                   </button>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                  <div :style="item.fileKind === 'meeting'
-                    ? { width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }
-                    : { width: '36px', height: '36px', background: `${item.color}15` || '#ede9fe', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }">
-                    <span class="material-symbols-outlined" :style="{ fontSize: '20px', color: item.color || '#6366f1', fontVariationSettings: `'FILL' 1` }">{{ item.fileKind === 'meeting' ? 'groups_2' : 'article' }}</span>
+                  <div :style="getFileIconBoxStyle(item)">
+                    <span class="material-symbols-outlined" :style="{ fontSize: '20px', color: item.color || '#6366f1', fontVariationSettings: `'FILL' 1` }">{{ getFileCardIcon(item) }}</span>
                   </div>
-                  <span :style="{ fontSize: '10px', fontWeight: '700', color: item.color || '#6366f1', background: `${item.color}15` || '#ede9fe', padding: '2px 8px', borderRadius: '100px', letterSpacing: '0.04em' }">
-                    {{ item.fileKind === 'meeting' ? 'MEETING' : 'FILE' }}
+                  <span :style="getFileTagStyle(item)">
+                    {{ item.tag || (item.fileKind === 'meeting' ? '회의' : '강의') }}
                   </span>
                 </div>
                 <div style="margin-top: auto;">
