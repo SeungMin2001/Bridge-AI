@@ -40,6 +40,7 @@ def parse_args():
     parser.add_argument("--weights-path", default="")
     parser.add_argument("--show-examples", type=int, default=1)
     parser.add_argument("--show-generations", type=int, default=1)
+    parser.add_argument("--max-new-tokens", type=int, default=8)
     parser.add_argument("--alpha", type=float, default=SERVICE_ALPHA)
     parser.add_argument("--case", default=os.getenv("MERGEPRAG_DIAGNOSTIC_CASE", "service_memory"))
     parser.add_argument("--question", default=os.getenv("MERGEPRAG_TEST_QUESTION", ""))
@@ -62,6 +63,23 @@ def fmt(value: float) -> str:
 
 def yn(value: bool) -> str:
     return "OK" if value else "FAIL"
+
+
+def normalize_text(text: str) -> str:
+    return "".join(str(text or "").lower().split())
+
+
+def first_answer_line(text: str) -> str:
+    text = str(text or "").replace("</think>", "\n").strip()
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return text
+
+
+def answer_hit(generated: str, expected: str) -> bool:
+    return normalize_text(expected) in normalize_text(first_answer_line(generated))
 
 
 def cosine_flat(a: torch.Tensor, b: torch.Tensor) -> float:
@@ -117,19 +135,20 @@ def score_direct_answer(model, tokenizer, question, passage, answer, device):
 
 
 @torch.no_grad()
-def generate_from_prompt(model, tokenizer, prompt, device, max_new_tokens=24):
+def generate_from_prompt(model, tokenizer, prompt, device, max_new_tokens=8):
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     generated = model.generate(
         **inputs,
         max_new_tokens=max_new_tokens,
         do_sample=False,
+        eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.eos_token_id,
     )
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
 @torch.no_grad()
-def generate_with_memory(model, tokenizer, hypernet, target_layer, question, passage, device, alpha, use_contextual):
+def generate_with_memory(model, tokenizer, hypernet, target_layer, question, passage, device, alpha, use_contextual, max_new_tokens=8):
     mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
     prompt = build_chat_prompt(tokenizer, question)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
@@ -137,8 +156,9 @@ def generate_with_memory(model, tokenizer, hypernet, target_layer, question, pas
     try:
         generated = model.generate(
             **inputs,
-            max_new_tokens=24,
+            max_new_tokens=max_new_tokens,
             do_sample=False,
+            eos_token_id=tokenizer.eos_token_id,
             pad_token_id=tokenizer.eos_token_id,
         )
     finally:
@@ -274,8 +294,20 @@ def main():
                     print(f"  memory_cos   pooled={pooled_cos:.4f} K={k_cos:.4f} V={v_cos:.4f}")
                     print(f"  gain={fmt(base_gold - main_gold)} flip_ok={main_pref and neg_pref}")
                 if shown < args.show_generations:
-                    no_hook = generate_from_prompt(model, tokenizer, build_chat_prompt(tokenizer, q), device)
-                    direct = generate_from_prompt(model, tokenizer, build_direct_chat_prompt(tokenizer, q, passage), device)
+                    no_hook = generate_from_prompt(
+                        model,
+                        tokenizer,
+                        build_chat_prompt(tokenizer, q),
+                        device,
+                        max_new_tokens=args.max_new_tokens,
+                    )
+                    direct = generate_from_prompt(
+                        model,
+                        tokenizer,
+                        build_direct_chat_prompt(tokenizer, q, passage),
+                        device,
+                        max_new_tokens=args.max_new_tokens,
+                    )
                     memory = generate_with_memory(
                         model,
                         tokenizer,
@@ -286,16 +318,19 @@ def main():
                         device,
                         args.alpha,
                         use_contextual,
+                        max_new_tokens=args.max_new_tokens,
                     )
-                    direct_hit = gold.lower() in direct.lower()
-                    memory_hit = gold.lower() in memory.lower()
-                    no_hook_hit = gold.lower() in no_hook.lower()
+                    direct_hit = answer_hit(direct, gold)
+                    memory_hit = answer_hit(memory, gold)
+                    no_hook_hit = answer_hit(no_hook, gold)
                     direct_unknown += int(not no_hook_hit and direct_hit)
                     memory_generation_ok += int(memory_hit)
                     if args.simple:
-                        print(f"  gen no_hook={no_hook}")
-                        print(f"  gen direct ={direct} [{yn(direct_hit)}]")
-                        print(f"  gen memory ={memory} [{yn(memory_hit)}]")
+                        print(f"  gen no_hook raw={no_hook}")
+                        print(f"  gen direct  raw={direct} [{yn(direct_hit)}]")
+                        print(f"  gen memory  raw={memory} [{yn(memory_hit)}]")
+                        if direct_pref and not direct_hit:
+                            print("  note: direct loss is OK but free generation is unstable; use loss/flip as the main signal.")
                     else:
                         print(f"  gen no_hook={no_hook}")
                         print(f"  gen direct ={direct}")
