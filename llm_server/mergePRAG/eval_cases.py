@@ -74,22 +74,20 @@ SYNTHETIC_KO_DIAGNOSTIC_CASE = {
 
 SERVICE_MEMORY_DIAGNOSTIC_CASE = {
     "case_name": "service_memory",
-    "question": "What did Professor Lee say the alpha rule means?",
-    "alt_question": "What did Professor Lee say the beta rule means?",
+    "question": "What is the alpha code?",
+    "alt_question": "What is the beta code?",
     "passage": (
-        "Professor Lee said in today's lecture that the alpha rule means submitting the homework by Monday. "
-        "The beta rule means submitting the presentation slides by Friday. "
-        "Remember exactly: alpha rule -> homework Monday; beta rule -> slides Friday."
+        "Professor Lee said: alpha code is blue. "
+        "Beta code is green."
     ),
     "compare_passage": (
-        "Professor Lee said in today's lecture that the alpha rule means submitting the presentation slides by Friday. "
-        "The beta rule means submitting the homework by Monday. "
-        "Remember exactly: alpha rule -> slides Friday; beta rule -> homework Monday."
+        "Professor Lee said: alpha code is green. "
+        "Beta code is blue."
     ),
-    "answer": "homework Monday",
-    "compare_answer": "slides Friday",
-    "alt_answer": "slides Friday",
-    "generation_instruction": "Answer with only the short rule meaning:",
+    "answer": "blue",
+    "compare_answer": "green",
+    "alt_answer": "green",
+    "generation_instruction": "Answer with only the color:",
 }
 
 

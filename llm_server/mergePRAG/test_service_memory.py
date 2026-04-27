@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument("--weights-path", default="")
     parser.add_argument("--show-examples", type=int, default=1)
     parser.add_argument("--show-generations", type=int, default=1)
-    parser.add_argument("--max-new-tokens", type=int, default=8)
+    parser.add_argument("--max-new-tokens", type=int, default=24)
     parser.add_argument("--alpha", type=float, default=SERVICE_ALPHA)
     parser.add_argument("--case", default=os.getenv("MERGEPRAG_DIAGNOSTIC_CASE", "service_memory"))
     parser.add_argument("--question", default=os.getenv("MERGEPRAG_TEST_QUESTION", ""))
@@ -135,7 +135,7 @@ def score_direct_answer(model, tokenizer, question, passage, answer, device):
 
 
 @torch.no_grad()
-def generate_from_prompt(model, tokenizer, prompt, device, max_new_tokens=8):
+def generate_from_prompt(model, tokenizer, prompt, device, max_new_tokens=24):
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     generated = model.generate(
         **inputs,
@@ -148,7 +148,7 @@ def generate_from_prompt(model, tokenizer, prompt, device, max_new_tokens=8):
 
 
 @torch.no_grad()
-def generate_with_memory(model, tokenizer, hypernet, target_layer, question, passage, device, alpha, use_contextual, max_new_tokens=8):
+def generate_with_memory(model, tokenizer, hypernet, target_layer, question, passage, device, alpha, use_contextual, max_new_tokens=24):
     mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
     prompt = build_chat_prompt(tokenizer, question)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
