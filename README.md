@@ -2,7 +2,126 @@
 
 이 문서는 프로젝트 전체 소개가 아니라, 현재 우리가 집중하고 있는 `llm_server/mergePRAG` 개발 상태를 다른 AI나 개발자가 바로 이어받기 위한 인수인계 문서다. 목표는 "수업 발화 passage를 모델 내부 K/V memory로 주입하고, 사용자의 질문에 대해 그 발화 내용을 근거로 답하게 하는 것"이다.
 
-현재 결론부터 말하면, 코드는 단순 실험 뼈대를 넘어서 실제 학습, 진단, API 연결까지 구현되어 있다. 다만 아직 최종 성공은 아니며, 최근 병목은 더 구체화됐다. `k_mlp_v_hybrid`, query lexical focus, slot-wise pooling, token embedding skip까지 들어간 뒤에는 same-passage/different-question 분리는 좋아졌지만, **same-question swapped passage에서 main/compare memory가 여전히 같은 답 후보로 쏠리는 문제**가 남아 있다. 그래서 지금 1순위는 구조 변경만 더하는 것이 아니라, 새로 확장한 `ServiceHardPair` hard-pair 데이터로 처음부터 재학습하고 synthetic 진단에서 실제 passage flip이 되는지 확인하는 것이다.
+현재 결론부터 말하면, 개발 방향을 다시 정리했다. 기존 `train.py` 계열은 여러 보조장치를 붙이며 실험한 버전이고, `train2.py`/`train2_repair.py`는 로컬 클론 논문 코드(`MhQA_hypernetwork-B31F`)를 최대한 반영한 baseline이다. 이 baseline 분석 결과, **논문식 single attentive pooling -> MLP -> K/V 구조는 현재 ServiceHardPair에서 passage-specific memory를 만들지 못하고 K/V가 거의 같은 벡터로 붕괴**했다. 그래서 현재 주 진행은 새 서비스 목표용 구조인 `service_memory.py`, `train_service_memory.py`, `test_service_memory.py`로 옮겼다.
+
+## 최신 진행 방향: Service Memory 구조
+
+서비스에서 진짜 성공으로 보는 목표는 아래 하나다.
+
+```text
+교수님/조교가 말한 수업 passage를 HyperNetwork가 K/V memory로 만든다.
+나중에 사용자가 그 passage에 관한 질문을 하면, 모델 prompt에는 passage를 다시 넣지 않고 K/V만 주입한다.
+모델은 주입된 memory를 근거로 passage 내용을 설명하거나 정답을 말한다.
+```
+
+즉 "A라는 지식 문장을 K/V로 저장하고, 사용자가 A가 뭐냐고 물으면 passage 없이도 주입 memory로 답하는 것"이 목표다. near-counterfactual hard-pair는 이 능력을 검증하기 위한 강한 테스트다.
+
+### 왜 train2 baseline을 버리지 않고 넘어갔는가
+
+로컬 논문 코드 기준 baseline:
+
+```text
+passage token ids
+-> model.model.embed_tokens(...)
+-> single attentive pooling
+-> MLP
+-> linear_K / linear_V
+-> target decoder layer forward hook
+-> hidden_states + cross_attention(hidden_states, K, V)
+```
+
+`train2.py`와 `train2_repair.py`는 이 구조를 기준으로 만들었다. 그러나 실제 진단 결과:
+
+```text
+direct passage gold preference: 18/20 = 0.900
+main memory gold preference: 10/20 = 0.500
+negative memory negative preference: 10/20 = 0.500
+bidirectional flip success: 0/20 = 0.000
+avg memory cosine: K≈0.998, V≈0.999
+```
+
+해석:
+
+- base model은 passage를 prompt로 직접 받으면 대체로 정답을 고른다.
+- 그러나 HyperNetwork를 통과한 main/negative passage의 K/V가 거의 동일하다.
+- CE-only는 answer-like distribution을 올릴 수 있지만 passage별 사실을 뒤집도록 강제하지 못한다.
+- repair objective는 K/V cosine을 일부 낮췄지만, `num_kv=1` single pooling 구조에서는 validation flip이 여전히 0에 머물렀다.
+
+따라서 현재는 논문 구조를 그대로 재현하는 것이 아니라, 논문 아이디어를 출발점으로 삼되 **우리 서비스 목표에 맞는 memory encoder**를 구현하는 방향이다.
+
+### 새 구조
+
+새 파일:
+
+```text
+llm_server/mergePRAG/service_memory.py
+llm_server/mergePRAG/train_service_memory.py
+llm_server/mergePRAG/test_service_memory.py
+```
+
+새 구조:
+
+```text
+passage
+-> base model raw token embedding
+-> base model contextual hidden
+-> concat(raw, contextual)
+-> multi-slot learned pooling
+-> slot별 MLP
+-> slot별 K/V
+-> K/V RMS clamp
+-> alpha-scaled cross-attention hook
+```
+
+중요한 차이:
+
+- passage 전체를 single pooled vector 하나로 압축하지 않는다.
+- `num_kv`개 slot이 passage token feature의 다른 부분을 볼 수 있다.
+- Qwen 계열 사용 방식에 맞춰 학습/진단 프롬프트는 chat template 기반이다.
+- 학습 objective는 service hard-pair에 맞춰 dual CE + bidirectional ranking + memory separation + slot diversity를 사용한다.
+
+현재 기본값:
+
+```text
+MERGEPRAG_SERVICE_NUM_KV = 8
+MERGEPRAG_SERVICE_HIDDEN_DIM = 1024
+MERGEPRAG_SERVICE_ALPHA = 0.3
+MERGEPRAG_SERVICE_USE_CONTEXTUAL = 1
+MERGEPRAG_SERVICE_RMS_CLAMP = 0.5
+MERGEPRAG_SERVICE_SKIP_SCALE = 0.5
+MERGEPRAG_SERVICE_RANK_MARGIN = 0.5
+MERGEPRAG_SERVICE_RANK_WEIGHT = 1.0
+MERGEPRAG_SERVICE_SEPARATION_WEIGHT = 0.25
+MERGEPRAG_SERVICE_DIVERSITY_WEIGHT = 0.05
+```
+
+실행:
+
+```bat
+python -m llm_server.mergePRAG.train_service_memory
+```
+
+진단:
+
+```bat
+python -m llm_server.mergePRAG.test_service_memory --split valid --max-samples 240
+```
+
+빠른 진단:
+
+```bat
+python -m llm_server.mergePRAG.test_service_memory --split valid --max-samples 20 --show-examples 20 --show-generations 5
+```
+
+새 산출물:
+
+```text
+llm_server/mergePRAG/service_memory_weights.pt
+llm_server/mergePRAG/service_memory_checkpoint.pt
+llm_server/mergePRAG/service_memory_log.json
+```
+
+기존 `hypernet_weights.pt`, `hypernet_checkpoint.pt`, `hypernet_train2_*.pt`, `hypernet_train2_repair_*.pt`는 지울 필요 없다. 서로 다른 실험 산출물이다.
 
 ## 현재 목표
 
@@ -85,6 +204,11 @@ compare memory -> Friday
 
 ### HyperNetwork / K,V 생성
 
+- `llm_server/mergePRAG/service_memory.py`
+  - 현재 주 진행 구조.
+  - raw token embedding과 contextual hidden을 함께 사용한다.
+  - multi-slot learned pooling으로 passage의 여러 token 영역을 K/V slot으로 보존한다.
+  - `make_memory_hook`, service chat prompt, answer loss, slot diversity 등 service memory 학습/진단 공통 함수를 포함한다.
 - `llm_server/mergePRAG/embedding.py`
   - passage 또는 question-conditioned memory sequence를 tokenization한다.
   - 영어/한국어에 따라 memory instruction과 label을 바꾼다.
@@ -115,6 +239,17 @@ compare memory -> Friday
   - Qwen base model은 freeze하고 HyperNetwork만 학습한다.
   - positive answer CE, negative grounding, answer-rank, K/V repulsion, question-conditioned repulsion, slot diversity를 사용한다.
   - validation도 이제 hard negative와 answer-rank를 포함한다.
+- `llm_server/mergePRAG/train2.py`
+  - 로컬 클론 논문 코드의 `KV_train.py`, `HyperKVGeneratorFixed`를 최대한 따른 baseline.
+  - token embedding -> single attentive pooling -> MLP -> linear K/V -> layer hook.
+  - 현재 hard-pair service 목표에는 K/V collapse로 실패한 baseline으로 남긴다.
+- `llm_server/mergePRAG/train2_repair.py`
+  - `train2.py`와 같은 구조를 유지하되 hard-pair bidirectional rank objective만 추가한 repair baseline.
+  - K/V cosine은 일부 낮췄지만 validation flip은 아직 0에 가까웠다.
+- `llm_server/mergePRAG/train_service_memory.py`
+  - 현재 주 진행 학습 스크립트.
+  - service-oriented multi-slot memory encoder를 학습한다.
+  - 산출물은 `service_memory_weights.pt`, `service_memory_checkpoint.pt`, `service_memory_log.json`.
 - `llm_server/mergePRAG/audit_dataset.py`
   - 데이터셋 중복, hard negative 유무, answer/passage 문제 진단.
 
@@ -128,6 +263,12 @@ compare memory -> Friday
   - 어느 stage에서 passage 차이가 사라지는지, hook이 logit을 바꾸는지, slot이 실제로 기여하는지 본다.
 - `llm_server/mergePRAG/diagnose_hotpot.py`
   - HotPot processed 데이터용 진단.
+- `llm_server/mergePRAG/test_train2.py`
+  - train2/train2_repair baseline 전용 진단.
+  - direct passage score, memory score, K/V cosine, bidirectional flip success를 본다.
+- `llm_server/mergePRAG/test_service_memory.py`
+  - 현재 주 진행 구조 전용 진단.
+  - service memory weights를 로드해 passage 없이 K/V 주입만으로 답 후보가 뒤집히는지 본다.
 
 ### 서비스/API
 
