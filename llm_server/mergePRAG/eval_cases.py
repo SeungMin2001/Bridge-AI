@@ -72,9 +72,32 @@ SYNTHETIC_KO_DIAGNOSTIC_CASE = {
 }
 
 
+SERVICE_MEMORY_DIAGNOSTIC_CASE = {
+    "case_name": "service_memory",
+    "question": "네모라 장치의 복구 코드는 뭐야?",
+    "alt_question": "루타브 장치의 복구 코드는 뭐야?",
+    "passage": (
+        "민아 조교: 오늘 실습에서 네모라 장치의 복구 코드는 파란-17이라고 설명했습니다. "
+        "루타브 장치의 복구 코드는 초록-42입니다. "
+        "정확히 기억하세요: 네모라 -> 파란-17; 루타브 -> 초록-42."
+    ),
+    "compare_passage": (
+        "민아 조교: 오늘 실습에서 네모라 장치의 복구 코드는 초록-42라고 설명했습니다. "
+        "루타브 장치의 복구 코드는 파란-17입니다. "
+        "정확히 기억하세요: 네모라 -> 초록-42; 루타브 -> 파란-17."
+    ),
+    "answer": "파란-17",
+    "compare_answer": "초록-42",
+    "alt_answer": "초록-42",
+    "generation_instruction": "주입된 수업 메모리만 근거로, 복구 코드만 답하세요:",
+}
+
+
 DIAGNOSTIC_CASES = {
     "service": SERVICE_DIAGNOSTIC_CASE,
     "default": SERVICE_DIAGNOSTIC_CASE,
+    "service_memory": SERVICE_MEMORY_DIAGNOSTIC_CASE,
+    "memory": SERVICE_MEMORY_DIAGNOSTIC_CASE,
     "synthetic": SYNTHETIC_CODE_DIAGNOSTIC_CASE,
     "synthetic_code": SYNTHETIC_CODE_DIAGNOSTIC_CASE,
     "synthetic_ko": SYNTHETIC_KO_DIAGNOSTIC_CASE,

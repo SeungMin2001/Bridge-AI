@@ -2,16 +2,20 @@
 Evaluate the service-oriented lecture memory HyperNetwork.
 
 Run:
-    python -m llm_server.mergePRAG.test_service_memory --split valid --max-samples 240
+    python -m llm_server.mergePRAG.test_service_memory
+    python -m llm_server.mergePRAG.test_service_memory --case synthetic_ko
+    python -m llm_server.mergePRAG.test_service_memory --dataset --max-samples 40
 """
 
 import argparse
+import os
 from pathlib import Path
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import MODEL_NAME, TRAIN_DATA_PATH, VALID_DATA_PATH, load_critical_layer
+from .eval_cases import get_diagnostic_case
 from .service_memory import (
     SERVICE_ALPHA,
     ServiceMemoryHyperNetwork,
@@ -30,12 +34,19 @@ from .train_service_memory import CHECKPOINT_PATH, WEIGHTS_PATH
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate service memory weights.")
+    parser.add_argument("--dataset", action="store_true", help="Evaluate dataset rows instead of one diagnostic sample.")
     parser.add_argument("--split", choices=["valid", "train"], default="valid")
-    parser.add_argument("--max-samples", type=int, default=40)
+    parser.add_argument("--max-samples", type=int, default=1)
     parser.add_argument("--weights-path", default="")
-    parser.add_argument("--show-examples", type=int, default=10)
-    parser.add_argument("--show-generations", type=int, default=5)
+    parser.add_argument("--show-examples", type=int, default=1)
+    parser.add_argument("--show-generations", type=int, default=1)
     parser.add_argument("--alpha", type=float, default=SERVICE_ALPHA)
+    parser.add_argument("--case", default=os.getenv("MERGEPRAG_DIAGNOSTIC_CASE", "service_memory"))
+    parser.add_argument("--question", default=os.getenv("MERGEPRAG_TEST_QUESTION", ""))
+    parser.add_argument("--passage", default=os.getenv("MERGEPRAG_TEST_PASSAGE", ""))
+    parser.add_argument("--answer", default=os.getenv("MERGEPRAG_TEST_ANSWER", ""))
+    parser.add_argument("--negative-passage", default=os.getenv("MERGEPRAG_TEST_NEGATIVE_PASSAGE", ""))
+    parser.add_argument("--negative-answer", default=os.getenv("MERGEPRAG_TEST_NEGATIVE_ANSWER", ""))
     parser.add_argument(
         "--simple",
         action=argparse.BooleanOptionalAction,
@@ -66,6 +77,23 @@ def load_state(path: Path, map_location):
     if isinstance(state, dict) and "hypernet" in state:
         return state["hypernet"], state
     return state, {"config": None, "step": None}
+
+
+def build_single_sample(args):
+    case = get_diagnostic_case(args.case)
+    question = args.question or case["question"]
+    passage = args.passage or case["passage"]
+    answer = args.answer or case["answer"]
+    negative_passage = args.negative_passage or case["compare_passage"]
+    negative_answer = args.negative_answer or case["compare_answer"]
+    return {
+        "source_id": f"diagnostic:{case.get('case_name', args.case)}",
+        "task": "final_qa",
+        "question": question,
+        "answer": answer,
+        "passage": passage,
+        "hard_negatives": [{"passage": negative_passage, "answer": negative_answer}],
+    }
 
 
 @torch.no_grad()
@@ -174,8 +202,13 @@ def main():
         f"num_kv={num_kv} mode={config.get('pooling_mode', 'slot')} alpha={args.alpha}"
     )
 
-    dataset_path = VALID_DATA_PATH if args.split == "valid" else TRAIN_DATA_PATH
-    dataset = MergePRAGDataset(dataset_path, max_samples=args.max_samples)
+    if args.dataset:
+        dataset_path = VALID_DATA_PATH if args.split == "valid" else TRAIN_DATA_PATH
+        dataset = MergePRAGDataset(dataset_path, max_samples=args.max_samples)
+        print(f"[test_service_memory] mode=dataset split={args.split} max_samples={args.max_samples}")
+    else:
+        dataset = [build_single_sample(args)]
+        print(f"[test_service_memory] mode=single case={args.case}")
 
     total = 0
     base_ok = direct_ok = main_ok = neg_ok = flip_ok = 0
