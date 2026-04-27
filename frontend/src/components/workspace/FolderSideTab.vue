@@ -303,6 +303,43 @@ const getWeekMaterials = (week) => Array.isArray(week?.materials) ? week.materia
 
 const getWeekRecordings = (week) => Array.isArray(week?.recordings) ? week.recordings : []
 
+const KOREAN_WEEKDAYS_SHORT = ['일', '월', '화', '수', '목', '금', '토']
+
+const formatRecordingDateTime = (endedAt) => {
+  if (!endedAt) return '저장 시간 없음'
+  const date = new Date(endedAt)
+  if (Number.isNaN(date.getTime())) return '저장 시간 없음'
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const weekday = KOREAN_WEEKDAYS_SHORT[date.getDay()]
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}.${month}.${day} · ${weekday} · ${hour}:${minute}`
+}
+
+const formatRecordingDuration = (durationText = '00:00:00') => {
+  const parts = String(durationText).split(':').map((part) => Number(part))
+  if (parts.some((part) => Number.isNaN(part))) return '녹음 시간 없음'
+
+  const [hours = 0, minutes = 0, seconds = 0] = parts.length === 3
+    ? parts
+    : [0, parts[0] || 0, parts[1] || 0]
+
+  const totalSeconds = (hours * 3600) + (minutes * 60) + seconds
+  const nextMinutes = Math.floor(totalSeconds / 60)
+  const nextSeconds = totalSeconds % 60
+
+  if (nextMinutes <= 0) return `${nextSeconds}초`
+  return `${nextMinutes}분 ${nextSeconds}초`
+}
+
+const getRecordingMeta = (recording) => {
+  return `${formatRecordingDateTime(recording.endedAt)} · ${formatRecordingDuration(recording.durationText)}`
+}
+
 const buildWeekList = (node) => {
   if (Array.isArray(node.weeks) && node.weeks.length) return node.weeks
 
@@ -541,7 +578,7 @@ const TreeItemComponent = defineComponent({
                     type: 'recording file',
                     icon: 'graphic_eq',
                     title: recording.title || `녹음본 ${recordingIndex + 1}`,
-                    meta: `${recording.durationText || '00:00:00'} · 전사 ${recording.transcriptions?.length || 0}개`,
+                    meta: getRecordingMeta(recording),
                     depth: 2,
                     onClick: (e) => handleRecordingClick(e, recording)
                   }))

@@ -173,19 +173,6 @@ export const addMaterialToCurrentWeek = (node, material) => {
   }
 }
 
-export const removeMaterialFromFileNode = (node, materialId) => {
-  const normalizedNode = normalizeNode(node)
-
-  return {
-    ...normalizedNode,
-    attachments: (normalizedNode.attachments || []).filter((item) => item.id !== materialId),
-    weeks: (normalizedNode.weeks || []).map((week) => ({
-      ...week,
-      materials: (week.materials || []).filter((item) => item.id !== materialId)
-    }))
-  }
-}
-
 export const addRecordingToCurrentWeek = (node, recording) => {
   const normalizedNode = normalizeNode(node)
   const { weeks, targetWeekId } = ensureCurrentWeekSlot(normalizedNode.weeks || [])

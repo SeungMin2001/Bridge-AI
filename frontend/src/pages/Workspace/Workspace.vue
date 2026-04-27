@@ -18,7 +18,6 @@ const props = defineProps({
   activeFileName: { type: String, default: '' },
   activeFileId: { type: String, default: '' },
   activeFileType: { type: String, default: 'lecture' },
-  currentAttachments: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
   summaryNotes: { type: Array, default: () => [] },
@@ -40,8 +39,7 @@ const emit = defineEmits([
   'askAi',
   'uploadLectureMaterials',
   'closePreviewMaterial',
-  'openStoredMaterial',
-  'deleteStoredMaterial'
+  'openStoredMaterial'
 ])
 
 const isLeftSidebarCollapsed = ref(false)
@@ -121,7 +119,6 @@ const highlightedTranscript = computed(() => {
       :activeFileId="activeFileId"
       :activeFileType="activeFileType"
       :transcriptions="transcriptions"
-      :materialAttachments="currentAttachments"
       :currentPreviewMaterial="currentPreviewMaterial"
       :summaryNotes="summaryNotes"
       @startRecording="emit('startRecording')"
@@ -134,8 +131,6 @@ const highlightedTranscript = computed(() => {
       @addToNote="(text, source) => emit('addToNote', text, source)"
       @uploadLectureMaterials="emit('uploadLectureMaterials', $event)"
       @closePreviewMaterial="emit('closePreviewMaterial')"
-      @openStoredMaterial="emit('openStoredMaterial', $event)"
-      @deleteStoredMaterial="emit('deleteStoredMaterial', $event)"
     />
     
     <RightSidebar 

@@ -25,12 +25,29 @@ const emit = defineEmits([
 ])
 
 const activeTab = ref('voice')
-const width = ref(340)
+const width = ref(450)
 const toastMsg = ref('')
 const isResizing = ref(false)
 const selectedTranscriptSource = ref(null)
 
 const visibleTranscriptions = computed(() => selectedTranscriptSource.value?.transcriptions || props.transcriptions)
+
+const KOREAN_WEEKDAYS_SHORT = ['일', '월', '화', '수', '목', '금', '토']
+
+const formatTranscriptSourceDate = (endedAt) => {
+  if (!endedAt) return '날짜 정보 없음'
+  const date = new Date(endedAt)
+  if (Number.isNaN(date.getTime())) return '날짜 정보 없음'
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const weekday = KOREAN_WEEKDAYS_SHORT[date.getDay()]
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}.${month}.${day} · ${weekday} · ${hour}:${minute}`
+}
 
 const handleMouseMove = (e) => {
   if (!isResizing.value) return
@@ -81,11 +98,13 @@ const handleOpenMaterial = ({ fileId, node, materialId, recording }) => {
   if (recording) {
     selectedTranscriptSource.value = {
       title: recording.title || '연결된 녹음',
+      meta: formatTranscriptSourceDate(recording.endedAt),
       transcriptions: recording.transcriptions || []
     }
   } else {
     selectedTranscriptSource.value = {
       title: '연결된 전사 없음',
+      meta: '날짜 정보 없음',
       transcriptions: []
     }
   }
@@ -101,6 +120,7 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
 
   selectedTranscriptSource.value = {
     title: recording?.title || '저장된 녹음',
+    meta: formatTranscriptSourceDate(recording?.endedAt),
     transcriptions: recording?.transcriptions || []
   }
   activeTab.value = 'voice'
@@ -131,14 +151,14 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
       </div>
 
       <!-- Tab Buttons -->
-      <div class="workspace-inset-shell p-1.5 rounded-[22px] flex gap-1.5 mb-4 collapsible-content">
+      <div class="workspace-inset-shell p-1 rounded-[18px] flex gap-1.5 mb-3 collapsible-content">
         <button
-          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          class="workspace-inset-pill flex-1 py-2.5 rounded-[15px] text-[12px] font-bold text-gray-500"
           :class="{ 'is-active text-black': activeTab === 'voice' }"
           @click="handleShowLiveTranscripts"
         >전사 내용</button>
         <button
-          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          class="workspace-inset-pill flex-1 py-2.5 rounded-[15px] text-[12px] font-bold text-gray-500"
           :class="{ 'is-active text-black': activeTab === 'folders' }"
           @click="activeTab = 'folders'"
         >폴더</button>
@@ -163,7 +183,7 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
           <div v-if="selectedTranscriptSource" class="selected-transcript-source">
             <div class="min-w-0">
               <p>{{ selectedTranscriptSource.title }}</p>
-              <span>저장된 전사 스크립트</span>
+              <span>{{ selectedTranscriptSource.meta }}</span>
             </div>
             <button type="button" title="실시간 전사로 돌아가기" @click="handleShowLiveTranscripts">
               <span class="material-symbols-outlined">close</span>
@@ -226,11 +246,12 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(229, 229, 234, 0.82);
+  margin-bottom: 10px;
+  padding: 8px 9px 8px 11px;
+  border-radius: 16px;
+  background: rgba(250, 247, 242, 0.86);
+  border: 1px solid rgba(222, 205, 182, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
 }
 
 .selected-transcript-source p {
@@ -239,16 +260,16 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
   color: #1d1d1f;
   font-size: 12px;
   font-weight: 900;
-  line-height: 1.25;
+  line-height: 1.18;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .selected-transcript-source span {
   display: block;
-  margin-top: 3px;
+  margin-top: 2px;
   color: #8e8e93;
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -257,14 +278,14 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
   color: #8e8e93;
-  background: rgba(242, 242, 247, 0.92);
+  background: rgba(242, 239, 234, 0.88);
 }
 
 .selected-transcript-source button .material-symbols-outlined {
-  font-size: 15px;
+  font-size: 14px;
 }
 </style>

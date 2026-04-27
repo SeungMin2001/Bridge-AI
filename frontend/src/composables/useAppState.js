@@ -55,8 +55,7 @@ export function useAppState() {
     currentPreviewMaterial,
     handleUploadLectureMaterials,
     handleClosePreviewMaterial,
-    handleOpenStoredMaterial,
-    handleDeleteStoredMaterial
+    handleOpenStoredMaterial
   } = useMaterialsState({
     fileTree,
     activeFileId,
@@ -172,7 +171,6 @@ export function useAppState() {
     handleAskAi,
     handleUploadLectureMaterials,
     handleClosePreviewMaterial,
-    handleOpenStoredMaterial,
-    handleDeleteStoredMaterial
+    handleOpenStoredMaterial
   }
 }

@@ -1,8 +1,5 @@
 import { ref } from 'vue'
-import {
-  addMaterialToCurrentWeek,
-  removeMaterialFromFileNode
-} from './fileTreeState'
+import { addMaterialToCurrentWeek } from './fileTreeState'
 
 // 워크스페이스에 올린 PDF/PPT 강의자료 첨부와 현재 미리보기 자료를 관리합니다.
 export function useMaterialsState({
@@ -50,31 +47,17 @@ export function useMaterialsState({
     currentPreviewMaterial.value = null
   }
 
-  // 자료 탭에 저장된 첨부 항목을 다시 미리보기로 엽니다.
+  // 좌측 폴더에 저장된 첨부 항목을 다시 미리보기로 엽니다.
   const handleOpenStoredMaterial = (materialId) => {
     const target = currentAttachments.value.find((item) => item.id === materialId)
     if (!target) return
     currentPreviewMaterial.value = target
   }
 
-  // 첨부 목록에서 자료를 제거하고, 열려 있던 자료라면 미리보기도 닫습니다.
-  const handleDeleteStoredMaterial = (materialId) => {
-    fileTree.value = updateNodeById(
-      ensureLectureOneFile(fileTree.value),
-      activeFileId.value || 'lecture-1',
-      (node) => removeMaterialFromFileNode(node, materialId)
-    )
-
-    if (currentPreviewMaterial.value?.id === materialId) {
-      currentPreviewMaterial.value = null
-    }
-  }
-
   return {
     currentPreviewMaterial,
     handleUploadLectureMaterials,
     handleClosePreviewMaterial,
-    handleOpenStoredMaterial,
-    handleDeleteStoredMaterial
+    handleOpenStoredMaterial
   }
 }

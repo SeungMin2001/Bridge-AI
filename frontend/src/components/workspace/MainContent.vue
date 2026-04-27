@@ -5,7 +5,6 @@ import { useChat } from '../../composables/useChat'
 import WorkspaceWordCard from './MainContent/WorkspaceWordCard.vue'
 import WorkspaceHeader from './MainContent/WorkspaceHeader.vue'
 import WorkspaceFloatingTabs from './MainContent/WorkspaceFloatingTabs.vue'
-import LectureMaterialList from './MainContent/LectureMaterialList.vue'
 import LecturePreviewPanel from './MainContent/LecturePreviewPanel.vue'
 import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
 
@@ -26,7 +25,6 @@ const props = defineProps({
   activeFileId: String,
   activeFileType: { type: String, default: 'lecture' },
   transcriptions: { type: Array, default: () => [] },
-  materialAttachments: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   summaryNotes: { type: Array, default: () => [] }
 })
@@ -41,9 +39,7 @@ const emit = defineEmits([
   'askAi',
   'addToNote',
   'uploadLectureMaterials',
-  'closePreviewMaterial',
-  'openStoredMaterial',
-  'deleteStoredMaterial'
+  'closePreviewMaterial'
 ])
 
 const activeTab = ref('note')
@@ -54,12 +50,11 @@ const tabAnim = ref('tab-slide-right')
 const isNoteDragOver = ref(false)
 let prevTab = 'note'
 
-const TAB_ORDER = ['note', 'summary-note', 'material', 'summary', 'quiz']
+const TAB_ORDER = ['note', 'summary-note', 'summary', 'quiz']
 
 const tabs = computed(() => [
   { key: 'note', label: '메모' },
   { key: 'summary-note', label: '정리' },
-  { key: 'material', label: '자료' },
   { key: 'summary', label: '요약' },
   { key: 'quiz', label: '퀴즈' }
 ])
@@ -152,15 +147,6 @@ const handleAddToNote = () => {
   }
 }
 
-const handleOpenStoredMaterial = (fileId) => {
-  emit('openStoredMaterial', fileId)
-  handleTabChange('note')
-}
-
-const handleDeleteStoredMaterial = (fileId) => {
-  emit('deleteStoredMaterial', fileId)
-}
-
 const handleWordInsightButtonClick = () => {
   if (selectedWordData.value) {
     if (isWordCardVisible.value) {
@@ -174,13 +160,6 @@ const handleWordInsightButtonClick = () => {
 const handleStartRecording = () => {
   emit('startRecording', props.activeFileType === 'meeting' ? 'meeting' : 'lecture')
 }
-
-const speakerSummaryAccents = [
-  { avatar: 'speaker-summary-avatar-blue', dot: 'speaker-summary-dot-blue' },
-  { avatar: 'speaker-summary-avatar-amber', dot: 'speaker-summary-dot-amber' },
-  { avatar: 'speaker-summary-avatar-rose', dot: 'speaker-summary-dot-rose' },
-  { avatar: 'speaker-summary-avatar-green', dot: 'speaker-summary-dot-green' }
-]
 
 const getTranscriptText = (transcription) => {
   if (transcription?.segments?.length) {
@@ -199,11 +178,16 @@ const getSpeakerSummaryKey = (transcription, index) => {
   return props.recordingMode === 'meeting' ? `unknown-speaker-${index}` : 'me'
 }
 
-const getSpeakerBadgeText = (speakerLabel) => {
-  const label = String(speakerLabel || '화자')
-    .replace(/^화자\s*/, '')
-    .trim()
-  return (label || '화').slice(0, 2)
+const getSpeakerAccent = (speakerLabel) => {
+  if (speakerLabel === '나') return 'blue'
+  if (speakerLabel === '화자 B' || speakerLabel === '화자 2') return 'rose'
+  if (speakerLabel === '화자 C' || speakerLabel === '화자 3') return 'green'
+  return 'amber'
+}
+
+const getSpeakerAvatarSrc = (speakerLabel) => {
+  if (speakerLabel === '화자 B' || speakerLabel === '화자 2') return '/images/man1.png'
+  return '/images/woman1.png'
 }
 
 const buildMockSpeakerSummary = (utterances) => {
@@ -238,14 +222,17 @@ const speakerSummaryItems = computed(() => {
     })
   })
 
-  return Array.from(speakerMap.values()).map((speaker, index) => {
+  return Array.from(speakerMap.values()).map((speaker) => {
     const latestUtterance = speaker.utterances[speaker.utterances.length - 1]
-    const accent = speakerSummaryAccents[index % speakerSummaryAccents.length]
+    const accent = getSpeakerAccent(speaker.label)
 
     return {
       ...speaker,
-      accent,
-      badgeText: getSpeakerBadgeText(speaker.label),
+      accent: {
+        avatar: `speaker-summary-avatar-${accent}`,
+        dot: `speaker-summary-dot-${accent}`
+      },
+      avatarSrc: getSpeakerAvatarSrc(speaker.label),
       utteranceCount: speaker.utterances.length,
       summary: buildMockSpeakerSummary(speaker.utterances),
       latestText: latestUtterance?.text || '',
@@ -350,17 +337,6 @@ const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
           </div>
         </section>
 
-        <section v-else-if="activeTab === 'material'" :key="'tab-material'" :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
-          <div class="max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
-            <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">자료</h1>
-            <LectureMaterialList
-              :material-attachments="materialAttachments"
-              @open="handleOpenStoredMaterial"
-              @delete="handleDeleteStoredMaterial"
-            />
-          </div>
-        </section>
-
         <section v-else-if="activeTab === 'summary'" :key="'tab-summary'" :class="['tab-content flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar pt-4', tabAnim]">
           <div class="max-w-5xl mx-auto w-full h-full flex flex-col min-h-0">
             <div class="flex items-center justify-between border-b border-[#e5e5ea] mb-5 pb-0">
@@ -404,7 +380,7 @@ const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
                   <div class="speaker-summary-top">
                     <div class="speaker-summary-identity">
                       <div class="speaker-summary-avatar" :class="speaker.accent.avatar">
-                        {{ speaker.badgeText }}
+                        <img :src="speaker.avatarSrc" :alt="speaker.label" />
                       </div>
                       <div class="min-w-0">
                         <h3>{{ speaker.label }}</h3>
@@ -528,33 +504,45 @@ const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
 }
 
 .speaker-summary-avatar {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 900;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  box-sizing: border-box;
+  padding: 4px;
+  overflow: hidden;
+  border: 1.5px solid #1d1d1f;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.speaker-summary-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  border-radius: 999px;
+  display: block;
 }
 
 .speaker-summary-avatar-blue {
-  background: linear-gradient(135deg, #60a5fa, #2563eb);
+  background: #dbeafe;
 }
 
 .speaker-summary-avatar-amber {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+  background: #fff1d6;
 }
 
 .speaker-summary-avatar-rose {
-  background: linear-gradient(135deg, #fb7185, #e11d48);
+  background: #ffe4ea;
 }
 
 .speaker-summary-avatar-green {
-  background: linear-gradient(135deg, #34d399, #059669);
+  background: #dcfce7;
 }
 
 .speaker-summary-identity h3 {

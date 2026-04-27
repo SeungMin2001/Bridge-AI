@@ -19,7 +19,6 @@ const {
   activeFileName,
   activeFileId,
   activeFileType,
-  currentAttachments,
   currentPreviewMaterial,
   isRightSidebarVisible,
   summaryNotes,
@@ -37,8 +36,7 @@ const {
   handleAskAi,
   handleUploadLectureMaterials,
   handleClosePreviewMaterial,
-  handleOpenStoredMaterial,
-  handleDeleteStoredMaterial
+  handleOpenStoredMaterial
 } = useAppState()
 </script>
 
@@ -79,7 +77,6 @@ const {
     :activeFileName="activeFileName"
     :activeFileId="activeFileId"
     :activeFileType="activeFileType"
-    :currentAttachments="currentAttachments"
     :currentPreviewMaterial="currentPreviewMaterial"
     :isRightSidebarVisible="isRightSidebarVisible"
     :summaryNotes="summaryNotes"
@@ -99,6 +96,5 @@ const {
     @uploadLectureMaterials="handleUploadLectureMaterials"
     @closePreviewMaterial="handleClosePreviewMaterial"
     @openStoredMaterial="handleOpenStoredMaterial"
-    @deleteStoredMaterial="handleDeleteStoredMaterial"
   />
 </template>
