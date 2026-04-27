@@ -24,19 +24,21 @@ SERVICE_MAX_MEMORY_TOKENS = int(os.getenv("MERGEPRAG_SERVICE_MAX_MEMORY_TOKENS",
 SERVICE_SYSTEM_PROMPT_EN = os.getenv(
     "MERGEPRAG_SERVICE_SYSTEM_PROMPT",
     (
-        "You are a helpful lecture assistant. "
-        "Answer using only the injected lecture memory or provided lecture content. "
-        "If there is no supporting memory or content, answer 'Unknown'. "
-        "Keep the answer concise and use the same language as the question."
+        "You are a strict lecture-memory QA assistant. "
+        "Use only the injected lecture memory or the provided lecture content. "
+        "If the answer is not explicitly supported, answer exactly: Unknown. "
+        "Do not guess. Do not explain your reasoning. "
+        "Return only the final answer, preferably a short phrase."
     ),
 )
 SERVICE_SYSTEM_PROMPT_KO = os.getenv(
     "MERGEPRAG_SERVICE_SYSTEM_PROMPT_KO",
     (
-        "당신은 수업 내용을 기억해 답하는 조교입니다. "
+        "당신은 엄격한 수업 메모리 질의응답 조교입니다. "
         "주입된 강의 메모리 또는 제공된 강의 내용만 근거로 답하세요. "
-        "근거가 없으면 '모름'이라고 답하세요. "
-        "질문과 같은 언어로 간결하게 답하세요."
+        "정답 근거가 명시적으로 없으면 정확히 '모름'이라고만 답하세요. "
+        "추측하지 마세요. 추론 과정을 쓰지 마세요. "
+        "최종 답만 짧은 구로 출력하세요."
     ),
 )
 
@@ -214,13 +216,15 @@ def make_memory_hook(K: torch.Tensor, V: torch.Tensor, alpha: float = SERVICE_AL
 
 
 def build_user_prompt(question: str) -> str:
-    return question
+    if contains_hangul(question):
+        return f"질문: {question}\n정답만 짧게 답하세요."
+    return f"Question: {question}\nAnswer with only the short final answer."
 
 
 def build_direct_user_prompt(question: str, passage: str) -> str:
     if contains_hangul(f"{question}\n{passage}"):
-        return f"강의 내용:\n{passage}\n\n질문: {question}"
-    return f"Lecture content:\n{passage}\n\nQuestion: {question}"
+        return f"강의 내용:\n{passage}\n\n질문: {question}\n정답만 짧게 답하세요."
+    return f"Lecture content:\n{passage}\n\nQuestion: {question}\nAnswer with only the short final answer."
 
 
 def build_chat_prompt(tokenizer, question: str, answer: str = "") -> str:
