@@ -44,6 +44,10 @@ def fmt(value: float) -> str:
 
 
 def cosine_flat(a: torch.Tensor, b: torch.Tensor) -> float:
+    if a.dim() >= 3 and b.dim() >= 3 and a.size(1) != b.size(1):
+        keep = min(a.size(1), b.size(1))
+        a = a[:, :keep]
+        b = b[:, :keep]
     return torch.nn.functional.cosine_similarity(a.flatten().float(), b.flatten().float(), dim=0).item()
 
 
@@ -146,12 +150,17 @@ def main():
         hidden_dim=hidden_dim,
         skip_scale=float(config.get("skip_scale", 0.5)),
         rms_clamp=float(config.get("rms_clamp", 0.5)),
+        pooling_mode=str(config.get("pooling_mode", "slot")),
+        max_memory_tokens=int(config.get("max_memory_tokens", 128)),
     ).to(device).float()
     hypernet.load_state_dict(state_dict)
     hypernet.eval()
     layer_idx = int(config.get("critical_layer", load_critical_layer()))
     target_layer = model.model.layers[layer_idx]
-    print(f"[test_service_memory] step={meta.get('step')} layer={layer_idx} num_kv={num_kv} alpha={args.alpha}")
+    print(
+        f"[test_service_memory] step={meta.get('step')} layer={layer_idx} "
+        f"num_kv={num_kv} mode={config.get('pooling_mode', 'slot')} alpha={args.alpha}"
+    )
 
     dataset_path = VALID_DATA_PATH if args.split == "valid" else TRAIN_DATA_PATH
     dataset = MergePRAGDataset(dataset_path, max_samples=args.max_samples)

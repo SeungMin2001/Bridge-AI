@@ -66,9 +66,9 @@ passage
 -> base model raw token embedding
 -> base model contextual hidden
 -> concat(raw, contextual)
--> multi-slot learned pooling
--> slot별 MLP
--> slot별 K/V
+-> token-level 또는 multi-slot memory projection
+-> token/slot별 MLP
+-> token/slot별 K/V
 -> K/V RMS clamp
 -> alpha-scaled cross-attention hook
 ```
@@ -76,7 +76,9 @@ passage
 중요한 차이:
 
 - passage 전체를 single pooled vector 하나로 압축하지 않는다.
-- `num_kv`개 slot이 passage token feature의 다른 부분을 볼 수 있다.
+- 최신 기본값은 `MERGEPRAG_SERVICE_POOLING_MODE=token`이다.
+- token mode에서는 passage token마다 K/V를 만들기 때문에 `A=B`, `C=D` 같은 관계가 8개 slot 압축 과정에서 사라지는 병목을 우회한다.
+- 예전 slot mode는 `MERGEPRAG_SERVICE_POOLING_MODE=slot`으로 다시 켤 수 있다.
 - Qwen 계열 사용 방식에 맞춰 학습/진단 프롬프트는 chat template 기반이다.
 - 학습 objective는 service hard-pair에 맞춰 dual CE + bidirectional ranking + memory separation + slot diversity를 사용한다.
 
@@ -87,6 +89,8 @@ MERGEPRAG_SERVICE_NUM_KV = 8
 MERGEPRAG_SERVICE_HIDDEN_DIM = 1024
 MERGEPRAG_SERVICE_ALPHA = 0.3
 MERGEPRAG_SERVICE_USE_CONTEXTUAL = 1
+MERGEPRAG_SERVICE_POOLING_MODE = token
+MERGEPRAG_SERVICE_MAX_MEMORY_TOKENS = 128
 MERGEPRAG_SERVICE_RMS_CLAMP = 0.5
 MERGEPRAG_SERVICE_SKIP_SCALE = 0.5
 MERGEPRAG_SERVICE_RANK_MARGIN = 0.5

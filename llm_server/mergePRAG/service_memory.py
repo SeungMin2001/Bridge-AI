@@ -19,6 +19,8 @@ SERVICE_USE_CONTEXTUAL = os.getenv("MERGEPRAG_SERVICE_USE_CONTEXTUAL", "1").stri
 }
 SERVICE_RMS_CLAMP = float(os.getenv("MERGEPRAG_SERVICE_RMS_CLAMP", "0.5"))
 SERVICE_SKIP_SCALE = float(os.getenv("MERGEPRAG_SERVICE_SKIP_SCALE", "0.5"))
+SERVICE_POOLING_MODE = os.getenv("MERGEPRAG_SERVICE_POOLING_MODE", "token").strip().lower()
+SERVICE_MAX_MEMORY_TOKENS = int(os.getenv("MERGEPRAG_SERVICE_MAX_MEMORY_TOKENS", "128"))
 SERVICE_SYSTEM_PROMPT_EN = os.getenv(
     "MERGEPRAG_SERVICE_SYSTEM_PROMPT",
     (
@@ -59,6 +61,8 @@ class ServiceMemoryHyperNetwork(nn.Module):
         hidden_dim: int = SERVICE_HIDDEN_DIM,
         skip_scale: float = SERVICE_SKIP_SCALE,
         rms_clamp: float = SERVICE_RMS_CLAMP,
+        pooling_mode: str = SERVICE_POOLING_MODE,
+        max_memory_tokens: int = SERVICE_MAX_MEMORY_TOKENS,
     ):
         super().__init__()
         self.d_model = d_model
@@ -66,6 +70,8 @@ class ServiceMemoryHyperNetwork(nn.Module):
         self.num_kv = num_kv
         self.skip_scale = skip_scale
         self.rms_clamp = rms_clamp
+        self.pooling_mode = pooling_mode
+        self.max_memory_tokens = max_memory_tokens
 
         self.input_norm = nn.LayerNorm(feature_dim)
         self.input_proj = nn.Sequential(
@@ -95,11 +101,21 @@ class ServiceMemoryHyperNetwork(nn.Module):
 
     def forward(self, features: torch.Tensor, attention_mask: torch.Tensor):
         x = self.input_proj(self.input_norm(features))
-        scores = torch.einsum("btd,sd->bts", x, self.slot_queries) / math.sqrt(self.d_model)
-        scores = scores.masked_fill(attention_mask.unsqueeze(-1) == 0, torch.finfo(scores.dtype).min)
-        att_weights = torch.softmax(scores, dim=1)
-        pooled = torch.einsum("btd,bts->bsd", x, att_weights)
-        hidden = self.mlp(pooled)
+        if self.pooling_mode == "token":
+            if self.max_memory_tokens > 0 and x.size(1) > self.max_memory_tokens:
+                x = x[:, : self.max_memory_tokens, :]
+                attention_mask = attention_mask[:, : self.max_memory_tokens]
+            pooled = x * attention_mask.unsqueeze(-1).to(dtype=x.dtype)
+            hidden = self.mlp(pooled)
+            att_weights = None
+        elif self.pooling_mode == "slot":
+            scores = torch.einsum("btd,sd->bts", x, self.slot_queries) / math.sqrt(self.d_model)
+            scores = scores.masked_fill(attention_mask.unsqueeze(-1) == 0, torch.finfo(scores.dtype).min)
+            att_weights = torch.softmax(scores, dim=1)
+            pooled = torch.einsum("btd,bts->bsd", x, att_weights)
+            hidden = self.mlp(pooled)
+        else:
+            raise ValueError(f"Unsupported service memory pooling mode: {self.pooling_mode}")
         K = self.linear_K(hidden) + self.skip_scale * self.skip_K(pooled)
         V = self.linear_V(hidden) + self.skip_scale * self.skip_V(pooled)
         return {
@@ -300,6 +316,10 @@ def forward_with_memory(model, target_layer, K: torch.Tensor, V: torch.Tensor, t
 
 
 def cosine_flat(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    if a.dim() >= 3 and b.dim() >= 3 and a.size(1) != b.size(1):
+        keep = min(a.size(1), b.size(1))
+        a = a[:, :keep]
+        b = b[:, :keep]
     return F.cosine_similarity(a.flatten(1), b.flatten(1)).mean()
 
 

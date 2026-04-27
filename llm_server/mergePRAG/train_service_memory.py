@@ -26,7 +26,9 @@ from .config import MODEL_NAME, TRAIN_DATA_PATH, VALID_DATA_PATH, load_critical_
 from .service_memory import (
     SERVICE_ALPHA,
     SERVICE_HIDDEN_DIM,
+    SERVICE_MAX_MEMORY_TOKENS,
     SERVICE_NUM_KV,
+    SERVICE_POOLING_MODE,
     SERVICE_RMS_CLAMP,
     SERVICE_SKIP_SCALE,
     SERVICE_USE_CONTEXTUAL,
@@ -229,6 +231,8 @@ def config_matches(saved: dict, current: dict) -> bool:
         "use_contextual",
         "rms_clamp",
         "skip_scale",
+        "pooling_mode",
+        "max_memory_tokens",
         "objective",
     )
     return all(saved.get(key) == current.get(key) for key in keys)
@@ -261,6 +265,8 @@ def train():
         hidden_dim=SERVICE_HIDDEN_DIM,
         skip_scale=SERVICE_SKIP_SCALE,
         rms_clamp=SERVICE_RMS_CLAMP,
+        pooling_mode=SERVICE_POOLING_MODE,
+        max_memory_tokens=SERVICE_MAX_MEMORY_TOKENS,
     ).to(device).float()
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
 
@@ -279,6 +285,8 @@ def train():
         "alpha": SERVICE_ALPHA,
         "rms_clamp": SERVICE_RMS_CLAMP,
         "skip_scale": SERVICE_SKIP_SCALE,
+        "pooling_mode": SERVICE_POOLING_MODE,
+        "max_memory_tokens": SERVICE_MAX_MEMORY_TOKENS,
         "objective": "dual_ce_rank_memory_separation_slot_diversity",
         "rank_margin": RANK_MARGIN,
         "rank_weight": RANK_WEIGHT,
