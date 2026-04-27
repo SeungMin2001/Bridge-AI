@@ -38,6 +38,7 @@ from .service_memory import (
     encode_memory,
     forward_with_memory,
     slot_diversity_loss,
+    tokenize_direct_qa,
     tokenize_qa,
 )
 from .train2 import MergePRAGDataset, extract_first_hard_negative
@@ -63,6 +64,8 @@ DUAL_CE_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_DUAL_CE_WEIGHT", "1.0"))
 SEPARATION_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_SEPARATION_WEIGHT", "0.25"))
 SEPARATION_TARGET = float(os.getenv("MERGEPRAG_SERVICE_SEPARATION_TARGET", "0.90"))
 DIVERSITY_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_DIVERSITY_WEIGHT", "0.05"))
+TEACHER_KL_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_TEACHER_KL_WEIGHT", "1.0"))
+TEACHER_KL_TEMPERATURE = float(os.getenv("MERGEPRAG_SERVICE_TEACHER_KL_TEMPERATURE", "1.0"))
 GRAD_CLIP_NORM = float(os.getenv("MERGEPRAG_SERVICE_GRAD_CLIP_NORM", "1.0"))
 RESUME_FROM_CHECKPOINT = os.getenv("MERGEPRAG_SERVICE_RESUME", "1").strip().lower() in {
     "1",
@@ -85,6 +88,33 @@ LOG_PATH = os.getenv(
 )
 
 
+def answer_kl_loss(student_logits, student_labels, teacher_logits, teacher_labels, temperature: float = 1.0):
+    student_shift = student_logits[:, :-1, :].contiguous()
+    student_label_shift = student_labels[:, 1:].contiguous()
+    teacher_shift = teacher_logits[:, :-1, :].contiguous()
+    teacher_label_shift = teacher_labels[:, 1:].contiguous()
+
+    student_valid = student_label_shift != -100
+    teacher_valid = teacher_label_shift != -100
+    if student_valid.sum() == 0 or teacher_valid.sum() == 0:
+        return None
+
+    student_answer_logits = student_shift[student_valid]
+    teacher_answer_logits = teacher_shift[teacher_valid]
+    keep = min(student_answer_logits.size(0), teacher_answer_logits.size(0))
+    if keep == 0:
+        return None
+
+    student_answer_logits = student_answer_logits[:keep]
+    teacher_answer_logits = teacher_answer_logits[:keep]
+    temp = max(float(temperature), 1e-6)
+    return F.kl_div(
+        F.log_softmax(student_answer_logits / temp, dim=-1),
+        F.softmax(teacher_answer_logits.detach() / temp, dim=-1),
+        reduction="batchmean",
+    ) * (temp * temp)
+
+
 def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device):
     negative = extract_first_hard_negative(sample)
     if not negative or not negative.get("answer") or not negative.get("passage"):
@@ -98,6 +128,8 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
     neg_mem = encode_memory(model, hypernet, tokenizer, negative["passage"], device)
     gold_tok = tokenize_qa(tokenizer, question, gold, device)
     neg_tok = tokenize_qa(tokenizer, question, neg_answer, device)
+    direct_gold_tok = tokenize_direct_qa(tokenizer, question, sample["passage"], gold, device)
+    direct_neg_tok = tokenize_direct_qa(tokenizer, question, negative["passage"], neg_answer, device)
 
     main_gold_logits = forward_with_memory(
         model,
@@ -127,6 +159,9 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
         neg_mem["V"],
         neg_tok,
     )
+    with torch.no_grad():
+        direct_gold_logits = model(**direct_gold_tok)["logits"]
+        direct_neg_logits = model(**direct_neg_tok)["logits"]
 
     main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
     main_neg = compute_answer_loss(main_neg_logits, neg_tok["labels"])
@@ -134,6 +169,24 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
     neg_neg = compute_answer_loss(neg_neg_logits, neg_tok["labels"])
     if any(loss is None for loss in (main_gold, main_neg, neg_gold, neg_neg)):
         return None
+
+    teacher_kl_main = answer_kl_loss(
+        main_gold_logits,
+        gold_tok["labels"],
+        direct_gold_logits,
+        direct_gold_tok["labels"],
+        temperature=TEACHER_KL_TEMPERATURE,
+    )
+    teacher_kl_neg = answer_kl_loss(
+        neg_neg_logits,
+        neg_tok["labels"],
+        direct_neg_logits,
+        direct_neg_tok["labels"],
+        temperature=TEACHER_KL_TEMPERATURE,
+    )
+    if teacher_kl_main is None or teacher_kl_neg is None:
+        return None
+    teacher_kl = teacher_kl_main + teacher_kl_neg
 
     rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
     k_cos = cosine_flat(main_mem["K"], neg_mem["K"])
@@ -144,6 +197,7 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
         main_gold
         + DUAL_CE_WEIGHT * neg_neg
         + RANK_WEIGHT * rank
+        + TEACHER_KL_WEIGHT * teacher_kl
         + SEPARATION_WEIGHT * sep
         + DIVERSITY_WEIGHT * div
     )
@@ -154,6 +208,7 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
         "neg_gold": neg_gold,
         "neg_neg": neg_neg,
         "rank": rank,
+        "teacher_kl": teacher_kl,
         "sep": sep,
         "div": div,
         "k_cos": k_cos,
@@ -287,10 +342,12 @@ def train():
         "skip_scale": SERVICE_SKIP_SCALE,
         "pooling_mode": SERVICE_POOLING_MODE,
         "max_memory_tokens": SERVICE_MAX_MEMORY_TOKENS,
-        "objective": "dual_ce_rank_memory_separation_slot_diversity",
+        "objective": "dual_ce_rank_teacher_distill_memory_separation_slot_diversity",
         "rank_margin": RANK_MARGIN,
         "rank_weight": RANK_WEIGHT,
         "dual_ce_weight": DUAL_CE_WEIGHT,
+        "teacher_kl_weight": TEACHER_KL_WEIGHT,
+        "teacher_kl_temperature": TEACHER_KL_TEMPERATURE,
         "separation_weight": SEPARATION_WEIGHT,
         "separation_target": SEPARATION_TARGET,
         "diversity_weight": DIVERSITY_WEIGHT,
@@ -361,6 +418,7 @@ def train():
 
             obj = out["objective"].item()
             rank = out["rank"].item()
+            teacher_kl = out["teacher_kl"].item()
             sep = out["sep"].item()
             div = out["div"].item()
             main_gold = out["main_gold"].item()
@@ -374,6 +432,7 @@ def train():
                 "step": global_step,
                 "objective": round(obj, 4),
                 "rank": round(rank, 4),
+                "teacher_kl": round(teacher_kl, 4),
                 "sep": round(sep, 4),
                 "div": round(div, 4),
                 "k_cos": round(out["k_cos"].item(), 4),
@@ -387,7 +446,7 @@ def train():
                 print(
                     f"  Step {global_step}/{total_steps} | obj={obj:.4f} | "
                     f"avg={sum(running) / len(running):.4f} | rank={rank:.4f} | "
-                    f"sep={sep:.4f} | div={div:.4f} | "
+                    f"tkl={teacher_kl:.4f} | sep={sep:.4f} | div={div:.4f} | "
                     f"main={main_gold:.3f}/{main_neg:.3f}:{main_pref} | "
                     f"neg={neg_gold:.3f}/{neg_neg:.3f}:{neg_pref} | "
                     f"Kcos={out['k_cos'].item():.4f} | Vcos={out['v_cos'].item():.4f} | "
