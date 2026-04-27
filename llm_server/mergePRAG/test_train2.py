@@ -24,8 +24,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from .config import MODEL_NAME, TRAIN_DATA_PATH, VALID_DATA_PATH, load_critical_layer
 from .train2 import (
     CHECKPOINT_PATH,
-    HIDDEN_DIM,
-    NUM_KV,
     WEIGHTS_PATH,
     MergePRAGDataset,
     PaperHyperNetwork,
@@ -156,13 +154,23 @@ def main():
     layer_idx = load_critical_layer()
     target_layer = model.model.layers[layer_idx]
 
-    hypernet = PaperHyperNetwork(d_model, num_kv=NUM_KV, hidden_dim=HIDDEN_DIM).to(device).float()
     state_dict, meta = load_hypernet_state(weights_path, map_location=device)
+    linear_k = state_dict.get("linear_K.weight")
+    if linear_k is None:
+        raise KeyError("Could not find linear_K.weight in train2 state dict")
+    inferred_num_kv = linear_k.shape[0] // d_model
+    inferred_hidden_dim = linear_k.shape[1]
+    hypernet = PaperHyperNetwork(
+        d_model,
+        num_kv=inferred_num_kv,
+        hidden_dim=inferred_hidden_dim,
+    ).to(device).float()
     hypernet.load_state_dict(state_dict)
     hypernet.eval()
     print(
         f"[test_train2] loaded step={meta.get('step')} "
-        f"val_loss={meta.get('val_loss')} layer={layer_idx} num_kv={NUM_KV}"
+        f"val_loss={meta.get('val_loss')} layer={layer_idx} "
+        f"num_kv={inferred_num_kv} hidden_dim={inferred_hidden_dim}"
     )
 
     dataset = MergePRAGDataset(dataset_path, max_samples=args.max_samples)
