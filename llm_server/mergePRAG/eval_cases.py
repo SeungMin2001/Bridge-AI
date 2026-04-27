@@ -74,22 +74,22 @@ SYNTHETIC_KO_DIAGNOSTIC_CASE = {
 
 SERVICE_MEMORY_DIAGNOSTIC_CASE = {
     "case_name": "service_memory",
-    "question": "알파 규칙은 뭐라고 설명했어?",
-    "alt_question": "베타 규칙은 뭐라고 설명했어?",
+    "question": "What did Professor Lee say the alpha rule means?",
+    "alt_question": "What did Professor Lee say the beta rule means?",
     "passage": (
-        "이 교수: 오늘 수업에서 알파 규칙은 과제를 월요일까지 제출하는 규칙이라고 설명했습니다. "
-        "베타 규칙은 발표 자료를 금요일까지 제출하는 규칙입니다. "
-        "정확히 기억하세요: 알파 규칙 -> 과제 월요일 제출; 베타 규칙 -> 발표 자료 금요일 제출."
+        "Professor Lee said in today's lecture that the alpha rule means submitting the homework by Monday. "
+        "The beta rule means submitting the presentation slides by Friday. "
+        "Remember exactly: alpha rule -> homework Monday; beta rule -> slides Friday."
     ),
     "compare_passage": (
-        "이 교수: 오늘 수업에서 알파 규칙은 발표 자료를 금요일까지 제출하는 규칙이라고 설명했습니다. "
-        "베타 규칙은 과제를 월요일까지 제출하는 규칙입니다. "
-        "정확히 기억하세요: 알파 규칙 -> 발표 자료 금요일 제출; 베타 규칙 -> 과제 월요일 제출."
+        "Professor Lee said in today's lecture that the alpha rule means submitting the presentation slides by Friday. "
+        "The beta rule means submitting the homework by Monday. "
+        "Remember exactly: alpha rule -> slides Friday; beta rule -> homework Monday."
     ),
-    "answer": "과제 월요일 제출",
-    "compare_answer": "발표 자료 금요일 제출",
-    "alt_answer": "발표 자료 금요일 제출",
-    "generation_instruction": "주입된 수업 메모리만 근거로, 규칙의 내용을 짧게 답하세요:",
+    "answer": "homework Monday",
+    "compare_answer": "slides Friday",
+    "alt_answer": "slides Friday",
+    "generation_instruction": "Answer with only the short rule meaning:",
 }
 
 
