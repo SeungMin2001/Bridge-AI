@@ -62,6 +62,12 @@ SEPARATION_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_SEPARATION_WEIGHT", "0.25
 SEPARATION_TARGET = float(os.getenv("MERGEPRAG_SERVICE_SEPARATION_TARGET", "0.90"))
 DIVERSITY_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_DIVERSITY_WEIGHT", "0.05"))
 GRAD_CLIP_NORM = float(os.getenv("MERGEPRAG_SERVICE_GRAD_CLIP_NORM", "1.0"))
+RESUME_FROM_CHECKPOINT = os.getenv("MERGEPRAG_SERVICE_RESUME", "1").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 WEIGHTS_PATH = os.getenv(
     "MERGEPRAG_SERVICE_WEIGHTS_PATH",
@@ -198,6 +204,36 @@ def save_json(path: str, data: dict):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def load_existing_log(path: str, fallback: dict) -> dict:
+    if not os.path.exists(path):
+        return fallback
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data.setdefault("step_losses", [])
+        data.setdefault("val_evals", [])
+        data["resumed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return data
+    except Exception as exc:
+        print(f"[service_memory:resume] could not load log {path}: {exc}")
+        return fallback
+
+
+def config_matches(saved: dict, current: dict) -> bool:
+    keys = (
+        "model",
+        "critical_layer",
+        "num_kv",
+        "hidden_dim",
+        "feature_dim",
+        "use_contextual",
+        "rms_clamp",
+        "skip_scale",
+        "objective",
+    )
+    return all(saved.get(key) == current.get(key) for key in keys)
+
+
 def train():
     print(f"[service_memory] loading model: {MODEL_NAME}")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
@@ -265,14 +301,44 @@ def train():
 
     best_val = float("inf")
     global_step = 0
+    if RESUME_FROM_CHECKPOINT and os.path.exists(CHECKPOINT_PATH):
+        checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
+        saved_config = checkpoint.get("config") or {}
+        if config_matches(saved_config, run_config):
+            hypernet.load_state_dict(checkpoint["hypernet"])
+            if "optimizer" in checkpoint:
+                optimizer.load_state_dict(checkpoint["optimizer"])
+            if "scheduler" in checkpoint:
+                scheduler.load_state_dict(checkpoint["scheduler"])
+            best_val = float(checkpoint.get("best_val", best_val))
+            global_step = int(checkpoint.get("step", 0))
+            log_data = load_existing_log(LOG_PATH, log_data)
+            log_data["config"] = run_config
+            print(
+                f"[service_memory:resume] loaded checkpoint step={global_step} "
+                f"best_val={best_val:.4f} from {CHECKPOINT_PATH}"
+            )
+        else:
+            print("[service_memory:resume] checkpoint config mismatch; starting fresh.")
+            print(f"  saved={saved_config}")
+            print(f"  current={run_config}")
+    elif RESUME_FROM_CHECKPOINT:
+        print(f"[service_memory:resume] no checkpoint found at {CHECKPOINT_PATH}; starting fresh.")
+    else:
+        print("[service_memory:resume] disabled by MERGEPRAG_SERVICE_RESUME=0; starting fresh.")
+
     start_time = time.time()
     hypernet.train()
 
     for epoch in range(EPOCHS):
+        if global_step >= total_steps:
+            break
         indices = list(range(len(train_dataset)))
         random.shuffle(indices)
         running = []
         for sample_idx in indices:
+            if global_step >= total_steps:
+                break
             out = hard_pair_objective(model, tokenizer, hypernet, target_layer, train_dataset[sample_idx], device)
             if out is None:
                 continue
