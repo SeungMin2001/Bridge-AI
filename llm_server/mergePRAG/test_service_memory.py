@@ -31,16 +31,26 @@ from .train_service_memory import CHECKPOINT_PATH, WEIGHTS_PATH
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate service memory weights.")
     parser.add_argument("--split", choices=["valid", "train"], default="valid")
-    parser.add_argument("--max-samples", type=int, default=240)
-    parser.add_argument("--weights-path", default=WEIGHTS_PATH)
+    parser.add_argument("--max-samples", type=int, default=40)
+    parser.add_argument("--weights-path", default="")
     parser.add_argument("--show-examples", type=int, default=10)
-    parser.add_argument("--show-generations", type=int, default=0)
+    parser.add_argument("--show-generations", type=int, default=5)
     parser.add_argument("--alpha", type=float, default=SERVICE_ALPHA)
+    parser.add_argument(
+        "--simple",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Print a compact pass/fail-oriented report.",
+    )
     return parser.parse_args()
 
 
 def fmt(value: float) -> str:
     return "nan" if value != value else f"{value:.4f}"
+
+
+def yn(value: bool) -> str:
+    return "OK" if value else "FAIL"
 
 
 def cosine_flat(a: torch.Tensor, b: torch.Tensor) -> float:
@@ -110,14 +120,16 @@ def generate_with_memory(model, tokenizer, hypernet, target_layer, question, pas
 
 def main():
     args = parse_args()
-    weights_path = Path(args.weights_path)
+    checkpoint = Path(CHECKPOINT_PATH)
+    weights = Path(WEIGHTS_PATH)
+    if args.weights_path:
+        weights_path = Path(args.weights_path)
+    elif checkpoint.exists():
+        weights_path = checkpoint
+    else:
+        weights_path = weights
     if not weights_path.exists():
-        checkpoint = Path(CHECKPOINT_PATH)
-        if checkpoint.exists():
-            print(f"[test_service_memory] weights missing; using checkpoint: {checkpoint}")
-            weights_path = checkpoint
-        else:
-            raise FileNotFoundError(f"No service memory weights found: {weights_path}")
+        raise FileNotFoundError(f"No service memory weights found: {weights_path}")
 
     print(f"[test_service_memory] model={MODEL_NAME}")
     print(f"[test_service_memory] weights={weights_path}")
@@ -168,6 +180,7 @@ def main():
     total = 0
     base_ok = direct_ok = main_ok = neg_ok = flip_ok = 0
     gain_sum = k_cos_sum = v_cos_sum = pooled_cos_sum = 0.0
+    direct_unknown = memory_generation_ok = 0
     shown = 0
     with torch.no_grad():
         for idx, sample in enumerate(dataset):
@@ -211,14 +224,22 @@ def main():
             v_cos_sum += v_cos
 
             if shown < args.show_examples:
-                print(f"\n[{idx}] q={q}")
-                print(f"  gold={gold} | neg={neg}")
-                print(f"  no_hook      gold={fmt(base_gold)} neg={fmt(base_neg)} prefer_gold={base_pref}")
-                print(f"  direct       gold={fmt(direct_gold)} neg={fmt(direct_neg)} prefer_gold={direct_pref}")
-                print(f"  main_memory  gold={fmt(main_gold)} neg={fmt(main_neg)} prefer_gold={main_pref}")
-                print(f"  neg_memory   gold={fmt(negmem_gold)} neg={fmt(negmem_neg)} prefer_neg={neg_pref}")
-                print(f"  memory_cos   pooled={pooled_cos:.4f} K={k_cos:.4f} V={v_cos:.4f}")
-                print(f"  gain={fmt(base_gold - main_gold)} flip_ok={main_pref and neg_pref}")
+                if args.simple:
+                    print(f"\n[{shown + 1}] {q}")
+                    print(f"  expected main={gold} | expected negative={neg}")
+                    print(f"  direct_prompt={yn(direct_pref)} | main_memory={yn(main_pref)} | negative_memory={yn(neg_pref)} | flip={yn(main_pref and neg_pref)}")
+                    print(f"  loss main_memory: gold={fmt(main_gold)} vs neg={fmt(main_neg)}")
+                    print(f"  loss neg_memory : gold={fmt(negmem_gold)} vs neg={fmt(negmem_neg)}")
+                    print(f"  memory_cos pooled={pooled_cos:.4f}, K={k_cos:.4f}, V={v_cos:.4f}")
+                else:
+                    print(f"\n[{idx}] q={q}")
+                    print(f"  gold={gold} | neg={neg}")
+                    print(f"  no_hook      gold={fmt(base_gold)} neg={fmt(base_neg)} prefer_gold={base_pref}")
+                    print(f"  direct       gold={fmt(direct_gold)} neg={fmt(direct_neg)} prefer_gold={direct_pref}")
+                    print(f"  main_memory  gold={fmt(main_gold)} neg={fmt(main_neg)} prefer_gold={main_pref}")
+                    print(f"  neg_memory   gold={fmt(negmem_gold)} neg={fmt(negmem_neg)} prefer_neg={neg_pref}")
+                    print(f"  memory_cos   pooled={pooled_cos:.4f} K={k_cos:.4f} V={v_cos:.4f}")
+                    print(f"  gain={fmt(base_gold - main_gold)} flip_ok={main_pref and neg_pref}")
                 if shown < args.show_generations:
                     no_hook = generate_from_prompt(model, tokenizer, build_chat_prompt(tokenizer, q), device)
                     direct = generate_from_prompt(model, tokenizer, build_direct_chat_prompt(tokenizer, q, passage), device)
@@ -233,24 +254,54 @@ def main():
                         args.alpha,
                         use_contextual,
                     )
-                    print(f"  gen no_hook={no_hook}")
-                    print(f"  gen direct ={direct}")
-                    print(f"  gen memory ={memory}")
+                    direct_hit = gold.lower() in direct.lower()
+                    memory_hit = gold.lower() in memory.lower()
+                    no_hook_hit = gold.lower() in no_hook.lower()
+                    direct_unknown += int(not no_hook_hit and direct_hit)
+                    memory_generation_ok += int(memory_hit)
+                    if args.simple:
+                        print(f"  gen no_hook={no_hook}")
+                        print(f"  gen direct ={direct} [{yn(direct_hit)}]")
+                        print(f"  gen memory ={memory} [{yn(memory_hit)}]")
+                    else:
+                        print(f"  gen no_hook={no_hook}")
+                        print(f"  gen direct ={direct}")
+                        print(f"  gen memory ={memory}")
                 shown += 1
 
             if torch.cuda.is_available() and total % 50 == 0:
                 torch.cuda.empty_cache()
 
     denom = max(total, 1)
-    print("\n[test_service_memory:summary]")
-    print(f"  evaluated hard-pair rows: {total}/{len(dataset)}")
-    print(f"  avg memory gain: {gain_sum / denom:.4f}")
-    print(f"  avg memory cosine: pooled={pooled_cos_sum / denom:.4f}, K={k_cos_sum / denom:.4f}, V={v_cos_sum / denom:.4f}")
-    print(f"  no_hook gold preference: {base_ok}/{denom} = {base_ok / denom:.3f}")
-    print(f"  direct passage gold preference: {direct_ok}/{denom} = {direct_ok / denom:.3f}")
-    print(f"  main memory gold preference: {main_ok}/{denom} = {main_ok / denom:.3f}")
-    print(f"  negative memory negative preference: {neg_ok}/{denom} = {neg_ok / denom:.3f}")
-    print(f"  bidirectional flip success: {flip_ok}/{denom} = {flip_ok / denom:.3f}")
+    if args.simple:
+        print("\n[Simple Summary]")
+        print(f"  evaluated: {total}/{len(dataset)} hard-pair rows")
+        print(f"  direct passage understands data : {direct_ok / denom:.3f} ({direct_ok}/{denom})")
+        print(f"  main memory chooses main answer : {main_ok / denom:.3f} ({main_ok}/{denom})")
+        print(f"  neg memory chooses neg answer   : {neg_ok / denom:.3f} ({neg_ok}/{denom})")
+        print(f"  full passage flip success       : {flip_ok / denom:.3f} ({flip_ok}/{denom})")
+        print(f"  avg memory gain                 : {gain_sum / denom:.4f}")
+        print(f"  avg memory cosine               : pooled={pooled_cos_sum / denom:.4f}, K={k_cos_sum / denom:.4f}, V={v_cos_sum / denom:.4f}")
+        if args.show_generations:
+            gen_denom = max(min(args.show_examples, args.show_generations, total), 1)
+            print(f"  shown generation memory hits    : {memory_generation_ok}/{gen_denom}")
+        print("\n[Decision]")
+        if flip_ok / denom >= 0.70:
+            print("  PASS: K/V memory is learning passage-specific answers.")
+        elif flip_ok / denom >= 0.30:
+            print("  PARTIAL: memory has signal, but passage flip is still unreliable.")
+        else:
+            print("  FAIL: model is not reliably answering from injected passage memory yet.")
+    else:
+        print("\n[test_service_memory:summary]")
+        print(f"  evaluated hard-pair rows: {total}/{len(dataset)}")
+        print(f"  avg memory gain: {gain_sum / denom:.4f}")
+        print(f"  avg memory cosine: pooled={pooled_cos_sum / denom:.4f}, K={k_cos_sum / denom:.4f}, V={v_cos_sum / denom:.4f}")
+        print(f"  no_hook gold preference: {base_ok}/{denom} = {base_ok / denom:.3f}")
+        print(f"  direct passage gold preference: {direct_ok}/{denom} = {direct_ok / denom:.3f}")
+        print(f"  main memory gold preference: {main_ok}/{denom} = {main_ok / denom:.3f}")
+        print(f"  negative memory negative preference: {neg_ok}/{denom} = {neg_ok / denom:.3f}")
+        print(f"  bidirectional flip success: {flip_ok}/{denom} = {flip_ok / denom:.3f}")
 
 
 if __name__ == "__main__":
