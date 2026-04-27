@@ -332,6 +332,12 @@ def cosine_flat(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def slot_diversity_loss(K: torch.Tensor, V: torch.Tensor, target: float = 0.3):
     if K.size(1) <= 1:
         return K.new_tensor(0.0)
+    # Diversity regularization is meant for a small number of learned summary
+    # slots. In token-memory mode, each token is already a separate memory item;
+    # forcing all token memories to be nearly orthogonal destroys useful local
+    # lexical/relational structure.
+    if K.size(1) > SERVICE_NUM_KV:
+        return K.new_tensor(0.0)
 
     def penalty(x):
         x = F.normalize(x, dim=-1)
