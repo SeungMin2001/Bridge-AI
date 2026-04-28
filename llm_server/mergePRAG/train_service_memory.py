@@ -13,6 +13,7 @@ HyperKV idea but uses a service-suitable encoder:
 
 import json
 import os
+import sys
 import random
 import time
 from datetime import datetime
@@ -23,6 +24,7 @@ import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import MODEL_NAME, TRAIN_DATA_PATH, VALID_DATA_PATH, load_critical_layer
+from .eval_cases import get_diagnostic_case
 from .service_memory import (
     SERVICE_ALPHA,
     SERVICE_HIDDEN_DIM,
@@ -54,6 +56,18 @@ MAX_SAMPLES = os.getenv("MERGEPRAG_SERVICE_MAX_SAMPLES")
 MAX_VAL_SAMPLES = os.getenv("MERGEPRAG_SERVICE_MAX_VAL_SAMPLES")
 MAX_SAMPLES = int(MAX_SAMPLES) if MAX_SAMPLES else None
 MAX_VAL_SAMPLES = int(MAX_VAL_SAMPLES) if MAX_VAL_SAMPLES else None
+OVERFIT_CASE = os.getenv("MERGEPRAG_SERVICE_OVERFIT_CASE", "").strip()
+OVERFIT_REPEATS = int(os.getenv("MERGEPRAG_SERVICE_OVERFIT_REPEATS", "200"))
+if "--overfit" in sys.argv:
+    OVERFIT_CASE = "service_memory"
+    sys.argv.remove("--overfit")
+for arg in list(sys.argv):
+    if arg.startswith("--overfit-case="):
+        OVERFIT_CASE = arg.split("=", 1)[1].strip()
+        sys.argv.remove(arg)
+    elif arg.startswith("--overfit-repeats="):
+        OVERFIT_REPEATS = int(arg.split("=", 1)[1])
+        sys.argv.remove(arg)
 LOG_EVERY = int(os.getenv("MERGEPRAG_SERVICE_LOG_EVERY", "25"))
 EVAL_EVERY = int(os.getenv("MERGEPRAG_SERVICE_EVAL_EVERY", "250"))
 SAVE_EVERY = int(os.getenv("MERGEPRAG_SERVICE_SAVE_EVERY", "250"))
@@ -74,18 +88,29 @@ RESUME_FROM_CHECKPOINT = os.getenv("MERGEPRAG_SERVICE_RESUME", "1").strip().lowe
     "on",
 }
 
-WEIGHTS_PATH = os.getenv(
-    "MERGEPRAG_SERVICE_WEIGHTS_PATH",
-    str(BASE_DIR / "service_memory_weights.pt"),
-)
-CHECKPOINT_PATH = os.getenv(
-    "MERGEPRAG_SERVICE_CHECKPOINT_PATH",
-    str(BASE_DIR / "service_memory_checkpoint.pt"),
-)
-LOG_PATH = os.getenv(
-    "MERGEPRAG_SERVICE_LOG_PATH",
-    str(BASE_DIR / "service_memory_log.json"),
-)
+DEFAULT_WEIGHTS_PATH = BASE_DIR / ("service_memory_overfit_weights.pt" if OVERFIT_CASE else "service_memory_weights.pt")
+DEFAULT_CHECKPOINT_PATH = BASE_DIR / ("service_memory_overfit_checkpoint.pt" if OVERFIT_CASE else "service_memory_checkpoint.pt")
+DEFAULT_LOG_PATH = BASE_DIR / ("service_memory_overfit_log.json" if OVERFIT_CASE else "service_memory_log.json")
+WEIGHTS_PATH = os.getenv("MERGEPRAG_SERVICE_WEIGHTS_PATH", str(DEFAULT_WEIGHTS_PATH))
+CHECKPOINT_PATH = os.getenv("MERGEPRAG_SERVICE_CHECKPOINT_PATH", str(DEFAULT_CHECKPOINT_PATH))
+LOG_PATH = os.getenv("MERGEPRAG_SERVICE_LOG_PATH", str(DEFAULT_LOG_PATH))
+
+
+def build_case_sample(case_name: str) -> dict:
+    case = get_diagnostic_case(case_name)
+    return {
+        "source_id": f"overfit:{case.get('case_name', case_name)}",
+        "task": "final_qa",
+        "question": case["question"],
+        "answer": case["answer"],
+        "passage": case["passage"],
+        "hard_negatives": [
+            {
+                "passage": case["compare_passage"],
+                "answer": case["compare_answer"],
+            }
+        ],
+    }
 
 
 def answer_kl_loss(student_logits, student_labels, teacher_logits, teacher_labels, temperature: float = 1.0):
@@ -289,6 +314,7 @@ def config_matches(saved: dict, current: dict) -> bool:
         "pooling_mode",
         "max_memory_tokens",
         "objective",
+        "overfit_case",
     )
     return all(saved.get(key) == current.get(key) for key in keys)
 
@@ -325,8 +351,17 @@ def train():
     ).to(device).float()
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
 
-    train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=MAX_SAMPLES)
-    val_dataset = MergePRAGDataset(VALID_DATA_PATH, max_samples=MAX_VAL_SAMPLES)
+    if OVERFIT_CASE:
+        overfit_sample = build_case_sample(OVERFIT_CASE)
+        train_dataset = [overfit_sample for _ in range(max(OVERFIT_REPEATS, 1))]
+        val_dataset = [overfit_sample]
+        print(
+            f"[service_memory:overfit] case={OVERFIT_CASE} "
+            f"train_repeats={len(train_dataset)} question={overfit_sample['question']!r}"
+        )
+    else:
+        train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=MAX_SAMPLES)
+        val_dataset = MergePRAGDataset(VALID_DATA_PATH, max_samples=MAX_VAL_SAMPLES)
     total_steps = max(1, len(train_dataset) * EPOCHS)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=LR_MIN)
 
@@ -351,6 +386,8 @@ def train():
         "separation_weight": SEPARATION_WEIGHT,
         "separation_target": SEPARATION_TARGET,
         "diversity_weight": DIVERSITY_WEIGHT,
+        "overfit_case": OVERFIT_CASE,
+        "overfit_repeats": OVERFIT_REPEATS if OVERFIT_CASE else 0,
         "train_data_path": TRAIN_DATA_PATH,
         "valid_data_path": VALID_DATA_PATH,
     }

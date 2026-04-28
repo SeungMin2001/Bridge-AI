@@ -31,6 +31,10 @@ from .service_memory import (
 from .train2 import MergePRAGDataset, extract_first_hard_negative
 from .train_service_memory import CHECKPOINT_PATH, WEIGHTS_PATH
 
+BASE_DIR = Path(__file__).resolve().parent
+OVERFIT_CHECKPOINT_PATH = BASE_DIR / "service_memory_overfit_checkpoint.pt"
+OVERFIT_WEIGHTS_PATH = BASE_DIR / "service_memory_overfit_weights.pt"
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate service memory weights.")
@@ -38,10 +42,20 @@ def parse_args():
     parser.add_argument("--split", choices=["valid", "train"], default="valid")
     parser.add_argument("--max-samples", type=int, default=1)
     parser.add_argument("--weights-path", default="")
+    parser.add_argument(
+        "--overfit",
+        action="store_true",
+        help="Evaluate the overfit checkpoint/weights instead of the normal service-memory checkpoint.",
+    )
     parser.add_argument("--show-examples", type=int, default=1)
     parser.add_argument("--show-generations", type=int, default=1)
     parser.add_argument("--max-new-tokens", type=int, default=24)
-    parser.add_argument("--alpha", type=float, default=SERVICE_ALPHA)
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=None,
+        help="Injection strength. Defaults to the checkpoint config alpha, then code default.",
+    )
     parser.add_argument("--case", default=os.getenv("MERGEPRAG_DIAGNOSTIC_CASE", "service_memory"))
     parser.add_argument("--question", default=os.getenv("MERGEPRAG_TEST_QUESTION", ""))
     parser.add_argument("--passage", default=os.getenv("MERGEPRAG_TEST_PASSAGE", ""))
@@ -63,6 +77,10 @@ def fmt(value: float) -> str:
 
 def yn(value: bool) -> str:
     return "OK" if value else "FAIL"
+
+
+def newer_than(a: Path, b: Path) -> bool:
+    return a.exists() and b.exists() and a.stat().st_mtime > b.stat().st_mtime
 
 
 def normalize_text(text: str) -> str:
@@ -172,15 +190,26 @@ def main():
     weights = Path(WEIGHTS_PATH)
     if args.weights_path:
         weights_path = Path(args.weights_path)
+        load_source = "explicit"
+    elif args.overfit:
+        weights_path = OVERFIT_CHECKPOINT_PATH if OVERFIT_CHECKPOINT_PATH.exists() else OVERFIT_WEIGHTS_PATH
+        load_source = "overfit-checkpoint" if weights_path == OVERFIT_CHECKPOINT_PATH else "overfit-weights"
     elif checkpoint.exists():
         weights_path = checkpoint
+        load_source = "checkpoint"
     else:
         weights_path = weights
+        load_source = "weights"
     if not weights_path.exists():
         raise FileNotFoundError(f"No service memory weights found: {weights_path}")
 
     print(f"[test_service_memory] model={MODEL_NAME}")
-    print(f"[test_service_memory] weights={weights_path}")
+    print(f"[test_service_memory] load_source={load_source} path={weights_path}")
+    if not args.overfit and not args.weights_path and newer_than(OVERFIT_CHECKPOINT_PATH, checkpoint):
+        print(
+            "[test_service_memory:note] overfit checkpoint is newer than the normal checkpoint; "
+            "use --overfit if you intended to evaluate it."
+        )
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
     if tokenizer.pad_token is None:
@@ -199,6 +228,7 @@ def main():
     d_model = model.config.hidden_size
     state_dict, meta = load_state(weights_path, map_location=device)
     config = meta.get("config") or {}
+    alpha = float(args.alpha if args.alpha is not None else config.get("alpha", SERVICE_ALPHA))
     feature_dim = int(config.get("feature_dim", d_model * 2))
     num_kv = int(config.get("num_kv", 8))
     hidden_dim = int(config.get("hidden_dim", 1024))
@@ -217,10 +247,20 @@ def main():
     hypernet.eval()
     layer_idx = int(config.get("critical_layer", load_critical_layer()))
     target_layer = model.model.layers[layer_idx]
+    objective = str(config.get("objective", "unknown"))
     print(
         f"[test_service_memory] step={meta.get('step')} layer={layer_idx} "
-        f"num_kv={num_kv} mode={config.get('pooling_mode', 'slot')} alpha={args.alpha}"
+        f"num_kv={num_kv} mode={config.get('pooling_mode', 'slot')} alpha={alpha}"
     )
+    print(
+        "[test_service_memory] checkpoint_config | "
+        f"objective={objective} | "
+        f"teacher_kl={config.get('teacher_kl_weight', 'n/a')} | "
+        f"max_memory_tokens={config.get('max_memory_tokens', 'n/a')} | "
+        f"overfit_case={config.get('overfit_case', '') or 'none'}"
+    )
+    if "teacher_distill" not in objective:
+        print("[test_service_memory:warning] this checkpoint predates the teacher-distill objective.")
 
     if args.dataset:
         dataset_path = VALID_DATA_PATH if args.split == "valid" else TRAIN_DATA_PATH
@@ -245,15 +285,16 @@ def main():
             gold = sample["answer"]
             neg_passage = negative["passage"]
             neg = negative["answer"]
+            prompt_lang = "ko" if any("\uac00" <= ch <= "\ud7a3" for ch in q) else "en"
 
-            base_gold = score_answer(model, tokenizer, hypernet, target_layer, q, None, gold, device, args.alpha, use_contextual)
-            base_neg = score_answer(model, tokenizer, hypernet, target_layer, q, None, neg, device, args.alpha, use_contextual)
+            base_gold = score_answer(model, tokenizer, hypernet, target_layer, q, None, gold, device, alpha, use_contextual)
+            base_neg = score_answer(model, tokenizer, hypernet, target_layer, q, None, neg, device, alpha, use_contextual)
             direct_gold = score_direct_answer(model, tokenizer, q, passage, gold, device)
             direct_neg = score_direct_answer(model, tokenizer, q, passage, neg, device)
-            main_gold = score_answer(model, tokenizer, hypernet, target_layer, q, passage, gold, device, args.alpha, use_contextual)
-            main_neg = score_answer(model, tokenizer, hypernet, target_layer, q, passage, neg, device, args.alpha, use_contextual)
-            negmem_gold = score_answer(model, tokenizer, hypernet, target_layer, q, neg_passage, gold, device, args.alpha, use_contextual)
-            negmem_neg = score_answer(model, tokenizer, hypernet, target_layer, q, neg_passage, neg, device, args.alpha, use_contextual)
+            main_gold = score_answer(model, tokenizer, hypernet, target_layer, q, passage, gold, device, alpha, use_contextual)
+            main_neg = score_answer(model, tokenizer, hypernet, target_layer, q, passage, neg, device, alpha, use_contextual)
+            negmem_gold = score_answer(model, tokenizer, hypernet, target_layer, q, neg_passage, gold, device, alpha, use_contextual)
+            negmem_neg = score_answer(model, tokenizer, hypernet, target_layer, q, neg_passage, neg, device, alpha, use_contextual)
 
             main_mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
             neg_mem = encode_memory(model, hypernet, tokenizer, neg_passage, device, use_contextual=use_contextual)
@@ -279,6 +320,7 @@ def main():
             if shown < args.show_examples:
                 if args.simple:
                     print(f"\n[{shown + 1}] {q}")
+                    print(f"  prompt_lang={prompt_lang} | alpha={alpha}")
                     print(f"  expected main={gold} | expected negative={neg}")
                     print(f"  direct_prompt={yn(direct_pref)} | main_memory={yn(main_pref)} | negative_memory={yn(neg_pref)} | flip={yn(main_pref and neg_pref)}")
                     print(f"  loss main_memory: gold={fmt(main_gold)} vs neg={fmt(main_neg)}")
@@ -316,7 +358,7 @@ def main():
                         q,
                         passage,
                         device,
-                        args.alpha,
+                        alpha,
                         use_contextual,
                         max_new_tokens=args.max_new_tokens,
                     )
