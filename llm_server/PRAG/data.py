@@ -47,6 +47,22 @@ def write_jsonl(path: str | Path, rows: list[dict]) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def jsonl_snapshot(path: str | Path) -> dict:
+    count = 0
+    last_source_id = ""
+    try:
+        for row in iter_json_records(path):
+            count += 1
+            last_source_id = str(row.get("source_id") or row.get("id") or "").strip()
+    except FileNotFoundError:
+        pass
+    return {
+        "path": str(path),
+        "rows": count,
+        "last_source_id": last_source_id or "none",
+    }
+
+
 def get_passage(row: dict) -> str:
     for key in ("passage", "utterance", "text", "content"):
         value = row.get(key)

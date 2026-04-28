@@ -11,7 +11,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import AUGMENT_MODEL_NAME, SOURCE_DATA_PATH, AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
-from .data import extract_answer, get_passage, iter_json_records, write_jsonl
+from .data import extract_answer, get_passage, iter_json_records, jsonl_snapshot, write_jsonl
 from .prompts import augmentation_prompt
 
 
@@ -188,6 +188,16 @@ def main() -> None:
         source_id = str(source.get("source_id") or source.get("id") or f"raw_{idx}")
         if source_id in seen_ids:
             skipped_seen += 1
+            if skipped_seen % 50 == 0:
+                processed = idx + 1
+                total_target = args.max_samples or "all"
+                progress = f"{processed}/{total_target}"
+                if args.max_samples:
+                    progress += f" ({processed / args.max_samples * 100:.1f}%)"
+                print(
+                    f"[PRAG:augment] resume skip progress={progress} "
+                    f"skipped_seen={skipped_seen} train={train_count} valid={valid_count}"
+                )
             continue
         generated = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
         if generated is None:
@@ -200,7 +210,8 @@ def main() -> None:
             print(f"[PRAG:augment] skip {source_id}: missing required fields")
             continue
         is_valid = args.valid_every > 0 and idx % args.valid_every == args.valid_every - 1
-        append_jsonl(args.valid_output if is_valid else args.train_output, row)
+        saved_to = args.valid_output if is_valid else args.train_output
+        append_jsonl(saved_to, row)
         seen_ids.add(source_id)
         made += 1
         if is_valid:
@@ -221,6 +232,7 @@ def main() -> None:
         print(
             f"[PRAG:augment] ok {source_id}: atomic={len(row['atomic_qas'])} "
             f"final={len(row['final_qas'])} -> {'valid' if is_valid else 'train'} "
+            f"saved_to={saved_to} "
             f"(progress={progress}, new={made}, skipped_seen={skipped_seen}, "
             f"invalid={skipped_invalid}, train={train_count}, valid={valid_count}, "
             f"rate={rate:.2f}/min{eta})"
@@ -232,6 +244,8 @@ def main() -> None:
     )
     print(f"[PRAG:augment] train={train_count} -> {args.train_output}")
     print(f"[PRAG:augment] valid={valid_count} -> {args.valid_output}")
+    print(f"[PRAG:augment] train_snapshot={jsonl_snapshot(args.train_output)}")
+    print(f"[PRAG:augment] valid_snapshot={jsonl_snapshot(args.valid_output)}")
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ from .config import (
     WEIGHTS_PATH,
     load_critical_layer,
 )
-from .data import MemoryExample, load_augmented_examples
+from .data import MemoryExample, jsonl_snapshot, load_augmented_examples
 from .memory import HyperKVGenerator, compute_answer_loss, encode_memory, forward_with_memory, tokenize_qa
 
 
@@ -171,6 +171,18 @@ def main() -> None:
     device = next(model.parameters()).device
     layer_idx = load_critical_layer()
     target_layer = model.model.layers[layer_idx]
+    train_snapshot = jsonl_snapshot(args.train)
+    valid_snapshot = jsonl_snapshot(args.valid)
+    print(
+        "[PRAG:train:datafile] "
+        f"train_rows={train_snapshot['rows']} last_train_source={train_snapshot['last_source_id']} "
+        f"path={train_snapshot['path']}"
+    )
+    print(
+        "[PRAG:train:datafile] "
+        f"valid_rows={valid_snapshot['rows']} last_valid_source={valid_snapshot['last_source_id']} "
+        f"path={valid_snapshot['path']}"
+    )
     train_examples = load_augmented_examples(args.train, max_samples=args.max_samples or None)
     valid_examples = load_augmented_examples(args.valid, max_samples=args.max_val_samples or None)
     if args.overfit_samples > 0:
@@ -202,7 +214,10 @@ def main() -> None:
         "overfit_repeat": args.overfit_repeat,
     }
     print(f"[PRAG:train] config: {run_config}")
-    print(f"[PRAG:train] train={len(train_examples)} valid={len(valid_examples)}")
+    print(
+        f"[PRAG:train] expanded_examples train={len(train_examples)} valid={len(valid_examples)} "
+        f"from_train_rows={train_snapshot['rows']} from_valid_rows={valid_snapshot['rows']}"
+    )
 
     best_val = float("inf")
     step = 0
