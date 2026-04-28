@@ -24,7 +24,7 @@ def _get_int(name: str, default: int) -> int:
     return int(value)
 
 
-MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
+MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-3B-Instruct")
 # num_kv=1은 K가 softmax 선택 역할을 못 해서 V collapse에 취약했다.
 # 현재 기본은 V 분리와 slot 선택을 같이 보기 위해 4로 둔다.
 NUM_KV = _get_int("MERGEPRAG_NUM_KV", 4)
