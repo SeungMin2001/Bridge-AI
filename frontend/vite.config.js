@@ -19,7 +19,7 @@ export default defineConfig({
         },
       },
       '/workspace': {
-        target: 'http://127.0.0.1:8001', //testmain.py : 8001 , main.py : 8000 
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
       },
     },
