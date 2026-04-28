@@ -183,6 +183,195 @@ ASSIGNMENTS_KO = [
 SPEAKERS_EN = ["Professor Lee", "TA Mina", "Instructor Park"]
 SPEAKERS_KO = ["이 교수", "민아 조교", "박 강사"]
 
+EN_CITY_PARTS = [
+    "Daejeon", "Incheon", "Gwangju", "Suwon", "Jeonju", "Ulsan", "Sejong", "Pohang",
+    "Daegu", "Busan", "Mokpo", "Anyang", "Gimhae", "Cheongju", "Wonju", "Asan",
+]
+EN_TEAM_NOUNS = [
+    "Falcons", "Mariners", "Comets", "Rangers", "Wolves", "Otters", "Hawks", "Sparks",
+    "Pilots", "Lions", "Sharks", "Bears", "Foxes", "Tigers", "Eagles", "Waves",
+]
+KO_TEAM_PREFIXES = [
+    "가온", "나래", "다솜", "라온", "마루", "바른", "새봄", "아라",
+    "여울", "온빛", "푸른", "하람", "해든", "누리", "도담", "이든",
+]
+KO_TEAM_SUFFIXES = ["1팀", "2팀", "3분반", "4분반", "A조", "B조", "연구반", "실습반"]
+EN_CODE_MARKERS = [
+    "alpha", "beta", "gamma", "delta", "orion", "lyra", "nexus", "cobalt",
+    "ember", "raven", "solis", "terra", "nova", "atlas", "vesta", "lumen",
+]
+EN_CODE_WORDS = [
+    "blue", "green", "amber", "silver", "crimson", "violet", "orange", "teal",
+    "bravo", "cedar", "dawn", "echo", "flint", "glade", "harbor", "iris",
+    "juno", "kepler", "lotus", "mango", "north", "opal", "piper", "quartz",
+]
+KO_CODE_MARKERS = ["가람", "나봄", "다온", "라미", "마루", "바론", "사린", "아토", "여민", "오름", "주안", "하린"]
+KO_CODE_WORDS = ["파랑", "초록", "노랑", "은빛", "비렐", "잔도르", "가론", "리펜", "소핀", "카엘", "누벡", "하벨"]
+EN_TASKS = [
+    "dataset cleanup", "model checkpointing", "UI review", "API testing", "prompt audit",
+    "error logging", "report draft", "slide design", "rubric check", "demo rehearsal",
+]
+KO_TASKS = ["데이터 정리", "모델 점검", "화면 검토", "API 테스트", "프롬프트 점검", "오류 기록", "보고서 초안", "발표 리허설"]
+EN_NAMES = ["Alice", "Bob", "Charlie", "David", "Emily", "Frank", "Grace", "Henry", "Iris", "Joon", "Kara", "Leo"]
+KO_NAMES = ["민수", "지영", "현우", "수진", "태희", "준호", "서연", "도윤", "하은", "지훈", "유진", "민재"]
+
+
+def split_by_index(index: int, valid_every: int = 5) -> str:
+    return "valid" if index % valid_every == valid_every - 1 else "train"
+
+
+def en_team_name(index: int, offset: int = 0) -> str:
+    city = EN_CITY_PARTS[(index + offset) % len(EN_CITY_PARTS)]
+    noun = EN_TEAM_NOUNS[(index * 3 + offset) % len(EN_TEAM_NOUNS)]
+    return f"{city} {noun}"
+
+
+def ko_team_name(index: int, offset: int = 0) -> str:
+    prefix = KO_TEAM_PREFIXES[(index + offset) % len(KO_TEAM_PREFIXES)]
+    suffix = KO_TEAM_SUFFIXES[(index * 3 + offset) % len(KO_TEAM_SUFFIXES)]
+    return f"{prefix}{suffix}"
+
+
+def en_code_name(words: list[str], index: int, offset: int = 0) -> str:
+    return f"{words[(index + offset) % len(words)]}{index % 17}"
+
+
+def ko_code_name(words: list[str], index: int, offset: int = 0) -> str:
+    return f"{words[(index + offset) % len(words)]}{index % 17}"
+
+
+def add_augmented_rows(rows: list[dict]) -> None:
+    """Add broad, non-repeated hard pairs.
+
+    Earlier versions inflated data mostly by repeating the same rows with a
+    session prefix. That made train metrics look good while valid/new entities
+    failed. These rows keep the task shape stable but vary entities, labels,
+    speakers, and surface templates so the hypernetwork must copy facts from
+    the passage instead of memorizing a few examples.
+    """
+
+    for i in range(160):
+        winner = en_team_name(i)
+        loser = en_team_name(i, offset=5)
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = split_by_index(i)
+        if i % 3 == 0:
+            pa = f"{speaker}: Match record M-{i}. In the practice match, {winner} beat {loser}. Winner: {winner}. Loser: {loser}."
+            pb = f"{speaker}: Match record M-{i}. In the practice match, {loser} beat {winner}. Winner: {loser}. Loser: {winner}."
+        elif i % 3 == 1:
+            pa = f"{speaker}: Match record M-{i}. The class scoreboard lists {winner} as the winner over {loser}; {loser} lost."
+            pb = f"{speaker}: Match record M-{i}. The class scoreboard lists {loser} as the winner over {winner}; {winner} lost."
+        else:
+            pa = f"{speaker}: Match record M-{i}. Result update: {winner} won the match, and {loser} was defeated."
+            pb = f"{speaker}: Match record M-{i}. Result update: {loser} won the match, and {winner} was defeated."
+        add_pair(rows, source_id=f"aug_en_match_winner_{i}", question="Who won the match?", passage_a=pa, answer_a=winner, passage_b=pb, answer_b=loser, split=split)
+        add_pair(rows, source_id=f"aug_en_match_loser_{i}", question="Which team lost the match?", passage_a=pa, answer_a=loser, passage_b=pb, answer_b=winner, split=split)
+
+    for i in range(160):
+        winner = ko_team_name(i)
+        loser = ko_team_name(i, offset=5)
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = split_by_index(i)
+        if i % 3 == 0:
+            pa = f"{speaker}: 경기 기록 M-{i}. 연습 경기에서 {winner}이 {loser}을 이겼습니다. 승자는 {winner}, 패자는 {loser}입니다."
+            pb = f"{speaker}: 경기 기록 M-{i}. 연습 경기에서 {loser}이 {winner}을 이겼습니다. 승자는 {loser}, 패자는 {winner}입니다."
+        elif i % 3 == 1:
+            pa = f"{speaker}: 경기 기록 M-{i}. 수업 경기 기록에는 {winner} 승리, {loser} 패배로 적혀 있습니다."
+            pb = f"{speaker}: 경기 기록 M-{i}. 수업 경기 기록에는 {loser} 승리, {winner} 패배로 적혀 있습니다."
+        else:
+            pa = f"{speaker}: 경기 기록 M-{i}. 결과 정정입니다. 이긴 팀은 {winner}이고 진 팀은 {loser}입니다."
+            pb = f"{speaker}: 경기 기록 M-{i}. 결과 정정입니다. 이긴 팀은 {loser}이고 진 팀은 {winner}입니다."
+        add_pair(rows, source_id=f"aug_ko_match_winner_{i}", question="경기에서 누가 이겼어?", passage_a=pa, answer_a=winner, passage_b=pb, answer_b=loser, split=split)
+        add_pair(rows, source_id=f"aug_ko_match_loser_{i}", question="경기에서 진 팀은 어디야?", passage_a=pa, answer_a=loser, passage_b=pb, answer_b=winner, split=split)
+
+    for i in range(220):
+        marker_a = en_code_name(EN_CODE_MARKERS, i)
+        marker_b = en_code_name(EN_CODE_MARKERS, i, offset=7)
+        code_a = en_code_name(EN_CODE_WORDS, i, offset=3)
+        code_b = en_code_name(EN_CODE_WORDS, i, offset=11)
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = split_by_index(i)
+        pa = f"{speaker}: Private note R-{i} assigns {marker_a} to code {code_a}. It assigns {marker_b} to code {code_b}."
+        pb = f"{speaker}: Private note R-{i} assigns {marker_a} to code {code_b}. It assigns {marker_b} to code {code_a}."
+        add_pair(rows, source_id=f"aug_en_code_{i}", question=f"What is the code for {marker_a}?", passage_a=pa, answer_a=code_a, passage_b=pb, answer_b=code_b, split=split)
+        add_pair(rows, source_id=f"aug_en_code_alt_{i}", question=f"What is the code for {marker_b}?", passage_a=pa, answer_a=code_b, passage_b=pb, answer_b=code_a, split=split)
+
+    for i in range(220):
+        marker_a = ko_code_name(KO_CODE_MARKERS, i)
+        marker_b = ko_code_name(KO_CODE_MARKERS, i, offset=5)
+        code_a = ko_code_name(KO_CODE_WORDS, i, offset=2)
+        code_b = ko_code_name(KO_CODE_WORDS, i, offset=8)
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = split_by_index(i)
+        pa = f"{speaker}: 비공개 노트 R-{i}에는 {marker_a}의 암호가 {code_a}이고 {marker_b}의 암호가 {code_b}라고 적혀 있습니다."
+        pb = f"{speaker}: 비공개 노트 R-{i}에는 {marker_a}의 암호가 {code_b}이고 {marker_b}의 암호가 {code_a}라고 적혀 있습니다."
+        add_pair(rows, source_id=f"aug_ko_code_{i}", question=f"{marker_a}의 암호는 뭐야?", passage_a=pa, answer_a=code_a, passage_b=pb, answer_b=code_b, split=split)
+        add_pair(rows, source_id=f"aug_ko_code_alt_{i}", question=f"{marker_b}의 암호는 뭐야?", passage_a=pa, answer_a=code_b, passage_b=pb, answer_b=code_a, split=split)
+
+    for i in range(180):
+        item = f"task {i % 30}"
+        first = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "week 3", "week 5", "April 8"][(i + 1) % 8]
+        second = ["Friday", "Thursday", "Tuesday", "Monday", "April 12", "week 6", "week 8", "May 2"][(i + 4) % 8]
+        if first == second:
+            second = "Friday" if first != "Friday" else "Monday"
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = split_by_index(i)
+        pa = f"{speaker}: Schedule record D-{i}. The deadline for {item} is {first}. Do not use the old date."
+        pb = f"{speaker}: Schedule record D-{i}. The deadline for {item} is {second}. Do not use the old date."
+        add_pair(rows, source_id=f"aug_en_deadline_{i}", question=f"When is {item} due?", passage_a=pa, answer_a=first, passage_b=pb, answer_b=second, split=split)
+
+    for i in range(180):
+        item = f"{i % 30}번 과제"
+        first = ["월요일", "화요일", "수요일", "목요일", "금요일", "3주차", "5주차", "4월 8일"][(i + 1) % 8]
+        second = ["금요일", "목요일", "화요일", "월요일", "4월 12일", "6주차", "8주차", "5월 2일"][(i + 4) % 8]
+        if first == second:
+            second = "금요일" if first != "금요일" else "월요일"
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = split_by_index(i)
+        pa = f"{speaker}: 일정 기록 D-{i}. {item} 마감일은 {first}입니다. 이전 날짜를 사용하지 마세요."
+        pb = f"{speaker}: 일정 기록 D-{i}. {item} 마감일은 {second}입니다. 이전 날짜를 사용하지 마세요."
+        add_pair(rows, source_id=f"aug_ko_deadline_{i}", question=f"{item} 마감일은 언제야?", passage_a=pa, answer_a=first, passage_b=pb, answer_b=second, split=split)
+
+    for i in range(160):
+        task = EN_TASKS[i % len(EN_TASKS)]
+        person_a = EN_NAMES[(i + 2) % len(EN_NAMES)]
+        person_b = EN_NAMES[(i + 7) % len(EN_NAMES)]
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = split_by_index(i)
+        pa = f"{speaker}: Assignment record A-{i}. {person_a} is responsible for {task}. {person_b} is not responsible for it."
+        pb = f"{speaker}: Assignment record A-{i}. {person_b} is responsible for {task}. {person_a} is not responsible for it."
+        add_pair(rows, source_id=f"aug_en_assignment_{i}", question=f"Who is responsible for {task}?", passage_a=pa, answer_a=person_a, passage_b=pb, answer_b=person_b, split=split)
+
+    for i in range(160):
+        task = KO_TASKS[i % len(KO_TASKS)]
+        person_a = KO_NAMES[(i + 2) % len(KO_NAMES)]
+        person_b = KO_NAMES[(i + 7) % len(KO_NAMES)]
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = split_by_index(i)
+        pa = f"{speaker}: 담당 기록 A-{i}. {task} 담당자는 {person_a}입니다. {person_b}가 아닙니다."
+        pb = f"{speaker}: 담당 기록 A-{i}. {task} 담당자는 {person_b}입니다. {person_a}가 아닙니다."
+        add_pair(rows, source_id=f"aug_ko_assignment_{i}", question=f"{task} 담당자는 누구야?", passage_a=pa, answer_a=person_a, passage_b=pb, answer_b=person_b, split=split)
+
+    for i in range(160):
+        event = ["review session", "lab meeting", "office hour", "demo practice", "quiz briefing"][i % 5]
+        room_a = f"Room {chr(65 + (i % 8))}-{100 + i}"
+        room_b = f"Room {chr(72 + (i % 8))}-{200 + i}"
+        speaker = SPEAKERS_EN[i % len(SPEAKERS_EN)]
+        split = split_by_index(i)
+        pa = f"{speaker}: Room record R-{i}. The location for the {event} is {room_a}. Ignore the previous room."
+        pb = f"{speaker}: Room record R-{i}. The location for the {event} is {room_b}. Ignore the previous room."
+        add_pair(rows, source_id=f"aug_en_room_{i}", question=f"Where is the {event}?", passage_a=pa, answer_a=room_a, passage_b=pb, answer_b=room_b, split=split)
+
+    for i in range(160):
+        event = ["보강", "실습", "상담", "시연 연습", "퀴즈 안내"][i % 5]
+        room_a = f"{chr(65 + (i % 8))}동 {100 + i}호"
+        room_b = f"{chr(72 + (i % 8))}동 {200 + i}호"
+        speaker = SPEAKERS_KO[i % len(SPEAKERS_KO)]
+        split = split_by_index(i)
+        pa = f"{speaker}: 장소 기록 R-{i}. {event} 장소는 {room_a}입니다. 이전 장소는 무시하세요."
+        pb = f"{speaker}: 장소 기록 R-{i}. {event} 장소는 {room_b}입니다. 이전 장소는 무시하세요."
+        add_pair(rows, source_id=f"aug_ko_room_{i}", question=f"{event} 장소는 어디야?", passage_a=pa, answer_a=room_a, passage_b=pb, answer_b=room_b, split=split)
+
 
 def has_hangul(text: str) -> bool:
     return bool(HANGUL_RE.search(str(text or "")))
@@ -433,6 +622,7 @@ def build_rows() -> list[dict]:
         pb = f"{speaker}: {task} 담당은 {person_b}입니다. {person_a}는 다른 과제를 맡았습니다."
         add_pair(rows, source_id=f"ko_assignment_{i}", question=f"{task} 담당이 누구야?", passage_a=pa, answer_a=person_a, passage_b=pb, answer_b=person_b, split=split)
 
+    add_augmented_rows(rows)
     return rows
 
 
@@ -473,8 +663,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--train-name", default="ServiceHardPair_train.jsonl")
     parser.add_argument("--valid-name", default="ServiceHardPair_valid.jsonl")
-    parser.add_argument("--train-repeats", type=int, default=30)
-    parser.add_argument("--valid-repeats", type=int, default=5)
+    parser.add_argument("--train-repeats", type=int, default=1)
+    parser.add_argument("--valid-repeats", type=int, default=1)
     args = parser.parse_args()
 
     rows = build_rows()
