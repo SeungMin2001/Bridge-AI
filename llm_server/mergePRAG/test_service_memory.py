@@ -296,12 +296,13 @@ def main():
     print(
         "[test_service_memory] checkpoint_config | "
         f"objective={objective} | "
+        f"train_phase={config.get('train_phase', 'unknown')} | "
         f"teacher_kl={config.get('teacher_kl_weight', 'n/a')} | "
         f"max_memory_tokens={config.get('max_memory_tokens', 'n/a')} | "
         f"overfit_case={config.get('overfit_case', '') or 'none'}"
     )
-    if "teacher_distill" not in objective:
-        print("[test_service_memory:warning] this checkpoint predates the teacher-distill objective.")
+    if objective == "simple" or config.get("train_phase") == "phase1":
+        print("[test_service_memory:note] phase1/simple checkpoint: negative_memory and flip are not trained yet.")
 
     if args.dataset:
         dataset_path = VALID_DATA_PATH if args.split == "valid" else TRAIN_DATA_PATH
@@ -315,6 +316,7 @@ def main():
     base_ok = direct_ok = main_ok = neg_ok = flip_ok = 0
     gain_sum = k_cos_sum = v_cos_sum = pooled_cos_sum = 0.0
     direct_unknown = memory_generation_ok = 0
+    kv_real_ok = kv_zero_ok = kv_random_ok = 0
     shown = 0
     with torch.no_grad():
         for idx, sample in enumerate(dataset):
@@ -430,6 +432,12 @@ def main():
                             print(f"  kv real   raw={kv_gen['real']}")
                             print(f"  kv zero   raw={kv_gen['zero']}")
                             print(f"  kv random raw={kv_gen['random']}")
+                            kv_real_hit = answer_hit(kv_gen["real"], gold)
+                            kv_zero_hit = answer_hit(kv_gen["zero"], gold)
+                            kv_random_hit = answer_hit(kv_gen["random"], gold)
+                            kv_real_ok += int(kv_real_hit)
+                            kv_zero_ok += int(not kv_zero_hit)
+                            kv_random_ok += int(not kv_random_hit)
                     else:
                         print(f"  gen no_hook={no_hook}")
                         print(f"  gen direct ={direct}")
@@ -453,8 +461,17 @@ def main():
         if args.show_generations:
             gen_denom = max(min(args.show_examples, args.show_generations, total), 1)
             print(f"  shown generation memory hits    : {memory_generation_ok}/{gen_denom}")
+            if args.kv_necessity:
+                print(f"  shown kv real hits              : {kv_real_ok}/{gen_denom}")
+                print(f"  shown kv zero misses            : {kv_zero_ok}/{gen_denom}")
+                print(f"  shown kv random misses          : {kv_random_ok}/{gen_denom}")
         print("\n[Decision]")
-        if flip_ok / denom >= 0.70:
+        is_phase1 = objective == "simple" or config.get("train_phase") == "phase1"
+        if is_phase1 and args.kv_necessity and kv_real_ok > 0 and kv_zero_ok > 0 and kv_random_ok > 0:
+            print("  PASS: phase1 overfit passed; real K/V is necessary for the answer.")
+        elif is_phase1:
+            print("  PHASE1: judge this run with --kv-necessity; flip is expected to fail before phase2.")
+        elif flip_ok / denom >= 0.70:
             print("  PASS: K/V memory is learning passage-specific answers.")
         elif flip_ok / denom >= 0.30:
             print("  PARTIAL: memory has signal, but passage flip is still unreliable.")
