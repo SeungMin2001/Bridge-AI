@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y \
 # requirements.txt 복사 및 패키지 설치
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# 자주 바꿔야할때 사용 -> 다운로드 캐시를 저장하도록 옵션 변경
+#RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt
 
 # 나머지 애플리케이션 코드 복사
 COPY . .
