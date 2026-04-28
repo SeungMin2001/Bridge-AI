@@ -146,6 +146,10 @@ def append_jsonl(path: str, row: dict) -> None:
         f.flush()
 
 
+def count_input_records(path: str) -> int:
+    return sum(1 for _ in iter_json_records(path))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default=str(SOURCE_DATA_PATH))
@@ -176,6 +180,9 @@ def main() -> None:
         write_jsonl(args.valid_output, [])
         print("[PRAG:augment] resume disabled: output files were reset.")
 
+    input_total = args.max_samples or count_input_records(args.input)
+    print(f"[PRAG:augment] input={args.input} total_target={input_total}")
+
     model, tokenizer = load_local_model(args.model)
     made = skipped_seen = skipped_invalid = 0
     started_at = time.time()
@@ -190,10 +197,10 @@ def main() -> None:
             skipped_seen += 1
             if skipped_seen % 50 == 0:
                 processed = idx + 1
-                total_target = args.max_samples or "all"
+                total_target = input_total
                 progress = f"{processed}/{total_target}"
-                if args.max_samples:
-                    progress += f" ({processed / args.max_samples * 100:.1f}%)"
+                if total_target:
+                    progress += f" ({processed / total_target * 100:.1f}%)"
                 print(
                     f"[PRAG:augment] resume skip progress={progress} "
                     f"skipped_seen={skipped_seen} train={train_count} valid={valid_count}"
@@ -219,15 +226,15 @@ def main() -> None:
         else:
             train_count += 1
         processed = idx + 1
-        total_target = args.max_samples or "all"
+        total_target = input_total
         progress = f"{processed}/{total_target}"
-        if args.max_samples:
-            progress += f" ({processed / args.max_samples * 100:.1f}%)"
+        if total_target:
+            progress += f" ({processed / total_target * 100:.1f}%)"
         elapsed_min = max((time.time() - started_at) / 60, 1e-6)
         rate = processed / elapsed_min
         eta = ""
-        if args.max_samples and rate > 0:
-            remaining = max(args.max_samples - processed, 0)
+        if total_target and rate > 0:
+            remaining = max(total_target - processed, 0)
             eta = f", eta={remaining / rate:.1f}min"
         print(
             f"[PRAG:augment] ok {source_id}: atomic={len(row['atomic_qas'])} "
