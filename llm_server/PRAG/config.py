@@ -25,7 +25,7 @@ LOG_PATH = Path(os.getenv("PRAG_LOG_PATH", str(BASE_DIR / "prag_train_log.json")
 CRITICAL_LAYERS_PATH = Path(os.getenv("PRAG_CRITICAL_LAYERS_PATH", str(BASE_DIR / "critical_layers.json")))
 
 DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "19"))
-NUM_KV = int(os.getenv("PRAG_NUM_KV", "1"))
+NUM_KV = int(os.getenv("PRAG_NUM_KV", "16"))
 HIDDEN_DIM = int(os.getenv("PRAG_HIDDEN_DIM", "1024"))
 ALPHA = float(os.getenv("PRAG_ALPHA", "1.0"))
 MAX_MEMORY_TOKENS = int(os.getenv("PRAG_MAX_MEMORY_TOKENS", "256"))
