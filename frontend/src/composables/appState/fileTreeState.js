@@ -228,27 +228,9 @@ const normalizeNode = (node) => {
   return normalized
 }
 
-// 저장된 트리에 '강의1' 기본 노드가 없으면 생성하고, 자료/녹음 배열 형태를 보정합니다.
+// 저장된 트리의 파일 노드 자료/녹음 배열 형태를 보정합니다.
 export const ensureLectureOneFile = (nodes) => {
   const list = Array.isArray(nodes) ? nodes.map(normalizeNode) : []
-  const existingIndex = list.findIndex((node) => node?.id === 'lecture-1' || node?.name === '강의1')
-
-  if (existingIndex === -1) {
-    return [createLectureOneNode(), ...list]
-  }
-
-  const existingNode = list[existingIndex]
-  list[existingIndex] = {
-    ...existingNode,
-    id: existingNode.id || 'lecture-1',
-    fileKind: existingNode.fileKind || 'lecture',
-    date: existingNode.date || formatFileDate(),
-    content: existingNode.content || '',
-    attachments: Array.isArray(existingNode.attachments) ? existingNode.attachments : [],
-    recordings: Array.isArray(existingNode.recordings) ? existingNode.recordings : [],
-    weeks: normalizeWeeksForFile(existingNode)
-  }
-
   return list
 }
 
@@ -311,9 +293,26 @@ export function useFileTreeState() {
     activeFileName.value = node.name
   }
 
-  onMounted(() => {
+  const loadLocalFileTree = () => {
     const savedTree = localStorage.getItem(STORAGE_KEYS.fileTree)
     fileTree.value = savedTree ? ensureLectureOneFile(JSON.parse(savedTree)) : ensureLectureOneFile([])
+  }
+
+  const loadWorkspaceTree = async () => {
+    try {
+      const response = await fetch('/workspace/tree')
+      const result = await response.json()
+      if (!response.ok || !result.ok || !Array.isArray(result.tree)) {
+        throw new Error(result.error || '워크스페이스 목록을 불러오지 못했습니다.')
+      }
+      fileTree.value = ensureLectureOneFile(result.tree)
+    } catch {
+      loadLocalFileTree()
+    }
+  }
+
+  onMounted(() => {
+    loadWorkspaceTree()
 
     const savedFavs = localStorage.getItem(STORAGE_KEYS.favorites)
     if (savedFavs) {
