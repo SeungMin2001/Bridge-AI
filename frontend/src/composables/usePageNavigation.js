@@ -5,6 +5,7 @@ const VIEW_TO_HASH = {
   home: '#/',
   workspace: '#/workspace',
   workfolder: '#/workfolder',
+  schedule: '#/schedule',
   'ai-history': '#/ai-history'
 }
 
@@ -12,6 +13,7 @@ const HASH_TO_VIEW = {
   '#/': 'home',
   '#/workspace': 'workspace',
   '#/workfolder': 'workfolder',
+  '#/schedule': 'schedule',
   '#/ai-history': 'ai-history'
 }
 

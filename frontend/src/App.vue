@@ -4,6 +4,7 @@ import Workspace from './pages/Workspace/Workspace.vue'
 import Home from './pages/Home/Home.vue'
 import Workfolder from './pages/Workfolder/Workfolder.vue'
 import AiHistory from './pages/AiHistory/AiHistory.vue'
+import ScheduleManagement from './pages/Schedule/ScheduleManagement.vue'
 import { useAppState } from './composables/useAppState'
 import { usePageNavigation } from './composables/usePageNavigation'
 
@@ -62,6 +63,11 @@ const {
     :favorites="favorites"
     @update:fileTree="handleFileTreeUpdate"
     @update:favorites="handleFavoritesUpdate"
+    @navigate="navigateTo"
+  />
+
+  <ScheduleManagement
+    v-else-if="currentView === 'schedule'"
     @navigate="navigateTo"
   />
 

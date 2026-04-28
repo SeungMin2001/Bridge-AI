@@ -1,6 +1,7 @@
 <!-- 홈 화면의 왼쪽 사이드바 컴포넌트로, 앱 메뉴와 캘린더 기능을 포함합니다. -->
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useScheduleState } from '../../composables/useScheduleState'
 
 const props = defineProps({
   isCollapsed: Boolean,
@@ -14,6 +15,31 @@ const weekLabels = ['일', '월', '화', '수', '목', '금', '토']
 const meridiemOptions = ['오전', '오후']
 const hourOptions = Array.from({ length: 12 }, (_, index) => `${index + 1}`.padStart(2, '0'))
 const minuteOptions = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
+const scheduleTypeOptions = [
+  { value: 'lecture', label: '수업' },
+  { value: 'meeting', label: '회의' },
+  { value: 'assignment', label: '과제' },
+  { value: 'exam', label: '시험' },
+  { value: 'etc', label: '기타' }
+]
+
+const {
+  pendingSchedules,
+  hydrateSchedules,
+  addManualSchedule,
+  confirmSchedule,
+  ignoreSchedule,
+  getSchedulesForDate,
+  getScheduleDayFlags,
+  formatDateKey,
+  formatDateLabel,
+  getWeekKeyFromDateKey,
+  getTypeLabel,
+  getTypeIcon,
+  getStatusLabel,
+  getConfidenceLabel
+} = useScheduleState()
+
 const today = new Date()
 const currentMonthLabel = computed(() => `${today.getMonth() + 1}월`)
 const calendarCardRef = ref(null)
@@ -21,6 +47,7 @@ const isScheduleModalOpen = ref(false)
 const scheduleModalPos = ref({ x: 0, y: 0 })
 const selectedDateKey = ref(formatDateKey(today))
 const scheduleForm = ref({
+  type: 'meeting',
   title: '',
   startMeridiem: '오전',
   startHour: '09',
@@ -30,39 +57,10 @@ const scheduleForm = ref({
   endMinute: '00',
   note: '',
 })
-const scheduleItems = ref([])
 
-function formatDateKey(date) {
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function formatDateLabel(dateKey) {
-  const [year, month, day] = dateKey.split('-').map(Number)
-  return `${year}년 ${month}월 ${day}일`
-}
-
-function loadSchedules() {
-  const raw = localStorage.getItem('lecto_home_calendar_schedules')
-  if (!raw) return
-  try {
-    scheduleItems.value = JSON.parse(raw)
-  } catch {
-    scheduleItems.value = []
-  }
-}
-
-function saveSchedules(items) {
-  scheduleItems.value = items
-  localStorage.setItem('lecto_home_calendar_schedules', JSON.stringify(items))
-}
-
-function openScheduleModal(day) {
-  if (day.muted) return
-  selectedDateKey.value = day.dateKey
-  scheduleForm.value = {
+function createEmptyScheduleForm() {
+  return {
+    type: 'meeting',
     title: '',
     startMeridiem: '오전',
     startHour: '09',
@@ -72,6 +70,12 @@ function openScheduleModal(day) {
     endMinute: '00',
     note: '',
   }
+}
+
+function openScheduleModal(day) {
+  if (day.muted) return
+  selectedDateKey.value = day.dateKey
+  scheduleForm.value = createEmptyScheduleForm()
   isScheduleModalOpen.value = true
 
   nextTick(() => {
@@ -107,22 +111,32 @@ function submitSchedule() {
   )
   const timeRange = `${startTime} - ${endTime}`
 
-  const nextItems = [
-    ...scheduleItems.value,
-    {
-      id: `${selectedDateKey.value}-${Date.now()}`,
-      dateKey: selectedDateKey.value,
-      title: scheduleForm.value.title.trim(),
-      startTime,
-      endTime,
-      time: timeRange,
-      note: scheduleForm.value.note.trim(),
-      status: '예정',
-    },
-  ]
+  addManualSchedule({
+    dateKey: selectedDateKey.value,
+    weekKey: getWeekKeyFromDateKey(selectedDateKey.value),
+    type: scheduleForm.value.type,
+    title: scheduleForm.value.title.trim(),
+    startTime,
+    endTime,
+    time: timeRange,
+    note: scheduleForm.value.note.trim()
+  })
 
-  saveSchedules(nextItems)
   closeScheduleModal()
+}
+
+function handleConfirmSchedule(item) {
+  confirmSchedule(item.id)
+  selectedDateKey.value = item.dateKey
+}
+
+function handleIgnoreSchedule(item) {
+  ignoreSchedule(item.id)
+}
+
+function openScheduleManagement(item) {
+  if (item?.dateKey) selectedDateKey.value = item.dateKey
+  emit('navigate', 'schedule')
 }
 
 function handleWindowResize() {
@@ -149,19 +163,19 @@ const calendarDays = computed(() => {
   for (let i = leadingCount - 1; i >= 0; i -= 1) {
     const date = new Date(year, month - 1, prevLastDay.getDate() - i)
     const dateKey = formatDateKey(date)
-    days.push({ label: prevLastDay.getDate() - i, muted: true, isToday: false, dateKey, hasSchedule: scheduleItems.value.some((item) => item.dateKey === dateKey) })
+    days.push({ label: prevLastDay.getDate() - i, muted: true, isToday: false, dateKey, ...getScheduleDayFlags(dateKey) })
   }
 
   for (let date = 1; date <= lastDay.getDate(); date += 1) {
     const currentDate = new Date(year, month, date)
     const dateKey = formatDateKey(currentDate)
-    days.push({ label: date, muted: false, isToday: date === today.getDate(), dateKey, hasSchedule: scheduleItems.value.some((item) => item.dateKey === dateKey) })
+    days.push({ label: date, muted: false, isToday: date === today.getDate(), dateKey, ...getScheduleDayFlags(dateKey) })
   }
 
   for (let date = 1; date <= trailingCount; date += 1) {
     const nextDate = new Date(year, month + 1, date)
     const dateKey = formatDateKey(nextDate)
-    days.push({ label: date, muted: true, isToday: false, dateKey, hasSchedule: scheduleItems.value.some((item) => item.dateKey === dateKey) })
+    days.push({ label: date, muted: true, isToday: false, dateKey, ...getScheduleDayFlags(dateKey) })
   }
 
   return days
@@ -170,7 +184,7 @@ const calendarDays = computed(() => {
 const selectedDateLabel = computed(() => formatDateLabel(selectedDateKey.value))
 
 const selectedSchedules = computed(() => {
-  return scheduleItems.value.filter((item) => item.dateKey === selectedDateKey.value)
+  return getSchedulesForDate(selectedDateKey.value)
 })
 
 function getFavoriteIcon(item) {
@@ -227,7 +241,10 @@ watch(() => props.isCollapsed, (collapsed) => {
 })
 
 onMounted(() => {
-  loadSchedules()
+  hydrateSchedules()
+  if (pendingSchedules.value.length > 0) {
+    selectedDateKey.value = pendingSchedules.value[0].dateKey
+  }
   window.addEventListener('resize', handleWindowResize)
 })
 
@@ -277,7 +294,7 @@ onUnmounted(() => {
         <section ref="calendarCardRef" class="home-calendar-card collapsible-content">
           <div class="home-calendar-header">
             <span class="home-calendar-month">{{ currentMonthLabel }}</span>
-            <button class="home-calendar-icon-btn">
+            <button class="home-calendar-icon-btn" @click="emit('navigate', 'schedule')">
               <span class="material-symbols-outlined text-[18px]">menu</span>
             </button>
           </div>
@@ -291,7 +308,7 @@ onUnmounted(() => {
               v-for="(day, index) in calendarDays"
               :key="`${day.label}-${index}`"
               class="home-calendar-day"
-              :class="{ 'is-muted': day.muted, 'is-today': day.isToday, 'is-selected': day.dateKey === selectedDateKey, 'has-schedule': day.hasSchedule }"
+              :class="{ 'is-muted': day.muted, 'is-today': day.isToday, 'is-selected': day.dateKey === selectedDateKey, 'has-schedule': day.hasSchedule, 'has-pending': day.hasPendingSchedule, 'has-confirmed': day.hasConfirmedSchedule }"
               @click="openScheduleModal(day)"
             >
               {{ day.label }}
@@ -301,15 +318,54 @@ onUnmounted(() => {
 
           <div class="home-calendar-divider"></div>
 
+          <div v-if="pendingSchedules.length" class="home-calendar-ai-panel">
+            <div class="home-calendar-ai-heading">
+              <span class="material-symbols-outlined text-[15px]">auto_awesome</span>
+              <span>AI 감지 일정</span>
+              <span class="home-calendar-ai-count">{{ pendingSchedules.length }}</span>
+            </div>
+            <article
+              v-for="item in pendingSchedules.slice(0, 3)"
+              :key="`pending-${item.id}`"
+              class="home-calendar-ai-card"
+              @click="selectedDateKey = item.dateKey"
+            >
+              <div class="home-calendar-ai-card-top">
+                <span class="home-calendar-type-chip">
+                  <span class="material-symbols-outlined text-[13px]">{{ getTypeIcon(item.type) }}</span>
+                  {{ getTypeLabel(item.type) }}
+                </span>
+                <span class="home-calendar-confidence">{{ getConfidenceLabel(item.confidence) }}</span>
+              </div>
+              <div class="home-calendar-ai-title">{{ item.title }}</div>
+              <div class="home-calendar-ai-meta">{{ formatDateLabel(item.dateKey) }} · {{ item.time }}</div>
+              <div class="home-calendar-source-text">{{ item.sourceText }}</div>
+              <div class="home-calendar-schedule-actions">
+                <button class="home-calendar-action-btn confirm" @click.stop="handleConfirmSchedule(item)">확정</button>
+                <button class="home-calendar-action-btn ghost" @click.stop="handleIgnoreSchedule(item)">무시</button>
+              </div>
+            </article>
+          </div>
+
+          <div v-if="pendingSchedules.length" class="home-calendar-divider"></div>
+
           <div class="home-calendar-schedule-list">
             <div class="home-calendar-schedule-heading">{{ selectedDateLabel }}</div>
             <template v-if="selectedSchedules.length > 0">
-              <article v-for="item in selectedSchedules" :key="item.id" class="home-calendar-schedule-item">
+              <article
+                v-for="item in selectedSchedules"
+                :key="item.id"
+                class="home-calendar-schedule-item"
+                :class="{ 'is-pending': item.status === 'pending', 'is-ai': item.origin === 'ai' }"
+              >
                 <div class="home-calendar-schedule-rail"></div>
                 <div class="home-calendar-schedule-content">
                   <div class="home-calendar-schedule-top">
-                    <span class="home-calendar-schedule-day">{{ selectedDateLabel }}</span>
-                    <span class="home-calendar-schedule-status">{{ item.status }}</span>
+                    <span class="home-calendar-type-chip">
+                      <span class="material-symbols-outlined text-[13px]">{{ getTypeIcon(item.type) }}</span>
+                      {{ getTypeLabel(item.type) }}
+                    </span>
+                    <span class="home-calendar-schedule-status">{{ getStatusLabel(item.status) }}</span>
                   </div>
                   <div class="home-calendar-schedule-title">{{ item.title }}</div>
                   <div class="home-calendar-schedule-meta">
@@ -317,6 +373,20 @@ onUnmounted(() => {
                     <span>{{ item.time }}</span>
                   </div>
                   <div v-if="item.note" class="home-calendar-schedule-note">{{ item.note }}</div>
+                  <div v-if="item.sourceText" class="home-calendar-source-text">{{ item.sourceText }}</div>
+                  <div class="home-calendar-schedule-actions">
+                    <template v-if="item.status === 'pending'">
+                      <button class="home-calendar-action-btn confirm" @click="handleConfirmSchedule(item)">확정</button>
+                      <button class="home-calendar-action-btn ghost" @click="handleIgnoreSchedule(item)">무시</button>
+                    </template>
+                    <button
+                      v-else
+                      class="home-calendar-action-btn open"
+                      @click="openScheduleManagement(item)"
+                    >
+                      일정관리
+                    </button>
+                  </div>
                 </div>
               </article>
             </template>
@@ -371,6 +441,13 @@ onUnmounted(() => {
               <span class="material-symbols-outlined text-[18px]">close</span>
             </button>
           </div>
+
+          <label class="home-calendar-field">
+            <span>종류</span>
+            <select v-model="scheduleForm.type" class="home-calendar-type-select">
+              <option v-for="option in scheduleTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
 
           <label class="home-calendar-field">
             <span>제목</span>
