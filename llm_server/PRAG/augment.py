@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import time
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .config import AUGMENT_MODEL_NAME, RAW_PASSAGES_PATH, AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
+from .config import AUGMENT_MODEL_NAME, SOURCE_DATA_PATH, AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
 from .data import extract_answer, get_passage, iter_json_records, write_jsonl
 from .prompts import augmentation_prompt
 
@@ -117,19 +118,67 @@ def split_rows(rows: list[dict], valid_every: int) -> tuple[list[dict], list[dic
     return train, valid
 
 
+def load_existing_outputs(train_path: str, valid_path: str) -> tuple[set[str], int, int]:
+    seen: set[str] = set()
+    train_count = valid_count = 0
+    for path, is_train in ((train_path, True), (valid_path, False)):
+        try:
+            for row in iter_json_records(path):
+                source_id = str(row.get("source_id") or "").strip()
+                if source_id:
+                    seen.add(source_id)
+                if is_train:
+                    train_count += 1
+                else:
+                    valid_count += 1
+        except FileNotFoundError:
+            continue
+    return seen, train_count, valid_count
+
+
+def append_jsonl(path: str, row: dict) -> None:
+    from pathlib import Path
+
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        f.flush()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", default=str(RAW_PASSAGES_PATH))
+    parser.add_argument("--input", default=str(SOURCE_DATA_PATH))
     parser.add_argument("--train-output", default=str(AUGMENTED_TRAIN_PATH))
     parser.add_argument("--valid-output", default=str(AUGMENTED_VALID_PATH))
     parser.add_argument("--model", default=AUGMENT_MODEL_NAME)
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--valid-every", type=int, default=5)
     parser.add_argument("--max-new-tokens", type=int, default=768)
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume from existing output JSONL files by skipping already written source_id rows.",
+    )
     args = parser.parse_args()
 
+    if args.resume:
+        seen_ids, train_count, valid_count = load_existing_outputs(args.train_output, args.valid_output)
+        if seen_ids:
+            print(
+                f"[PRAG:augment] resume enabled: existing train={train_count} "
+                f"valid={valid_count} seen={len(seen_ids)}"
+            )
+    else:
+        seen_ids, train_count, valid_count = set(), 0, 0
+        write_jsonl(args.train_output, [])
+        write_jsonl(args.valid_output, [])
+        print("[PRAG:augment] resume disabled: output files were reset.")
+
     model, tokenizer = load_local_model(args.model)
-    rows = []
+    made = skipped_seen = skipped_invalid = 0
+    started_at = time.time()
     for idx, source in enumerate(iter_json_records(args.input)):
         if args.max_samples and idx >= args.max_samples:
             break
@@ -137,22 +186,52 @@ def main() -> None:
         if not passage:
             continue
         source_id = str(source.get("source_id") or source.get("id") or f"raw_{idx}")
+        if source_id in seen_ids:
+            skipped_seen += 1
+            continue
         generated = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
         if generated is None:
+            skipped_invalid += 1
             print(f"[PRAG:augment] skip {source_id}: invalid JSON")
             continue
         row = normalize_augmented(generated, source, passage, source_id)
         if row is None:
+            skipped_invalid += 1
             print(f"[PRAG:augment] skip {source_id}: missing required fields")
             continue
-        rows.append(row)
-        print(f"[PRAG:augment] ok {source_id}: atomic={len(row['atomic_qas'])} final={len(row['final_qas'])}")
+        is_valid = args.valid_every > 0 and idx % args.valid_every == args.valid_every - 1
+        append_jsonl(args.valid_output if is_valid else args.train_output, row)
+        seen_ids.add(source_id)
+        made += 1
+        if is_valid:
+            valid_count += 1
+        else:
+            train_count += 1
+        processed = idx + 1
+        total_target = args.max_samples or "all"
+        progress = f"{processed}/{total_target}"
+        if args.max_samples:
+            progress += f" ({processed / args.max_samples * 100:.1f}%)"
+        elapsed_min = max((time.time() - started_at) / 60, 1e-6)
+        rate = processed / elapsed_min
+        eta = ""
+        if args.max_samples and rate > 0:
+            remaining = max(args.max_samples - processed, 0)
+            eta = f", eta={remaining / rate:.1f}min"
+        print(
+            f"[PRAG:augment] ok {source_id}: atomic={len(row['atomic_qas'])} "
+            f"final={len(row['final_qas'])} -> {'valid' if is_valid else 'train'} "
+            f"(progress={progress}, new={made}, skipped_seen={skipped_seen}, "
+            f"invalid={skipped_invalid}, train={train_count}, valid={valid_count}, "
+            f"rate={rate:.2f}/min{eta})"
+        )
 
-    train, valid = split_rows(rows, args.valid_every)
-    write_jsonl(args.train_output, train)
-    write_jsonl(args.valid_output, valid)
-    print(f"[PRAG:augment] train={len(train)} -> {args.train_output}")
-    print(f"[PRAG:augment] valid={len(valid)} -> {args.valid_output}")
+    print(
+        f"[PRAG:augment] done new={made} skipped_seen={skipped_seen} "
+        f"skipped_invalid={skipped_invalid}"
+    )
+    print(f"[PRAG:augment] train={train_count} -> {args.train_output}")
+    print(f"[PRAG:augment] valid={valid_count} -> {args.valid_output}")
 
 
 if __name__ == "__main__":

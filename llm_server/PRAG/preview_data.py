@@ -6,6 +6,7 @@ import argparse
 import random
 import textwrap
 
+from .config import AUGMENTED_TRAIN_PATH
 from .data import get_passage, iter_json_records, normalize_qas
 
 
@@ -29,7 +30,7 @@ def print_qa_list(title: str, qas: list[dict], max_items: int, width: int) -> No
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("path")
+    parser.add_argument("path", nargs="?", default=str(AUGMENTED_TRAIN_PATH))
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--max-qas", type=int, default=4)
     parser.add_argument("--width", type=int, default=160)

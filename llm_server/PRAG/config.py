@@ -14,6 +14,7 @@ DATA_DIR = Path(os.getenv("PRAG_DATA_DIR", str(PROJECT_ROOT / "data")))
 MODEL_NAME = os.getenv("PRAG_MODEL_NAME", os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-3B-Instruct"))
 AUGMENT_MODEL_NAME = os.getenv("PRAG_AUGMENT_MODEL_NAME", MODEL_NAME)
 
+SOURCE_DATA_PATH = Path(os.getenv("PRAG_SOURCE_DATA_PATH", str(DATA_DIR / "ServiceHardPair_train.jsonl")))
 RAW_PASSAGES_PATH = Path(os.getenv("PRAG_RAW_PASSAGES_PATH", str(DATA_DIR / "PRAG_raw_passages.jsonl")))
 AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_augmented_train.jsonl")))
 AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_augmented_valid.jsonl")))
@@ -58,4 +59,3 @@ def load_critical_layer() -> int:
         return int(layers[0]) if layers else DEFAULT_CRITICAL_LAYER
     except Exception:
         return DEFAULT_CRITICAL_LAYER
-

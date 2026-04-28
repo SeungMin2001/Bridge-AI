@@ -5,12 +5,13 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 
+from .config import AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
 from .data import get_passage, iter_json_records, normalize_qas
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("paths", nargs="+")
+    parser.add_argument("paths", nargs="*", default=[str(AUGMENTED_TRAIN_PATH), str(AUGMENTED_VALID_PATH)])
     parser.add_argument("--show", type=int, default=3)
     args = parser.parse_args()
 

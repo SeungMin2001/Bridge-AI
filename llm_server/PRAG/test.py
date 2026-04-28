@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .config import ALPHA, MODEL_NAME, WEIGHTS_PATH, load_critical_layer
+from .config import ALPHA, AUGMENTED_VALID_PATH, MODEL_NAME, WEIGHTS_PATH, load_critical_layer
 from .data import load_augmented_examples
 from .memory import (
     HyperKVGenerator,
@@ -60,7 +60,7 @@ def hit(text: str, answer: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", required=True)
+    parser.add_argument("--data", default=str(AUGMENTED_VALID_PATH))
     parser.add_argument("--weights", default=str(WEIGHTS_PATH))
     parser.add_argument("--max-samples", type=int, default=20)
     parser.add_argument("--show", type=int, default=3)
@@ -123,4 +123,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
