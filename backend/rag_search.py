@@ -5,6 +5,7 @@ RAG 검색 모듈
 - Citation (출처 표시)
 - 실시간 전사 임베딩 추가
 """
+import logging
 import psycopg2
 from kiwipiepy import Kiwi
 from llama_index.core import Settings, VectorStoreIndex, Document
@@ -32,35 +33,49 @@ _embed_model = None
 _vector_store = None
 _index = None
 _initialized = False
+_init_error = None
+
+logger = logging.getLogger(__name__)
 
 
 def init():
     """서버 시작 시 1회 호출. 임베딩 모델 + vector store 로드."""
-    global _embed_model, _vector_store, _index, _initialized
+    global _embed_model, _vector_store, _index, _initialized, _init_error
     if _initialized:
         return
 
-    print("[RAG] 임베딩 모델 로딩 중...")
-    _embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-m3")
-    Settings.embed_model = _embed_model
+    try:
+        print("[RAG] 임베딩 모델 로딩 중...")
+        _embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-m3")
+        Settings.embed_model = _embed_model
 
-    _vector_store = PGVectorStore.from_params(
-        database="shin",
-        host="localhost",
-        password="1234",
-        port=5432,
-        user="postgres",
-        table_name="shin",
-        embed_dim=1024,
-    )
-    _index = VectorStoreIndex.from_vector_store(vector_store=_vector_store)
-    _initialized = True
-    print("[RAG] 초기화 완료")
+        _vector_store = PGVectorStore.from_params(
+            database="shin",
+            host="localhost",
+            password="1234",
+            port=5432,
+            user="postgres",
+            table_name="shin",
+            embed_dim=1024,
+        )
+        _index = VectorStoreIndex.from_vector_store(vector_store=_vector_store)
+        _initialized = True
+        print("[RAG] 초기화 완료")
+    except Exception as exc:
+        _init_error = exc
+        _embed_model = None
+        _vector_store = None
+        _index = None
+        _initialized = True
+        logger.warning("[RAG] 초기화 실패; 벡터 검색 비활성화: %s", exc)
 
 
 def add_document(text: str, metadata: dict):
     """실시간 전사 chunk를 임베딩하여 vector store에 추가"""
     init()
+    if _index is None:
+        logger.warning("[RAG] 벡터 스토어 미초기화로 문서 추가 스킵")
+        return
     doc = Document(text=text, metadata=metadata)
     _index.insert(doc)
     print(f"[RAG] 문서 추가됨: {text[:30]}...")
@@ -125,6 +140,10 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
 # ── 벡터 검색 ──
 def _vector_search(query: str, top_k: int = 5) -> list[dict]:
     init()
+    if _index is None:
+        if _init_error is not None:
+            logger.warning("[RAG] 벡터 검색 비활성화: %s", _init_error)
+        return []
     retriever = _index.as_retriever(similarity_top_k=top_k)
     nodes = retriever.retrieve(query)
 
