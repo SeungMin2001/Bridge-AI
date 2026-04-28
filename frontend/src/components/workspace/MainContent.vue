@@ -59,7 +59,7 @@ const tabs = computed(() => [
   { key: 'quiz', label: '퀴즈' }
 ])
 
-const noteTitle = computed(() => props.activeFileName || '강의1')
+const noteTitle = computed(() => props.activeFileName || '파일을 선택하세요')
 
 const allowedMaterialTypes = [
   'application/pdf',
@@ -292,7 +292,7 @@ const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
           <div :class="[currentPreviewMaterial ? 'w-full h-full flex flex-col' : 'max-w-4xl mx-auto w-full h-full']">
             <h1 v-if="!currentPreviewMaterial" class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">{{ noteTitle }}</h1>
 
-            <div v-if="activeFileId === 'lecture-1' && currentPreviewMaterial" class="preview-panel-wrap">
+            <div v-if="currentPreviewMaterial" class="preview-panel-wrap">
               <LecturePreviewPanel
                 :material="currentPreviewMaterial"
               />

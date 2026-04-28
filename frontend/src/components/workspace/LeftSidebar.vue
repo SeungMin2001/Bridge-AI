@@ -109,7 +109,6 @@ const handleOpenMaterial = ({ fileId, node, materialId, recording }) => {
     }
   }
 
-  activeTab.value = 'voice'
   emit('openStoredMaterial', materialId)
 }
 
