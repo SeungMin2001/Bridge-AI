@@ -94,7 +94,7 @@ const normalizeScheduleItem = (item) => {
     note: item.note || '',
     sourceText: item.sourceText || '',
     sourceSessionTitle: item.sourceSessionTitle || '',
-    workspaceFileId: item.workspaceFileId || (item.type === 'lecture' ? 'lecture-1' : ''),
+    workspaceFileId: item.workspaceFileId || '',
     confidence: typeof item.confidence === 'number' ? item.confidence : null,
     status: normalizeStatus(item.status, origin)
   }
@@ -120,7 +120,7 @@ const createSampleAiSchedules = () => {
       note: '전사 중 보강 수업 일정으로 감지됨',
       sourceText: '내일 오전 10시에 운영체제 보강 수업을 진행하겠습니다.',
       sourceSessionTitle: '운영체제론 4주차 실시간 전사',
-      workspaceFileId: 'lecture-1',
+      workspaceFileId: '',
       confidence: 0.91
     },
     {
@@ -136,7 +136,7 @@ const createSampleAiSchedules = () => {
       note: '회의 발화에서 자동 추출된 일정 후보',
       sourceText: '이번 주 수요일 오후 3시에 팀 프로젝트 회의 잡을게요.',
       sourceSessionTitle: '캡스톤 회의 녹음',
-      workspaceFileId: 'lecture-1',
+      workspaceFileId: '',
       confidence: 0.88
     },
     {
@@ -152,7 +152,7 @@ const createSampleAiSchedules = () => {
       note: '마감 일정으로 감지됨',
       sourceText: '발표자료 초안은 이번 주 목요일까지 올려주세요.',
       sourceSessionTitle: '프로젝트 회의 녹음',
-      workspaceFileId: 'lecture-1',
+      workspaceFileId: '',
       confidence: 0.84
     }
   ].map(normalizeScheduleItem)
