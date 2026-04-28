@@ -3,7 +3,7 @@ from datetime import datetime
 
 
 def format_display_date(value) -> str:
-    # DB timestamp를 기존 프론트 fileTree가 쓰는 날짜 문자열 형태로 변환합니다.
+    # DB timestamp를 기존 프론트 fileTree 날짜 문자열로 변환
     if not value:
         return ""
 
@@ -20,7 +20,7 @@ def format_display_date(value) -> str:
 
 
 def json_value(value, fallback):
-    # JSONB 컬럼 값을 프론트에서 바로 쓸 수 있는 list/dict로 정리합니다.
+    # JSONB 컬럼 값을 프론트에서 바로 쓸 수 있는 list/dict로 정리
     if value in (None, ""):
         return fallback
     if isinstance(value, (list, dict)):
@@ -34,7 +34,7 @@ def json_value(value, fallback):
 
 
 def course_node(row) -> dict:
-    # COURSES row를 프론트 폴더 노드 구조로 변환합니다.
+    # COURSES row를 프론트 폴더 노드 구조로 변환
     return {
         "id": str(row["course_id"]),
         "type": "folder",
@@ -48,7 +48,8 @@ def course_node(row) -> dict:
 
 
 def session_node(row) -> dict:
-    # SESSIONS row를 프론트 파일 노드 구조로 변환합니다.
+    # SESSIONS row를 프론트 파일 노드 구조로 변환
+    resource_tree = json_value(row["resource_tree"], [])
     return {
         "id": str(row["session_id"]),
         "type": "file",
@@ -61,4 +62,5 @@ def session_node(row) -> dict:
         "content": "",
         "attachments": json_value(row["session_pdf"], []),
         "summaryNotes": json_value(row["summary_notes"], []),
+        "weeks": resource_tree,
     }
