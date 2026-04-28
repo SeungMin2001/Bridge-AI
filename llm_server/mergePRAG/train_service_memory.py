@@ -31,6 +31,7 @@ from .service_memory import (
     SERVICE_MAX_MEMORY_TOKENS,
     SERVICE_NUM_KV,
     SERVICE_POOLING_MODE,
+    SERVICE_QUESTION_CONDITIONED,
     SERVICE_RMS_CLAMP,
     SERVICE_SKIP_SCALE,
     SERVICE_USE_CONTEXTUAL,
@@ -189,8 +190,9 @@ def zero_like(loss: torch.Tensor) -> torch.Tensor:
 
 
 def simple_objective(model, tokenizer, hypernet, target_layer, sample, device):
-    main_mem = encode_memory(model, hypernet, tokenizer, sample["passage"], device)
-    gold_tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
+    question = sample["question"]
+    main_mem = encode_memory(model, hypernet, tokenizer, sample["passage"], device, question=question)
+    gold_tok = tokenize_qa(tokenizer, question, sample["answer"], device)
     main_gold_logits = forward_with_memory(
         model,
         target_layer,
@@ -226,8 +228,8 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
     gold = sample["answer"]
     neg_answer = negative["answer"]
 
-    main_mem = encode_memory(model, hypernet, tokenizer, sample["passage"], device)
-    neg_mem = encode_memory(model, hypernet, tokenizer, negative["passage"], device)
+    main_mem = encode_memory(model, hypernet, tokenizer, sample["passage"], device, question=question)
+    neg_mem = encode_memory(model, hypernet, tokenizer, negative["passage"], device, question=question)
     gold_tok = tokenize_qa(tokenizer, question, gold, device)
     neg_tok = tokenize_qa(tokenizer, question, neg_answer, device)
 
@@ -391,6 +393,7 @@ def config_matches(saved: dict, current: dict) -> bool:
         "rms_clamp",
         "skip_scale",
         "pooling_mode",
+        "question_conditioned",
         "max_memory_tokens",
         "objective",
         "train_phase",
@@ -490,6 +493,7 @@ def train():
         "rms_clamp": SERVICE_RMS_CLAMP,
         "skip_scale": SERVICE_SKIP_SCALE,
         "pooling_mode": SERVICE_POOLING_MODE,
+        "question_conditioned": SERVICE_QUESTION_CONDITIONED,
         "max_memory_tokens": SERVICE_MAX_MEMORY_TOKENS,
         "objective": OBJECTIVE_MODE,
         "train_phase": TRAIN_PHASE,

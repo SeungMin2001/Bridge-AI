@@ -21,6 +21,12 @@ SERVICE_RMS_CLAMP = float(os.getenv("MERGEPRAG_SERVICE_RMS_CLAMP", "0.5"))
 SERVICE_SKIP_SCALE = float(os.getenv("MERGEPRAG_SERVICE_SKIP_SCALE", "0.0"))
 SERVICE_POOLING_MODE = os.getenv("MERGEPRAG_SERVICE_POOLING_MODE", "slot").strip().lower()
 SERVICE_MAX_MEMORY_TOKENS = int(os.getenv("MERGEPRAG_SERVICE_MAX_MEMORY_TOKENS", "128"))
+SERVICE_QUESTION_CONDITIONED = os.getenv("MERGEPRAG_SERVICE_QUESTION_CONDITIONED", "1").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 DEBUG_HOOK = os.getenv("MERGEPRAG_DEBUG_HOOK", "0").strip().lower() in {"1", "true", "yes", "on"}
 SERVICE_SYSTEM_PROMPT_EN = os.getenv(
     "MERGEPRAG_SERVICE_SYSTEM_PROMPT",
@@ -136,6 +142,14 @@ class ServiceMemoryHyperNetwork(nn.Module):
         }
 
 
+def build_memory_text(passage: str, question: str | None = None) -> str:
+    if question and SERVICE_QUESTION_CONDITIONED:
+        if contains_hangul(f"{question}\n{passage}"):
+            return f"질문: {question}\n강의 내용: {passage}"
+        return f"Question: {question}\nLecture content: {passage}"
+    return passage
+
+
 def tokenize_passage(tokenizer, passage: str, device):
     encoded = tokenizer(
         passage,
@@ -151,8 +165,8 @@ def tokenize_passage(tokenizer, passage: str, device):
 
 
 @torch.no_grad()
-def passage_features(model, tokenizer, passage: str, device, use_contextual: bool = SERVICE_USE_CONTEXTUAL):
-    encoded = tokenize_passage(tokenizer, passage, device)
+def passage_features(model, tokenizer, passage: str, device, use_contextual: bool = SERVICE_USE_CONTEXTUAL, question: str | None = None):
+    encoded = tokenize_passage(tokenizer, build_memory_text(passage, question), device)
     raw = model.model.embed_tokens(encoded["input_ids"]).to(dtype=torch.float32)
     if not use_contextual:
         features = raw
@@ -168,13 +182,22 @@ def passage_features(model, tokenizer, passage: str, device, use_contextual: boo
     return features, encoded["attention_mask"], encoded["input_ids"]
 
 
-def encode_memory(model, hypernet, tokenizer, passage: str, device, use_contextual: bool = SERVICE_USE_CONTEXTUAL):
+def encode_memory(
+    model,
+    hypernet,
+    tokenizer,
+    passage: str,
+    device,
+    use_contextual: bool = SERVICE_USE_CONTEXTUAL,
+    question: str | None = None,
+):
     features, attention_mask, input_ids = passage_features(
         model,
         tokenizer,
         passage,
         device,
         use_contextual=use_contextual,
+        question=question,
     )
     memory = hypernet(features, attention_mask)
     memory["input_ids"] = input_ids

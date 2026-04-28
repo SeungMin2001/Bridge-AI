@@ -26,6 +26,7 @@ from .service_memory import (
     forward_with_memory,
     make_memory_hook,
     model_num_heads,
+    SERVICE_QUESTION_CONDITIONED,
     tokenize_direct_qa,
     tokenize_qa,
 )
@@ -145,7 +146,7 @@ def score_answer(model, tokenizer, hypernet, target_layer, question, passage, an
     if passage is None:
         logits = model(**tok)["logits"]
     else:
-        mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
+        mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual, question=question)
         logits = forward_with_memory(model, target_layer, mem["K"], mem["V"], tok, alpha=alpha)
     loss = compute_answer_loss(logits, tok["labels"])
     return float("nan") if loss is None else loss.item()
@@ -174,7 +175,7 @@ def generate_from_prompt(model, tokenizer, prompt, device, max_new_tokens=24):
 
 @torch.no_grad()
 def generate_with_memory(model, tokenizer, hypernet, target_layer, question, passage, device, alpha, use_contextual, max_new_tokens=24):
-    mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
+    mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual, question=question)
     return generate_with_given_memory(
         model,
         tokenizer,
@@ -210,7 +211,7 @@ def generate_with_given_memory(model, tokenizer, target_layer, question, K, V, d
 
 @torch.no_grad()
 def kv_necessity_generations(model, tokenizer, hypernet, target_layer, question, passage, device, alpha, use_contextual, max_new_tokens=24):
-    mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
+    mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual, question=question)
     K_real, V_real = mem["K"], mem["V"]
     K_zero = torch.zeros_like(K_real)
     V_zero = torch.zeros_like(V_real)
@@ -298,6 +299,7 @@ def main():
         f"objective={objective} | "
         f"train_phase={config.get('train_phase', 'unknown')} | "
         f"teacher_kl={config.get('teacher_kl_weight', 'n/a')} | "
+        f"question_conditioned={config.get('question_conditioned', SERVICE_QUESTION_CONDITIONED)} | "
         f"max_memory_tokens={config.get('max_memory_tokens', 'n/a')} | "
         f"overfit_case={config.get('overfit_case', '') or 'none'}"
     )
@@ -339,8 +341,8 @@ def main():
             negmem_gold = score_answer(model, tokenizer, hypernet, target_layer, q, neg_passage, gold, device, alpha, use_contextual)
             negmem_neg = score_answer(model, tokenizer, hypernet, target_layer, q, neg_passage, neg, device, alpha, use_contextual)
 
-            main_mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
-            neg_mem = encode_memory(model, hypernet, tokenizer, neg_passage, device, use_contextual=use_contextual)
+            main_mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual, question=q)
+            neg_mem = encode_memory(model, hypernet, tokenizer, neg_passage, device, use_contextual=use_contextual, question=q)
             pooled_cos = cosine_flat(main_mem["pooled"], neg_mem["pooled"])
             k_cos = cosine_flat(main_mem["K"], neg_mem["K"])
             v_cos = cosine_flat(main_mem["V"], neg_mem["V"])
