@@ -6,6 +6,8 @@ from faster_whisper import WhisperModel
 from starlette.websockets import WebSocketDisconnect
 import torchaudio
 from data.save_transcript import save_transcript
+# 워크스페이스 DB API 라우터를 main 서버에 연결할 때 사용 <-  신창영
+# from db_api.workspace.router import router as workspace_router
 from db import create_session
 from correction import load_correction_model, correct_text
 from rag_search import search as rag_search, init as rag_init, add_document as rag_add_document
@@ -47,6 +49,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 워크스페이스 DB API 엔드포인트를 main 앱에 등록 <- 신창영
+# app.include_router(workspace_router)
 
 #python -c "from huggingface_hub import login; login(token='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')"
 
