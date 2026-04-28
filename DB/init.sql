@@ -150,7 +150,8 @@ CREATE TABLE SESSIONS
     icon         VARCHAR(50) NULL,   -- article, groups_2
     color        VARCHAR(50) NULL,   -- #3b82f6
     session_pdf  JSONB NULL,          -- 강의자료 목록
-    summary_notes JSONB NULL
+    summary_notes JSONB NULL,
+    resource_tree JSONB DEFAULT '[]'::jsonb -- 주차/강의자료/녹음본 내부 폴더 구조
 );
 
 -- ==========================================
