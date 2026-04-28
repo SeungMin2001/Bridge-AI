@@ -9,14 +9,22 @@ import LectureMaterialList from './MainContent/LectureMaterialList.vue'
 import LecturePreviewPanel from './MainContent/LecturePreviewPanel.vue'
 import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
 
-const { selectedWordData, clearSelectedWord } = useChat()
+const {
+  selectedWordData,
+  isWordCardVisible,
+  hideSelectedWordCard,
+  showSelectedWordCard,
+  clearSelectedWord
+} = useChat()
 
 const props = defineProps({
   isRecording: Boolean,
   isRecordingPaused: Boolean,
+  recordingMode: { type: String, default: 'lecture' },
   recordingTimeText: String,
   activeFileName: String,
   activeFileId: String,
+  activeFileType: { type: String, default: 'lecture' },
   transcriptions: { type: Array, default: () => [] },
   materialAttachments: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
@@ -130,15 +138,29 @@ const handleOpenStoredMaterial = (fileId) => {
 const handleDeleteStoredMaterial = (fileId) => {
   emit('deleteStoredMaterial', fileId)
 }
+
+const handleWordInsightButtonClick = () => {
+  if (selectedWordData.value) {
+    if (isWordCardVisible.value) {
+      hideSelectedWordCard()
+    } else {
+      showSelectedWordCard()
+    }
+  }
+}
+
+const handleStartRecording = () => {
+  emit('startRecording', props.activeFileType === 'meeting' ? 'meeting' : 'lecture')
+}
 </script>
 
 <template>
   <main class="flex-1 flex flex-col gap-[12px] h-full min-w-0" style="flex: 1 1 0%; min-width: 300px;">
     <transition name="word-card">
       <WorkspaceWordCard
-        v-if="selectedWordData"
+        v-if="selectedWordData && isWordCardVisible"
         :word-data="selectedWordData"
-        @close="clearSelectedWord"
+        @close="hideSelectedWordCard"
         @ask-ai="handleAskAi"
         @add-to-note="handleAddToNote"
       />
@@ -148,15 +170,19 @@ const handleDeleteStoredMaterial = (fileId) => {
       <WorkspaceHeader
         :is-recording="isRecording"
         :is-recording-paused="isRecordingPaused"
+        :recording-mode="recordingMode"
         :recording-time-text="recordingTimeText"
         :show-close-preview="!!currentPreviewMaterial"
-        @start-recording="emit('startRecording')"
+        :has-word-insight="!!selectedWordData"
+        :word-insight-visible="!!selectedWordData && isWordCardVisible"
+        @start-recording="handleStartRecording"
         @pause-recording="emit('pauseRecording')"
         @resume-recording="emit('resumeRecording')"
         @stop-recording="emit('stopRecording')"
         @main-sidebar-toggle="emit('mainSidebarToggle')"
         @right-sidebar-toggle="emit('rightSidebarToggle')"
         @material-selected="handleMaterialSelection"
+        @word-insight-click="handleWordInsightButtonClick"
         @close-preview-material="emit('closePreviewMaterial')"
       />
 
@@ -166,7 +192,7 @@ const handleDeleteStoredMaterial = (fileId) => {
           :key="'tab-note'"
           :class="[
             'tab-content flex-1 flex flex-col relative overflow-hidden note-canvas',
-            currentPreviewMaterial ? 'px-8 pt-6 pb-0' : 'p-10 pt-4',
+            currentPreviewMaterial ? 'px-4 pt-4 pb-0' : 'p-10 pt-4',
             tabAnim
           ]"
           @dragover.prevent="isNoteDragOver = true"
@@ -200,22 +226,22 @@ const handleDeleteStoredMaterial = (fileId) => {
 
         <section v-else-if="activeTab === 'summary-note'" :key="'tab-summary-note'" :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
           <div class="max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
-            <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">정리 노트</h1>
+            <h1 class="text-[32px] font-heavy-heading text-[#8e8e93] mb-5">정리 노트</h1>
             <div class="flex flex-col gap-4">
               <div v-if="summaryNotes.length === 0" class="text-[16px] text-[#aeaeb2] leading-relaxed italic">아직 추가된 내용이 없습니다. 전사 내용에서 '노트에 추가'를 눌러보세요.</div>
               <div v-else v-for="note in summaryNotes" :key="note.id" class="workspace-subpanel p-5 rounded-[24px] flex flex-col gap-2 transcription-item-enter">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
-                    <span class="material-symbols-outlined text-[18px] text-blue-500">auto_stories</span>
+                    <span class="material-symbols-outlined text-[18px] text-[#2563eb]">auto_stories</span>
                     <span class="text-[13px] font-bold text-[#1d1d1f]">추가된 내용</span>
                   </div>
-                  <span class="text-[11px] font-medium text-[#aeaeb2]">{{ note.time }}</span>
+                  <span class="text-[11px] font-bold text-[#6b7280]">{{ note.time }}</span>
                 </div>
-                <p class="text-[15px] leading-[1.6] text-[#3a3a3c] font-medium">{{ note.text }}</p>
-                <div class="flex items-center gap-1.5 mt-1 border-t border-black/5 pt-3">
-                  <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
-                  <span class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">Source:</span>
-                  <span class="text-[11px] font-bold text-blue-500 cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2">{{ note.source || 'AI 분석 결과' }}</span>
+                <p class="text-[15px] leading-[1.6] text-[#1f2937] font-semibold">{{ note.text }}</p>
+                <div class="flex items-center gap-1.5 mt-1 border-t border-slate-200 pt-3">
+                  <span class="material-symbols-outlined text-[14px] text-[#64748b]">link</span>
+                  <span class="text-[11px] font-bold text-[#64748b] uppercase tracking-wider">Source:</span>
+                  <span class="text-[11px] font-bold text-[#2563eb] cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2">{{ note.source || 'AI 분석 결과' }}</span>
                 </div>
               </div>
             </div>
@@ -254,6 +280,7 @@ const handleDeleteStoredMaterial = (fileId) => {
             <div v-show="activeSummaryTab === 'transcript'" class="summary-subcontent summary-transcript-wrap flex-1 min-h-0">
               <VoiceTransferSideTab
                 :transcriptions="transcriptions"
+                :recording-mode="recordingMode"
                 variant="content"
                 @askAi="emit('askAi', $event)"
                 @addToNote="(text, source) => emit('addToNote', text, source)"

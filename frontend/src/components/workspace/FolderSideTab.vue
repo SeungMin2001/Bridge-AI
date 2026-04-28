@@ -65,6 +65,25 @@ const activeNode = computed(() => findNode(activeFileId.value, props.fileTree))
 const ctxTargetNode = computed(() => ctxMenu.value.targetId ? findNode(ctxMenu.value.targetId, props.fileTree) : null)
 const isCtxFavorite = computed(() => ctxMenu.value.targetId ? props.favorites.has(ctxMenu.value.targetId) : false)
 
+const getNodeIcon = (node) => {
+  if (!node) return 'description'
+  if (node.type === 'folder') return 'folder'
+  return node.fileKind === 'meeting' ? 'groups_2' : 'description'
+}
+
+const getNodeIconStyle = (node, isSelected = false) => {
+  if (!node) return {}
+  if (node.type === 'folder') {
+    return { color: node.color || '#8e8e93', fontSize: '18px', fontVariationSettings: "'FILL' 1" }
+  }
+
+  if (node.fileKind === 'meeting') {
+    return { color: isSelected ? '#be185d' : (node.color || '#ec4899'), fontSize: '18px', fontVariationSettings: "'FILL' 1" }
+  }
+
+  return { color: isSelected ? '#1d1d1f' : (node.color || '#8e8e93'), fontSize: '18px', fontVariationSettings: "'FILL' 0" }
+}
+
 // --- 핸들러 ---
 const handleSelectFile = (id) => {
   activeFileId.value = id
@@ -113,7 +132,7 @@ const handleContextAction = (action) => {
     }
     case 'new-file': {
       if (node.type !== 'folder') break
-      const newFile = { id: genId(), type: 'file', name: '새 파일', content: '' }
+      const newFile = { id: genId(), type: 'file', fileKind: 'lecture', name: '새 파일', content: '' }
       if (!node.children) node.children = []
       node.children.push(newFile)
       node.expanded = true
@@ -151,7 +170,7 @@ const handleContextAction = (action) => {
 }
 
 const handleNewFile = () => {
-  const newFile = { id: genId(), type: 'file', name: '새 파일', content: '' }
+  const newFile = { id: genId(), type: 'file', fileKind: 'lecture', name: '새 파일', content: '' }
   emit('update:fileTree', [...props.fileTree, newFile])
   emit('showToast', '새 파일이 추가되었습니다')
 }
@@ -184,8 +203,9 @@ const handleNewFolder = () => {
           <span class="text-[13px] font-bold text-[#3a3a3c]">활성화한 파일</span>
         </div>
         <div v-if="activeNode" class="tree-item active-file-row">
-          <span class="material-symbols-outlined text-[#1d1d1f]" style="font-size: 18px;">description</span>
+          <span class="material-symbols-outlined" :style="getNodeIconStyle(activeNode, true)">{{ getNodeIcon(activeNode) }}</span>
           <span class="text-[13px] font-semibold text-[#1d1d1f] flex-1 truncate">{{ activeNode.name }}</span>
+          <span v-if="activeNode.fileKind === 'meeting'" class="folder-side-kind-badge">회의</span>
         </div>
       </section>
 
@@ -215,11 +235,12 @@ const handleNewFolder = () => {
               >
                 <span 
                   class="material-symbols-outlined" 
-                  :style="{ color: n.color || '#8e8e93', fontSize: '18px', fontVariationSettings: n.type === 'folder' ? `'FILL' 1` : `'FILL' 0` }"
+                  :style="getNodeIconStyle(n, n.id === activeFileId)"
                 >
-                  {{ n.type === 'folder' ? 'folder' : 'description' }}
+                  {{ getNodeIcon(n) }}
                 </span>
                 <span class="text-[13px] flex-1 truncate">{{ n.name }}</span>
+                <span v-if="n.fileKind === 'meeting'" class="folder-side-kind-badge">회의</span>
               </div>
             </template>
             <div v-else class="text-[12px] text-[#aeaeb2] px-2 py-2">검색 결과 없음</div>
@@ -255,11 +276,12 @@ const handleNewFolder = () => {
           >
             <span 
               class="material-symbols-outlined" 
-              :style="{ color: n.color || '#8e8e93', fontSize: '18px', fontVariationSettings: n.type === 'folder' ? `'FILL' 1` : `'FILL' 0` }"
+              :style="getNodeIconStyle(n)"
             >
-              {{ n.type === 'folder' ? 'folder' : 'description' }}
+              {{ getNodeIcon(n) }}
             </span>
             <span class="text-[13px] font-medium text-[#3a3a3c] flex-1 truncate">{{ n.name }}</span>
+            <span v-if="n.fileKind === 'meeting'" class="folder-side-kind-badge">회의</span>
           </div>
         </div>
       </section>
@@ -278,11 +300,12 @@ const handleNewFolder = () => {
           >
             <span 
               class="material-symbols-outlined" 
-              :style="{ color: n.color || '#8e8e93', fontSize: '18px', fontVariationSettings: n.type === 'folder' ? `'FILL' 1` : `'FILL' 0` }"
+              :style="getNodeIconStyle(n)"
             >
-              {{ n.type === 'folder' ? 'folder' : 'description' }}
+              {{ getNodeIcon(n) }}
             </span>
             <span class="text-[13px] text-[#3a3a3c] flex-1 truncate">{{ n.name }}</span>
+            <span v-if="n.fileKind === 'meeting'" class="folder-side-kind-badge">회의</span>
           </div>
         </div>
       </section>
@@ -344,6 +367,7 @@ const TreeItemComponent = defineComponent({
   setup(props, { emit }) {
     const isFile = computed(() => props.node.type === 'file')
     const isSelected = computed(() => props.node.id === props.activeFileId)
+    const isMeetingFile = computed(() => props.node.fileKind === 'meeting')
 
     const handleClick = (e) => {
       e.stopPropagation()
@@ -370,13 +394,22 @@ const TreeItemComponent = defineComponent({
           class: 'material-symbols-outlined shrink-0',
           style: {
             fontSize: '18px',
-            color: isFile.value ? (isSelected.value ? '#1d1d1f' : '#8e8e93') : (props.node.color || '#3b82f6'),
-            fontVariationSettings: isFile.value ? undefined : '"FILL" 1'
+            color: isFile.value
+              ? (isMeetingFile.value ? (isSelected.value ? '#be185d' : (props.node.color || '#ec4899')) : (isSelected.value ? '#1d1d1f' : '#8e8e93'))
+              : (props.node.color || '#3b82f6'),
+            fontVariationSettings: isFile.value
+              ? (isMeetingFile.value ? '"FILL" 1' : undefined)
+              : '"FILL" 1'
           }
-        }, isFile.value ? 'description' : (props.node.expanded ? 'folder_open' : 'folder')),
+        }, isFile.value ? (isMeetingFile.value ? 'groups_2' : 'description') : (props.node.expanded ? 'folder_open' : 'folder')),
         h('span', {
           class: `text-[13px] flex-1 truncate ${isSelected.value ? 'font-semibold text-[#1d1d1f]' : 'font-medium text-[#3a3a3c]'}`
         }, props.node.name),
+        ...(isMeetingFile.value ? [
+          h('span', {
+            class: 'folder-side-kind-badge'
+          }, '회의')
+        ] : []),
         ...(!isFile.value ? [
           h('span', {
             class: `material-symbols-outlined chevron ${props.node.expanded ? 'open' : ''}`,
@@ -420,3 +453,18 @@ export default {
   components: { TreeItemComponent }
 }
 </script>
+
+<style scoped>
+.folder-side-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(236, 72, 153, 0.12);
+  color: #db2777;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+</style>

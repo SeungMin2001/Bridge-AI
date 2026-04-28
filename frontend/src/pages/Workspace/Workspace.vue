@@ -13,9 +13,11 @@ const props = defineProps({
   favorites: { type: Set, default: () => new Set() },
   isRecording: { type: Boolean, default: false },
   isRecordingPaused: { type: Boolean, default: false },
+  recordingMode: { type: String, default: 'lecture' },
   recordingTimeText: { type: String, default: '00:00:00' },
   activeFileName: { type: String, default: '' },
   activeFileId: { type: String, default: '' },
+  activeFileType: { type: String, default: 'lecture' },
   currentAttachments: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
@@ -94,6 +96,7 @@ const highlightedTranscript = computed(() => {
     <LeftSidebar
       class="relative z-10"
       :isCollapsed="isLeftSidebarCollapsed"
+      :recordingMode="recordingMode"
       :transcriptions="transcriptions"
       :fileTree="fileTree"
       :favorites="favorites"
@@ -110,9 +113,11 @@ const highlightedTranscript = computed(() => {
       class="relative z-10"
       :isRecording="isRecording"
       :isRecordingPaused="isRecordingPaused"
+      :recordingMode="recordingMode"
       :recordingTimeText="recordingTimeText"
       :activeFileName="activeFileName"
       :activeFileId="activeFileId"
+      :activeFileType="activeFileType"
       :transcriptions="transcriptions"
       :materialAttachments="currentAttachments"
       :currentPreviewMaterial="currentPreviewMaterial"

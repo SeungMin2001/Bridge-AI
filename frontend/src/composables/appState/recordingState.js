@@ -1,16 +1,25 @@
 import { computed, ref } from 'vue'
 
+// 녹음 버튼 상태, 타이머, 실시간 전사 목록, WebSocket 음성 전송을 관리합니다.
 const USE_MOCK_DATA = true
-const mockTranscriptPlan = [
-  { text: '안녕하세요, 실시간 음성 전사 테스트 중입니다.', delay: 3000 },
-  { text: '현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.', delay: 7000 }
-]
+const mockTranscriptPlanByMode = {
+  lecture: [
+    { text: '안녕하세요, 실시간 음성 전사 테스트 중입니다.', delay: 3000 },
+    { text: '현재는 백엔드 연결 없이 샘플 데이터가 출력되고 있습니다.', delay: 7000 }
+  ],
+  meeting: [
+    { speaker: '화자 1', text: '회의 파일에서는 화자가 구분된 전사 흐름을 보여주고 있습니다.', delay: 2600 },
+    { speaker: '화자 2', text: '좋아요. 이렇게 하면 사용자가 회의용 파일이라는 걸 바로 이해할 수 있겠네요.', delay: 5200 },
+    { speaker: '화자 1', text: '실제 백엔드 화자 분리 모델이 붙으면 이 형식으로 회의록을 표시하면 됩니다.', delay: 8200 }
+  ]
+}
 
 export function useRecordingState() {
   const isRecording = ref(false)
   const isRecordingPaused = ref(false)
   const recordingSeconds = ref(0)
   const transcriptions = ref([])
+  const recordingMode = ref('lecture')
   const recordingTimeText = computed(() => {
     const hours = Math.floor(recordingSeconds.value / 3600)
     const minutes = Math.floor(recordingSeconds.value / 60)
@@ -28,15 +37,19 @@ export function useRecordingState() {
   let mockTimers = []
   let mockTranscriptQueue = []
 
+  // 목업 전사 출력을 예약한 타이머를 모두 해제합니다.
   const clearMockTimers = () => {
     mockTimers.forEach(({ timeoutId }) => clearTimeout(timeoutId))
     mockTimers = []
   }
 
+  // 녹음을 새로 시작할 때 목업 전사 큐를 초기 상태로 되돌립니다.
   const resetMockTranscriptQueue = () => {
     clearMockTimers()
-    mockTranscriptQueue = mockTranscriptPlan.map((item, index) => ({
+    const plan = mockTranscriptPlanByMode[recordingMode.value] || mockTranscriptPlanByMode.lecture
+    mockTranscriptQueue = plan.map((item, index) => ({
       id: index,
+      speaker: item.speaker || null,
       text: item.text,
       delay: item.delay,
       remaining: item.delay,
@@ -45,10 +58,12 @@ export function useRecordingState() {
     }))
   }
 
-  const addTranscriptionBubble = (text, isMock = false) => {
+  // 전사 탭에 말풍선 형태의 전사 결과를 추가합니다.
+  const addTranscriptionBubble = (text, isMock = false, speaker = null) => {
     const now = new Date()
     transcriptions.value.push({
       time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+      speaker,
       text,
       segments: [{
         id: Date.now() + Math.random(),
@@ -58,6 +73,7 @@ export function useRecordingState() {
     })
   }
 
+  // 백엔드 없이 테스트할 수 있도록 목업 전사 문장을 지연 출력합니다.
   const scheduleMockTranscriptions = () => {
     clearMockTimers()
 
@@ -68,7 +84,7 @@ export function useRecordingState() {
         const timeoutId = setTimeout(() => {
           item.fired = true
           item.remaining = 0
-          addTranscriptionBubble(item.text, true)
+          addTranscriptionBubble(item.text, true, item.speaker)
           mockTimers = mockTimers.filter((entry) => entry.id !== item.id)
         }, item.remaining)
 
@@ -76,6 +92,7 @@ export function useRecordingState() {
       })
   }
 
+  // 녹음 중이고 일시정지가 아닐 때만 녹음 시간을 1초씩 증가시킵니다.
   const syncRecordingTimer = () => {
     clearInterval(timer)
     timer = null
@@ -87,6 +104,7 @@ export function useRecordingState() {
     }, 1000)
   }
 
+  // 브라우저 AudioWorklet의 Float32 PCM 데이터를 백엔드가 받는 Int16 PCM으로 변환합니다.
   const float32ToInt16 = (float32Array) => {
     const int16Array = new Int16Array(float32Array.length)
     for (let i = 0; i < float32Array.length; i += 1) {
@@ -96,6 +114,7 @@ export function useRecordingState() {
     return int16Array
   }
 
+  // 녹음/마이크/WebSocket/목업 타이머 등 사용 중인 리소스를 모두 정리합니다.
   const stopRecording = () => {
     isRecording.value = false
     isRecordingPaused.value = false
@@ -112,10 +131,14 @@ export function useRecordingState() {
     if (ws) { ws.close(); ws = null }
   }
 
-  const startRecording = async () => {
+  // 녹음을 시작하고, 목업 모드가 아니면 마이크 음성을 WebSocket으로 전송합니다.
+  const startRecording = async (mode = 'lecture') => {
+    recordingMode.value = mode
     isRecording.value = true
     isRecordingPaused.value = false
     recordingSeconds.value = 0
+    transcriptions.value = []
+    lastBubbleTime = 0
 
     syncRecordingTimer()
 
@@ -131,6 +154,7 @@ export function useRecordingState() {
     const pendingSegmentMap = new Map()
     const autoConfirmTimers = new Map()
 
+    // 백엔드에서 교정된 텍스트가 오면 기존 pending segment를 confirmed로 바꿉니다.
     const applyCorrection = (segId, correctedText) => {
       for (const trans of transcriptions.value) {
         const segIdx = trans.segments.findIndex((segment) => segment.id === segId)
@@ -146,6 +170,7 @@ export function useRecordingState() {
       }
     }
 
+    // 일정 시간 교정 결과가 없으면 raw 전사를 확정 상태로 바꿉니다.
     const autoConfirmSegment = (segId) => {
       for (const trans of transcriptions.value) {
         const segIdx = trans.segments.findIndex((segment) => segment.id === segId && segment.status === 'pending')
@@ -160,6 +185,7 @@ export function useRecordingState() {
       }
     }
 
+    // 백엔드 WebSocket에서 raw/corrected 전사 메시지를 받아 UI 상태에 반영합니다.
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
@@ -186,10 +212,12 @@ export function useRecordingState() {
         const timeSpan = now.getTime() - lastBubbleTime
         const rawText = data.text
         const segId = ++segIdCounter
+        const speaker = data.speaker || null
 
-        if (transcriptions.value.length === 0 || timeSpan >= 3000) {
+        if (transcriptions.value.length === 0 || timeSpan >= 3000 || (recordingMode.value === 'meeting' && transcriptions.value[transcriptions.value.length - 1]?.speaker !== speaker)) {
           transcriptions.value.push({
             time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            speaker,
             text: rawText,
             segments: [{ id: segId, text: rawText, status: 'pending' }]
           })
@@ -214,6 +242,7 @@ export function useRecordingState() {
       }
     }
 
+    // WebSocket 연결 후 마이크 권한을 얻고 AudioWorklet으로 PCM 청크를 전송합니다.
     ws.onopen = async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -239,6 +268,7 @@ export function useRecordingState() {
     }
   }
 
+  // 녹음 시간을 멈추고, 목업/실제 오디오 스트림도 일시정지합니다.
   const pauseRecording = async () => {
     if (!isRecording.value || isRecordingPaused.value) return
 
@@ -261,6 +291,7 @@ export function useRecordingState() {
     }
   }
 
+  // 일시정지된 녹음을 재개하고, 목업/실제 오디오 스트림도 다시 진행합니다.
   const resumeRecording = async () => {
     if (!isRecording.value || !isRecordingPaused.value) return
 
@@ -281,6 +312,7 @@ export function useRecordingState() {
     transcriptions,
     isRecording,
     isRecordingPaused,
+    recordingMode,
     recordingTimeText,
     startRecording,
     pauseRecording,

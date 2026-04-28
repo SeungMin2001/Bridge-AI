@@ -12,20 +12,30 @@ const props = defineProps({
   favorites: { type: Set, default: () => new Set() }
 })
 
-const emit = defineEmits(['navigate', 'update:fileTree', 'update:favorites'])
+const emit = defineEmits(['navigate', 'update:fileTree', 'update:favorites', 'fileSelect'])
 
 const {
   isSidebarCollapsed,
-  setIsSidebarCollapsed,
   isFolderModalOpen,
   isFileModalOpen,
+  isMeetingFileModalOpen,
+  isEditItemModalOpen,
   selectedColor,
   navigationStack,
+  editingItemType,
+  editingFileKind,
   newFolderName,
   newFileName,
+  FOLDER_COLORS,
+  LECTURE_FILE_COLORS,
+  MEETING_FILE_COLORS,
   toggleStar,
   handleCreateFolder,
   handleCreateFile,
+  openItemEditModal,
+  closeEditItemModal,
+  handleUpdateItem,
+  handleDeleteEditingItem,
   handleEnterFolder,
   handleGoBack
 } = useHome(props, emit)
@@ -77,24 +87,39 @@ const currentItems = computed(() => {
         @enterFolder="handleEnterFolder"
         @openFolderModal="isFolderModalOpen = true"
         @openFileModal="isFileModalOpen = true"
+        @openMeetingFileModal="isMeetingFileModalOpen = true"
         @toggleStar="toggleStar"
+        @openItemEditModal="openItemEditModal"
         @navigate="emit('navigate', $event)"
+        @openFile="(item) => { emit('fileSelect', item.id, item); emit('navigate', 'workspace') }"
       />
     </main>
 
     <HomeModals 
       :isFolderModalOpen="isFolderModalOpen"
       :isFileModalOpen="isFileModalOpen"
+      :isMeetingFileModalOpen="isMeetingFileModalOpen"
+      :isEditItemModalOpen="isEditItemModalOpen"
       :selectedColor="selectedColor"
       :newFolderName="newFolderName"
       :newFileName="newFileName"
+      :editingItemType="editingItemType"
+      :editingFileKind="editingFileKind"
+      :folderColors="FOLDER_COLORS"
+      :lectureFileColors="LECTURE_FILE_COLORS"
+      :meetingFileColors="MEETING_FILE_COLORS"
       @update:isFolderModalOpen="isFolderModalOpen = $event"
       @update:isFileModalOpen="isFileModalOpen = $event"
+      @update:isMeetingFileModalOpen="isMeetingFileModalOpen = $event"
+      @update:isEditItemModalOpen="!$event && closeEditItemModal()"
       @update:selectedColor="selectedColor = $event"
       @update:newFolderName="newFolderName = $event"
       @update:newFileName="newFileName = $event"
       @createFolder="handleCreateFolder"
-      @createFile="handleCreateFile"
+      @createFile="handleCreateFile('lecture')"
+      @createMeetingFile="handleCreateFile('meeting')"
+      @updateItem="handleUpdateItem"
+      @deleteEditingItem="handleDeleteEditingItem"
     />
   </div>
 </template>

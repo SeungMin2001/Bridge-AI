@@ -173,6 +173,23 @@ const selectedSchedules = computed(() => {
   return scheduleItems.value.filter((item) => item.dateKey === selectedDateKey.value)
 })
 
+function getFavoriteIcon(item) {
+  if (item.type === 'folder') return 'folder'
+  return item.fileKind === 'meeting' ? 'groups_2' : 'description'
+}
+
+function getFavoriteIconStyle(item) {
+  if (item.type === 'folder') {
+    return { color: item.color, fontVariationSettings: "'FILL' 1" }
+  }
+
+  if (item.fileKind === 'meeting') {
+    return { color: item.color || '#ec4899', fontVariationSettings: "'FILL' 1" }
+  }
+
+  return { color: item.color, fontVariationSettings: "'FILL' 0" }
+}
+
 watch(() => props.isCollapsed, (collapsed) => {
   if (collapsed) closeScheduleModal()
 })
@@ -285,10 +302,11 @@ onUnmounted(() => {
             class="sidebar-nav-item home-sidebar-nav-item" 
             @click="emit('navigate', 'workspace')"
           >
-            <span class="material-symbols-outlined nav-icon" :style="{ color: fav.color, fontVariationSettings: `'FILL' ${fav.type === 'folder' ? 1 : 0}` }">
-              {{ fav.type === 'folder' ? 'folder' : 'description' }}
+            <span class="material-symbols-outlined nav-icon" :style="getFavoriteIconStyle(fav)">
+              {{ getFavoriteIcon(fav) }}
             </span>
             <span class="nav-text truncate collapsible-content">{{ fav.name }}</span>
+            <span v-if="fav.fileKind === 'meeting'" class="home-sidebar-kind-badge collapsible-content">회의</span>
             <span v-if="fav.type === 'folder'" class="material-symbols-outlined text-[#8e8e93] text-[18px] collapsible-content">expand_more</span>
           </div>
         </div>
@@ -368,6 +386,20 @@ onUnmounted(() => {
     </transition>
   </Teleport>
 </template>
+
+<style scoped>
+.home-sidebar-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(236, 72, 153, 0.12);
+  color: #db2777;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+</style>
 
 <style scoped>
 .home-left-sidebar-card {

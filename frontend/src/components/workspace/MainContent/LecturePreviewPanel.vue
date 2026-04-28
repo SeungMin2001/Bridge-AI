@@ -22,15 +22,48 @@ const pdfContainerRef = ref(null)
 const pdfLoading = ref(false)
 const pdfError = ref('')
 const pdfPageCount = ref(0)
+const pdfZoom = ref(1)
 
 let activePdfTask = null
 let activePdfDocument = null
 let pdfRenderToken = 0
 let activePdfTextLayers = []
 
+const PDF_ZOOM_MIN = 0.7
+const PDF_ZOOM_MAX = 1.8
+const PDF_ZOOM_STEP = 0.1
+
 const isPdfAttachment = (file) => /\.pdf$/i.test(file?.name || '')
 const isPptAttachment = (file) => /\.(ppt|pptx)$/i.test(file?.name || '')
 
+// PDF 미리보기 배율을 조절합니다. 다시 렌더링하지 않고 CSS 크기만 바꿉니다.
+const updatePdfZoom = (nextZoom) => {
+  pdfZoom.value = Math.min(PDF_ZOOM_MAX, Math.max(PDF_ZOOM_MIN, Number(nextZoom.toFixed(2))))
+}
+
+const zoomOutPdf = () => {
+  updatePdfZoom(pdfZoom.value - PDF_ZOOM_STEP)
+}
+
+const zoomInPdf = () => {
+  updatePdfZoom(pdfZoom.value + PDF_ZOOM_STEP)
+}
+
+const resetPdfZoom = () => {
+  updatePdfZoom(1)
+}
+
+// 업로드한 PDF의 텍스트를 페이지별 JSON 형태로 추출합니다.
+const createPdfJsonSkeleton = (file, pageCount) => ({
+  fileName: file?.name || '',
+  fileType: file?.type || '',
+  fileSize: file?.size || 0,
+  pageCount,
+  extractedAt: new Date().toISOString(),
+  pages: []
+})
+
+// PDF/PPT 리소스 정리
 const destroyPptViewer = () => {
   pptViewer.value?.destroy?.()
   pptViewer.value = null
@@ -80,6 +113,7 @@ const destroyPdfPreview = async ({ incrementToken = true } = {}) => {
   activePdfDocument = null
 }
 
+// PDF 로딩
 const renderPdfPreview = async (file) => {
   if (!file?.url) {
     pdfError.value = 'PDF 파일을 찾을 수 없어 미리보기를 열 수 없습니다.'
@@ -110,14 +144,17 @@ const renderPdfPreview = async (file) => {
     activePdfDocument = pdfDocument
     pdfPageCount.value = pdfDocument.numPages
 
-    const availableWidth = Math.max((pdfContainerRef.value.clientWidth || 960) - 40, 320)
+    const availableWidth = Math.max((pdfContainerRef.value.clientWidth || 960) - 12, 320)
+    const extractedPdfJson = createPdfJsonSkeleton(file, pdfDocument.numPages)
 
     for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
       if (renderToken !== pdfRenderToken) return
 
+      // PDF 페이지별 canvas 렌더링
       const page = await pdfDocument.getPage(pageNumber)
+      const textContent = await page.getTextContent()
       const initialViewport = page.getViewport({ scale: 1 })
-      const scale = Math.max(0.75, Math.min(1.6, availableWidth / initialViewport.width))
+      const scale = Math.max(0.75, Math.min(2.15, availableWidth / initialViewport.width))
       const viewport = page.getViewport({ scale })
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d')
@@ -129,8 +166,6 @@ const renderPdfPreview = async (file) => {
       canvas.width = viewport.width
       canvas.height = viewport.height
       canvas.className = 'pdf-preview-canvas'
-      canvas.style.width = `${viewport.width}px`
-      canvas.style.height = `${viewport.height}px`
 
       const pageShell = document.createElement('div')
       pageShell.className = 'pdf-page-shell'
@@ -141,21 +176,34 @@ const renderPdfPreview = async (file) => {
 
       const pageStage = document.createElement('div')
       pageStage.className = 'pdf-page-stage'
-      pageStage.style.width = `${viewport.width}px`
-      pageStage.style.height = `${viewport.height}px`
+      pageStage.style.aspectRatio = `${viewport.width} / ${viewport.height}`
       pageStage.style.setProperty('--total-scale-factor', '1')
 
       const textLayerDiv = document.createElement('div')
       textLayerDiv.className = 'textLayer pdf-text-layer'
-      textLayerDiv.style.width = `${viewport.width}px`
-      textLayerDiv.style.height = `${viewport.height}px`
+      textLayerDiv.style.width = '100%'
+      textLayerDiv.style.height = '100%'
       textLayerDiv.style.setProperty('--total-scale-factor', '1')
 
+      const extractedItems = textContent.items
+        .filter((item) => item.str?.trim())
+        .map((item) => ({
+          text: item.str,
+          x: item.transform?.[4] || 0,
+          y: item.transform?.[5] || 0,
+          width: item.width || 0,
+          height: item.height || 0
+        }))
+
+      extractedPdfJson.pages.push({
+        page: pageNumber,
+        text: extractedItems.map((item) => item.text).join(' '),
+        items: extractedItems
+      })
+
+      // PDF text layer 렌더링
       const textLayer = new pdfjsLib.TextLayer({
-        textContentSource: page.streamTextContent({
-          includeMarkedContent: true,
-          disableNormalization: true
-        }),
+        textContentSource: textContent,
         container: textLayerDiv,
         viewport
       })
@@ -179,6 +227,10 @@ const renderPdfPreview = async (file) => {
       endOfContent.className = 'endOfContent'
       textLayerDiv.appendChild(endOfContent)
     }
+
+    if (renderToken === pdfRenderToken) {
+      console.log('PDF JSON 추출 결과:', extractedPdfJson)
+    }
   } catch (error) {
     console.error(error)
     pdfError.value = 'PDF를 화면에 불러오지 못했습니다.'
@@ -189,11 +241,13 @@ const renderPdfPreview = async (file) => {
   }
 }
 
+// PPT 슬라이드 이동
 const renderCurrentPptSlide = async () => {
   if (!pptViewer.value || !pptCanvasRef.value) return
   await pptViewer.value.render(pptCanvasRef.value, { slideIndex: pptSlideIndex.value })
 }
 
+// PPT 로딩
 const loadPptPreview = async (file) => {
   if (!file?.sourceFile) {
     pptError.value = 'PPT 원본 파일을 찾을 수 없어 미리보기를 열 수 없습니다.'
@@ -255,6 +309,7 @@ watch(
 
     if (isPdfAttachment(file)) {
       destroyPptViewer()
+      resetPdfZoom()
       await renderPdfPreview(file)
       return
     }
@@ -278,21 +333,27 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- PDF/PPT 상태 UI -->
   <div class="lecture-preview-shell">
     <div v-if="isPdfAttachment(material)" class="lecture-preview-frame-wrap">
       <div class="lecture-preview-surface">
-        <div class="lecture-preview-surface-header">
-          <div>
-            <p class="lecture-preview-type">PDF Preview</p>
-            <h3 class="lecture-preview-title">{{ material?.name }}</h3>
-          </div>
-          <span v-if="pdfPageCount" class="lecture-preview-page-count">{{ pdfPageCount }} pages</span>
-        </div>
-
         <div class="pdf-preview-stage">
-          <div ref="pdfContainerRef" class="pdf-preview-scroll custom-scrollbar" :class="{ 'is-hidden': pdfLoading || pdfError }"></div>
+          <div
+            ref="pdfContainerRef"
+            class="pdf-preview-scroll custom-scrollbar"
+            :class="{ 'is-hidden': pdfLoading || pdfError }"
+            :style="{ '--pdf-zoom': pdfZoom }"
+          ></div>
           <div v-if="pdfLoading" class="pdf-preview-placeholder">PDF를 불러오는 중입니다.</div>
           <div v-else-if="pdfError" class="pdf-preview-placeholder">{{ pdfError }}</div>
+          <div v-else class="pdf-zoom-controls" aria-label="PDF 확대 축소">
+            <button type="button" class="pdf-zoom-btn" :disabled="pdfZoom <= PDF_ZOOM_MIN" title="축소" @click="zoomOutPdf">
+              −
+            </button>
+            <button type="button" class="pdf-zoom-btn" :disabled="pdfZoom >= PDF_ZOOM_MAX" title="확대" @click="zoomInPdf">
+              +
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -312,6 +373,7 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<!-- 미리보기 스타일 -->
 <style scoped>
 .lecture-preview-shell {
   height: 100%;
@@ -327,50 +389,11 @@ onBeforeUnmount(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
   padding: 0;
   border: none;
   background: transparent;
   box-shadow: none;
-}
-
-.lecture-preview-surface-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 0 8px;
-}
-
-.lecture-preview-type {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: #94a3b8;
-  text-transform: uppercase;
-}
-
-.lecture-preview-title {
-  margin-top: 4px;
-  font-size: 34px;
-  font-weight: 800;
-  color: #1d1d1f;
-  letter-spacing: -0.03em;
-  word-break: break-word;
-  line-height: 1.08;
-}
-
-.lecture-preview-page-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .pdf-preview-stage {
@@ -386,6 +409,47 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.pdf-zoom-controls {
+  position: absolute;
+  right: 18px;
+  bottom: 28px;
+  z-index: 5;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.pdf-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(17, 24, 39, 0.86);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.22);
+  font-size: 24px;
+  line-height: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+
+.pdf-zoom-btn:not(:disabled):hover {
+  background: rgba(17, 24, 39, 0.96);
+  transform: translateY(-1px);
+}
+
+.pdf-zoom-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
 }
 
 .pdf-preview-scroll.is-hidden {
@@ -438,10 +502,13 @@ onBeforeUnmount(() => {
 }
 
 :deep(.pdf-page-shell) {
+  width: calc(100% * var(--pdf-zoom, 1));
+  margin: 0 auto;
   padding: 0;
   background: transparent;
   border: none;
   box-shadow: none;
+  transition: width 0.18s ease;
 }
 
 :deep(.pdf-page-meta) {
@@ -469,6 +536,7 @@ onBeforeUnmount(() => {
 :deep(.pdf-page-stage) {
   position: relative;
   margin: 0 auto;
+  width: 100%;
 }
 
 :deep(.pdf-text-layer) {

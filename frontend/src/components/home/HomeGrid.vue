@@ -22,11 +22,14 @@ const props = defineProps({
 
 const emit = defineEmits([
   'toggleStar',
+  'openItemEditModal',
   'enterFolder',
   'navigate',
+  'openFile',
   'goBack',
   'openFolderModal',
-  'openFileModal'
+  'openFileModal',
+  'openMeetingFileModal'
 ])
 
 const filterType = ref('all')
@@ -88,6 +91,10 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
               <span class="material-symbols-outlined group-hover:scale-110 transition-transform">description</span>
               <span>새 파일</span>
             </button>
+            <button class="header-action-btn group" @click="emit('openMeetingFileModal')">
+              <span class="material-symbols-outlined group-hover:scale-110 transition-transform">groups_2</span>
+              <span>회의 파일</span>
+            </button>
           </div>
 
           <div class="w-[1px] h-4 bg-black/10 mx-1"></div>
@@ -129,12 +136,17 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
             </div>
             <div class="folder-paper"></div>
             <div :class="['folder-body', FOLDER_COLORS[item.color]?.body || 'fc-blue']">
-              <button
-                :class="['star-btn', { starred: favorites.has(item.id) }]"
-                @click="emit('toggleStar', $event, item.id)"
-              >
-                <span class="material-symbols-outlined" :style="{ fontSize: '16px', fontVariationSettings: `'FILL' ${favorites.has(item.id) ? 1 : 0}` }">star</span>
-              </button>
+              <div class="folder-card-actions">
+                <button class="folder-card-action-btn" title="폴더 설정" @click.stop="emit('openItemEditModal', item.id)">
+                  <span class="material-symbols-outlined text-[16px]">more_horiz</span>
+                </button>
+                <button
+                  :class="['star-btn', 'folder-card-star-btn', { starred: favorites.has(item.id) }]"
+                  @click="emit('toggleStar', $event, item.id)"
+                >
+                  <span class="material-symbols-outlined" :style="{ fontSize: '16px', fontVariationSettings: `'FILL' ${favorites.has(item.id) ? 1 : 0}` }">star</span>
+                </button>
+              </div>
               <div class="folder-icon-area">
                 <span class="material-symbols-outlined" style="font-size: 22px; color: #fff; font-variation-settings: 'FILL' 1">folder</span>
               </div>
@@ -144,24 +156,32 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
           </div>
           
           <!-- File Card -->
-          <div v-else class="folder-card file-card" @click="emit('navigate', 'workspace')" style="display: flex; flex-direction: column; height: 160px;">
+          <div v-else class="folder-card file-card" @click="emit('openFile', item)" style="display: flex; flex-direction: column; height: 160px;">
             <div style="height: 10px; flex-shrink: 0;"></div>
             <div style="background: #fff; border-radius: 14px; padding: 0; flex: 1; position: relative; overflow: hidden; box-shadow: 2px 3px 0px #e0e0e8; border: 1.5px solid #e5e5ea; display: flex; flex-direction: column;">
               <div :style="{ height: '6px', background: item.color || '#6366f1', borderRadius: '12px 12px 0 0' }"></div>
               <div style="position: absolute; top: 30px; left: 0; right: 0; bottom: 0; background-image: repeating-linear-gradient(transparent, transparent 22px, #f0f0f5 22px, #f0f0f5 23px); opacity: 0.6;"></div>
               <div style="position: relative; z-index: 1; padding: 14px; display: flex; flex-direction: column; flex: 1;">
-                <button
-                  :class="['star-btn', { starred: favorites.has(item.id) }]"
-                  @click="emit('toggleStar', $event, item.id)"
-                  style="position: absolute; top: 14px; right: 10px; background: rgba(0,0,0,0.04); color: #d1d1d6;"
-                >
-                  <span class="material-symbols-outlined" :style="{ fontSize: '16px', fontVariationSettings: `'FILL' ${favorites.has(item.id) ? 1 : 0}` }">star</span>
-                </button>
+                <div class="file-card-actions">
+                  <button class="file-card-action-btn" title="파일 설정" @click.stop="emit('openItemEditModal', item.id)">
+                    <span class="material-symbols-outlined text-[16px]">more_horiz</span>
+                  </button>
+                  <button
+                    :class="['star-btn', 'file-card-star-btn', { starred: favorites.has(item.id) }]"
+                    @click="emit('toggleStar', $event, item.id)"
+                  >
+                    <span class="material-symbols-outlined" :style="{ fontSize: '17px', fontVariationSettings: `'FILL' ${favorites.has(item.id) ? 1 : 0}` }">star</span>
+                  </button>
+                </div>
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                  <div :style="{ width: '36px', height: '36px', background: `${item.color}15` || '#ede9fe', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }">
-                    <span class="material-symbols-outlined" :style="{ fontSize: '20px', color: item.color || '#6366f1', fontVariationSettings: `'FILL' 1` }">article</span>
+                  <div :style="item.fileKind === 'meeting'
+                    ? { width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+                    : { width: '36px', height: '36px', background: `${item.color}15` || '#ede9fe', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }">
+                    <span class="material-symbols-outlined" :style="{ fontSize: '20px', color: item.color || '#6366f1', fontVariationSettings: `'FILL' 1` }">{{ item.fileKind === 'meeting' ? 'groups_2' : 'article' }}</span>
                   </div>
-                  <span :style="{ fontSize: '10px', fontWeight: '700', color: item.color || '#6366f1', background: `${item.color}15` || '#ede9fe', padding: '2px 8px', borderRadius: '100px', letterSpacing: '0.04em' }">FILE</span>
+                  <span :style="{ fontSize: '10px', fontWeight: '700', color: item.color || '#6366f1', background: `${item.color}15` || '#ede9fe', padding: '2px 8px', borderRadius: '100px', letterSpacing: '0.04em' }">
+                    {{ item.fileKind === 'meeting' ? 'MEETING' : 'FILE' }}
+                  </span>
                 </div>
                 <div style="margin-top: auto;">
                   <div class="folder-card-name" style="color: #1d1d1f; font-size: 13px;">{{ item.name }}</div>
@@ -272,4 +292,90 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
   opacity: 0;
   transform: translateY(-10px) scale(0.95);
 }
+
+.file-card-actions {
+  position: absolute;
+  top: 14px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 3;
+}
+
+.folder-card-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 3;
+}
+
+.folder-card-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.9);
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.folder-card-action-btn:hover {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.folder-card-action-btn:active {
+  transform: scale(0.96);
+}
+
+.folder-card-star-btn {
+  position: static !important;
+}
+
+.file-card-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.04);
+  color: #8e8e93;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.file-card-action-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1d1d1f;
+}
+
+.file-card-action-btn:active {
+  transform: scale(0.96);
+}
+
+.file-card-star-btn {
+  position: static !important;
+  background: rgba(255, 202, 40, 0.18) !important;
+  color: #f4b400 !important;
+}
+
+.file-card-star-btn:hover {
+  background: rgba(255, 202, 40, 0.28) !important;
+}
+
+.file-card-star-btn.starred {
+  background: rgba(255, 202, 40, 0.24) !important;
+  color: #f4b400 !important;
+  box-shadow: 0 8px 18px rgba(244, 180, 0, 0.16);
+}
+
 </style>
