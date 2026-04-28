@@ -61,7 +61,7 @@ def make_hypernet(model, device):
     ).to(device).float()
 
 
-def example_loss(model, tokenizer, hypernet, target_layer, example: MemoryExample, device):
+def example_loss(model, tokenizer, hypernet, target_layer, example: MemoryExample, device, rank_weight: float = RANK_WEIGHT):
     main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device)
     gold_tok = tokenize_qa(tokenizer, example.question, example.answer, device)
     main_gold_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], gold_tok, alpha=ALPHA)
@@ -92,7 +92,7 @@ def example_loss(model, tokenizer, hypernet, target_layer, example: MemoryExampl
     if any(loss is None for loss in (main_neg, neg_gold, neg_neg)):
         return None
     rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
-    objective = main_gold + neg_neg + RANK_WEIGHT * rank
+    objective = main_gold + neg_neg + rank_weight * rank
     out.update({
         "objective": objective,
         "neg_neg": neg_neg,
@@ -149,6 +149,21 @@ def main() -> None:
     parser.add_argument("--valid", default=str(AUGMENTED_VALID_PATH))
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--max-val-samples", type=int, default=0)
+    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument("--rank-weight", type=float, default=RANK_WEIGHT)
+    parser.add_argument(
+        "--overfit-samples",
+        type=int,
+        default=0,
+        help="Use only the first N expanded memory examples for a quick overfit test.",
+    )
+    parser.add_argument(
+        "--overfit-repeat",
+        type=int,
+        default=1,
+        help="Repeat the selected overfit examples this many times.",
+    )
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
 
@@ -158,12 +173,20 @@ def main() -> None:
     target_layer = model.model.layers[layer_idx]
     train_examples = load_augmented_examples(args.train, max_samples=args.max_samples or None)
     valid_examples = load_augmented_examples(args.valid, max_samples=args.max_val_samples or None)
+    if args.overfit_samples > 0:
+        selected = train_examples[: args.overfit_samples]
+        train_examples = selected * max(args.overfit_repeat, 1)
+        valid_examples = selected
+        print(
+            f"[PRAG:train] overfit mode: examples={len(selected)} "
+            f"repeat={max(args.overfit_repeat, 1)}"
+        )
     if not train_examples or not valid_examples:
         raise RuntimeError("Need non-empty augmented train and valid examples.")
 
     hypernet = make_hypernet(model, device)
-    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR, weight_decay=0.0)
-    total_steps = max(1, len(train_examples) * EPOCHS)
+    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=args.lr, weight_decay=0.0)
+    total_steps = max(1, len(train_examples) * args.epochs)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=LR_MIN)
     run_config = {
         "model": MODEL_NAME,
@@ -172,8 +195,11 @@ def main() -> None:
         "hidden_dim": HIDDEN_DIM,
         "alpha": ALPHA,
         "objective": "atomic_final_ce_plus_negative_flip",
+        "rank_weight": args.rank_weight,
         "train_path": str(args.train),
         "valid_path": str(args.valid),
+        "overfit_samples": args.overfit_samples,
+        "overfit_repeat": args.overfit_repeat,
     }
     print(f"[PRAG:train] config: {run_config}")
     print(f"[PRAG:train] train={len(train_examples)} valid={len(valid_examples)}")
@@ -195,14 +221,22 @@ def main() -> None:
     log = {"config": run_config, "step_losses": [], "val_evals": [], "start": datetime.now().isoformat()}
     start = time.time()
     hypernet.train()
-    for _epoch in range(EPOCHS):
+    for _epoch in range(args.epochs):
         indices = list(range(len(train_examples)))
         random.shuffle(indices)
         running = []
         for idx in indices:
             if step >= total_steps:
                 break
-            out = example_loss(model, tokenizer, hypernet, target_layer, train_examples[idx], device)
+            out = example_loss(
+                model,
+                tokenizer,
+                hypernet,
+                target_layer,
+                train_examples[idx],
+                device,
+                rank_weight=args.rank_weight,
+            )
             if out is None:
                 continue
             optimizer.zero_grad()
@@ -249,4 +283,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

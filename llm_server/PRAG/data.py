@@ -110,6 +110,7 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
 
         negatives = row.get("hard_negatives") if isinstance(row.get("hard_negatives"), list) else []
         neg_by_question = {}
+        neg_by_position = {}
         fallback_neg = None
         for neg in negatives:
             if not isinstance(neg, dict):
@@ -117,19 +118,34 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
             neg_passage = get_passage(neg)
             neg_atomic = normalize_qas(neg.get("atomic_qas")) + normalize_qas(neg.get("qas"))
             neg_final = normalize_qas(neg.get("final_qas"))
-            neg_qas = [(qa, qa.get("sub_passage") or neg_passage) for qa in neg_atomic]
-            neg_qas.extend((qa, neg_passage) for qa in neg_final)
+            neg_qas = [
+                ("atomic", idx, qa, qa.get("sub_passage") or neg_passage)
+                for idx, qa in enumerate(neg_atomic)
+            ]
+            neg_qas.extend(
+                ("final", idx, qa, neg_passage)
+                for idx, qa in enumerate(neg_final)
+            )
             if neg_passage and neg.get("answer"):
                 fallback_neg = {"passage": neg_passage, "answer": str(neg["answer"]).strip()}
-            for neg_qa, neg_memory_passage in neg_qas:
+            for neg_type, neg_idx, neg_qa, neg_memory_passage in neg_qas:
                 if neg_memory_passage:
-                    neg_by_question[neg_qa["question"]] = {
+                    neg_item = {
                         "passage": neg_memory_passage,
                         "answer": neg_qa["answer"],
                     }
+                    neg_by_question[neg_qa["question"]] = neg_item
+                    neg_by_position[(neg_type, neg_idx)] = neg_item
 
         for qa_idx, (qa, qa_type, memory_passage) in enumerate(qas):
-            neg = neg_by_question.get(qa["question"]) or fallback_neg
+            # Prefer an exact same-question counterfactual. If the local LLM
+            # paraphrases the negative question, fall back to the same
+            # atomic/final position. Do not attach a generic fallback to
+            # generated QA rows because it can pair a final explanatory answer
+            # with an unrelated short negative answer.
+            neg = neg_by_question.get(qa["question"]) or neg_by_position.get((qa_type, qa_idx))
+            if neg is None and qa_type == "direct":
+                neg = fallback_neg
             examples.append(
                 MemoryExample(
                     source_id=f"{source_id}:{qa_type}:{qa_idx}",
