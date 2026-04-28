@@ -44,7 +44,7 @@ from .service_memory import (
     tokenize_direct_qa,
     tokenize_qa,
 )
-from .train2 import MergePRAGDataset, extract_first_hard_negative
+from .service_data import ServiceMemoryDataset, extract_first_hard_negative
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -477,8 +477,8 @@ def train():
             f"train_repeats={len(train_dataset)} question={overfit_sample['question']!r}"
         )
     else:
-        train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=MAX_SAMPLES)
-        val_dataset = MergePRAGDataset(VALID_DATA_PATH, max_samples=MAX_VAL_SAMPLES)
+        train_dataset = ServiceMemoryDataset(TRAIN_DATA_PATH, max_samples=MAX_SAMPLES)
+        val_dataset = ServiceMemoryDataset(VALID_DATA_PATH, max_samples=MAX_VAL_SAMPLES)
     total_steps = max(1, len(train_dataset) * EPOCHS)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=LR_MIN)
 

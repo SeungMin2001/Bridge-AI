@@ -37,7 +37,7 @@ from .service_memory import (
     forward_with_memory,
     tokenize_qa,
 )
-from .train2 import MergePRAGDataset, extract_first_hard_negative
+from .service_data import ServiceMemoryDataset, extract_first_hard_negative
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -200,8 +200,8 @@ def train_layer(model, tokenizer, layer_idx, train_dataset, val_dataset, device)
 
 def find_service_critical_layers(model, tokenizer, top_n: int = TOP_N):
     device = next(model.parameters()).device
-    train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=SCAN_MAX_TRAIN_SAMPLES)
-    val_dataset = MergePRAGDataset(VALID_DATA_PATH, max_samples=SCAN_MAX_VAL_SAMPLES)
+    train_dataset = ServiceMemoryDataset(TRAIN_DATA_PATH, max_samples=SCAN_MAX_TRAIN_SAMPLES)
+    val_dataset = ServiceMemoryDataset(VALID_DATA_PATH, max_samples=SCAN_MAX_VAL_SAMPLES)
     if not train_dataset or not val_dataset:
         raise RuntimeError("Service layer scan requires non-empty train/valid datasets.")
 

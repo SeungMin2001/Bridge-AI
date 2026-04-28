@@ -30,7 +30,7 @@ from .service_memory import (
     tokenize_direct_qa,
     tokenize_qa,
 )
-from .train2 import MergePRAGDataset, extract_first_hard_negative
+from .service_data import ServiceMemoryDataset, extract_first_hard_negative
 
 BASE_DIR = Path(__file__).resolve().parent
 CHECKPOINT_PATH = os.getenv("MERGEPRAG_SERVICE_CHECKPOINT_PATH", str(BASE_DIR / "service_memory_checkpoint.pt"))
@@ -308,7 +308,7 @@ def main():
 
     if args.dataset:
         dataset_path = VALID_DATA_PATH if args.split == "valid" else TRAIN_DATA_PATH
-        dataset = MergePRAGDataset(dataset_path, max_samples=args.max_samples)
+        dataset = ServiceMemoryDataset(dataset_path, max_samples=args.max_samples)
         print(f"[test_service_memory] mode=dataset split={args.split} max_samples={args.max_samples}")
     else:
         dataset = [build_single_sample(args)]
