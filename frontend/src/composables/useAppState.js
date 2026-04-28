@@ -1,8 +1,10 @@
 import { onUnmounted, ref } from 'vue'
+import { isWorkspaceUuid, saveSessionResourceTree } from '../api/workspaceApi.js'
 import { useAiState } from './appState/aiState'
 import {
   addRecordingToCurrentWeek,
-  ensureLectureOneFile,
+  findNodeById,
+  normalizeFileTree,
   updateNodeById,
   useFileTreeState
 } from './appState/fileTreeState'
@@ -61,7 +63,7 @@ export function useAppState() {
     activeFileId,
     activeFileName,
     currentAttachments,
-    ensureLectureOneFile,
+    normalizeFileTree,
     updateNodeById
   })
 
@@ -104,7 +106,7 @@ export function useAppState() {
     return JSON.parse(JSON.stringify(transcriptions.value || []))
   }
 
-  const handleStopRecording = () => {
+  const handleStopRecording = async () => {
     const shouldSaveRecording = isRecording.value
     const recordingSnapshot = cloneTranscriptions()
     const durationText = recordingTimeText.value
@@ -116,7 +118,9 @@ export function useAppState() {
 
     if (!shouldSaveRecording || recordingSnapshot.length === 0) return
 
-    const targetFileId = activeFileId.value || 'lecture-1'
+    const targetFileId = activeFileId.value
+    if (!targetFileId) return
+
     const recording = {
       id: createLocalId('recording'),
       title: formatRecordingTitle(currentPreviewMaterial.value),
@@ -130,10 +134,19 @@ export function useAppState() {
     }
 
     fileTree.value = updateNodeById(
-      ensureLectureOneFile(fileTree.value),
+      normalizeFileTree(fileTree.value),
       targetFileId,
       (node) => addRecordingToCurrentWeek(node, recording)
     )
+
+    const updatedNode = findNodeById(fileTree.value, targetFileId)
+    if (isWorkspaceUuid(targetFileId) && Array.isArray(updatedNode?.weeks)) {
+      try {
+        await saveSessionResourceTree(targetFileId, updatedNode.weeks)
+      } catch (error) {
+        console.error('[workspace] resource tree save failed:', error)
+      }
+    }
   }
 
   // 앱이 내려갈 때 마이크/WebSocket 등 녹음 리소스를 정리합니다.

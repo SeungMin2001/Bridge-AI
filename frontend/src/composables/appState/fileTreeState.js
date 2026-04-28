@@ -1,13 +1,12 @@
 import { computed, onMounted, watch, ref } from 'vue'
+import { getWorkspaceTree } from '../../api/workspaceApi.js'
 
 // 홈/워크스페이스에서 사용하는 파일 트리, 즐겨찾기, 현재 선택 파일을 관리합니다.
 const STORAGE_KEYS = {
   fileTree: 'lecto_file_tree',
-  favorites: 'lecto_favorites'
-}
-
-const formatFileDate = (date = new Date()) => {
-  return `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}. ${date.getHours() >= 12 ? '오후' : '오전'} ${date.getHours() % 12 || 12}:${date.getMinutes().toString().padStart(2, '0')}`
+  favorites: 'lecto_favorites',
+  activeFileId: 'lecto_active_file_id',
+  activeFileName: 'lecto_active_file_name'
 }
 
 const KOREAN_WEEKDAYS = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']
@@ -193,19 +192,6 @@ export const addRecordingToCurrentWeek = (node, recording) => {
   }
 }
 
-// 강의자료 첨부가 붙는 기본 파일 노드입니다.
-const createLectureOneNode = () => ({
-  id: 'lecture-1',
-  type: 'file',
-  fileKind: 'lecture',
-  name: '강의1',
-  date: formatFileDate(),
-  content: '',
-  attachments: [],
-  recordings: [],
-  weeks: [createWeekGroup(0)]
-})
-
 const normalizeNode = (node) => {
   if (!node) return node
 
@@ -228,8 +214,8 @@ const normalizeNode = (node) => {
   return normalized
 }
 
-// 저장된 트리의 파일 노드 자료/녹음 배열 형태를 보정합니다.
-export const ensureLectureOneFile = (nodes) => {
+// 저장된 트리의 파일 노드 자료/녹음 배열 형태 보정
+export const normalizeFileTree = (nodes) => {
   const list = Array.isArray(nodes) ? nodes.map(normalizeNode) : []
   return list
 }
@@ -252,8 +238,8 @@ export const updateNodeById = (nodes, targetId, updater) => {
   })
 }
 
-// 중첩된 폴더/파일 트리에서 id로 현재 파일 노드를 찾습니다.
-const findNodeById = (nodes, targetId) => {
+// 중첩된 폴더/파일 트리에서 id로 현재 파일 노드 찾기
+export const findNodeById = (nodes, targetId) => {
   for (const node of nodes) {
     if (node.id === targetId) return node
     if (node.children) {
@@ -264,21 +250,32 @@ const findNodeById = (nodes, targetId) => {
   return null
 }
 
+const findFirstFileNode = (nodes) => {
+  for (const node of nodes) {
+    if (node?.type === 'file') return node
+    if (node?.children) {
+      const found = findFirstFileNode(node.children)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 // 파일 트리 상태를 localStorage와 동기화해서 새로고침 후에도 목록을 유지합니다.
 export function useFileTreeState() {
   const fileTree = ref([])
   const favorites = ref(new Set())
-  const activeFileName = ref('강의1')
-  const activeFileId = ref('lecture-1')
+  const activeFileName = ref(localStorage.getItem(STORAGE_KEYS.activeFileName) || '')
+  const activeFileId = ref(localStorage.getItem(STORAGE_KEYS.activeFileId) || '')
 
   const currentFileNode = computed(() => findNodeById(fileTree.value, activeFileId.value))
   const activeFileType = computed(() => currentFileNode.value?.fileKind || 'lecture')
   const currentAttachments = computed(() => collectFileMaterials(currentFileNode.value))
   const currentRecordings = computed(() => collectFileRecordings(currentFileNode.value))
 
-  // 외부 컴포넌트에서 수정한 트리를 받아 기본 강의 노드를 보정합니다.
+  // 외부 컴포넌트에서 수정한 트리 보정
   const handleFileTreeUpdate = (nodes) => {
-    fileTree.value = ensureLectureOneFile(nodes)
+    fileTree.value = normalizeFileTree(nodes)
   }
 
   // 즐겨찾기 Set 상태를 갱신합니다.
@@ -293,22 +290,36 @@ export function useFileTreeState() {
     activeFileName.value = node.name
   }
 
+  const syncActiveFileWithTree = () => {
+    const activeNode = findNodeById(fileTree.value, activeFileId.value)
+    if (activeNode) {
+      activeFileName.value = activeNode.name
+      return
+    }
+
+    const firstFile = findFirstFileNode(fileTree.value)
+    if (firstFile) {
+      activeFileId.value = firstFile.id
+      activeFileName.value = firstFile.name
+      return
+    }
+
+    activeFileId.value = ''
+    activeFileName.value = ''
+  }
+
   const loadLocalFileTree = () => {
     const savedTree = localStorage.getItem(STORAGE_KEYS.fileTree)
-    fileTree.value = savedTree ? ensureLectureOneFile(JSON.parse(savedTree)) : ensureLectureOneFile([])
+    fileTree.value = savedTree ? normalizeFileTree(JSON.parse(savedTree)) : normalizeFileTree([])
   }
 
   const loadWorkspaceTree = async () => {
     try {
-      const response = await fetch('/workspace/tree')
-      const result = await response.json()
-      if (!response.ok || !result.ok || !Array.isArray(result.tree)) {
-        throw new Error(result.error || '워크스페이스 목록을 불러오지 못했습니다.')
-      }
-      fileTree.value = ensureLectureOneFile(result.tree)
+      fileTree.value = normalizeFileTree(await getWorkspaceTree())
     } catch {
       loadLocalFileTree()
     }
+    syncActiveFileWithTree()
   }
 
   onMounted(() => {
@@ -327,6 +338,16 @@ export function useFileTreeState() {
   watch(favorites, (newVal) => {
     localStorage.setItem(STORAGE_KEYS.favorites, JSON.stringify(Array.from(newVal)))
   }, { deep: true })
+
+  watch(activeFileId, (newVal) => {
+    if (newVal) localStorage.setItem(STORAGE_KEYS.activeFileId, newVal)
+    else localStorage.removeItem(STORAGE_KEYS.activeFileId)
+  })
+
+  watch(activeFileName, (newVal) => {
+    if (newVal) localStorage.setItem(STORAGE_KEYS.activeFileName, newVal)
+    else localStorage.removeItem(STORAGE_KEYS.activeFileName)
+  })
 
   return {
     fileTree,
