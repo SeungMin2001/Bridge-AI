@@ -1,5 +1,6 @@
-import { ref } from 'vue'
-import { addMaterialToCurrentWeek } from './fileTreeState'
+import { ref, watch } from 'vue'
+import { isWorkspaceUuid, saveSessionResourceTree, uploadWorkspaceMaterial } from '../../api/workspaceApi.js'
+import { addMaterialToCurrentWeek, findNodeById } from './fileTreeState'
 
 // 워크스페이스에 올린 PDF/PPT 강의자료 첨부와 현재 미리보기 자료를 관리합니다.
 export function useMaterialsState({
@@ -7,39 +8,56 @@ export function useMaterialsState({
   activeFileId,
   activeFileName,
   currentAttachments,
-  ensureLectureOneFile,
+  normalizeFileTree,
   updateNodeById
 }) {
   const currentPreviewMaterial = ref(null)
 
+  watch(currentAttachments, (nextAttachments) => {
+    if (!currentPreviewMaterial.value) return
+
+    const nextMaterial = nextAttachments.find((item) => item.id === currentPreviewMaterial.value.id)
+    currentPreviewMaterial.value = nextMaterial || null
+  })
+
   // 선택한 파일을 현재 작업 파일의 이번 주차 강의자료 폴더에 추가하고 바로 미리보기로 엽니다.
-  const handleUploadLectureMaterials = (files) => {
+  const handleUploadLectureMaterials = async (files) => {
     const file = files[0]
     if (!file) return
 
-    const uploadedAt = new Date().toISOString()
-    // 현재는 서버/DB 저장이 아니라 브라우저 blob URL 기반 임시 미리보기입니다.
-    const nextAttachment = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      uploadedAt,
-      url: URL.createObjectURL(file),
-      sourceFile: file
-    }
+    const targetFileId = activeFileId.value
+    if (!targetFileId) return
 
-    const targetFileId = activeFileId.value || 'lecture-1'
+    const nextAttachment = isWorkspaceUuid(targetFileId)
+      ? await uploadWorkspaceMaterial(targetFileId, file)
+      : {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          uploadedAt: new Date().toISOString(),
+          url: URL.createObjectURL(file),
+          sourceFile: file
+        }
 
     fileTree.value = updateNodeById(
-      ensureLectureOneFile(fileTree.value),
+      normalizeFileTree(fileTree.value),
       targetFileId,
       (node) => addMaterialToCurrentWeek(node, nextAttachment)
     )
 
     currentPreviewMaterial.value = nextAttachment
     activeFileId.value = targetFileId
-    activeFileName.value = activeFileName.value || '강의1'
+    activeFileName.value = activeFileName.value || findNodeById(fileTree.value, targetFileId)?.name || ''
+
+    const updatedNode = findNodeById(fileTree.value, targetFileId)
+    if (isWorkspaceUuid(targetFileId) && Array.isArray(updatedNode?.weeks)) {
+      try {
+        await saveSessionResourceTree(targetFileId, updatedNode.weeks)
+      } catch (error) {
+        console.error('[workspace] resource tree save failed:', error)
+      }
+    }
   }
 
   // 메모 탭의 자료 미리보기 패널을 닫습니다.
