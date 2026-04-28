@@ -92,6 +92,42 @@ def normalize_qas(value) -> list[dict]:
     return qas
 
 
+def answer_in_text(answer: str, text: str) -> bool:
+    return answer.strip().casefold() in text.strip().casefold()
+
+
+def select_evidence_passage(qa: dict, atomic_qas: list[dict], fallback_passage: str) -> str:
+    """Use the smallest evidence span that supports a QA item.
+
+    Final QAs often ask a paraphrased version of an atomic fact. Feeding the
+    full passage can reintroduce competing facts into passage-only memory, so
+    prefer matching atomic sub-passages when possible.
+    """
+    explicit = qa.get("sub_passage") or ""
+    if explicit:
+        return explicit
+
+    answer = qa.get("answer") or ""
+    matched = [
+        atomic["sub_passage"]
+        for atomic in atomic_qas
+        if atomic.get("sub_passage")
+        and atomic.get("answer")
+        and answer_in_text(atomic["answer"], answer)
+    ]
+    if matched:
+        return "\n".join(dict.fromkeys(matched))
+
+    if len(atomic_qas) == 1 and atomic_qas[0].get("sub_passage"):
+        return atomic_qas[0]["sub_passage"]
+
+    evidence_chunks = [atomic["sub_passage"] for atomic in atomic_qas if atomic.get("sub_passage")]
+    if evidence_chunks:
+        return "\n".join(dict.fromkeys(evidence_chunks))
+
+    return fallback_passage
+
+
 def load_augmented_examples(path: str | Path, max_samples: int | None = None) -> list[MemoryExample]:
     examples: list[MemoryExample] = []
     for row_idx, row in enumerate(iter_json_records(path)):
@@ -102,9 +138,12 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
         if not passage:
             continue
 
+        atomic_qas = normalize_qas(row.get("atomic_qas"))
+        final_qas = normalize_qas(row.get("final_qas"))
+
         qas = []
-        qas.extend((qa, "atomic", qa.get("sub_passage") or passage) for qa in normalize_qas(row.get("atomic_qas")))
-        qas.extend((qa, "final", passage) for qa in normalize_qas(row.get("final_qas")))
+        qas.extend((qa, "atomic", qa.get("sub_passage") or passage) for qa in atomic_qas)
+        qas.extend((qa, "final", select_evidence_passage(qa, atomic_qas, passage)) for qa in final_qas)
         if not qas and row.get("question") and row.get("answer"):
             qas.append(({"question": str(row["question"]), "answer": str(row["answer"])}, "direct", passage))
 
@@ -123,7 +162,7 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
                 for idx, qa in enumerate(neg_atomic)
             ]
             neg_qas.extend(
-                ("final", idx, qa, neg_passage)
+                ("final", idx, qa, select_evidence_passage(qa, neg_atomic, neg_passage))
                 for idx, qa in enumerate(neg_final)
             )
             if neg_passage and neg.get("answer"):
