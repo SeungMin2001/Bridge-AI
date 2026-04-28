@@ -58,6 +58,7 @@ MAX_SAMPLES = int(MAX_SAMPLES) if MAX_SAMPLES else None
 MAX_VAL_SAMPLES = int(MAX_VAL_SAMPLES) if MAX_VAL_SAMPLES else None
 OVERFIT_CASE = os.getenv("MERGEPRAG_SERVICE_OVERFIT_CASE", "").strip()
 OVERFIT_REPEATS = int(os.getenv("MERGEPRAG_SERVICE_OVERFIT_REPEATS", "200"))
+TRAIN_PHASE = os.getenv("MERGEPRAG_SERVICE_PHASE", "phase1").strip().lower()
 if "--overfit" in sys.argv:
     OVERFIT_CASE = "service_memory"
     sys.argv.remove("--overfit")
@@ -68,19 +69,62 @@ for arg in list(sys.argv):
     elif arg.startswith("--overfit-repeats="):
         OVERFIT_REPEATS = int(arg.split("=", 1)[1])
         sys.argv.remove(arg)
+    elif arg in {"--phase1", "--phase2-dual", "--phase2-rank", "--phase2-teacher"}:
+        TRAIN_PHASE = arg.removeprefix("--")
+        sys.argv.remove(arg)
+PHASE_DEFAULTS = {
+    "phase1": {
+        "objective": "simple",
+        "dual_ce": 0.0,
+        "rank": 0.0,
+        "teacher_kl": 0.0,
+        "separation": 0.0,
+        "diversity": 0.0,
+    },
+    "phase2-dual": {
+        "objective": "pair",
+        "dual_ce": 1.0,
+        "rank": 0.0,
+        "teacher_kl": 0.0,
+        "separation": 0.0,
+        "diversity": 0.0,
+    },
+    "phase2-rank": {
+        "objective": "pair",
+        "dual_ce": 1.0,
+        "rank": 1.0,
+        "teacher_kl": 0.0,
+        "separation": 0.0,
+        "diversity": 0.0,
+    },
+    "phase2-teacher": {
+        "objective": "pair",
+        "dual_ce": 1.0,
+        "rank": 1.0,
+        "teacher_kl": 1.0,
+        "separation": 0.0,
+        "diversity": 0.0,
+    },
+}
+if TRAIN_PHASE not in PHASE_DEFAULTS:
+    valid_phases = ", ".join(sorted(PHASE_DEFAULTS))
+    raise ValueError(f"Unsupported MERGEPRAG_SERVICE_PHASE={TRAIN_PHASE!r}. Valid: {valid_phases}")
+PHASE = PHASE_DEFAULTS[TRAIN_PHASE]
 LOG_EVERY = int(os.getenv("MERGEPRAG_SERVICE_LOG_EVERY", "25"))
 EVAL_EVERY = int(os.getenv("MERGEPRAG_SERVICE_EVAL_EVERY", "250"))
 SAVE_EVERY = int(os.getenv("MERGEPRAG_SERVICE_SAVE_EVERY", "250"))
 EVAL_MAX_SAMPLES = int(os.getenv("MERGEPRAG_SERVICE_EVAL_MAX_SAMPLES", "240"))
 RANK_MARGIN = float(os.getenv("MERGEPRAG_SERVICE_RANK_MARGIN", "0.5"))
-RANK_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_RANK_WEIGHT", "1.0"))
-DUAL_CE_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_DUAL_CE_WEIGHT", "1.0"))
-SEPARATION_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_SEPARATION_WEIGHT", "0.25"))
+RANK_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_RANK_WEIGHT", str(PHASE["rank"])))
+DUAL_CE_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_DUAL_CE_WEIGHT", str(PHASE["dual_ce"])))
+SEPARATION_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_SEPARATION_WEIGHT", str(PHASE["separation"])))
 SEPARATION_TARGET = float(os.getenv("MERGEPRAG_SERVICE_SEPARATION_TARGET", "0.90"))
-DIVERSITY_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_DIVERSITY_WEIGHT", "0.05"))
-TEACHER_KL_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_TEACHER_KL_WEIGHT", "1.0"))
+DIVERSITY_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_DIVERSITY_WEIGHT", str(PHASE["diversity"])))
+TEACHER_KL_WEIGHT = float(os.getenv("MERGEPRAG_SERVICE_TEACHER_KL_WEIGHT", str(PHASE["teacher_kl"])))
 TEACHER_KL_TEMPERATURE = float(os.getenv("MERGEPRAG_SERVICE_TEACHER_KL_TEMPERATURE", "1.0"))
 GRAD_CLIP_NORM = float(os.getenv("MERGEPRAG_SERVICE_GRAD_CLIP_NORM", "1.0"))
+GRAD_DEBUG_STEPS = int(os.getenv("MERGEPRAG_SERVICE_GRAD_DEBUG_STEPS", "5"))
+OBJECTIVE_MODE = os.getenv("MERGEPRAG_SERVICE_OBJECTIVE", str(PHASE["objective"])).strip().lower()
 RESUME_FROM_CHECKPOINT = os.getenv("MERGEPRAG_SERVICE_RESUME", "1").strip().lower() in {
     "1",
     "true",
@@ -140,6 +184,39 @@ def answer_kl_loss(student_logits, student_labels, teacher_logits, teacher_label
     ) * (temp * temp)
 
 
+def zero_like(loss: torch.Tensor) -> torch.Tensor:
+    return loss.detach().new_tensor(0.0)
+
+
+def simple_objective(model, tokenizer, hypernet, target_layer, sample, device):
+    main_mem = encode_memory(model, hypernet, tokenizer, sample["passage"], device)
+    gold_tok = tokenize_qa(tokenizer, sample["question"], sample["answer"], device)
+    main_gold_logits = forward_with_memory(
+        model,
+        target_layer,
+        main_mem["K"],
+        main_mem["V"],
+        gold_tok,
+    )
+    main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
+    if main_gold is None:
+        return None
+    zero = zero_like(main_gold)
+    return {
+        "objective": main_gold,
+        "main_gold": main_gold,
+        "main_neg": main_gold.detach(),
+        "neg_gold": main_gold.detach(),
+        "neg_neg": main_gold.detach(),
+        "rank": zero,
+        "teacher_kl": zero,
+        "sep": zero,
+        "div": zero,
+        "k_cos": zero,
+        "v_cos": zero,
+    }
+
+
 def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device):
     negative = extract_first_hard_negative(sample)
     if not negative or not negative.get("answer") or not negative.get("passage"):
@@ -153,8 +230,6 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
     neg_mem = encode_memory(model, hypernet, tokenizer, negative["passage"], device)
     gold_tok = tokenize_qa(tokenizer, question, gold, device)
     neg_tok = tokenize_qa(tokenizer, question, neg_answer, device)
-    direct_gold_tok = tokenize_direct_qa(tokenizer, question, sample["passage"], gold, device)
-    direct_neg_tok = tokenize_direct_qa(tokenizer, question, negative["passage"], neg_answer, device)
 
     main_gold_logits = forward_with_memory(
         model,
@@ -184,10 +259,6 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
         neg_mem["V"],
         neg_tok,
     )
-    with torch.no_grad():
-        direct_gold_logits = model(**direct_gold_tok)["logits"]
-        direct_neg_logits = model(**direct_neg_tok)["logits"]
-
     main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
     main_neg = compute_answer_loss(main_neg_logits, neg_tok["labels"])
     neg_gold = compute_answer_loss(neg_gold_logits, gold_tok["labels"])
@@ -195,23 +266,31 @@ def hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device
     if any(loss is None for loss in (main_gold, main_neg, neg_gold, neg_neg)):
         return None
 
-    teacher_kl_main = answer_kl_loss(
-        main_gold_logits,
-        gold_tok["labels"],
-        direct_gold_logits,
-        direct_gold_tok["labels"],
-        temperature=TEACHER_KL_TEMPERATURE,
-    )
-    teacher_kl_neg = answer_kl_loss(
-        neg_neg_logits,
-        neg_tok["labels"],
-        direct_neg_logits,
-        direct_neg_tok["labels"],
-        temperature=TEACHER_KL_TEMPERATURE,
-    )
-    if teacher_kl_main is None or teacher_kl_neg is None:
-        return None
-    teacher_kl = teacher_kl_main + teacher_kl_neg
+    if TEACHER_KL_WEIGHT > 0:
+        direct_gold_tok = tokenize_direct_qa(tokenizer, question, sample["passage"], gold, device)
+        direct_neg_tok = tokenize_direct_qa(tokenizer, question, negative["passage"], neg_answer, device)
+        with torch.no_grad():
+            direct_gold_logits = model(**direct_gold_tok)["logits"]
+            direct_neg_logits = model(**direct_neg_tok)["logits"]
+        teacher_kl_main = answer_kl_loss(
+            main_gold_logits,
+            gold_tok["labels"],
+            direct_gold_logits,
+            direct_gold_tok["labels"],
+            temperature=TEACHER_KL_TEMPERATURE,
+        )
+        teacher_kl_neg = answer_kl_loss(
+            neg_neg_logits,
+            neg_tok["labels"],
+            direct_neg_logits,
+            direct_neg_tok["labels"],
+            temperature=TEACHER_KL_TEMPERATURE,
+        )
+        if teacher_kl_main is None or teacher_kl_neg is None:
+            return None
+        teacher_kl = teacher_kl_main + teacher_kl_neg
+    else:
+        teacher_kl = zero_like(main_gold)
 
     rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
     k_cos = cosine_flat(main_mem["K"], neg_mem["K"])
@@ -314,12 +393,47 @@ def config_matches(saved: dict, current: dict) -> bool:
         "pooling_mode",
         "max_memory_tokens",
         "objective",
+        "train_phase",
+        "rank_weight",
+        "dual_ce_weight",
+        "teacher_kl_weight",
+        "separation_weight",
+        "diversity_weight",
         "overfit_case",
     )
     return all(saved.get(key) == current.get(key) for key in keys)
 
 
+def print_gradient_debug(hypernet, global_step: int) -> None:
+    if GRAD_DEBUG_STEPS <= 0 or global_step >= GRAD_DEBUG_STEPS:
+        return
+    print(f"[GRAD step={global_step + 1}]")
+    for name, param in hypernet.named_parameters():
+        if SERVICE_SKIP_SCALE == 0 and name.startswith("skip_"):
+            print(f"  {name}: DISABLED (skip_scale=0)")
+            continue
+        if param.grad is None:
+            print(f"  {name}: NO GRADIENT")
+            continue
+        norm = param.grad.detach().norm().item()
+        marker = " ZERO" if norm < 1e-8 else ""
+        print(f"  {name}: {norm:.6f}{marker}")
+
+
+def train_objective(model, tokenizer, hypernet, target_layer, sample, device):
+    if OBJECTIVE_MODE == "simple":
+        return simple_objective(model, tokenizer, hypernet, target_layer, sample, device)
+    if OBJECTIVE_MODE == "pair":
+        return hard_pair_objective(model, tokenizer, hypernet, target_layer, sample, device)
+    raise ValueError(f"Unsupported MERGEPRAG_SERVICE_OBJECTIVE={OBJECTIVE_MODE!r}. Use simple or pair.")
+
+
 def train():
+    if SERVICE_POOLING_MODE == "token" and DIVERSITY_WEIGHT > 0:
+        raise ValueError(
+            "DIVERSITY_WEIGHT > 0 is incompatible with pooling_mode='token'. "
+            "Set MERGEPRAG_SERVICE_DIVERSITY_WEIGHT=0 or use MERGEPRAG_SERVICE_POOLING_MODE=slot."
+        )
     print(f"[service_memory] loading model: {MODEL_NAME}")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
     if tokenizer.pad_token is None:
@@ -377,7 +491,8 @@ def train():
         "skip_scale": SERVICE_SKIP_SCALE,
         "pooling_mode": SERVICE_POOLING_MODE,
         "max_memory_tokens": SERVICE_MAX_MEMORY_TOKENS,
-        "objective": "dual_ce_rank_teacher_distill_memory_separation_slot_diversity",
+        "objective": OBJECTIVE_MODE,
+        "train_phase": TRAIN_PHASE,
         "rank_margin": RANK_MARGIN,
         "rank_weight": RANK_WEIGHT,
         "dual_ce_weight": DUAL_CE_WEIGHT,
@@ -441,12 +556,13 @@ def train():
         for sample_idx in indices:
             if global_step >= total_steps:
                 break
-            out = hard_pair_objective(model, tokenizer, hypernet, target_layer, train_dataset[sample_idx], device)
+            out = train_objective(model, tokenizer, hypernet, target_layer, train_dataset[sample_idx], device)
             if out is None:
                 continue
 
             optimizer.zero_grad()
             out["objective"].backward()
+            print_gradient_debug(hypernet, global_step)
             if GRAD_CLIP_NORM > 0:
                 torch.nn.utils.clip_grad_norm_(hypernet.parameters(), GRAD_CLIP_NORM)
             optimizer.step()

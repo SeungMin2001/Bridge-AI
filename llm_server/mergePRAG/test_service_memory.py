@@ -25,13 +25,15 @@ from .service_memory import (
     encode_memory,
     forward_with_memory,
     make_memory_hook,
+    model_num_heads,
     tokenize_direct_qa,
     tokenize_qa,
 )
 from .train2 import MergePRAGDataset, extract_first_hard_negative
-from .train_service_memory import CHECKPOINT_PATH, WEIGHTS_PATH
 
 BASE_DIR = Path(__file__).resolve().parent
+CHECKPOINT_PATH = os.getenv("MERGEPRAG_SERVICE_CHECKPOINT_PATH", str(BASE_DIR / "service_memory_checkpoint.pt"))
+WEIGHTS_PATH = os.getenv("MERGEPRAG_SERVICE_WEIGHTS_PATH", str(BASE_DIR / "service_memory_weights.pt"))
 OVERFIT_CHECKPOINT_PATH = BASE_DIR / "service_memory_overfit_checkpoint.pt"
 OVERFIT_WEIGHTS_PATH = BASE_DIR / "service_memory_overfit_weights.pt"
 
@@ -49,6 +51,11 @@ def parse_args():
     )
     parser.add_argument("--show-examples", type=int, default=1)
     parser.add_argument("--show-generations", type=int, default=1)
+    parser.add_argument(
+        "--kv-necessity",
+        action="store_true",
+        help="For shown examples, compare real K/V against zero and random K/V generations.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=24)
     parser.add_argument(
         "--alpha",
@@ -168,9 +175,26 @@ def generate_from_prompt(model, tokenizer, prompt, device, max_new_tokens=24):
 @torch.no_grad()
 def generate_with_memory(model, tokenizer, hypernet, target_layer, question, passage, device, alpha, use_contextual, max_new_tokens=24):
     mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
+    return generate_with_given_memory(
+        model,
+        tokenizer,
+        target_layer,
+        question,
+        mem["K"],
+        mem["V"],
+        device,
+        alpha,
+        max_new_tokens=max_new_tokens,
+    )
+
+
+@torch.no_grad()
+def generate_with_given_memory(model, tokenizer, target_layer, question, K, V, device, alpha, max_new_tokens=24):
     prompt = build_chat_prompt(tokenizer, question)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    hook = target_layer.register_forward_hook(make_memory_hook(mem["K"], mem["V"], alpha=alpha))
+    hook = target_layer.register_forward_hook(
+        make_memory_hook(K, V, num_heads=model_num_heads(model), alpha=alpha)
+    )
     try:
         generated = model.generate(
             **inputs,
@@ -182,6 +206,23 @@ def generate_with_memory(model, tokenizer, hypernet, target_layer, question, pas
     finally:
         hook.remove()
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+
+
+@torch.no_grad()
+def kv_necessity_generations(model, tokenizer, hypernet, target_layer, question, passage, device, alpha, use_contextual, max_new_tokens=24):
+    mem = encode_memory(model, hypernet, tokenizer, passage, device, use_contextual=use_contextual)
+    K_real, V_real = mem["K"], mem["V"]
+    K_zero = torch.zeros_like(K_real)
+    V_zero = torch.zeros_like(V_real)
+    k_std = K_real.float().std().clamp_min(1e-6).to(device=K_real.device, dtype=K_real.dtype)
+    v_std = V_real.float().std().clamp_min(1e-6).to(device=V_real.device, dtype=V_real.dtype)
+    K_random = torch.randn_like(K_real) * k_std
+    V_random = torch.randn_like(V_real) * v_std
+    return {
+        "real": generate_with_given_memory(model, tokenizer, target_layer, question, K_real, V_real, device, alpha, max_new_tokens),
+        "zero": generate_with_given_memory(model, tokenizer, target_layer, question, K_zero, V_zero, device, alpha, max_new_tokens),
+        "random": generate_with_given_memory(model, tokenizer, target_layer, question, K_random, V_random, device, alpha, max_new_tokens),
+    }
 
 
 def main():
@@ -373,6 +414,22 @@ def main():
                         print(f"  gen memory  raw={memory} [{yn(memory_hit)}]")
                         if direct_pref and not direct_hit:
                             print("  note: direct loss is OK but free generation is unstable; use loss/flip as the main signal.")
+                        if args.kv_necessity:
+                            kv_gen = kv_necessity_generations(
+                                model,
+                                tokenizer,
+                                hypernet,
+                                target_layer,
+                                q,
+                                passage,
+                                device,
+                                alpha,
+                                use_contextual,
+                                max_new_tokens=args.max_new_tokens,
+                            )
+                            print(f"  kv real   raw={kv_gen['real']}")
+                            print(f"  kv zero   raw={kv_gen['zero']}")
+                            print(f"  kv random raw={kv_gen['random']}")
                     else:
                         print(f"  gen no_hook={no_hook}")
                         print(f"  gen direct ={direct}")
@@ -386,6 +443,7 @@ def main():
     if args.simple:
         print("\n[Simple Summary]")
         print(f"  evaluated: {total}/{len(dataset)} hard-pair rows")
+        print(f"  no-passage answer preference    : {base_ok / denom:.3f} ({base_ok}/{denom})")
         print(f"  direct passage understands data : {direct_ok / denom:.3f} ({direct_ok}/{denom})")
         print(f"  main memory chooses main answer : {main_ok / denom:.3f} ({main_ok}/{denom})")
         print(f"  neg memory chooses neg answer   : {neg_ok / denom:.3f} ({neg_ok}/{denom})")

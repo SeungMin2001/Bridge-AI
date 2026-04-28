@@ -11,16 +11,17 @@ from .config import MAX_SEQ_LEN, contains_hangul
 SERVICE_NUM_KV = int(os.getenv("MERGEPRAG_SERVICE_NUM_KV", "8"))
 SERVICE_HIDDEN_DIM = int(os.getenv("MERGEPRAG_SERVICE_HIDDEN_DIM", "1024"))
 SERVICE_ALPHA = float(os.getenv("MERGEPRAG_SERVICE_ALPHA", "0.3"))
-SERVICE_USE_CONTEXTUAL = os.getenv("MERGEPRAG_SERVICE_USE_CONTEXTUAL", "1").strip().lower() in {
+SERVICE_USE_CONTEXTUAL = os.getenv("MERGEPRAG_SERVICE_USE_CONTEXTUAL", "0").strip().lower() in {
     "1",
     "true",
     "yes",
     "on",
 }
 SERVICE_RMS_CLAMP = float(os.getenv("MERGEPRAG_SERVICE_RMS_CLAMP", "0.5"))
-SERVICE_SKIP_SCALE = float(os.getenv("MERGEPRAG_SERVICE_SKIP_SCALE", "0.5"))
-SERVICE_POOLING_MODE = os.getenv("MERGEPRAG_SERVICE_POOLING_MODE", "token").strip().lower()
+SERVICE_SKIP_SCALE = float(os.getenv("MERGEPRAG_SERVICE_SKIP_SCALE", "0.0"))
+SERVICE_POOLING_MODE = os.getenv("MERGEPRAG_SERVICE_POOLING_MODE", "slot").strip().lower()
 SERVICE_MAX_MEMORY_TOKENS = int(os.getenv("MERGEPRAG_SERVICE_MAX_MEMORY_TOKENS", "128"))
+DEBUG_HOOK = os.getenv("MERGEPRAG_DEBUG_HOOK", "0").strip().lower() in {"1", "true", "yes", "on"}
 SERVICE_SYSTEM_PROMPT_EN = os.getenv(
     "MERGEPRAG_SERVICE_SYSTEM_PROMPT",
     (
@@ -120,8 +121,11 @@ class ServiceMemoryHyperNetwork(nn.Module):
             hidden = self.mlp(pooled)
         else:
             raise ValueError(f"Unsupported service memory pooling mode: {self.pooling_mode}")
-        K = self.linear_K(hidden) + self.skip_scale * self.skip_K(pooled)
-        V = self.linear_V(hidden) + self.skip_scale * self.skip_V(pooled)
+        K = self.linear_K(hidden)
+        V = self.linear_V(hidden)
+        if self.skip_scale != 0:
+            K = K + self.skip_scale * self.skip_K(pooled)
+            V = V + self.skip_scale * self.skip_V(pooled)
         return {
             "encoded": x,
             "pooled": pooled,
@@ -178,7 +182,7 @@ def encode_memory(model, hypernet, tokenizer, passage: str, device, use_contextu
     return memory
 
 
-def cross_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, num_heads: int = 8) -> torch.Tensor:
+def cross_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, num_heads: int) -> torch.Tensor:
     squeezed = False
     if Q.dim() == 2:
         Q = Q.unsqueeze(0)
@@ -191,7 +195,10 @@ def cross_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, num_heads
     batch, query_len, d_model = Q.shape
     key_len = K.shape[1]
     if d_model % num_heads != 0:
-        raise ValueError(f"d_model={d_model} must be divisible by num_heads={num_heads}")
+        raise ValueError(
+            f"d_model={d_model} must be divisible by num_heads={num_heads}. "
+            "Check model.config.num_attention_heads."
+        )
     d_k = d_model // num_heads
     Qh = Q.view(batch, query_len, num_heads, d_k).transpose(1, 2)
     Kh = K.view(batch, key_len, num_heads, d_k).transpose(1, 2)
@@ -202,12 +209,30 @@ def cross_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, num_heads
     return out.squeeze(0) if squeezed else out
 
 
-def make_memory_hook(K: torch.Tensor, V: torch.Tensor, alpha: float = SERVICE_ALPHA):
+def model_num_heads(model) -> int:
+    return int(getattr(model.config, "num_attention_heads"))
+
+
+def make_memory_hook(K: torch.Tensor, V: torch.Tensor, num_heads: int, alpha: float = SERVICE_ALPHA):
+    call_count = [0]
+
     def hook_fn(_module, _input, output):
         hidden = output[0] if isinstance(output, tuple) else output
         K_local = K.to(device=hidden.device, dtype=hidden.dtype)
         V_local = V.to(device=hidden.device, dtype=hidden.dtype)
-        new_hidden = hidden + alpha * cross_attention(hidden, K_local, V_local)
+        delta = cross_attention(hidden, K_local, V_local, num_heads=num_heads)
+        scaled_delta = alpha * delta
+        new_hidden = hidden + scaled_delta
+        if DEBUG_HOOK and call_count[0] < 3:
+            with torch.no_grad():
+                hidden_norm = hidden.norm(dim=-1).mean().item()
+                delta_norm = scaled_delta.norm(dim=-1).mean().item()
+                ratio = delta_norm / max(hidden_norm, 1e-8)
+                print(
+                    f"[HOOK call={call_count[0]}] hidden_norm={hidden_norm:.4f} "
+                    f"delta_norm={delta_norm:.4f} ratio={ratio:.4f}"
+                )
+            call_count[0] += 1
         if isinstance(output, tuple):
             return (new_hidden,) + output[1:]
         return new_hidden
@@ -313,7 +338,9 @@ def compute_answer_loss(logits: torch.Tensor, labels: torch.Tensor):
 
 
 def forward_with_memory(model, target_layer, K: torch.Tensor, V: torch.Tensor, tok, alpha: float = SERVICE_ALPHA):
-    hook = target_layer.register_forward_hook(make_memory_hook(K, V, alpha=alpha))
+    hook = target_layer.register_forward_hook(
+        make_memory_hook(K, V, num_heads=model_num_heads(model), alpha=alpha)
+    )
     try:
         logits = model(**tok)["logits"]
     finally:
