@@ -14,6 +14,54 @@ const getDefaultIconForTag = (tag = '') => {
   return 'article'
 }
 
+const isUuid = (value = '') => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+
+const requestWorkspaceNode = async (endpoint, payload) => {
+  const response = await fetch(`/workspace/${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  })
+
+  const rawResult = await response.text()
+  let result = {}
+
+  try {
+    result = rawResult ? JSON.parse(rawResult) : {}
+  } catch {
+    result = { error: rawResult }
+  }
+
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || result.detail || `워크스페이스 저장에 실패했습니다. (${response.status})`)
+  }
+
+  return result.node
+}
+
+const deleteWorkspaceFile = async (fileId) => {
+  const response = await fetch(`/workspace/sessions/${fileId}`, {
+    method: 'DELETE'
+  })
+
+  const rawResult = await response.text()
+  let result = {}
+
+  try {
+    result = rawResult ? JSON.parse(rawResult) : {}
+  } catch {
+    result = { error: rawResult }
+  }
+
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || result.detail || `워크스페이스 파일 삭제에 실패했습니다. (${response.status})`)
+  }
+
+  return result
+}
+
 // 홈/작업 폴더 화면의 모달, 폴더 이동, 파일/폴더 생성 액션을 관리합니다.
 export function useHome(props, emit) {
   const isSidebarCollapsed = ref(false)
@@ -128,51 +176,41 @@ export function useHome(props, emit) {
       })
   }
 
-  const formatNow = () => {
-    const now = new Date()
-    return `${now.getFullYear()}. ${now.getMonth() + 1}. ${now.getDate()}. ${now.getHours() >= 12 ? '오후' : '오전'} ${now.getHours() % 12 || 12}:${now.getMinutes().toString().padStart(2, '0')}`
+  const getCurrentFolderId = () => {
+    return navigationStack.value.length > 0 ? navigationStack.value[navigationStack.value.length - 1].id : null
   }
 
-  // 입력한 이름과 색상으로 새 폴더를 생성합니다.
-  const handleCreateFolder = () => {
+  // 입력한 이름과 색상으로 새 폴더를 생성하고 DB 테스트 서버에 저장합니다.
+  const handleCreateFolder = async () => {
     if (!newFolderName.value.trim()) return
 
-    const newFolder = {
-      id: 'f' + Date.now(),
-      type: 'folder',
-      name: newFolderName.value,
-      date: formatNow(),
+    const currentFolderId = getCurrentFolderId()
+    const newFolder = await requestWorkspaceNode('courses', {
+      title: newFolderName.value.trim(),
+      parent_course_id: isUuid(currentFolderId) ? currentFolderId : null,
       color: selectedColor.value,
-      expanded: false,
-      children: []
-    }
-
-    const currentFolderId = navigationStack.value.length > 0 ? navigationStack.value[navigationStack.value.length - 1].id : null
+      icon: 'folder'
+    })
 
     emit('update:fileTree', addItemToTree(props.fileTree, currentFolderId, newFolder))
     isFolderModalOpen.value = false
     newFolderName.value = ''
   }
 
-  // 입력한 이름과 색상으로 새 파일을 생성합니다.
-  const createFileNode = (fileKind) => ({
-    id: 'file-' + Date.now(),
-    type: 'file',
-    fileKind,
-    name: newFileName.value,
-    date: formatNow(),
-    color: selectedColor.value,
-    tag: selectedTag.value,
-    fileIcon: selectedFileIcon.value || getDefaultIconForTag(selectedTag.value),
-    content: '',
-    attachments: []
-  })
-
-  const handleCreateFile = (fileKind = selectedTag.value === '회의' ? 'meeting' : 'lecture') => {
+  // 입력한 이름과 색상으로 새 파일을 생성하고 DB 테스트 서버에 저장합니다.
+  const handleCreateFile = async (fileKind = selectedTag.value === '회의' ? 'meeting' : 'lecture') => {
     if (!newFileName.value.trim()) return
-    const newFile = createFileNode(fileKind)
 
-    const currentFolderId = navigationStack.value.length > 0 ? navigationStack.value[navigationStack.value.length - 1].id : null
+    const currentFolderId = getCurrentFolderId()
+    const newFile = await requestWorkspaceNode('sessions', {
+      course_id: isUuid(currentFolderId) ? currentFolderId : null,
+      title: newFileName.value.trim(),
+      file_kind: fileKind,
+      tag: selectedTag.value,
+      icon: selectedFileIcon.value || getDefaultIconForTag(selectedTag.value),
+      color: selectedColor.value
+    })
+
     emit('update:fileTree', addItemToTree(props.fileTree, currentFolderId, newFile))
     isFileModalOpen.value = false
     newFileName.value = ''
@@ -221,8 +259,13 @@ export function useHome(props, emit) {
     closeEditItemModal()
   }
 
-  const handleDeleteEditingItem = () => {
+  const handleDeleteEditingItem = async () => {
     if (!editingItemId.value) return
+
+    const targetNode = findItemInTree(props.fileTree, editingItemId.value)
+    if (targetNode?.type === 'file' && isUuid(targetNode.id)) {
+      await deleteWorkspaceFile(targetNode.id)
+    }
 
     emit('update:fileTree', removeItemFromTree(props.fileTree, editingItemId.value))
 
