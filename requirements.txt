@@ -78,3 +78,6 @@ kiwipiepy
 psycopg2-binary==2.9.11
 psycopg==3.3.3
 pgvector==0.4.2
+llama-index-core==0.14.18
+llama-index-embeddings-huggingface==0.7.0
+llama-index-vector-stores-postgres==0.8.1
