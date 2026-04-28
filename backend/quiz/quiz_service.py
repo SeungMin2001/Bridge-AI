@@ -180,7 +180,7 @@ async def generate_quiz(
                 json={
                     "model": LLM_MODEL,
                     "messages": messages,
-                    "max_tokens": 2048,
+                    "max_tokens": 256,
                     "temperature": 0.3,  # 정확한 JSON 생성을 위해 낮은 temperature
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
