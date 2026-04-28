@@ -8,6 +8,10 @@
   POST /quiz/{quiz_id}/submit  - 퀴즈 채점 (사용자 답안 제출)
   GET  /quiz/session/{session_id} - 세션별 퀴즈 목록 조회
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 import uuid
@@ -148,6 +152,18 @@ async def quiz_generate_from_text(req: QuizGenerateTextRequest):
         "quiz_data": quiz_data,
     }
 
+#  세션별 퀴즈 목록 (/{quiz_id}보다 먼저 선언해야 경로 충돌 방지)
+@router.get("/session/{session_id}")
+async def quiz_list_by_session(session_id: str):
+    """session_id에 해당하는 퀴즈 목록을 최신순으로 반환합니다."""
+    quizzes = await get_quizzes_by_session(session_id)
+    return {
+        "session_id": session_id,
+        "count": len(quizzes),
+        "quizzes": quizzes,
+    }
+
+
 #  퀴즈 조회
 @router.get("/{quiz_id}")
 async def quiz_get(quiz_id: str):
@@ -200,16 +216,4 @@ async def quiz_submit(quiz_id: str, req: QuizSubmitRequest):
         "correct_count": correct_count,
         "score": score,
         "quiz_data": graded_data,
-    }
-
-
-#  세션별 퀴즈 목록
-@router.get("/session/{session_id}")
-async def quiz_list_by_session(session_id: str):
-    """session_id에 해당하는 퀴즈 목록을 최신순으로 반환합니다."""
-    quizzes = await get_quizzes_by_session(session_id)
-    return {
-        "session_id": session_id,
-        "count": len(quizzes),
-        "quizzes": quizzes,
     }
