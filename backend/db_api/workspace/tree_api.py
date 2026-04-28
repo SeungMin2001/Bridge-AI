@@ -16,7 +16,7 @@ async def get_workspace_tree() -> dict:
         session_rows = await conn.fetch(
             """
             SELECT session_id, course_id, session_date, title, status, created_at,
-                   file_kind, tag, icon, color, session_pdf, summary_notes
+                   file_kind, tag, icon, color, session_pdf, summary_notes, resource_tree
             FROM sessions
             ORDER BY created_at DESC NULLS LAST
             """
