@@ -57,6 +57,20 @@ def get_passage(row: dict) -> str:
     return ""
 
 
+def extract_answer(row: dict) -> str:
+    for key in ("answer", "target", "output", "response", "negative_answer", "counterfactual_answer"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    answers = row.get("answers")
+    if isinstance(answers, list):
+        for item in answers:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return ""
+
+
 def normalize_qas(value) -> list[dict]:
     if not isinstance(value, list):
         return []
