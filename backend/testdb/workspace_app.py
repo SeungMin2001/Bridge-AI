@@ -11,8 +11,8 @@ from urllib.parse import urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from db_api.workspace.common import WorkspaceApiError
-from db_api.workspace.courses_api import create_course
-from db_api.workspace.sessions_api import create_session_file, delete_session_file
+from db_api.workspace.courses_api import create_course, delete_course, update_course
+from db_api.workspace.sessions_api import create_session_file, delete_session_file, update_session_resource_tree
 from db_api.workspace.tree_api import get_workspace_tree
 
 
@@ -41,7 +41,7 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(body)
@@ -117,11 +117,40 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         except Exception as error:
             self._handle_error(error)
 
-    def do_DELETE(self) -> None:
-        # DELETE /workspace/sessions/{session_id}를 처리합니다.
+    def do_PUT(self) -> None:
+        # PUT /workspace/courses/{course_id}, PUT /workspace/sessions/{session_id}/resource-tree 처리
         path = urlparse(self.path).path
 
         try:
+            payload = self._read_json()
+
+            if path.startswith("/workspace/sessions/") and path.endswith("/resource-tree"):
+                session_id = path.split("/")[-2]
+                result = self._run_api(update_session_resource_tree(session_id, payload))
+                self._send_json(200, result)
+                return
+
+            if path.startswith("/workspace/courses/"):
+                course_id = path.rsplit("/", 1)[-1]
+                result = self._run_api(update_course(course_id, payload))
+                self._send_json(200, result)
+                return
+
+            self._send_json(404, {"ok": False, "error": "Not found"})
+        except Exception as error:
+            self._handle_error(error)
+
+    def do_DELETE(self) -> None:
+        # DELETE /workspace/courses/{course_id}, DELETE /workspace/sessions/{session_id}를 처리합니다.
+        path = urlparse(self.path).path
+
+        try:
+            if path.startswith("/workspace/courses/"):
+                course_id = path.rsplit("/", 1)[-1]
+                result = self._run_api(delete_course(course_id))
+                self._send_json(200, result)
+                return
+
             if path.startswith("/workspace/sessions/"):
                 session_id = path.rsplit("/", 1)[-1]
                 result = self._run_api(delete_session_file(session_id))
@@ -140,7 +169,7 @@ def run() -> None:
     # DB 연동 테스트 서버를 127.0.0.1:8001에서 실행합니다.
     server = ThreadingHTTPServer((HOST, PORT), WorkspaceRequestHandler)
     print(f"Workspace test server running at http://{HOST}:{PORT}")
-    print("Endpoints: GET /health, GET /workspace/tree, POST /workspace/courses, POST /workspace/sessions, DELETE /workspace/sessions/{id}")
+    print("Endpoints: GET /health, GET /workspace/tree, POST /workspace/courses, PUT /workspace/courses/{id}, DELETE /workspace/courses/{id}, POST /workspace/sessions, PUT /workspace/sessions/{id}/resource-tree, DELETE /workspace/sessions/{id}")
     server.serve_forever()
 
 
