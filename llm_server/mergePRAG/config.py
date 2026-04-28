@@ -166,6 +166,12 @@ def load_critical_layer() -> int:
     try:
         with open(CRITICAL_LAYERS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
+        scanned_model = data.get("model")
+        if scanned_model and scanned_model != MODEL_NAME:
+            # A stale scan silently trains/injects at the wrong layer after a
+            # model swap. Prefer the explicit/default layer unless the caller
+            # reruns find_critical_layers.py for the current model.
+            return DEFAULT_CRITICAL_LAYER
         layers = data.get("critical_layers") or []
         if layers:
             return int(layers[0])
