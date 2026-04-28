@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import time
 
@@ -160,6 +161,13 @@ def main() -> None:
     parser.add_argument("--valid-every", type=int, default=5)
     parser.add_argument("--max-new-tokens", type=int, default=768)
     parser.add_argument(
+        "--shuffle",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Shuffle input rows before augmentation so topics are mixed instead of processed sequentially.",
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
         "--resume",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -180,15 +188,19 @@ def main() -> None:
         write_jsonl(args.valid_output, [])
         print("[PRAG:augment] resume disabled: output files were reset.")
 
-    input_total = args.max_samples or count_input_records(args.input)
+    input_rows = list(iter_json_records(args.input))
+    if args.shuffle:
+        random.Random(args.seed).shuffle(input_rows)
+    if args.max_samples:
+        input_rows = input_rows[: args.max_samples]
+    input_total = len(input_rows)
     print(f"[PRAG:augment] input={args.input} total_target={input_total}")
+    print(f"[PRAG:augment] shuffle={args.shuffle} seed={args.seed}")
 
     model, tokenizer = load_local_model(args.model)
     made = skipped_seen = skipped_invalid = 0
     started_at = time.time()
-    for idx, source in enumerate(iter_json_records(args.input)):
-        if args.max_samples and idx >= args.max_samples:
-            break
+    for idx, source in enumerate(input_rows):
         passage = get_passage(source)
         if not passage:
             continue
