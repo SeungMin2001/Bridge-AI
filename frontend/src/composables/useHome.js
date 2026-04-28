@@ -1,4 +1,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
+import {
+  createWorkspaceFile,
+  createWorkspaceFolder,
+  deleteWorkspaceFile,
+  deleteWorkspaceFolder,
+  isWorkspaceUuid,
+  updateWorkspaceFolder
+} from '../api/workspaceApi.js'
 
 const FOLDER_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6']
 const LECTURE_FILE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6']
@@ -12,54 +20,6 @@ const getDefaultIconForTag = (tag = '') => {
   if (tag === '개인') return 'person'
   if (tag === '중요') return 'priority_high'
   return 'article'
-}
-
-const isUuid = (value = '') => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-
-const requestWorkspaceNode = async (endpoint, payload) => {
-  const response = await fetch(`/workspace/${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  })
-
-  const rawResult = await response.text()
-  let result = {}
-
-  try {
-    result = rawResult ? JSON.parse(rawResult) : {}
-  } catch {
-    result = { error: rawResult }
-  }
-
-  if (!response.ok || !result.ok) {
-    throw new Error(result.error || result.detail || `워크스페이스 저장에 실패했습니다. (${response.status})`)
-  }
-
-  return result.node
-}
-
-const deleteWorkspaceFile = async (fileId) => {
-  const response = await fetch(`/workspace/sessions/${fileId}`, {
-    method: 'DELETE'
-  })
-
-  const rawResult = await response.text()
-  let result = {}
-
-  try {
-    result = rawResult ? JSON.parse(rawResult) : {}
-  } catch {
-    result = { error: rawResult }
-  }
-
-  if (!response.ok || !result.ok) {
-    throw new Error(result.error || result.detail || `워크스페이스 파일 삭제에 실패했습니다. (${response.status})`)
-  }
-
-  return result
 }
 
 // 홈/작업 폴더 화면의 모달, 폴더 이동, 파일/폴더 생성 액션을 관리합니다.
@@ -180,14 +140,14 @@ export function useHome(props, emit) {
     return navigationStack.value.length > 0 ? navigationStack.value[navigationStack.value.length - 1].id : null
   }
 
-  // 입력한 이름과 색상으로 새 폴더를 생성하고 DB 테스트 서버에 저장합니다.
+  // 입력한 이름과 색상으로 새 폴더 생성
   const handleCreateFolder = async () => {
     if (!newFolderName.value.trim()) return
 
     const currentFolderId = getCurrentFolderId()
-    const newFolder = await requestWorkspaceNode('courses', {
+    const newFolder = await createWorkspaceFolder({
       title: newFolderName.value.trim(),
-      parent_course_id: isUuid(currentFolderId) ? currentFolderId : null,
+      parent_course_id: isWorkspaceUuid(currentFolderId) ? currentFolderId : null,
       color: selectedColor.value,
       icon: 'folder'
     })
@@ -197,13 +157,13 @@ export function useHome(props, emit) {
     newFolderName.value = ''
   }
 
-  // 입력한 이름과 색상으로 새 파일을 생성하고 DB 테스트 서버에 저장합니다.
+  // 입력한 이름과 색상으로 새 파일 생성
   const handleCreateFile = async (fileKind = selectedTag.value === '회의' ? 'meeting' : 'lecture') => {
     if (!newFileName.value.trim()) return
 
     const currentFolderId = getCurrentFolderId()
-    const newFile = await requestWorkspaceNode('sessions', {
-      course_id: isUuid(currentFolderId) ? currentFolderId : null,
+    const newFile = await createWorkspaceFile({
+      course_id: isWorkspaceUuid(currentFolderId) ? currentFolderId : null,
       title: newFileName.value.trim(),
       file_kind: fileKind,
       tag: selectedTag.value,
@@ -241,8 +201,17 @@ export function useHome(props, emit) {
     resetEditingState()
   }
 
-  const handleUpdateItem = () => {
+  const handleUpdateItem = async () => {
     if (!editingItemId.value || !newFileName.value.trim()) return
+
+    const targetNode = findItemInTree(props.fileTree, editingItemId.value)
+    if (targetNode?.type === 'folder' && isWorkspaceUuid(targetNode.id)) {
+      await updateWorkspaceFolder(targetNode.id, {
+        title: newFileName.value.trim(),
+        color: selectedColor.value,
+        icon: targetNode.icon || 'folder'
+      })
+    }
 
     emit('update:fileTree', updateItemInTree(props.fileTree, editingItemId.value, (node) => ({
       ...node,
@@ -263,8 +232,10 @@ export function useHome(props, emit) {
     if (!editingItemId.value) return
 
     const targetNode = findItemInTree(props.fileTree, editingItemId.value)
-    if (targetNode?.type === 'file' && isUuid(targetNode.id)) {
+    if (targetNode?.type === 'file' && isWorkspaceUuid(targetNode.id)) {
       await deleteWorkspaceFile(targetNode.id)
+    } else if (targetNode?.type === 'folder' && isWorkspaceUuid(targetNode.id)) {
+      await deleteWorkspaceFolder(targetNode.id)
     }
 
     emit('update:fileTree', removeItemFromTree(props.fileTree, editingItemId.value))
