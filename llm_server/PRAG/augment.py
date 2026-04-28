@@ -66,15 +66,17 @@ def generate_json(model, tokenizer, source: dict, passage: str, max_new_tokens: 
             negative_answer=negative["answer"],
         ),
     }]
-    templated = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
-    if isinstance(templated, dict):
-        input_ids = templated["input_ids"]
-    else:
-        input_ids = templated
-    input_ids = input_ids.to(model.device)
+    prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    encoded = tokenizer(prompt, return_tensors="pt").to(model.device)
+    input_ids = encoded["input_ids"]
+    attention_mask = encoded.get("attention_mask", torch.ones_like(input_ids))
     output = model.generate(
         input_ids,
-        attention_mask=torch.ones_like(input_ids),
+        attention_mask=attention_mask,
         max_new_tokens=max_new_tokens,
         do_sample=False,
         pad_token_id=tokenizer.eos_token_id,
