@@ -43,7 +43,7 @@ def get_embedding(text: str):
 
     try:
         # Official docs recommend dot product with normalized embeddings.
-        embedding = model.encode(text, normalize_embeddings=True)
+        embedding = model.encode(text, normalize_embeddings=True) #공식문서 참조하면 코사인 유사도보다 내적이 더 효과적이라고 말하고있음.
         return embedding.tolist()
     except Exception as exc:
         logger.warning("[EMBED] Encoding failed; returning None: %s", exc)

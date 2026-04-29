@@ -27,7 +27,8 @@ import logging
 
 def get_conn():
     conn = psycopg.connect(
-        "host=100.104.164.84 port=5432 dbname=rag user=postgres password=1234 connect_timeout=5"
+        #host=100.104.164.84
+        "host=db port=5432 dbname=rag user=postgres password=1234 connect_timeout=5"
     )
     register_vector(conn)
     return conn

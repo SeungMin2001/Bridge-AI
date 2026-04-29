@@ -1,11 +1,19 @@
 import psycopg
 from pgvector.psycopg import register_vector
 import datetime
+import os
 
-DB_URL = "host=100.104.164.84 port=5432 dbname=rag user=postgres password=1234 connect_timeout=5"
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "db"),
+    "port": int(os.getenv("DB_PORT", 5432)),
+    "dbname": os.getenv("DB_NAME", "rag"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", "1234"),
+    "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", 5)),
+}
 
 def get_db_conn():
-    conn = psycopg.connect(DB_URL)
+    conn = psycopg.connect(**DB_CONFIG)
     register_vector(conn)
     return conn
 
