@@ -158,6 +158,33 @@ def format_progress(done: int, total: int) -> str:
     return progress
 
 
+def progress_suffix(
+    processed: int,
+    input_total: int,
+    existing_in_input: int,
+    made: int,
+    skipped_seen: int,
+    skipped_invalid: int,
+    train_count: int,
+    valid_count: int,
+    started_at: float,
+) -> str:
+    done_total = min(existing_in_input + made, input_total)
+    elapsed_min = max((time.time() - started_at) / 60, 1e-6)
+    rate = processed / elapsed_min
+    eta = ""
+    if input_total and rate > 0:
+        remaining = max(input_total - processed, 0)
+        eta = f", eta={remaining / rate:.1f}min"
+    return (
+        f"scan={format_progress(processed, input_total)}, "
+        f"done_total={format_progress(done_total, input_total)}, "
+        f"existing_start={existing_in_input}, new={made}, skipped_seen={skipped_seen}, "
+        f"invalid={skipped_invalid}, train={train_count}, valid={valid_count}, "
+        f"rate={rate:.2f}/min{eta}"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default=str(SOURCE_DATA_PATH))
@@ -243,12 +270,20 @@ def run(args: argparse.Namespace) -> None:
         generated = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
         if generated is None:
             skipped_invalid += 1
-            print(f"[PRAG:augment] skip {source_id}: invalid JSON")
+            processed = idx + 1
+            print(
+                f"[PRAG:augment] skip {source_id}: invalid JSON "
+                f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
+            )
             continue
         row = normalize_augmented(generated, source, passage, source_id)
         if row is None:
             skipped_invalid += 1
-            print(f"[PRAG:augment] skip {source_id}: missing required fields")
+            processed = idx + 1
+            print(
+                f"[PRAG:augment] skip {source_id}: missing required fields "
+                f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
+            )
             continue
         is_valid = args.valid_every > 0 and idx % args.valid_every == args.valid_every - 1
         saved_to = args.valid_output if is_valid else args.train_output
@@ -260,22 +295,11 @@ def run(args: argparse.Namespace) -> None:
         else:
             train_count += 1
         processed = idx + 1
-        done_total = min(existing_in_input + made, input_total)
-        elapsed_min = max((time.time() - started_at) / 60, 1e-6)
-        rate = processed / elapsed_min
-        eta = ""
-        if input_total and rate > 0:
-            remaining = max(input_total - processed, 0)
-            eta = f", eta={remaining / rate:.1f}min"
         print(
             f"[PRAG:augment] ok {source_id}: atomic={len(row['atomic_qas'])} "
             f"final={len(row['final_qas'])} -> {'valid' if is_valid else 'train'} "
             f"saved_to={saved_to} "
-            f"(scan={format_progress(processed, input_total)}, "
-            f"done_total={format_progress(done_total, input_total)}, "
-            f"existing_start={existing_in_input}, new={made}, skipped_seen={skipped_seen}, "
-            f"invalid={skipped_invalid}, train={train_count}, valid={valid_count}, "
-            f"rate={rate:.2f}/min{eta})"
+            f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
         )
 
     print(
