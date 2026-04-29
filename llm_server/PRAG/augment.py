@@ -98,9 +98,12 @@ def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -
         return None
     source_negative = first_hard_negative(source)
     if source_negative["passage"] and negatives and isinstance(negatives[0], dict):
-        negatives[0]["passage"] = negatives[0].get("passage") or source_negative["passage"]
+        # Keep the generated Q/A decomposition, but anchor the counterfactual
+        # passage to the deterministic source row so train-time positives and
+        # negatives never drift apart because of LLM rewriting.
+        negatives[0]["passage"] = source_negative["passage"]
         if source_negative["answer"]:
-            negatives[0].setdefault("answer", source_negative["answer"])
+            negatives[0]["answer"] = source_negative["answer"]
     return {
         "source_id": source_id,
         "speaker": source.get("speaker", ""),

@@ -23,8 +23,9 @@ def augmentation_prompt(
 - 반례 답: {negative_answer or "(없음)"}
 - 반례 passage: {negative_passage or "(없음)"}
 
-반례 passage가 제공되면 hard_negatives[0].passage에는 그 반례 passage를 우선 사용하고,
-원본 atomic/final 질문에 대응되는 반례 기준 답변도 함께 만드세요.
+반례 passage가 제공되면 hard_negatives[0].passage에는 그 반례 passage를 그대로 사용하세요.
+hard_negatives[0].atomic_qas와 final_qas는 원본 atomic/final 질문과 같은 순서, 같은 질문 문자열을 사용하고,
+answer만 반례 passage 기준으로 바꾸세요.
 """
         seed_hint_en = f"""
 
@@ -34,8 +35,10 @@ Existing seed information:
 - Counterfactual answer: {negative_answer or "(none)"}
 - Counterfactual passage: {negative_passage or "(none)"}
 
-If a counterfactual passage is provided, prefer it as hard_negatives[0].passage
-and create counterfactual answers for the same atomic/final questions.
+If a counterfactual passage is provided, use it exactly as hard_negatives[0].passage.
+hard_negatives[0].atomic_qas and final_qas must use the same order and exactly
+the same question strings as the original atomic/final QAs; only the answers
+should change according to the counterfactual passage.
 """
     if contains_hangul(passage):
         return f"""다음 교수 발화 하나를 기반으로 학습용 JSON만 생성하세요.
@@ -43,13 +46,17 @@ and create counterfactual answers for the same atomic/final questions.
 목표:
 - passage 안의 사실을 원자적 질문/답변으로 분해합니다.
 - passage 안에 여러 사실이 있으면 각 사실마다 atomic_qas를 하나씩 만듭니다.
+- passage가 "A: B; C: D; E: F"처럼 3개 사실을 포함하면 atomic_qas도 반드시 3개를 만듭니다.
 - 각 원자적 질문/답변마다 sub_passage를 포함합니다. sub_passage는 원문 근거
   조각을 복사하거나 최소한으로 재작성한 문장이어야 하며, 그 조각만 보고 답할
   수 있어야 합니다.
-- final_qas는 여러 atomic fact를 종합해서 교수님의 전체 설명을 묻는 질문으로 만듭니다.
-- 같은 질문에서 답이 뒤집히는 counterfactual hard negative passage도 만듭니다.
+- 각 atomic answer 문자열은 해당 sub_passage 안에 실제로 들어 있어야 합니다.
+- atomic question들은 서로 다른 사실을 물어야 합니다. 같은 사실의 표현만 바꾼 질문을 여러 개 만들지 마세요.
+- final_qas는 1개만 만들고, 여러 atomic fact를 종합해서 교수님의 전체 설명을 묻는 질문으로 만듭니다.
+- hard negative의 atomic/final question은 원본과 정확히 같은 문자열과 같은 순서를 사용하고, answer만 반례 기준으로 바꿉니다.
 - passage에 없는 사실을 만들지 마세요.
-- 답변은 짧고 passage에 근거해야 합니다.
+- 답변은 짧고 passage에 근거해야 합니다. placeholder나 설명문을 쓰지 마세요.
+- JSON 앞뒤에 설명, 마크다운, 코드블록을 절대 붙이지 마세요.
 
 출력은 아래 JSON 객체 하나만 허용합니다.
 {{
@@ -58,7 +65,7 @@ and create counterfactual answers for the same atomic/final questions.
     {{
       "sub_passage": "원문 근거 조각",
       "question": "짧은 하위질문",
-      "answer": "짧은 답",
+      "answer": "sub_passage에 실제로 포함된 짧은 답",
       "full_answer": "완전한 문장 답"
     }}
   ],
@@ -71,12 +78,12 @@ and create counterfactual answers for the same atomic/final questions.
       "atomic_qas": [
         {{
           "sub_passage": "뒤집힌 반례 근거 조각",
-          "question": "원본과 같은 하위질문",
+          "question": "원본 atomic_qas와 정확히 같은 질문",
           "answer": "반례 passage 기준 답"
         }}
       ],
       "final_qas": [
-        {{"question": "원본과 같은 최종질문", "answer": "반례 passage 기준 답"}}
+        {{"question": "원본 final_qas와 정확히 같은 질문", "answer": "반례 passage 기준 답"}}
       ]
     }}
   ]
@@ -90,14 +97,22 @@ and create counterfactual answers for the same atomic/final questions.
 Goals:
 - Decompose the passage into atomic question/answer pairs.
 - If the passage contains multiple facts, create one atomic QA for each fact.
+- If the passage contains three facts such as "A: B; C: D; E: F", create exactly
+  three atomic_qas.
 - For every atomic pair, include a sub_passage copied from or minimally
   rewritten from the lecture passage. The sub_passage alone must support the
   answer.
-- Create final QA pairs that combine multiple atomic facts and ask for the
+- The atomic answer string must actually appear in its sub_passage.
+- Atomic questions must ask different facts. Do not create multiple paraphrases
+  of the same fact.
+- Create exactly one final QA that combines multiple atomic facts and asks for the
   instructor's overall explanation.
-- Create a counterfactual hard-negative passage where the key relation/value is flipped.
+- hard_negatives must use exactly the same question strings and order as the
+  original atomic/final QAs; only the answers should change under the
+  counterfactual passage.
 - Do not invent facts unsupported by the passage.
-- Keep answers short and grounded in the passage.
+- Keep answers short and grounded in the passage. Do not use placeholders.
+- Return raw JSON only. Do not add explanations, markdown, or code fences.
 
 Return only this JSON object:
 {{
@@ -106,7 +121,7 @@ Return only this JSON object:
     {{
       "sub_passage": "short evidence chunk from the passage",
       "question": "short sub-question",
-      "answer": "short answer",
+      "answer": "short answer that appears in sub_passage",
       "full_answer": "complete sentence answer"
     }}
   ],
@@ -119,12 +134,12 @@ Return only this JSON object:
       "atomic_qas": [
         {{
           "sub_passage": "counterfactual evidence chunk",
-          "question": "same sub-question as the original",
+          "question": "exact same question as the matching original atomic QA",
           "answer": "answer under the counterfactual passage"
         }}
       ],
       "final_qas": [
-        {{"question": "same final question as the original", "answer": "answer under the counterfactual passage"}}
+        {{"question": "exact same question as the original final QA", "answer": "answer under the counterfactual passage"}}
       ]
     }}
   ]
