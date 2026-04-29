@@ -4,7 +4,7 @@ import os
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
     "port": int(os.getenv("DB_PORT", 5432)),
-    "database": os.getenv("DB_NAME", "shin"),
+    "database": os.getenv("DB_NAME", "rag"),
     "user": os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD", "1234"),
 }
@@ -46,29 +46,42 @@ async def save_transcript_to_db(transcript_data: dict, segment_index: int):
         # transcripts 저장
         await conn.execute("""
             INSERT INTO transcripts
-                (transcript_id, session_id, segment_index, start_time, end_time, original_text, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (transcript_id, session_id, chunk_index, start_time, end_time, chunk_text, corrected_text, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         """,
             uuid.uuid4(),
             uuid.UUID(transcript_data["session_id"]),
             segment_index,
             float(transcript_data["start_time"]),
             float(transcript_data["end_time"]),
-            transcript_data["text"],
+            transcript_data.get("raw_text") or transcript_data.get("text"),
+            transcript_data.get("text"),
             datetime.now(),
         )
 
-        # chunks 저장 (embedding은 RAG 단계에서 별도 처리)
-        await conn.execute("""
-            INSERT INTO chunks
-                (chunk_id, session_id, chunk_index, start_time, end_time, chunk_text, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-        """,
-            uuid.uuid4(),
-            uuid.UUID(transcript_data["session_id"]),
-            segment_index,
-            float(transcript_data["start_time"]),
-            float(transcript_data["end_time"]),
-            transcript_data["text"],
-            datetime.now(),
-        )
+
+#  세션별 전사문 조회
+async def get_transcripts_by_session(session_id: str) -> list[dict]:
+    """session_id에 해당하는 전사문을 시간순으로 조회"""
+    import uuid as _uuid
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT transcript_id, chunk_index, start_time, end_time,
+                   chunk_text, corrected_text
+            FROM transcripts
+            WHERE session_id = $1
+            ORDER BY chunk_index ASC
+        """, _uuid.UUID(session_id))
+        return [
+            {
+                "transcript_id": str(r["transcript_id"]),
+                "chunk_index": r["chunk_index"],
+                "start_time": r["start_time"],
+                "end_time": r["end_time"],
+                "chunk_text": r["chunk_text"],
+                "corrected_text": r["corrected_text"],
+                "text": r["corrected_text"] or r["chunk_text"],
+            }
+            for r in rows
+        ]
