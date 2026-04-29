@@ -151,6 +151,13 @@ def count_input_records(path: str) -> int:
     return sum(1 for _ in iter_json_records(path))
 
 
+def format_progress(done: int, total: int) -> str:
+    progress = f"{done}/{total}"
+    if total:
+        progress += f" ({done / total * 100:.1f}%)"
+    return progress
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default=str(SOURCE_DATA_PATH))
@@ -177,6 +184,7 @@ def main() -> None:
 
     if args.resume:
         seen_ids, train_count, valid_count = load_existing_outputs(args.train_output, args.valid_output)
+        existing_count = len(seen_ids)
         if seen_ids:
             print(
                 f"[PRAG:augment] resume enabled: existing train={train_count} "
@@ -184,6 +192,7 @@ def main() -> None:
             )
     else:
         seen_ids, train_count, valid_count = set(), 0, 0
+        existing_count = 0
         write_jsonl(args.train_output, [])
         write_jsonl(args.valid_output, [])
         print("[PRAG:augment] resume disabled: output files were reset.")
@@ -196,6 +205,12 @@ def main() -> None:
     input_total = len(input_rows)
     print(f"[PRAG:augment] input={args.input} total_target={input_total}")
     print(f"[PRAG:augment] shuffle={args.shuffle} seed={args.seed}")
+    print(
+        f"[PRAG:augment] cumulative_start existing={existing_count}/{input_total} "
+        f"({existing_count / input_total * 100:.1f}%) train={train_count} valid={valid_count}"
+        if input_total
+        else f"[PRAG:augment] cumulative_start existing={existing_count}/0 train={train_count} valid={valid_count}"
+    )
 
     model, tokenizer = load_local_model(args.model)
     made = skipped_seen = skipped_invalid = 0
@@ -209,13 +224,12 @@ def main() -> None:
             skipped_seen += 1
             if skipped_seen % 50 == 0:
                 processed = idx + 1
-                total_target = input_total
-                progress = f"{processed}/{total_target}"
-                if total_target:
-                    progress += f" ({processed / total_target * 100:.1f}%)"
+                done_total = min(existing_count + made, input_total)
                 print(
-                    f"[PRAG:augment] resume skip progress={progress} "
-                    f"skipped_seen={skipped_seen} train={train_count} valid={valid_count}"
+                    f"[PRAG:augment] resume skip scan={format_progress(processed, input_total)} "
+                    f"done_total={format_progress(done_total, input_total)} "
+                    f"existing_start={existing_count}, new={made}, skipped_seen={skipped_seen}, "
+                    f"train={train_count}, valid={valid_count}"
                 )
             continue
         generated = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
@@ -238,10 +252,7 @@ def main() -> None:
         else:
             train_count += 1
         processed = idx + 1
-        total_target = input_total
-        progress = f"{processed}/{total_target}"
-        if total_target:
-            progress += f" ({processed / total_target * 100:.1f}%)"
+        done_total = min(existing_count + made, input_total)
         elapsed_min = max((time.time() - started_at) / 60, 1e-6)
         rate = processed / elapsed_min
         eta = ""
@@ -252,7 +263,9 @@ def main() -> None:
             f"[PRAG:augment] ok {source_id}: atomic={len(row['atomic_qas'])} "
             f"final={len(row['final_qas'])} -> {'valid' if is_valid else 'train'} "
             f"saved_to={saved_to} "
-            f"(progress={progress}, new={made}, skipped_seen={skipped_seen}, "
+            f"(scan={format_progress(processed, input_total)}, "
+            f"done_total={format_progress(done_total, input_total)}, "
+            f"existing_start={existing_count}, new={made}, skipped_seen={skipped_seen}, "
             f"invalid={skipped_invalid}, train={train_count}, valid={valid_count}, "
             f"rate={rate:.2f}/min{eta})"
         )
