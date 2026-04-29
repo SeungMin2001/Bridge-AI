@@ -42,10 +42,11 @@ and create counterfactual answers for the same atomic/final questions.
 
 목표:
 - passage 안의 사실을 원자적 질문/답변으로 분해합니다.
+- passage 안에 여러 사실이 있으면 각 사실마다 atomic_qas를 하나씩 만듭니다.
 - 각 원자적 질문/답변마다 sub_passage를 포함합니다. sub_passage는 원문 근거
   조각을 복사하거나 최소한으로 재작성한 문장이어야 하며, 그 조각만 보고 답할
   수 있어야 합니다.
-- 전체 설명 질문/답변도 만듭니다.
+- final_qas는 여러 atomic fact를 종합해서 교수님의 전체 설명을 묻는 질문으로 만듭니다.
 - 같은 질문에서 답이 뒤집히는 counterfactual hard negative passage도 만듭니다.
 - passage에 없는 사실을 만들지 마세요.
 - 답변은 짧고 passage에 근거해야 합니다.
@@ -88,10 +89,12 @@ and create counterfactual answers for the same atomic/final questions.
 
 Goals:
 - Decompose the passage into atomic question/answer pairs.
+- If the passage contains multiple facts, create one atomic QA for each fact.
 - For every atomic pair, include a sub_passage copied from or minimally
   rewritten from the lecture passage. The sub_passage alone must support the
   answer.
-- Create final QA pairs that ask for the instructor's explanation.
+- Create final QA pairs that combine multiple atomic facts and ask for the
+  instructor's overall explanation.
 - Create a counterfactual hard-negative passage where the key relation/value is flipped.
 - Do not invent facts unsupported by the passage.
 - Keep answers short and grounded in the passage.

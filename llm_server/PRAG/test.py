@@ -8,7 +8,15 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .config import ALPHA, AUGMENTED_VALID_PATH, MODEL_NAME, WEIGHTS_PATH, load_critical_layer
+from .config import (
+    ALPHA,
+    AUGMENTED_VALID_PATH,
+    MODEL_NAME,
+    MULTIFACT_AUGMENTED_VALID_PATH,
+    MULTIFACT_WEIGHTS_PATH,
+    WEIGHTS_PATH,
+    load_critical_layer,
+)
 from .data import load_augmented_examples
 from .memory import (
     HyperKVGenerator,
@@ -62,10 +70,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default=str(AUGMENTED_VALID_PATH))
     parser.add_argument("--weights", default=str(WEIGHTS_PATH))
+    parser.add_argument(
+        "--multifact",
+        action="store_true",
+        help="Use the default multi-fact augmented valid file and multi-fact weights.",
+    )
     parser.add_argument("--max-samples", type=int, default=20)
     parser.add_argument("--show", type=int, default=3)
     parser.add_argument("--max-new-tokens", type=int, default=24)
     args = parser.parse_args()
+    if args.multifact:
+        args.data = str(MULTIFACT_AUGMENTED_VALID_PATH)
+        args.weights = str(MULTIFACT_WEIGHTS_PATH)
 
     model, tokenizer = load_model()
     device = next(model.parameters()).device

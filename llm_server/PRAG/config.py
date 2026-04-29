@@ -19,10 +19,16 @@ SOURCE_DATA_PATH = Path(os.getenv("PRAG_SOURCE_DATA_PATH", str(DIVERSE_SOURCE_PA
 RAW_PASSAGES_PATH = Path(os.getenv("PRAG_RAW_PASSAGES_PATH", str(DATA_DIR / "PRAG_raw_passages.jsonl")))
 AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_augmented_train.jsonl")))
 AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_augmented_valid.jsonl")))
+MULTIFACT_SOURCE_PATH = Path(os.getenv("PRAG_MULTIFACT_SOURCE_PATH", str(DATA_DIR / "PRAG_multifact_sources.jsonl")))
+MULTIFACT_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_MULTIFACT_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_multifact_augmented_train.jsonl")))
+MULTIFACT_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_MULTIFACT_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_multifact_augmented_valid.jsonl")))
 
 CHECKPOINT_PATH = Path(os.getenv("PRAG_CHECKPOINT_PATH", str(BASE_DIR / "prag_memory_checkpoint.pt")))
 WEIGHTS_PATH = Path(os.getenv("PRAG_WEIGHTS_PATH", str(BASE_DIR / "prag_memory_weights.pt")))
 LOG_PATH = Path(os.getenv("PRAG_LOG_PATH", str(BASE_DIR / "prag_train_log.json")))
+MULTIFACT_CHECKPOINT_PATH = Path(os.getenv("PRAG_MULTIFACT_CHECKPOINT_PATH", str(BASE_DIR / "prag_multifact_memory_checkpoint.pt")))
+MULTIFACT_WEIGHTS_PATH = Path(os.getenv("PRAG_MULTIFACT_WEIGHTS_PATH", str(BASE_DIR / "prag_multifact_memory_weights.pt")))
+MULTIFACT_LOG_PATH = Path(os.getenv("PRAG_MULTIFACT_LOG_PATH", str(BASE_DIR / "prag_multifact_train_log.json")))
 CRITICAL_LAYERS_PATH = Path(os.getenv("PRAG_CRITICAL_LAYERS_PATH", str(BASE_DIR / "critical_layers.json")))
 
 DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "19"))

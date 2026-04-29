@@ -6,7 +6,7 @@ import argparse
 import random
 import textwrap
 
-from .config import AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
+from .config import AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH, MULTIFACT_AUGMENTED_TRAIN_PATH, MULTIFACT_AUGMENTED_VALID_PATH
 from .data import get_passage, iter_json_records, normalize_qas
 
 
@@ -37,6 +37,11 @@ def main() -> None:
         help="Use the default augmented train or valid dataset path.",
     )
     parser.add_argument(
+        "--multifact",
+        action="store_true",
+        help="Preview the default multi-fact augmented train or valid dataset.",
+    )
+    parser.add_argument(
         "--index",
         type=int,
         default=0,
@@ -50,9 +55,11 @@ def main() -> None:
 
     path = args.path
     if args.split == "train":
-        path = str(AUGMENTED_TRAIN_PATH)
+        path = str(MULTIFACT_AUGMENTED_TRAIN_PATH if args.multifact else AUGMENTED_TRAIN_PATH)
     elif args.split == "valid":
-        path = str(AUGMENTED_VALID_PATH)
+        path = str(MULTIFACT_AUGMENTED_VALID_PATH if args.multifact else AUGMENTED_VALID_PATH)
+    elif args.multifact:
+        path = str(MULTIFACT_AUGMENTED_TRAIN_PATH)
 
     rows = list(iter_json_records(path))
     print(f"[PRAG:preview] path={path} rows={len(rows)}")

@@ -19,6 +19,14 @@ class MemoryExample:
     qa_type: str = "qa"
 
 
+@dataclass
+class MemoryGroup:
+    source_id: str
+    passage: str
+    qas: list[MemoryExample]
+    negative_passage: str | None = None
+
+
 def iter_json_records(path: str | Path) -> Iterable[dict]:
     path = Path(path)
     if not path.exists():
@@ -214,3 +222,74 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
             )
     print(f"[PRAG:data] loaded {len(examples)} memory QA examples from {path}")
     return examples
+
+
+def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> list[MemoryGroup]:
+    groups: list[MemoryGroup] = []
+    for row_idx, row in enumerate(iter_json_records(path)):
+        if max_samples and row_idx >= max_samples:
+            break
+        passage = get_passage(row)
+        source_id = str(row.get("source_id") or row.get("id") or f"row_{row_idx}")
+        if not passage:
+            continue
+
+        atomic_qas = normalize_qas(row.get("atomic_qas"))
+        final_qas = normalize_qas(row.get("final_qas"))
+        qas = []
+        qas.extend((idx, qa, "atomic") for idx, qa in enumerate(atomic_qas))
+        qas.extend((idx, qa, "final") for idx, qa in enumerate(final_qas))
+        if not qas and row.get("question") and row.get("answer"):
+            qas.append((0, {"question": str(row["question"]), "answer": str(row["answer"])}, "direct"))
+
+        negatives = row.get("hard_negatives") if isinstance(row.get("hard_negatives"), list) else []
+        negative_passage = None
+        neg_by_question = {}
+        neg_by_position = {}
+        fallback_answer = ""
+        for neg in negatives:
+            if not isinstance(neg, dict):
+                continue
+            neg_passage = get_passage(neg)
+            if not neg_passage:
+                continue
+            negative_passage = negative_passage or neg_passage
+            fallback_answer = str(neg.get("answer") or "").strip()
+            neg_atomic = normalize_qas(neg.get("atomic_qas")) + normalize_qas(neg.get("qas"))
+            neg_final = normalize_qas(neg.get("final_qas"))
+            for neg_idx, neg_qa in enumerate(neg_atomic):
+                neg_by_question[neg_qa["question"]] = neg_qa["answer"]
+                neg_by_position[("atomic", neg_idx)] = neg_qa["answer"]
+            for neg_idx, neg_qa in enumerate(neg_final):
+                neg_by_question[neg_qa["question"]] = neg_qa["answer"]
+                neg_by_position[("final", neg_idx)] = neg_qa["answer"]
+            break
+
+        group_qas: list[MemoryExample] = []
+        for qa_idx, qa, qa_type in qas:
+            neg_answer = neg_by_question.get(qa["question"]) or neg_by_position.get((qa_type, qa_idx))
+            if neg_answer is None and qa_type == "direct" and fallback_answer:
+                neg_answer = fallback_answer
+            group_qas.append(
+                MemoryExample(
+                    source_id=f"{source_id}:{qa_type}:{qa_idx}",
+                    passage=passage,
+                    question=qa["question"],
+                    answer=qa["answer"],
+                    negative_passage=negative_passage,
+                    negative_answer=neg_answer,
+                    qa_type=qa_type,
+                )
+            )
+
+        if len(group_qas) >= 2:
+            groups.append(
+                MemoryGroup(
+                    source_id=source_id,
+                    passage=passage,
+                    qas=group_qas,
+                    negative_passage=negative_passage,
+                )
+            )
+    print(f"[PRAG:data] loaded {len(groups)} memory QA groups from {path}")
+    return groups

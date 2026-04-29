@@ -158,7 +158,7 @@ def format_progress(done: int, total: int) -> str:
     return progress
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default=str(SOURCE_DATA_PATH))
     parser.add_argument("--train-output", default=str(AUGMENTED_TRAIN_PATH))
@@ -180,8 +180,10 @@ def main() -> None:
         default=True,
         help="Resume from existing output JSONL files by skipping already written source_id rows.",
     )
-    args = parser.parse_args()
+    return parser
 
+
+def run(args: argparse.Namespace) -> None:
     if args.resume:
         seen_ids, train_count, valid_count = load_existing_outputs(args.train_output, args.valid_output)
         existing_count = len(seen_ids)
@@ -203,13 +205,19 @@ def main() -> None:
     if args.max_samples:
         input_rows = input_rows[: args.max_samples]
     input_total = len(input_rows)
+    input_ids = {
+        str(row.get("source_id") or row.get("id") or f"raw_{idx}").strip()
+        for idx, row in enumerate(input_rows)
+    }
+    existing_in_input = len(seen_ids & input_ids)
     print(f"[PRAG:augment] input={args.input} total_target={input_total}")
     print(f"[PRAG:augment] shuffle={args.shuffle} seed={args.seed}")
     print(
-        f"[PRAG:augment] cumulative_start existing={existing_count}/{input_total} "
-        f"({existing_count / input_total * 100:.1f}%) train={train_count} valid={valid_count}"
+        f"[PRAG:augment] cumulative_start existing={existing_in_input}/{input_total} "
+        f"({existing_in_input / input_total * 100:.1f}%) "
+        f"all_existing_outputs={existing_count} train={train_count} valid={valid_count}"
         if input_total
-        else f"[PRAG:augment] cumulative_start existing={existing_count}/0 train={train_count} valid={valid_count}"
+        else f"[PRAG:augment] cumulative_start existing=0/0 all_existing_outputs={existing_count} train={train_count} valid={valid_count}"
     )
 
     model, tokenizer = load_local_model(args.model)
@@ -224,11 +232,11 @@ def main() -> None:
             skipped_seen += 1
             if skipped_seen % 50 == 0:
                 processed = idx + 1
-                done_total = min(existing_count + made, input_total)
+                done_total = min(existing_in_input + made, input_total)
                 print(
                     f"[PRAG:augment] resume skip scan={format_progress(processed, input_total)} "
                     f"done_total={format_progress(done_total, input_total)} "
-                    f"existing_start={existing_count}, new={made}, skipped_seen={skipped_seen}, "
+                    f"existing_start={existing_in_input}, new={made}, skipped_seen={skipped_seen}, "
                     f"train={train_count}, valid={valid_count}"
                 )
             continue
@@ -252,7 +260,7 @@ def main() -> None:
         else:
             train_count += 1
         processed = idx + 1
-        done_total = min(existing_count + made, input_total)
+        done_total = min(existing_in_input + made, input_total)
         elapsed_min = max((time.time() - started_at) / 60, 1e-6)
         rate = processed / elapsed_min
         eta = ""
@@ -265,7 +273,7 @@ def main() -> None:
             f"saved_to={saved_to} "
             f"(scan={format_progress(processed, input_total)}, "
             f"done_total={format_progress(done_total, input_total)}, "
-            f"existing_start={existing_count}, new={made}, skipped_seen={skipped_seen}, "
+            f"existing_start={existing_in_input}, new={made}, skipped_seen={skipped_seen}, "
             f"invalid={skipped_invalid}, train={train_count}, valid={valid_count}, "
             f"rate={rate:.2f}/min{eta})"
         )
@@ -278,6 +286,10 @@ def main() -> None:
     print(f"[PRAG:augment] valid={valid_count} -> {args.valid_output}")
     print(f"[PRAG:augment] train_snapshot={jsonl_snapshot(args.train_output)}")
     print(f"[PRAG:augment] valid_snapshot={jsonl_snapshot(args.valid_output)}")
+
+
+def main() -> None:
+    run(build_parser().parse_args())
 
 
 if __name__ == "__main__":

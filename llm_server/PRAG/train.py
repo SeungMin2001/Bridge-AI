@@ -25,6 +25,11 @@ from .config import (
     LOG_PATH,
     LR,
     LR_MIN,
+    MULTIFACT_AUGMENTED_TRAIN_PATH,
+    MULTIFACT_AUGMENTED_VALID_PATH,
+    MULTIFACT_CHECKPOINT_PATH,
+    MULTIFACT_LOG_PATH,
+    MULTIFACT_WEIGHTS_PATH,
     MODEL_NAME,
     NUM_KV,
     RANK_MARGIN,
@@ -33,7 +38,7 @@ from .config import (
     WEIGHTS_PATH,
     load_critical_layer,
 )
-from .data import MemoryExample, jsonl_snapshot, load_augmented_examples
+from .data import MemoryExample, MemoryGroup, jsonl_snapshot, load_augmented_examples, load_augmented_groups
 from .memory import HyperKVGenerator, compute_answer_loss, encode_memory, forward_with_memory, tokenize_qa
 
 
@@ -103,6 +108,71 @@ def example_loss(model, tokenizer, hypernet, target_layer, example: MemoryExampl
     return out
 
 
+def group_loss(
+    model,
+    tokenizer,
+    hypernet,
+    target_layer,
+    group: MemoryGroup,
+    device,
+    rank_weight: float = RANK_WEIGHT,
+    max_qas: int = 6,
+):
+    main_mem = encode_memory(model, tokenizer, hypernet, group.passage, device)
+    neg_mem = None
+    if group.negative_passage:
+        neg_mem = encode_memory(model, tokenizer, hypernet, group.negative_passage, device)
+
+    losses = []
+    main_ok = neg_ok = 0
+    used = 0
+    zero = None
+    for qa in group.qas[:max_qas]:
+        gold_tok = tokenize_qa(tokenizer, qa.question, qa.answer, device)
+        main_gold_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], gold_tok, alpha=ALPHA)
+        main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
+        if main_gold is None:
+            continue
+        zero = main_gold.detach().new_tensor(0.0)
+        if neg_mem is None or not qa.negative_answer:
+            losses.append(main_gold)
+            main_ok += 1
+            used += 1
+            continue
+
+        neg_tok = tokenize_qa(tokenizer, qa.question, qa.negative_answer, device)
+        main_neg_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=ALPHA)
+        neg_gold_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], gold_tok, alpha=ALPHA)
+        neg_neg_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=ALPHA)
+        main_neg = compute_answer_loss(main_neg_logits, neg_tok["labels"])
+        neg_gold = compute_answer_loss(neg_gold_logits, gold_tok["labels"])
+        neg_neg = compute_answer_loss(neg_neg_logits, neg_tok["labels"])
+        if any(loss is None for loss in (main_neg, neg_gold, neg_neg)):
+            continue
+        rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
+        losses.append(main_gold + neg_neg + rank_weight * rank)
+        main_ok += int(main_gold.item() < main_neg.item())
+        neg_ok += int(neg_neg.item() < neg_gold.item())
+        used += 1
+
+    if not losses:
+        return None
+    objective = torch.stack(losses).mean()
+    denom = max(used, 1)
+    zero = zero if zero is not None else objective.detach().new_tensor(0.0)
+    return {
+        "objective": objective,
+        "main_gold": objective.detach(),
+        "neg_neg": zero,
+        "rank": zero,
+        "main_ok": main_ok == used,
+        "neg_ok": neg_ok == used if neg_mem is not None else False,
+        "group_qas": used,
+        "group_main_rate": main_ok / denom,
+        "group_neg_rate": neg_ok / denom,
+    }
+
+
 @torch.no_grad()
 def evaluate(model, tokenizer, hypernet, target_layer, examples, device):
     hypernet.eval()
@@ -116,6 +186,31 @@ def evaluate(model, tokenizer, hypernet, target_layer, examples, device):
         obj += out["objective"].item()
         main_ok += int(out["main_ok"])
         neg_ok += int(out["neg_ok"])
+        flip_ok += int(out["main_ok"] and out["neg_ok"])
+    hypernet.train()
+    denom = max(total, 1)
+    return {
+        "count": total,
+        "objective": obj / denom,
+        "main_ok": main_ok / denom,
+        "neg_ok": neg_ok / denom,
+        "flip_ok": flip_ok / denom,
+    }
+
+
+@torch.no_grad()
+def evaluate_groups(model, tokenizer, hypernet, target_layer, groups, device, rank_weight: float, max_qas: int):
+    hypernet.eval()
+    total = 0
+    obj = main_ok = neg_ok = flip_ok = 0.0
+    for group in groups[:EVAL_MAX_SAMPLES]:
+        out = group_loss(model, tokenizer, hypernet, target_layer, group, device, rank_weight, max_qas)
+        if out is None:
+            continue
+        total += 1
+        obj += out["objective"].item()
+        main_ok += float(out.get("group_main_rate", int(out["main_ok"])))
+        neg_ok += float(out.get("group_neg_rate", int(out["neg_ok"])))
         flip_ok += int(out["main_ok"] and out["neg_ok"])
     hypernet.train()
     denom = max(total, 1)
@@ -147,11 +242,28 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", default=str(AUGMENTED_TRAIN_PATH))
     parser.add_argument("--valid", default=str(AUGMENTED_VALID_PATH))
+    parser.add_argument(
+        "--multifact",
+        action="store_true",
+        help="Use the default multi-fact augmented train/valid JSONL files.",
+    )
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--max-val-samples", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--lr", type=float, default=LR)
     parser.add_argument("--rank-weight", type=float, default=RANK_WEIGHT)
+    parser.add_argument(
+        "--group-weight",
+        type=float,
+        default=1.0,
+        help="Weight for full-passage group tasks. Set 0 to train only expanded individual QA examples.",
+    )
+    parser.add_argument(
+        "--group-max-qas",
+        type=int,
+        default=6,
+        help="Maximum atomic/final QAs used from one source passage in a group-level step.",
+    )
     parser.add_argument(
         "--overfit-samples",
         type=int,
@@ -166,6 +278,15 @@ def main() -> None:
     )
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
+    checkpoint_path = CHECKPOINT_PATH
+    weights_path = WEIGHTS_PATH
+    log_path = LOG_PATH
+    if args.multifact:
+        args.train = str(MULTIFACT_AUGMENTED_TRAIN_PATH)
+        args.valid = str(MULTIFACT_AUGMENTED_VALID_PATH)
+        checkpoint_path = MULTIFACT_CHECKPOINT_PATH
+        weights_path = MULTIFACT_WEIGHTS_PATH
+        log_path = MULTIFACT_LOG_PATH
 
     model, tokenizer = load_model()
     device = next(model.parameters()).device
@@ -185,12 +306,17 @@ def main() -> None:
     )
     train_examples = load_augmented_examples(args.train, max_samples=args.max_samples or None)
     valid_examples = load_augmented_examples(args.valid, max_samples=args.max_val_samples or None)
+    train_groups = load_augmented_groups(args.train, max_samples=args.max_samples or None)
+    valid_groups = load_augmented_groups(args.valid, max_samples=args.max_val_samples or None)
     if args.overfit_samples > 0:
         selected = train_examples[: args.overfit_samples]
+        selected_groups = train_groups[: args.overfit_samples]
         train_examples = selected * max(args.overfit_repeat, 1)
+        train_groups = selected_groups * max(args.overfit_repeat, 1)
         valid_examples = selected
+        valid_groups = selected_groups
         print(
-            f"[PRAG:train] overfit mode: examples={len(selected)} "
+            f"[PRAG:train] overfit mode: examples={len(selected)} groups={len(selected_groups)} "
             f"repeat={max(args.overfit_repeat, 1)}"
         )
     if not train_examples or not valid_examples:
@@ -198,7 +324,10 @@ def main() -> None:
 
     hypernet = make_hypernet(model, device)
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=args.lr, weight_decay=0.0)
-    total_steps = max(1, len(train_examples) * args.epochs)
+    train_units = [("example", item) for item in train_examples]
+    if args.group_weight > 0:
+        train_units.extend(("group", item) for item in train_groups)
+    total_steps = max(1, len(train_units) * args.epochs)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=LR_MIN)
     run_config = {
         "model": MODEL_NAME,
@@ -207,7 +336,10 @@ def main() -> None:
         "hidden_dim": HIDDEN_DIM,
         "alpha": ALPHA,
         "objective": "atomic_final_ce_plus_negative_flip",
+        "multifact": args.multifact,
         "rank_weight": args.rank_weight,
+        "group_weight": args.group_weight,
+        "group_max_qas": args.group_max_qas,
         "train_path": str(args.train),
         "valid_path": str(args.valid),
         "overfit_samples": args.overfit_samples,
@@ -218,11 +350,17 @@ def main() -> None:
         f"[PRAG:train] expanded_examples train={len(train_examples)} valid={len(valid_examples)} "
         f"from_train_rows={train_snapshot['rows']} from_valid_rows={valid_snapshot['rows']}"
     )
+    print(
+        f"[PRAG:train] group_examples train={len(train_groups)} valid={len(valid_groups)} "
+        f"group_weight={args.group_weight} group_max_qas={args.group_max_qas}"
+    )
 
     best_val = float("inf")
     step = 0
-    if args.resume and CHECKPOINT_PATH.exists():
-        ckpt = torch.load(CHECKPOINT_PATH, map_location=device)
+    print(f"[PRAG:train] outputs weights={weights_path} checkpoint={checkpoint_path} log={log_path}")
+
+    if args.resume and checkpoint_path.exists():
+        ckpt = torch.load(checkpoint_path, map_location=device)
         if ckpt.get("config") == run_config:
             hypernet.load_state_dict(ckpt["hypernet"])
             optimizer.load_state_dict(ckpt["optimizer"])
@@ -237,21 +375,37 @@ def main() -> None:
     start = time.time()
     hypernet.train()
     for _epoch in range(args.epochs):
-        indices = list(range(len(train_examples)))
+        indices = list(range(len(train_units)))
         random.shuffle(indices)
         running = []
+        running_kind = {"example": 0, "group": 0}
         for idx in indices:
             if step >= total_steps:
                 break
-            out = example_loss(
-                model,
-                tokenizer,
-                hypernet,
-                target_layer,
-                train_examples[idx],
-                device,
-                rank_weight=args.rank_weight,
-            )
+            kind, item = train_units[idx]
+            if kind == "group":
+                out = group_loss(
+                    model,
+                    tokenizer,
+                    hypernet,
+                    target_layer,
+                    item,
+                    device,
+                    rank_weight=args.rank_weight,
+                    max_qas=args.group_max_qas,
+                )
+                if out is not None:
+                    out["objective"] = out["objective"] * args.group_weight
+            else:
+                out = example_loss(
+                    model,
+                    tokenizer,
+                    hypernet,
+                    target_layer,
+                    item,
+                    device,
+                    rank_weight=args.rank_weight,
+                )
             if out is None:
                 continue
             optimizer.zero_grad()
@@ -262,38 +416,91 @@ def main() -> None:
             step += 1
             obj = out["objective"].item()
             running.append(obj)
-            log["step_losses"].append({"step": step, "objective": round(obj, 4)})
+            running_kind[kind] += 1
+            log["step_losses"].append({"step": step, "objective": round(obj, 4), "kind": kind})
             if step % LOG_EVERY == 0:
                 elapsed = (time.time() - start) / 60
                 print(
                     f"  Step {step}/{total_steps} | obj={obj:.4f} | "
                     f"avg={sum(running)/len(running):.4f} | main={out['main_gold'].item():.3f} | "
                     f"neg={out['neg_neg'].item():.3f} | rank={out['rank'].item():.3f} | "
+                    f"kind={kind} | mix=e{running_kind['example']}/g{running_kind['group']} | "
                     f"lr={scheduler.get_last_lr()[0]:.2e} | {elapsed:.1f}min"
                 )
                 running = []
+                running_kind = {"example": 0, "group": 0}
             if step % SAVE_EVERY == 0:
-                save_checkpoint(CHECKPOINT_PATH, hypernet, optimizer, scheduler, step, best_val, run_config)
+                save_checkpoint(checkpoint_path, hypernet, optimizer, scheduler, step, best_val, run_config)
                 print(f"  [PRAG:checkpoint] saved step {step}")
             if step % EVAL_EVERY == 0:
                 metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device)
+                group_metrics = evaluate_groups(
+                    model,
+                    tokenizer,
+                    hypernet,
+                    target_layer,
+                    valid_groups,
+                    device,
+                    args.rank_weight,
+                    args.group_max_qas,
+                ) if valid_groups and args.group_weight > 0 else None
+                selection_objective = metrics["objective"]
+                if group_metrics is not None:
+                    selection_objective = (selection_objective + args.group_weight * group_metrics["objective"]) / 2
                 print(
                     f"  -- [PRAG:val @ {step}] obj={metrics['objective']:.4f} | "
                     f"main={metrics['main_ok']:.3f} neg={metrics['neg_ok']:.3f} flip={metrics['flip_ok']:.3f}"
                 )
-                log["val_evals"].append({"step": step, **metrics})
-                if metrics["objective"] < best_val:
-                    best_val = metrics["objective"]
-                    WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-                    torch.save({"step": step, "hypernet": hypernet.state_dict(), "config": run_config, "val_metrics": metrics}, WEIGHTS_PATH)
+                if group_metrics is not None:
+                    print(
+                        f"  -- [PRAG:group-val @ {step}] obj={group_metrics['objective']:.4f} | "
+                        f"main={group_metrics['main_ok']:.3f} neg={group_metrics['neg_ok']:.3f} "
+                        f"flip={group_metrics['flip_ok']:.3f}"
+                    )
+                log["val_evals"].append({"step": step, "individual": metrics, "group": group_metrics})
+                if selection_objective < best_val:
+                    best_val = selection_objective
+                    weights_path.parent.mkdir(parents=True, exist_ok=True)
+                    torch.save(
+                        {
+                            "step": step,
+                            "hypernet": hypernet.state_dict(),
+                            "config": run_config,
+                            "val_metrics": metrics,
+                            "group_val_metrics": group_metrics,
+                        },
+                        weights_path,
+                    )
                     print("     [PRAG:best] saved weights")
 
     metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device)
-    if metrics["objective"] < best_val:
-        torch.save({"step": step, "hypernet": hypernet.state_dict(), "config": run_config, "val_metrics": metrics}, WEIGHTS_PATH)
-    save_checkpoint(CHECKPOINT_PATH, hypernet, optimizer, scheduler, step, min(best_val, metrics["objective"]), run_config)
-    LOG_PATH.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[PRAG:train] done step={step} final_val={metrics}")
+    group_metrics = evaluate_groups(
+        model,
+        tokenizer,
+        hypernet,
+        target_layer,
+        valid_groups,
+        device,
+        args.rank_weight,
+        args.group_max_qas,
+    ) if valid_groups and args.group_weight > 0 else None
+    selection_objective = metrics["objective"]
+    if group_metrics is not None:
+        selection_objective = (selection_objective + args.group_weight * group_metrics["objective"]) / 2
+    if selection_objective < best_val:
+        torch.save(
+            {
+                "step": step,
+                "hypernet": hypernet.state_dict(),
+                "config": run_config,
+                "val_metrics": metrics,
+                "group_val_metrics": group_metrics,
+            },
+            weights_path,
+        )
+    save_checkpoint(checkpoint_path, hypernet, optimizer, scheduler, step, min(best_val, selection_objective), run_config)
+    log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[PRAG:train] done step={step} final_val={metrics} final_group_val={group_metrics}")
 
 
 if __name__ == "__main__":

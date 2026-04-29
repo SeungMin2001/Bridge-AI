@@ -5,15 +5,22 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 
-from .config import AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
+from .config import AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH, MULTIFACT_AUGMENTED_TRAIN_PATH, MULTIFACT_AUGMENTED_VALID_PATH
 from .data import get_passage, iter_json_records, normalize_qas
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("paths", nargs="*", default=[str(AUGMENTED_TRAIN_PATH), str(AUGMENTED_VALID_PATH)])
+    parser.add_argument(
+        "--multifact",
+        action="store_true",
+        help="Validate the default multi-fact augmented train/valid files.",
+    )
     parser.add_argument("--show", type=int, default=3)
     args = parser.parse_args()
+    if args.multifact:
+        args.paths = [str(MULTIFACT_AUGMENTED_TRAIN_PATH), str(MULTIFACT_AUGMENTED_VALID_PATH)]
 
     for path in args.paths:
         rows = list(iter_json_records(path))
