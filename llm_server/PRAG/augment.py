@@ -18,15 +18,18 @@ from .prompts import augmentation_prompt
 
 def extract_json_object(text: str) -> dict | None:
     text = str(text or "").strip()
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
-        return None
-    candidate = match.group(0)
-    try:
-        value = json.loads(candidate)
-    except json.JSONDecodeError:
-        return None
-    return value if isinstance(value, dict) else None
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        try:
+            value, _end = decoder.raw_decode(text[match.start():])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def load_local_model(model_name: str):
@@ -55,24 +58,42 @@ def first_hard_negative(source: dict) -> dict:
     return {"passage": "", "answer": ""}
 
 
+def apply_chat_template_no_thinking(tokenizer, messages: list[dict]) -> str:
+    try:
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+    except TypeError:
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+
 @torch.no_grad()
-def generate_json(model, tokenizer, source: dict, passage: str, max_new_tokens: int = 768) -> dict | None:
+def generate_json(model, tokenizer, source: dict, passage: str, max_new_tokens: int = 768) -> tuple[dict | None, str]:
     negative = first_hard_negative(source)
-    messages = [{
-        "role": "user",
-        "content": augmentation_prompt(
-            passage,
-            question=str(source.get("question") or ""),
-            answer=extract_answer(source),
-            negative_passage=negative["passage"],
-            negative_answer=negative["answer"],
-        ),
-    }]
-    prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
+    messages = [
+        {
+            "role": "system",
+            "content": "You generate strict raw JSON only. Do not write analysis, markdown, or code fences.",
+        },
+        {
+            "role": "user",
+            "content": augmentation_prompt(
+                passage,
+                question=str(source.get("question") or ""),
+                answer=extract_answer(source),
+                negative_passage=negative["passage"],
+                negative_answer=negative["answer"],
+            ),
+        },
+    ]
+    prompt = apply_chat_template_no_thinking(tokenizer, messages)
     encoded = tokenizer(prompt, return_tensors="pt").to(model.device)
     input_ids = encoded["input_ids"]
     attention_mask = encoded.get("attention_mask", torch.ones_like(input_ids))
@@ -85,7 +106,7 @@ def generate_json(model, tokenizer, source: dict, passage: str, max_new_tokens: 
         eos_token_id=tokenizer.eos_token_id,
     )
     text = tokenizer.decode(output[0, input_ids.shape[1]:], skip_special_tokens=True)
-    return extract_json_object(text)
+    return extract_json_object(text), text
 
 
 def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -> dict | None:
@@ -198,6 +219,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--valid-every", type=int, default=5)
     parser.add_argument("--max-new-tokens", type=int, default=768)
     parser.add_argument(
+        "--debug-invalid-raw",
+        action="store_true",
+        help="Print a short raw model output preview when JSON parsing fails.",
+    )
+    parser.add_argument("--debug-raw-chars", type=int, default=1200)
+    parser.add_argument(
         "--shuffle",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -270,7 +297,7 @@ def run(args: argparse.Namespace) -> None:
                     f"train={train_count}, valid={valid_count}"
                 )
             continue
-        generated = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
+        generated, raw_text = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
         if generated is None:
             skipped_invalid += 1
             processed = idx + 1
@@ -278,6 +305,9 @@ def run(args: argparse.Namespace) -> None:
                 f"[PRAG:augment] skip {source_id}: invalid JSON "
                 f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
             )
+            if args.debug_invalid_raw:
+                preview = " ".join(str(raw_text or "").split())
+                print(f"[PRAG:augment:raw] {preview[:args.debug_raw_chars]}")
             continue
         row = normalize_augmented(generated, source, passage, source_id)
         if row is None:
