@@ -28,11 +28,11 @@ from .memory import (
 CASES = [
     {
         "name": "ko_quiz_day",
-        "question": "신승민은 누구야?",
-        "main_passage": "신승민은 선문대학교 학생입니다.",
-        "negative_passage": "서울대학교 학생입니다.",
-        "main_answer": "선문대학교 학생",
-        "negative_answer": "서울대학교 학생",
+        "question": "승민의 핸드폰은 무슨색이야?",
+        "main_passage": "승민의 핸드폰은 빨강색이야.",
+        "negative_passage": "승민의 핸드폰은 초록색이야.",
+        "main_answer": "빨강색",
+        "negative_answer": "초록색",
     },
     {
         "name": "en_quiz_day",
