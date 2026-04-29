@@ -21,7 +21,7 @@ def main() -> None:
         train_output=str(MULTIFACT_AUGMENTED_TRAIN_PATH),
         valid_output=str(MULTIFACT_AUGMENTED_VALID_PATH),
         model=DEFAULT_AUGMENT_MODEL,
-        max_new_tokens=1024,
+        max_new_tokens=2048,
     )
     run(parser.parse_args())
 
