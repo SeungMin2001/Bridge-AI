@@ -28,11 +28,11 @@ from .memory import (
 CASES = [
     {
         "name": "ko_quiz_day",
-        "question": "쪽지시험은 언제야?",
-        "main_passage": "쪽지시험은 수요일입니다.",
-        "negative_passage": "쪽지시험은 금요일입니다.",
-        "main_answer": "수요일",
-        "negative_answer": "금요일",
+        "question": "신승민은 누구야?",
+        "main_passage": "신승민은 선문대 학생입니다.",
+        "negative_passage": "서울대 학생입니다.",
+        "main_answer": "선문대 학생",
+        "negative_answer": "서울대 학생",
     },
     {
         "name": "en_quiz_day",

@@ -869,3 +869,93 @@ SAVE_EVERY = 250 또는 500
 7. 우선순위는 "K/V cosine 숫자만 낮추기"가 아니라 "주입 후 답이 passage에 맞게 뒤집히는지"다.
 
 현재 프로젝트의 방향은 "외부 데이터셋 일반 QA 성능"보다 "주입된 발화 passage가 답변을 실제로 뒤집는가"에 맞춰져 있다. 다른 AI가 이어받을 때도 이 기준을 최우선으로 봐야 한다.
+
+## 새 PRAG 파이프라인 실행 명령어
+
+현재 새 구현은 `llm_server/PRAG` 폴더 기준이다. 기존 `llm_server/mergePRAG` 실험과 구분한다.
+
+### 1. 데이터셋 증강
+
+기본 입력/출력 경로는 코드에 들어 있다.
+
+```text
+input:  C:\Users\user\Documents\last_project\data\ServiceHardPair_train.jsonl
+train:  C:\Users\user\Documents\last_project\data\PRAG_augmented_train.jsonl
+valid:  C:\Users\user\Documents\last_project\data\PRAG_augmented_valid.jsonl
+```
+
+처음부터 새로 만들기:
+
+```bash
+python -m llm_server.PRAG.augment --no-resume
+```
+
+중간 저장분부터 이어서 만들기:
+
+```bash
+python -m llm_server.PRAG.augment
+```
+
+참고:
+
+- 증강은 기본적으로 입력 row를 shuffle해서 다양한 주제가 섞이게 만든다.
+- 성공한 샘플은 즉시 `PRAG_augmented_train.jsonl` 또는 `PRAG_augmented_valid.jsonl`에 append 저장된다.
+- 기본값은 `--valid-every 5`라서 5번째마다 valid에 저장된다.
+- 중간에 끊어도 다시 `python -m llm_server.PRAG.augment`를 실행하면 기존 `source_id`를 건너뛰고 이어서 진행한다.
+
+### 2. 학습
+
+데이터셋이 계속 추가되는 실험 단계에서는 기존 checkpoint를 이어받지 않고 새로 학습한다.
+
+```bash
+python -m llm_server.PRAG.train --epochs 3 --no-resume
+```
+
+현재 새 PRAG 기본 설정:
+
+```text
+num_kv = 16
+alpha = 1.0
+hidden_dim = 1024
+```
+
+주의:
+
+- `num_kv`를 바꾸면 기존 `prag_memory_checkpoint.pt`, `prag_memory_weights.pt`와 호환되지 않는다.
+- 데이터셋이 늘어난 뒤에는 당분간 `--no-resume`으로 새로 학습하는 것이 안전하다.
+
+### 3. 진단
+
+valid 데이터셋 기준 통계 진단:
+
+```bash
+python -m llm_server.PRAG.test --show 20
+```
+
+한국어/영어 단일 예시 진단:
+
+```bash
+python -m llm_server.PRAG.test_single_ko
+```
+
+진단에서 볼 핵심:
+
+- `main_ok`: main passage K/V로 main answer를 선택했는지
+- `neg_ok`: negative passage K/V로 negative answer를 선택했는지
+- `flip_ok`: main/negative가 둘 다 성공해서 답이 passage에 맞게 뒤집혔는지
+- `gen real`: 실제 K/V 주입 생성 답변
+- `gen zero`: K/V가 없을 때의 답변
+
+### 4. 데이터 확인
+
+현재까지 저장된 train/valid 데이터 품질 확인:
+
+```bash
+python -m llm_server.PRAG.validate
+```
+
+증강 샘플 직접 보기:
+
+```bash
+python -m llm_server.PRAG.preview_data --samples 5
+```
