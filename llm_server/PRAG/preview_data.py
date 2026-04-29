@@ -6,7 +6,7 @@ import argparse
 import random
 import textwrap
 
-from .config import AUGMENTED_TRAIN_PATH
+from .config import AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
 from .data import get_passage, iter_json_records, normalize_qas
 
 
@@ -31,16 +31,37 @@ def print_qa_list(title: str, qas: list[dict], max_items: int, width: int) -> No
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("path", nargs="?", default=str(AUGMENTED_TRAIN_PATH))
+    parser.add_argument(
+        "--split",
+        choices=("train", "valid"),
+        help="Use the default augmented train or valid dataset path.",
+    )
+    parser.add_argument(
+        "--index",
+        type=int,
+        default=0,
+        help="Zero-based row index to preview when --random is not used.",
+    )
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--max-qas", type=int, default=4)
     parser.add_argument("--width", type=int, default=160)
     parser.add_argument("--random", action="store_true")
     args = parser.parse_args()
 
-    rows = list(iter_json_records(args.path))
+    path = args.path
+    if args.split == "train":
+        path = str(AUGMENTED_TRAIN_PATH)
+    elif args.split == "valid":
+        path = str(AUGMENTED_VALID_PATH)
+
+    rows = list(iter_json_records(path))
+    print(f"[PRAG:preview] path={path} rows={len(rows)}")
     if args.random:
         random.shuffle(rows)
-    rows = rows[: args.samples]
+        rows = rows[: args.samples]
+    else:
+        start = max(args.index, 0)
+        rows = rows[start : start + args.samples]
 
     for row_idx, row in enumerate(rows, start=1):
         print("\n" + "=" * 90)
