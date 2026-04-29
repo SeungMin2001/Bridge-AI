@@ -75,6 +75,21 @@ TEMPLATES = {
     ],
 }
 
+IDENTITY_TEMPLATES = {
+    "ko": [
+        "{item} = {a}.",
+        "{speaker}는 {item}는 {a}라고 설명했다.",
+        "{domain}에서 {item}의 의미는 {a}이다.",
+        "{speaker}의 발화 기준으로 {item}는 {a}이다.",
+    ],
+    "en": [
+        "{item} = {a}.",
+        "{speaker} explained that {item} means {a}.",
+        "In the {domain}, {item} means {a}.",
+        "According to {speaker}, {item} is {a}.",
+    ],
+}
+
 QUESTIONS = {
     "ko": [
         "{item}은 뭐야?",
@@ -131,10 +146,50 @@ FACTS = [
     ("meeting", "identity", "회의 메모", "meeting note", "태스크 T7", "task T7", "프론트 수정", "frontend fix", "백엔드 점검", "backend check"),
 ]
 
+EXTRA_FACTS = [
+    ("lecture", "history", "역사", "history", "르네상스 발표 주제", "Renaissance presentation topic", "인문주의", "humanism", "절대왕정", "absolute monarchy"),
+    ("lecture", "history", "역사", "history", "중간고사 핵심 사건", "midterm key event", "프랑스 혁명", "French Revolution", "산업 혁명", "Industrial Revolution"),
+    ("lecture", "law", "법학", "law", "계약 성립 요건", "contract formation requirement", "청약과 승낙", "offer and acceptance", "손해배상", "damages"),
+    ("lecture", "law", "법학", "law", "개인정보 처리 근거", "personal data processing basis", "동의", "consent", "소유권", "ownership"),
+    ("lecture", "psychology", "심리학", "psychology", "조작적 조건형성", "operant conditioning", "보상과 처벌", "reward and punishment", "단기 기억", "short-term memory"),
+    ("lecture", "psychology", "심리학", "psychology", "주의 실험 변수", "attention experiment variable", "반응 시간", "reaction time", "혈압", "blood pressure"),
+    ("lecture", "statistics", "통계학", "statistics", "귀무가설", "null hypothesis", "차이가 없다", "no difference", "효과가 크다", "large effect"),
+    ("lecture", "statistics", "통계학", "statistics", "유의수준", "significance level", "0.05", "0.05", "0.5", "0.5"),
+    ("lecture", "chemistry", "화학", "chemistry", "산화 반응", "oxidation reaction", "전자를 잃는 과정", "loss of electrons", "전자를 얻는 과정", "gain of electrons"),
+    ("lecture", "chemistry", "화학", "chemistry", "실험 용액 농도", "solution concentration", "0.2M", "0.2M", "1.0M", "1.0M"),
+    ("lecture", "medicine", "의학", "medicine", "혈압 측정 자세", "blood pressure posture", "앉은 자세", "sitting position", "누운 자세", "lying position"),
+    ("lecture", "medicine", "의학", "medicine", "감염 관리 핵심", "infection control focus", "손 위생", "hand hygiene", "수면 시간", "sleep duration"),
+    ("lecture", "education", "교육학", "education", "형성평가 목적", "formative assessment purpose", "학습 과정 점검", "checking learning progress", "최종 등급 산출", "final grade calculation"),
+    ("lecture", "education", "교육학", "education", "피드백 제출 방식", "feedback submission method", "LMS 댓글", "LMS comment", "종이 설문", "paper survey"),
+    ("lecture", "design", "디자인", "design", "포스터 핵심 색상", "poster key color", "남색", "navy", "분홍", "pink"),
+    ("lecture", "design", "디자인", "design", "타이포그래피 원칙", "typography principle", "가독성", "readability", "장식성", "ornamentation"),
+    ("lecture", "business", "경영학", "business", "SWOT의 O", "O in SWOT", "기회", "opportunity", "위협", "threat"),
+    ("lecture", "business", "경영학", "business", "고객 세그먼트", "customer segment", "초기 사용자", "early adopters", "공급업체", "suppliers"),
+    ("meeting", "hr", "인사 회의", "HR meeting", "신입 온보딩 담당자", "new hire onboarding owner", "하은", "Haeun", "지훈", "Jihoon"),
+    ("meeting", "hr", "인사 회의", "HR meeting", "면접 일정", "interview schedule", "목요일 오전", "Thursday morning", "월요일 오후", "Monday afternoon"),
+    ("meeting", "legal", "법무 회의", "legal meeting", "계약 검토 담당", "contract review owner", "법무팀", "legal team", "마케팅팀", "marketing team"),
+    ("meeting", "legal", "법무 회의", "legal meeting", "NDA 보관 위치", "NDA storage location", "공유 드라이브", "shared drive", "개인 메일함", "personal mailbox"),
+    ("meeting", "sales", "영업 회의", "sales meeting", "이번 달 목표", "monthly target", "20건", "20 deals", "5건", "5 deals"),
+    ("meeting", "sales", "영업 회의", "sales meeting", "우선 고객군", "priority customer group", "대학 연구실", "university labs", "동네 카페", "local cafes"),
+    ("meeting", "security", "보안 회의", "security meeting", "2단계 인증 적용일", "two-factor rollout date", "다음 주 월요일", "next Monday", "다음 달 금요일", "next month's Friday"),
+    ("meeting", "security", "보안 회의", "security meeting", "보안 점검 항목", "security check item", "접근 권한", "access permission", "폰트 크기", "font size"),
+    ("meeting", "support", "고객지원 회의", "support meeting", "긴급 문의 응답 시간", "urgent ticket response time", "30분 이내", "within 30 minutes", "3일 이내", "within three days"),
+    ("meeting", "support", "고객지원 회의", "support meeting", "FAQ 수정 담당자", "FAQ update owner", "유진", "Yujin", "민재", "Minjae"),
+    ("meeting", "planning", "기획 회의", "planning meeting", "다음 스프린트 목표", "next sprint goal", "검색 정확도 개선", "improve search accuracy", "로고 색상 변경", "change logo color"),
+    ("meeting", "planning", "기획 회의", "planning meeting", "마일스톤 M1", "milestone M1", "프로토타입 완성", "prototype completion", "운영 종료", "service shutdown"),
+    ("meeting", "data", "데이터 회의", "data meeting", "라벨링 기준", "labeling rule", "교수 발화 우선", "professor utterance first", "학생 농담 우선", "student joke first"),
+    ("meeting", "data", "데이터 회의", "data meeting", "중복 제거 기준", "deduplication rule", "같은 passage 제거", "remove same passage", "같은 길이 제거", "remove same length"),
+    ("meeting", "qa", "QA 회의", "QA meeting", "회귀 테스트 범위", "regression test scope", "로그인과 채팅", "login and chat", "배경 음악", "background music"),
+    ("meeting", "qa", "QA 회의", "QA meeting", "버그 우선순위 기준", "bug priority rule", "사용자 차단 여부", "whether it blocks users", "아이콘 모양", "icon shape"),
+]
+
+FACTS.extend(EXTRA_FACTS)
+VARIANTS_PER_FACT = 10
+
 
 def make_row(source_id: str, lang: str, domain_name: str, item: str, a: str, b: str, speaker: str, template_idx: int) -> dict:
     if "identity" in source_id:
-        template = "{item} = {a}." if lang == "en" else "{item} = {a}."
+        template = IDENTITY_TEMPLATES[lang][template_idx % len(IDENTITY_TEMPLATES[lang])]
     else:
         template = TEMPLATES[lang][template_idx % len(TEMPLATES[lang])]
     q_template = QUESTIONS[lang][template_idx % len(QUESTIONS[lang])]
@@ -156,7 +211,7 @@ def build_rows(limit: int, seed: int) -> list[dict]:
     rng = random.Random(seed)
     rows = []
     for idx, (group_name, domain_key, domain_ko, domain_en, item_ko, item_en, a_ko, a_en, b_ko, b_en) in enumerate(FACTS):
-        for variant in range(6):
+        for variant in range(VARIANTS_PER_FACT):
             for lang in ("ko", "en"):
                 domain_name = domain_ko if lang == "ko" else domain_en
                 item = item_ko if lang == "ko" else item_en
