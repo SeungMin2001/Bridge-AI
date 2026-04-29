@@ -35,12 +35,12 @@ CASES = [
         "negative_answer": "초록색",
     },
     {
-        "name": "en_quiz_day",
-        "question": "When is the quiz?",
-        "main_passage": "The quiz is on Wednesday.",
-        "negative_passage": "The quiz is on Friday.",
-        "main_answer": "Wednesday",
-        "negative_answer": "Friday",
+        "name": "en_phone_color",
+        "question": "What color is Seungmin's phone?",
+        "main_passage": "Seungmin's phone is red.",
+        "negative_passage": "Seungmin's phone is green.",
+        "main_answer": "red",
+        "negative_answer": "green",
     },
 ]
 
