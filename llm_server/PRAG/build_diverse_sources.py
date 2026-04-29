@@ -184,7 +184,7 @@ EXTRA_FACTS = [
 ]
 
 FACTS.extend(EXTRA_FACTS)
-VARIANTS_PER_FACT = 10
+VARIANTS_PER_FACT = 30
 
 
 def make_row(source_id: str, lang: str, domain_name: str, item: str, a: str, b: str, speaker: str, template_idx: int) -> dict:
