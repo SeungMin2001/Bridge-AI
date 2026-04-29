@@ -256,8 +256,8 @@ def main() -> None:
         elapsed_min = max((time.time() - started_at) / 60, 1e-6)
         rate = processed / elapsed_min
         eta = ""
-        if total_target and rate > 0:
-            remaining = max(total_target - processed, 0)
+        if input_total and rate > 0:
+            remaining = max(input_total - processed, 0)
             eta = f", eta={remaining / rate:.1f}min"
         print(
             f"[PRAG:augment] ok {source_id}: atomic={len(row['atomic_qas'])} "
