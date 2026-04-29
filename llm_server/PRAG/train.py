@@ -78,6 +78,8 @@ def example_loss(model, tokenizer, hypernet, target_layer, example: MemoryExampl
     out = {
         "objective": main_gold,
         "main_gold": main_gold,
+        "main_neg": zero,
+        "neg_gold": zero,
         "neg_neg": zero,
         "rank": zero,
         "main_ok": True,
@@ -100,6 +102,8 @@ def example_loss(model, tokenizer, hypernet, target_layer, example: MemoryExampl
     objective = main_gold + neg_neg + rank_weight * rank
     out.update({
         "objective": objective,
+        "main_neg": main_neg,
+        "neg_gold": neg_gold,
         "neg_neg": neg_neg,
         "rank": rank,
         "main_ok": main_gold.item() < main_neg.item(),
@@ -238,6 +242,37 @@ def save_checkpoint(path, hypernet, optimizer, scheduler, step, best_val, run_co
     )
 
 
+def init_training_log(path, run_config, resumed_step: int):
+    now = datetime.now().isoformat()
+    if resumed_step > 0 and path.exists():
+        try:
+            log = json.loads(path.read_text(encoding="utf-8"))
+            if log.get("config") == run_config:
+                log.setdefault("schema_version", 2)
+                log.setdefault("step_losses", [])
+                log.setdefault("val_evals", [])
+                log.setdefault("sessions", [])
+                log["sessions"].append({"start": now, "resume_step": resumed_step})
+                return log
+        except Exception:
+            pass
+    return {
+        "schema_version": 2,
+        "config": run_config,
+        "step_losses": [],
+        "val_evals": [],
+        "sessions": [{"start": now, "resume_step": resumed_step}],
+        "start": now,
+    }
+
+
+def write_training_log(path, log):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", default=str(AUGMENTED_TRAIN_PATH))
@@ -371,7 +406,7 @@ def main() -> None:
         else:
             print("[PRAG:train] checkpoint config mismatch; starting fresh.")
 
-    log = {"config": run_config, "step_losses": [], "val_evals": [], "start": datetime.now().isoformat()}
+    log = init_training_log(log_path, run_config, step)
     start = time.time()
     hypernet.train()
     for _epoch in range(args.epochs):
@@ -415,22 +450,48 @@ def main() -> None:
             scheduler.step()
             step += 1
             obj = out["objective"].item()
+            elapsed_sec = time.time() - start
+            lr_now = scheduler.get_last_lr()[0]
             running.append(obj)
             running_kind[kind] += 1
-            log["step_losses"].append({"step": step, "objective": round(obj, 4), "kind": kind})
+            log_entry = {
+                "step": step,
+                "objective": round(obj, 6),
+                "main_gold": round(float(out["main_gold"].detach().item()), 6),
+                "main_neg": round(float(out.get("main_neg", out["rank"]).detach().item()), 6),
+                "neg_gold": round(float(out.get("neg_gold", out["rank"]).detach().item()), 6),
+                "neg_neg": round(float(out["neg_neg"].detach().item()), 6),
+                "rank": round(float(out["rank"].detach().item()), 6),
+                "main_ok": bool(out.get("main_ok", False)),
+                "neg_ok": bool(out.get("neg_ok", False)),
+                "kind": kind,
+                "lr": lr_now,
+                "elapsed_sec": round(elapsed_sec, 3),
+                "elapsed_min": round(elapsed_sec / 60, 4),
+            }
+            if kind == "group":
+                log_entry.update({
+                    "group_qas": int(out.get("group_qas", 0)),
+                    "group_main_rate": round(float(out.get("group_main_rate", 0.0)), 6),
+                    "group_neg_rate": round(float(out.get("group_neg_rate", 0.0)), 6),
+                })
+            log["step_losses"].append(log_entry)
             if step % LOG_EVERY == 0:
-                elapsed = (time.time() - start) / 60
                 print(
                     f"  Step {step}/{total_steps} | obj={obj:.4f} | "
                     f"avg={sum(running)/len(running):.4f} | main={out['main_gold'].item():.3f} | "
                     f"neg={out['neg_neg'].item():.3f} | rank={out['rank'].item():.3f} | "
                     f"kind={kind} | mix=e{running_kind['example']}/g{running_kind['group']} | "
-                    f"lr={scheduler.get_last_lr()[0]:.2e} | {elapsed:.1f}min"
+                    f"lr={lr_now:.2e} | {elapsed_sec / 60:.1f}min"
                 )
                 running = []
                 running_kind = {"example": 0, "group": 0}
             if step % SAVE_EVERY == 0:
                 save_checkpoint(checkpoint_path, hypernet, optimizer, scheduler, step, best_val, run_config)
+                if log.get("sessions"):
+                    log["sessions"][-1]["last_saved_step"] = step
+                    log["sessions"][-1]["elapsed_sec"] = round(time.time() - start, 3)
+                write_training_log(log_path, log)
                 print(f"  [PRAG:checkpoint] saved step {step}")
             if step % EVAL_EVERY == 0:
                 metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device)
@@ -457,7 +518,13 @@ def main() -> None:
                         f"main={group_metrics['main_ok']:.3f} neg={group_metrics['neg_ok']:.3f} "
                         f"flip={group_metrics['flip_ok']:.3f}"
                     )
-                log["val_evals"].append({"step": step, "individual": metrics, "group": group_metrics})
+                log["val_evals"].append({
+                    "step": step,
+                    "elapsed_sec": round(time.time() - start, 3),
+                    "elapsed_min": round((time.time() - start) / 60, 4),
+                    "individual": metrics,
+                    "group": group_metrics,
+                })
                 if selection_objective < best_val:
                     best_val = selection_objective
                     weights_path.parent.mkdir(parents=True, exist_ok=True)
@@ -472,6 +539,10 @@ def main() -> None:
                         weights_path,
                     )
                     print("     [PRAG:best] saved weights")
+                if log.get("sessions"):
+                    log["sessions"][-1]["last_eval_step"] = step
+                    log["sessions"][-1]["elapsed_sec"] = round(time.time() - start, 3)
+                write_training_log(log_path, log)
 
     metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device)
     group_metrics = evaluate_groups(
@@ -499,7 +570,17 @@ def main() -> None:
             weights_path,
         )
     save_checkpoint(checkpoint_path, hypernet, optimizer, scheduler, step, min(best_val, selection_objective), run_config)
-    log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+    if log.get("sessions"):
+        log["sessions"][-1]["end"] = datetime.now().isoformat()
+        log["sessions"][-1]["elapsed_sec"] = round(time.time() - start, 3)
+        log["sessions"][-1]["elapsed_min"] = round((time.time() - start) / 60, 4)
+        log["sessions"][-1]["final_step"] = step
+    log["end"] = datetime.now().isoformat()
+    log["final_step"] = step
+    log["final_val"] = metrics
+    log["final_group_val"] = group_metrics
+    log["total_logged_runtime_sec"] = round(sum(float(session.get("elapsed_sec", 0.0)) for session in log.get("sessions", [])), 3)
+    write_training_log(log_path, log)
     print(f"[PRAG:train] done step={step} final_val={metrics} final_group_val={group_metrics}")
 
 
