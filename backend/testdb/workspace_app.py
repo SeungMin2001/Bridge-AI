@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from db_api.workspace.common import WorkspaceApiError
 from db_api.workspace.courses_api import create_course, delete_course, update_course
-from db_api.workspace.sessions_api import create_session_file, delete_session_file, update_session_resource_tree
+from db_api.workspace.sessions_api import create_session_file, delete_session_file, update_session_resources
 from db_api.workspace.tree_api import get_workspace_tree
 
 
@@ -118,15 +118,15 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
             self._handle_error(error)
 
     def do_PUT(self) -> None:
-        # PUT /workspace/courses/{course_id}, PUT /workspace/sessions/{session_id}/resource-tree 처리
+        # PUT /workspace/courses/{course_id}, PUT /workspace/sessions/{session_id}/resources 처리
         path = urlparse(self.path).path
 
         try:
             payload = self._read_json()
 
-            if path.startswith("/workspace/sessions/") and path.endswith("/resource-tree"):
+            if path.startswith("/workspace/sessions/") and path.endswith("/resources"):
                 session_id = path.split("/")[-2]
-                result = self._run_api(update_session_resource_tree(session_id, payload))
+                result = self._run_api(update_session_resources(session_id, payload))
                 self._send_json(200, result)
                 return
 
@@ -169,7 +169,7 @@ def run() -> None:
     # DB 연동 테스트 서버를 127.0.0.1:8001에서 실행합니다.
     server = ThreadingHTTPServer((HOST, PORT), WorkspaceRequestHandler)
     print(f"Workspace test server running at http://{HOST}:{PORT}")
-    print("Endpoints: GET /health, GET /workspace/tree, POST /workspace/courses, PUT /workspace/courses/{id}, DELETE /workspace/courses/{id}, POST /workspace/sessions, PUT /workspace/sessions/{id}/resource-tree, DELETE /workspace/sessions/{id}")
+    print("Endpoints: GET /health, GET /workspace/tree, POST /workspace/courses, PUT /workspace/courses/{id}, DELETE /workspace/courses/{id}, POST /workspace/sessions, PUT /workspace/sessions/{id}/resources, DELETE /workspace/sessions/{id}")
     server.serve_forever()
 
 

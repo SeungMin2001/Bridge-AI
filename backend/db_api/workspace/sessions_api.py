@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from db import get_pool
 from db_api.workspace.common import WorkspaceApiError, required_text, uuid_or_none
-from db_api.workspace.serializers import session_node
+from db_api.workspace.serializers import session_node, split_week_resources
 
 
 async def create_session_file(payload: dict) -> dict:
@@ -31,12 +31,12 @@ async def create_session_file(payload: dict) -> dict:
                 icon,
                 color,
                 session_pdf,
-                summary_notes,
-                resource_tree
+                session_voicefile,
+                summary_notes
             )
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb)
             RETURNING session_id, course_id, session_date, title, status, created_at,
-                      file_kind, tag, icon, color, session_pdf, summary_notes, resource_tree
+                      file_kind, tag, icon, color, session_pdf, session_voicefile, summary_notes
             """,
             session_id,
             course_id,
@@ -86,28 +86,33 @@ async def delete_session_file(session_id: str) -> dict:
     }
 
 
-async def update_session_resource_tree(session_id: str, payload: dict) -> dict:
-    # 현재 파일 내부 주차/자료/녹음본 구조를 SESSIONS 테이블에 저장
+async def update_session_resources(session_id: str, payload: dict) -> dict:
+    # 현재 파일 내부 구조를 강의자료/녹음본 컬럼으로 분리 저장
     session_uuid = uuid_or_none(session_id, "session_id")
     if session_uuid is None:
         raise WorkspaceApiError("session_id is required.")
 
-    resource_tree = payload.get("resource_tree")
-    if not isinstance(resource_tree, list):
-        raise WorkspaceApiError("resource_tree must be a list.")
+    weeks = payload.get("weeks")
+    if not isinstance(weeks, list):
+        raise WorkspaceApiError("weeks must be a list.")
+
+    session_pdf = split_week_resources(weeks, "materials")
+    session_voicefile = split_week_resources(weeks, "recordings")
 
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             UPDATE sessions
-            SET resource_tree = $2::jsonb
+            SET session_pdf = $2::jsonb,
+                session_voicefile = $3::jsonb
             WHERE session_id = $1
             RETURNING session_id, course_id, session_date, title, status, created_at,
-                      file_kind, tag, icon, color, session_pdf, summary_notes, resource_tree
+                      file_kind, tag, icon, color, session_pdf, session_voicefile, summary_notes
             """,
             session_uuid,
-            json.dumps(resource_tree),
+            json.dumps(session_pdf),
+            json.dumps(session_voicefile),
         )
 
     if row is None:

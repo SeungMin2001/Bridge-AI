@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from db_api.workspace.common import WorkspaceApiError
 from db_api.workspace.courses_api import create_course, delete_course, update_course
 from db_api.workspace.files_api import get_workspace_material_file, save_workspace_material
-from db_api.workspace.sessions_api import create_session_file, delete_session_file, update_session_resource_tree
+from db_api.workspace.sessions_api import create_session_file, delete_session_file, update_session_resources
 from db_api.workspace.tree_api import get_workspace_tree
 
 
@@ -40,9 +40,9 @@ class CreateSessionFileRequest(BaseModel):
     status: str | None = None
 
 
-class UpdateSessionResourceTreeRequest(BaseModel):
+class UpdateSessionResourcesRequest(BaseModel):
     # 현재 파일 내부 주차/자료/녹음본 구조
-    resource_tree: list
+    weeks: list
 
 
 def _raise_http_error(error: Exception) -> None:
@@ -106,11 +106,11 @@ async def workspace_delete_session(session_id: str):
         _raise_http_error(error)
 
 
-@router.put("/sessions/{session_id}/resource-tree")
-async def workspace_update_session_resource_tree(session_id: str, req: UpdateSessionResourceTreeRequest):
-    # 현재 파일 내부 폴더 구조를 SESSIONS 테이블에 저장
+@router.put("/sessions/{session_id}/resources")
+async def workspace_update_session_resources(session_id: str, req: UpdateSessionResourcesRequest):
+    # 현재 파일 내부 강의자료/녹음본 구조를 SESSIONS 테이블에 저장
     try:
-        return await update_session_resource_tree(session_id, req.model_dump())
+        return await update_session_resources(session_id, req.model_dump())
     except Exception as error:
         _raise_http_error(error)
 
