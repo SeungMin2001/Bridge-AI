@@ -39,6 +39,7 @@ async def create_session(session_id: str, title: str = "강의 녹음"):
 
 
 async def save_transcript_to_db(transcript_data: dict, segment_index: int):
+    """전사 청크를 transcripts 테이블에 저장합니다."""
     pool = await get_pool()
     import uuid
     from datetime import datetime
@@ -85,6 +86,21 @@ async def get_transcripts_by_session(session_id: str) -> list[dict]:
             }
             for r in rows
         ]
+
+
+async def get_course_id_by_session(session_id: str) -> str | None:
+    """session_id로 course_id 조회"""
+    import uuid as _uuid
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT course_id
+            FROM sessions
+            WHERE session_id = $1
+        """, _uuid.UUID(session_id))
+        if row is None or row["course_id"] is None:
+            return None
+        return str(row["course_id"])
 
 
 
