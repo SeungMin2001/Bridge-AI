@@ -24,15 +24,15 @@ from .memory import (
 CASES = [
     {
         "name": "ko_lecture_multifact",
-        "question": "승민 학생의 학교는 어디야?",
+        "question": "승민 학생의 노트북 종류가 뭐야?",
         "main_passage": (
-            "승민 학생의 학교는 선문대학교이다."
+            "승민 학생의 노트북 종류는 맥북-m1이다."
         ),
         "negative_passage": (
-            "승민 학생의 학교는 서울대학교이다."
+            "승민 학생의 노트북 종류는 삼성-갤럭시북3이다."
         ),
-        "main_answer": "선문대학교",
-        "negative_answer": "서울대학교",
+        "main_answer": "맥북-m1",
+        "negative_answer": "삼성-갤럭시북3",
     },
     {
         "name": "en_meeting_multifact",
