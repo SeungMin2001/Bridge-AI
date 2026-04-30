@@ -103,6 +103,65 @@ def clip(text: str, width: int = 160) -> str:
     return text if len(text) <= width else text[: width - 3] + "..."
 
 
+def init_bucket() -> dict:
+    return {
+        "total": 0,
+        "main_ok": 0,
+        "neg_ok": 0,
+        "flip_ok": 0,
+        "shown": 0,
+        "main_gen_hit": 0,
+        "neg_gen_hit": 0,
+        "direct_hit": 0,
+        "no_mem_hit": 0,
+        "zero_hit": 0,
+    }
+
+
+def update_bucket(bucket: dict, main_pref: bool, neg_pref: bool) -> None:
+    bucket["total"] += 1
+    bucket["main_ok"] += int(main_pref)
+    bucket["neg_ok"] += int(neg_pref)
+    bucket["flip_ok"] += int(main_pref and neg_pref)
+
+
+def update_generation_bucket(
+    bucket: dict,
+    *,
+    main_hit: bool,
+    neg_hit: bool,
+    direct_hit: bool,
+    no_mem_hit: bool,
+    zero_hit: bool,
+) -> None:
+    bucket["shown"] += 1
+    bucket["main_gen_hit"] += int(main_hit)
+    bucket["neg_gen_hit"] += int(neg_hit)
+    bucket["direct_hit"] += int(direct_hit)
+    bucket["no_mem_hit"] += int(no_mem_hit)
+    bucket["zero_hit"] += int(zero_hit)
+
+
+def bucket_rates(bucket: dict) -> dict:
+    denom = max(bucket["total"], 1)
+    shown = max(bucket["shown"], 1)
+    return {
+        "total": bucket["total"],
+        "shown": bucket["shown"],
+        "candidate_main_ok": bucket["main_ok"] / denom,
+        "candidate_neg_ok": bucket["neg_ok"] / denom,
+        "candidate_flip_ok": bucket["flip_ok"] / denom,
+        "main_gen_hit": bucket["main_gen_hit"],
+        "neg_gen_hit": bucket["neg_gen_hit"],
+        "direct_hit": bucket["direct_hit"],
+        "no_mem_hit": bucket["no_mem_hit"],
+        "zero_hit": bucket["zero_hit"],
+        "main_gen_rate": bucket["main_gen_hit"] / shown,
+        "neg_gen_rate": bucket["neg_gen_hit"] / shown,
+        "direct_rate": bucket["direct_hit"] / shown,
+    }
+
+
 def parse_alpha_sweep(value: str) -> list[float]:
     alphas = []
     for item in value.split(","):
@@ -162,14 +221,15 @@ def main() -> None:
     sweep_results = []
     for alpha in alphas:
         detailed = len(alphas) == 1
-        main_ok = neg_ok = flip_ok = 0
-        gen_main_ok = gen_neg_ok = gen_direct_ok = gen_no_mem_ok = gen_zero_ok = 0
+        overall = init_bucket()
+        by_type = {}
         shown = 0
-        total = 0
         with torch.no_grad():
             for ex in examples:
                 if not (ex.negative_passage and ex.negative_answer):
                     continue
+                qa_type = ex.qa_type or "qa"
+                bucket = by_type.setdefault(qa_type, init_bucket())
                 main_mem = encode_memory(model, tokenizer, hypernet, ex.passage, device)
                 neg_mem = encode_memory(model, tokenizer, hypernet, ex.negative_passage, device)
                 gold_tok = tokenize_qa(tokenizer, ex.question, ex.answer, device)
@@ -194,10 +254,8 @@ def main() -> None:
                 neg_pref = neg_neg < neg_gold
                 main_choice = ex.answer if main_pref else ex.negative_answer
                 neg_choice = ex.negative_answer if neg_pref else ex.answer
-                total += 1
-                main_ok += int(main_pref)
-                neg_ok += int(neg_pref)
-                flip_ok += int(main_pref and neg_pref)
+                update_bucket(overall, main_pref, neg_pref)
+                update_bucket(bucket, main_pref, neg_pref)
                 if shown < args.show:
                     shown += 1
                     main_gen = generate_with_kv(
@@ -236,14 +294,25 @@ def main() -> None:
                     no_mem_hit = hit(no_mem_gen, ex.answer)
                     zero_hit = hit(zero_gen, ex.answer)
                     direct_hit = hit(direct_gen, ex.answer)
-                    gen_main_ok += int(main_gen_hit)
-                    gen_neg_ok += int(neg_gen_hit)
-                    gen_no_mem_ok += int(no_mem_hit)
-                    gen_zero_ok += int(zero_hit)
-                    gen_direct_ok += int(direct_hit)
+                    update_generation_bucket(
+                        overall,
+                        main_hit=main_gen_hit,
+                        neg_hit=neg_gen_hit,
+                        direct_hit=direct_hit,
+                        no_mem_hit=no_mem_hit,
+                        zero_hit=zero_hit,
+                    )
+                    update_generation_bucket(
+                        bucket,
+                        main_hit=main_gen_hit,
+                        neg_hit=neg_gen_hit,
+                        direct_hit=direct_hit,
+                        no_mem_hit=no_mem_hit,
+                        zero_hit=zero_hit,
+                    )
 
                     if detailed:
-                        print(f"\n[{shown}] {ex.question}")
+                        print(f"\n[{shown}] ({qa_type}) {ex.question}")
                         print(f"  passage      : {clip(ex.passage)}")
                         print(f"  neg_passage  : {clip(ex.negative_passage)}")
                         print(f"  expected     : main={ex.answer} | neg={ex.negative_answer}")
@@ -257,37 +326,47 @@ def main() -> None:
                         print(f"    direct_passage: {direct_gen} [{'HIT' if direct_hit else 'MISS'}]")
                         print(f"    main_kv       : {main_gen} [{'HIT' if main_gen_hit else 'MISS'}]")
                         print(f"    neg_kv        : {neg_gen} [{'HIT' if neg_gen_hit else 'MISS'}]")
-        denom = max(total, 1)
-        show_denom = max(shown, 1)
+        overall_rates = bucket_rates(overall)
+        type_rates = {qa_type: bucket_rates(bucket) for qa_type, bucket in sorted(by_type.items())}
         result = {
             "alpha": alpha,
-            "evaluated": total,
-            "candidate_main_ok": main_ok / denom,
-            "candidate_neg_ok": neg_ok / denom,
-            "candidate_flip_ok": flip_ok / denom,
-            "shown_no_memory_hits": gen_no_mem_ok,
-            "shown_zero_kv_hits": gen_zero_ok,
-            "shown_direct_passage_hits": gen_direct_ok,
-            "shown_main_kv_generation_hits": gen_main_ok,
-            "shown_neg_kv_generation_hits": gen_neg_ok,
-            "shown": show_denom,
+            "evaluated": overall_rates["total"],
+            "candidate_main_ok": overall_rates["candidate_main_ok"],
+            "candidate_neg_ok": overall_rates["candidate_neg_ok"],
+            "candidate_flip_ok": overall_rates["candidate_flip_ok"],
+            "shown_no_memory_hits": overall_rates["no_mem_hit"],
+            "shown_zero_kv_hits": overall_rates["zero_hit"],
+            "shown_direct_passage_hits": overall_rates["direct_hit"],
+            "shown_main_kv_generation_hits": overall_rates["main_gen_hit"],
+            "shown_neg_kv_generation_hits": overall_rates["neg_gen_hit"],
+            "shown": max(overall_rates["shown"], 1),
+            "by_type": type_rates,
         }
         sweep_results.append(result)
 
         if detailed:
             print(f"\n[PRAG:test alpha={alpha}]")
-            print(f"  evaluated={total}")
+            print(f"  evaluated={result['evaluated']}")
             print(f"  candidate_main_ok={result['candidate_main_ok']:.3f}")
             print(f"  candidate_neg_ok={result['candidate_neg_ok']:.3f}")
             print(f"  candidate_flip_ok={result['candidate_flip_ok']:.3f}")
-            print(f"  shown_no_memory_hits={gen_no_mem_ok}/{show_denom}")
-            print(f"  shown_zero_kv_hits={gen_zero_ok}/{show_denom}")
-            print(f"  shown_direct_passage_hits={gen_direct_ok}/{show_denom}")
-            print(f"  shown_main_kv_generation_hits={gen_main_ok}/{show_denom}")
-            print(f"  shown_neg_kv_generation_hits={gen_neg_ok}/{show_denom}")
-            if gen_direct_ok >= max(1, shown // 2) and gen_main_ok < gen_direct_ok:
+            print(f"  shown_no_memory_hits={result['shown_no_memory_hits']}/{result['shown']}")
+            print(f"  shown_zero_kv_hits={result['shown_zero_kv_hits']}/{result['shown']}")
+            print(f"  shown_direct_passage_hits={result['shown_direct_passage_hits']}/{result['shown']}")
+            print(f"  shown_main_kv_generation_hits={result['shown_main_kv_generation_hits']}/{result['shown']}")
+            print(f"  shown_neg_kv_generation_hits={result['shown_neg_kv_generation_hits']}/{result['shown']}")
+            print("  [by qa_type]")
+            for qa_type, rates in type_rates.items():
+                print(
+                    f"    {qa_type}: n={rates['total']} | "
+                    f"cand_flip={rates['candidate_flip_ok']:.3f} | "
+                    f"direct={rates['direct_hit']}/{max(rates['shown'], 1)} | "
+                    f"main_kv={rates['main_gen_hit']}/{max(rates['shown'], 1)} | "
+                    f"neg_kv={rates['neg_gen_hit']}/{max(rates['shown'], 1)}"
+                )
+            if result["shown_direct_passage_hits"] >= max(1, result["shown"] // 2) and result["shown_main_kv_generation_hits"] < result["shown_direct_passage_hits"]:
                 print("  decision_hint=generation/prompt or K/V decoding bottleneck: direct passage works better than injected K/V generation.")
-            elif result["candidate_flip_ok"] >= 0.7 and gen_main_ok / show_denom < 0.7:
+            elif result["candidate_flip_ok"] >= 0.7 and result["shown_main_kv_generation_hits"] / result["shown"] < 0.7:
                 print("  decision_hint=ranking learned but free generation is unstable.")
             elif result["candidate_flip_ok"] < 0.5:
                 print("  decision_hint=more/better K/V supervision needed before generation tuning.")
@@ -313,6 +392,19 @@ def main() -> None:
             )
         if best is not None:
             print(f"  suggested_alpha={best[1]['alpha']:.2f}")
+        print("\n[PRAG:alpha-sweep by qa_type]")
+        for result in sweep_results:
+            print(f"  alpha={result['alpha']:.2f}")
+            for qa_type, rates in result["by_type"].items():
+                print(
+                    f"    {qa_type}: n={rates['total']} | "
+                    f"cand_main={rates['candidate_main_ok']:.3f} "
+                    f"cand_neg={rates['candidate_neg_ok']:.3f} "
+                    f"cand_flip={rates['candidate_flip_ok']:.3f} | "
+                    f"direct={rates['direct_hit']}/{max(rates['shown'], 1)} "
+                    f"main_kv={rates['main_gen_hit']}/{max(rates['shown'], 1)} "
+                    f"neg_kv={rates['neg_gen_hit']}/{max(rates['shown'], 1)}"
+                )
 
 
 if __name__ == "__main__":
