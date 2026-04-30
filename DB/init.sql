@@ -18,11 +18,12 @@ CREATE TABLE SCHEDULES
     schedule_id       UUID PRIMARY KEY,
     session_id        UUID NULL,
     transcript_id     UUID NULL,
-    title             VARCHAR(255) NOT NULL,
-    description       TEXT NULL,
-    event_type        VARCHAR(50) NULL,
-    due_date          TIMESTAMP NULL,
-    status            VARCHAR(30) NULL,
+    title             VARCHAR(255) NOT NULL, -- 제목
+    description       TEXT NULL, -- 설명
+    event_type        VARCHAR(50) NULL, -- 시험, 과제, 프로젝트
+    due_date          TIMESTAMP NULL, -- 마감일
+    status            VARCHAR(30) NULL, -- 예정, 진행중, 완료
+    calendar_flag     BOOLEAN NULL, -- 캘린더 표시 여부
     source_start_time REAL NULL,
     source_end_time   REAL NULL,
     source_text       TEXT NULL,
