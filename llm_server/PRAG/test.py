@@ -68,18 +68,26 @@ def hit(text: str, answer: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default=str(AUGMENTED_VALID_PATH))
-    parser.add_argument("--weights", default=str(WEIGHTS_PATH))
+    parser.add_argument("--data", default=str(MULTIFACT_AUGMENTED_VALID_PATH))
+    parser.add_argument("--weights", default=str(MULTIFACT_WEIGHTS_PATH))
     parser.add_argument(
         "--multifact",
         action="store_true",
-        help="Use the default multi-fact augmented valid file and multi-fact weights.",
+        help="Use the default multi-fact augmented valid file and multi-fact weights. This is now the default.",
+    )
+    parser.add_argument(
+        "--singlefact",
+        action="store_true",
+        help="Use the legacy single-fact augmented valid file and weights.",
     )
     parser.add_argument("--max-samples", type=int, default=20)
     parser.add_argument("--show", type=int, default=3)
     parser.add_argument("--max-new-tokens", type=int, default=24)
     args = parser.parse_args()
-    if args.multifact:
+    if args.singlefact:
+        args.data = str(AUGMENTED_VALID_PATH)
+        args.weights = str(WEIGHTS_PATH)
+    elif args.multifact:
         args.data = str(MULTIFACT_AUGMENTED_VALID_PATH)
         args.weights = str(MULTIFACT_WEIGHTS_PATH)
 

@@ -172,16 +172,23 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--weights", default=str(WEIGHTS_PATH))
+    parser.add_argument("--weights", default=str(MULTIFACT_WEIGHTS_PATH))
     parser.add_argument(
         "--multifact",
         action="store_true",
-        help="Use the multi-fact trained weights by default.",
+        help="Use the multi-fact trained weights. This is now the default.",
+    )
+    parser.add_argument(
+        "--singlefact",
+        action="store_true",
+        help="Use the legacy single-fact trained weights.",
     )
     parser.add_argument("--max-new-tokens", type=int, default=16)
     args = parser.parse_args()
 
-    if args.multifact and args.weights == str(WEIGHTS_PATH):
+    if args.singlefact:
+        args.weights = str(WEIGHTS_PATH)
+    elif args.multifact:
         args.weights = str(MULTIFACT_WEIGHTS_PATH)
 
     model, tokenizer = load_model()
