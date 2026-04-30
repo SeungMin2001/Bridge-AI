@@ -30,13 +30,13 @@ CASES = [
         "name": "ko_lecture_multifact",
         "question": "승민 학생의 나이는 몇살이야?",
         "main_passage": (
-            "승민 학생의 나이는 20살이다."
+            "승민 학생의 학교는 선문대학교이다."
         ),
         "negative_passage": (
-            "승민 학생의 나이는 35살이다."
+            "승민 학생의 학교는 서울대학교이다."
         ),
-        "main_answer": "20살",
-        "negative_answer": "35살",
+        "main_answer": "선문대학교",
+        "negative_answer": "서울대학교",
     },
     {
         "name": "en_meeting_multifact",
