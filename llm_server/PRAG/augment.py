@@ -8,6 +8,7 @@ import random
 import re
 import time
 
+import requests
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -78,10 +79,9 @@ def apply_chat_template_no_thinking(tokenizer, messages: list[dict]) -> str:
         )
 
 
-@torch.no_grad()
-def generate_json(model, tokenizer, source: dict, passage: str, max_new_tokens: int = 768) -> tuple[dict | None, str]:
+def build_messages(source: dict, passage: str) -> list[dict]:
     negative = first_hard_negative(source)
-    messages = [
+    return [
         {
             "role": "system",
             "content": "You generate strict raw JSON only. Do not write analysis, markdown, or code fences.",
@@ -97,6 +97,11 @@ def generate_json(model, tokenizer, source: dict, passage: str, max_new_tokens: 
             ),
         },
     ]
+
+
+@torch.no_grad()
+def generate_json(model, tokenizer, source: dict, passage: str, max_new_tokens: int = 768) -> tuple[dict | None, str]:
+    messages = build_messages(source, passage)
     prompt = apply_chat_template_no_thinking(tokenizer, messages)
     encoded = tokenizer(prompt, return_tensors="pt").to(model.device)
     input_ids = encoded["input_ids"]
@@ -110,6 +115,30 @@ def generate_json(model, tokenizer, source: dict, passage: str, max_new_tokens: 
         eos_token_id=tokenizer.eos_token_id,
     )
     text = tokenizer.decode(output[0, input_ids.shape[1]:], skip_special_tokens=True)
+    return extract_json_object(text), text
+
+
+def generate_json_vllm(
+    source: dict,
+    passage: str,
+    model_name: str,
+    url: str,
+    max_new_tokens: int = 768,
+    timeout: float = 300.0,
+) -> tuple[dict | None, str]:
+    payload = {
+        "model": model_name,
+        "messages": build_messages(source, passage),
+        "temperature": 0,
+        "max_tokens": max_new_tokens,
+    }
+    response = requests.post(url, json=payload, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    try:
+        text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        text = json.dumps(data, ensure_ascii=False)
     return extract_json_object(text), text
 
 
@@ -257,6 +286,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train-output", default=str(AUGMENTED_TRAIN_PATH))
     parser.add_argument("--valid-output", default=str(AUGMENTED_VALID_PATH))
     parser.add_argument("--model", default=AUGMENT_MODEL_NAME)
+    parser.add_argument("--backend", choices=("transformers", "vllm"), default="transformers")
+    parser.add_argument("--vllm-url", default="http://localhost:8001/v1/chat/completions")
+    parser.add_argument("--vllm-timeout", type=float, default=300.0)
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--valid-every", type=int, default=5)
     parser.add_argument("--max-new-tokens", type=int, default=768)
@@ -319,7 +351,11 @@ def run(args: argparse.Namespace) -> None:
         else f"[PRAG:augment] cumulative_start existing=0/0 all_existing_outputs={existing_count} train={train_count} valid={valid_count}"
     )
 
-    model, tokenizer = load_local_model(args.model)
+    model = tokenizer = None
+    if args.backend == "transformers":
+        model, tokenizer = load_local_model(args.model)
+    else:
+        print(f"[PRAG:augment] backend=vllm url={args.vllm_url} model={args.model}")
     made = skipped_seen = skipped_invalid = 0
     started_at = time.time()
     for idx, source in enumerate(input_rows):
@@ -339,7 +375,26 @@ def run(args: argparse.Namespace) -> None:
                     f"train={train_count}, valid={valid_count}"
                 )
             continue
-        generated, raw_text = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
+        try:
+            if args.backend == "vllm":
+                generated, raw_text = generate_json_vllm(
+                    source,
+                    passage,
+                    model_name=args.model,
+                    url=args.vllm_url,
+                    max_new_tokens=args.max_new_tokens,
+                    timeout=args.vllm_timeout,
+                )
+            else:
+                generated, raw_text = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
+        except requests.RequestException as exc:
+            skipped_invalid += 1
+            processed = idx + 1
+            print(
+                f"[PRAG:augment] skip {source_id}: vLLM request failed: {exc} "
+                f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
+            )
+            continue
         if generated is None:
             skipped_invalid += 1
             processed = idx + 1
