@@ -11,10 +11,10 @@ CREATE TABLE SCHEDULES
     description       TEXT NULL,
     event_type        VARCHAR(50) NULL,
     due_date          TIMESTAMP NULL,
-    status            VARCHAR(30) NULL,
-    source_start_time REAL NULL,
-    source_end_time   REAL NULL,
-    source_text       TEXT NULL,
+    status            VARCHAR(30) NULL, -- 일정 상태 마감 시간알리는 용도로 사용
+    source_start_time REAL NULL, -- 클릭된 구간 시작 시간
+    source_end_time   REAL NULL, -- 클릭된 구간 끝 시간
+    source_text       TEXT NULL, -- 클릭된 구간 텍스트
     created_at        TIMESTAMP    NOT NULL,
     updated_at        TIMESTAMP NULL
 );
