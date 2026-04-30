@@ -26,13 +26,13 @@ CASES = [
         "name": "ko_lecture_multifact",
         "question": "교수님이 알고리즘을 뭐라고 설명하셨어?",
         "main_passage": (
-            "알고리즘은 빨강색이다.."
+            "알고리즘은 '빨강' 이다.."
         ),
         "negative_passage": (
-            "알고리즘은 노랑색이다."
+            "알고리즘은 '노랑' 이다."
         ),
-        "main_answer": "빨강색",
-        "negative_answer": "노랑색",
+        "main_answer": "빨강",
+        "negative_answer": "노랑",
     },
 ]
 
