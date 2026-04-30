@@ -125,6 +125,7 @@ def generate_json_vllm(
     url: str,
     max_new_tokens: int = 768,
     timeout: float = 300.0,
+    json_mode: bool = True,
 ) -> tuple[dict | None, str]:
     payload = {
         "model": model_name,
@@ -132,11 +133,16 @@ def generate_json_vllm(
         "temperature": 0,
         "max_tokens": max_new_tokens,
     }
+    if json_mode:
+        # vLLM's OpenAI-compatible server supports JSON-object guided output on
+        # recent versions. This dramatically reduces invalid augmentation rows.
+        payload["response_format"] = {"type": "json_object"}
     response = requests.post(url, json=payload, timeout=timeout)
     response.raise_for_status()
     data = response.json()
     try:
-        text = data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        text = message.get("content") or message.get("reasoning_content") or ""
     except (KeyError, IndexError, TypeError):
         text = json.dumps(data, ensure_ascii=False)
     return extract_json_object(text), text
@@ -289,6 +295,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backend", choices=("transformers", "vllm"), default="transformers")
     parser.add_argument("--vllm-url", default="http://localhost:8001/v1/chat/completions")
     parser.add_argument("--vllm-timeout", type=float, default=300.0)
+    parser.add_argument(
+        "--vllm-json-mode",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Ask vLLM for OpenAI response_format=json_object guided output.",
+    )
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--valid-every", type=int, default=5)
     parser.add_argument("--max-new-tokens", type=int, default=768)
@@ -384,6 +396,7 @@ def run(args: argparse.Namespace) -> None:
                     url=args.vllm_url,
                     max_new_tokens=args.max_new_tokens,
                     timeout=args.vllm_timeout,
+                    json_mode=args.vllm_json_mode,
                 )
             else:
                 generated, raw_text = generate_json(model, tokenizer, source, passage, max_new_tokens=args.max_new_tokens)
