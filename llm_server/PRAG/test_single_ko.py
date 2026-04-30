@@ -1,7 +1,6 @@
-"""Single Korean/English sanity checks for PRAG K/V passage injection.
+"""Single Korean sanity check for PRAG K/V passage injection.
 
-This diagnostic uses one Korean and one English passage pair so it is easy to
-see whether injected K/V memory changes the model's answer in each language.
+This diagnostic uses the same chat prompt format as training/test diagnostics.
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from .config import ALPHA, MODEL_NAME, MULTIFACT_WEIGHTS_PATH, WEIGHTS_PATH, load_critical_layer
 from .memory import (
     HyperKVGenerator,
+    build_chat_prompt,
     encode_memory,
     make_memory_hook,
     model_num_heads,
@@ -33,20 +33,6 @@ CASES = [
         ),
         "main_answer": "어렵다",
         "negative_answer": "쉽다",
-    },
-    {
-        "name": "en_meeting_multifact",
-        "question": "What is the urgent ticket response time in the operations meeting?",
-        "main_passage": (
-            "Lead Seungmin explained the following points: in operations meeting, "
-            "urgent ticket response time is within 30 minutes; server check time is 2 a.m.; deploy time is Thursday."
-        ),
-        "negative_passage": (
-            "Lead Seungmin explained the following points: in operations meeting, "
-            "urgent ticket response time is within three days; server check time is 9 a.m.; deploy time is Monday."
-        ),
-        "main_answer": "within 30 minutes",
-        "negative_answer": "within three days",
     },
 ]
 
@@ -67,7 +53,8 @@ def load_model():
 
 @torch.no_grad()
 def generate_plain(model, tokenizer, question: str, device, max_new_tokens: int) -> str:
-    inputs = tokenizer(question, return_tensors="pt").to(device)
+    prompt = build_chat_prompt(tokenizer, question)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
     generated = model.generate(
         **inputs,
         max_new_tokens=max_new_tokens,
@@ -80,7 +67,8 @@ def generate_plain(model, tokenizer, question: str, device, max_new_tokens: int)
 
 @torch.no_grad()
 def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max_new_tokens):
-    inputs = tokenizer(question, return_tensors="pt").to(device)
+    prompt = build_chat_prompt(tokenizer, question)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
     hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=ALPHA))
     try:
         generated = model.generate(
@@ -155,7 +143,7 @@ def main() -> None:
     hypernet.load_state_dict(state["hypernet"])
     hypernet.eval()
 
-    print("[PRAG:single-ko-en]")
+    print("[PRAG:single-ko]")
     [
         run_case(model, tokenizer, hypernet, target_layer, device, case, args.max_new_tokens)
         for case in CASES
