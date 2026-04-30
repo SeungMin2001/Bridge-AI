@@ -16,6 +16,10 @@ from .data import extract_answer, get_passage, iter_json_records, jsonl_snapshot
 from .prompts import augmentation_prompt
 
 
+def contains_text(needle: str, haystack: str) -> bool:
+    return str(needle or "").strip().casefold() in str(haystack or "").strip().casefold()
+
+
 def extract_json_object(text: str) -> dict | None:
     text = str(text or "").strip()
     if text.startswith("```"):
@@ -117,6 +121,17 @@ def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -
         return None
     if not atomic or not final or not negatives:
         return None
+    if not all(isinstance(qa, dict) for qa in atomic + final):
+        return None
+    for qa in atomic:
+        question = str(qa.get("question") or "").strip()
+        answer = str(qa.get("answer") or "").strip()
+        sub_passage = str(qa.get("sub_passage") or "").strip()
+        if not (question and answer and sub_passage):
+            return None
+        if not contains_text(answer, sub_passage):
+            return None
+
     source_negative = first_hard_negative(source)
     if source_negative["passage"] and negatives and isinstance(negatives[0], dict):
         # Keep the generated Q/A decomposition, but anchor the counterfactual
@@ -125,6 +140,33 @@ def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -
         negatives[0]["passage"] = source_negative["passage"]
         if source_negative["answer"]:
             negatives[0]["answer"] = source_negative["answer"]
+
+    first_negative = negatives[0] if negatives and isinstance(negatives[0], dict) else None
+    if not first_negative or not str(first_negative.get("passage") or "").strip():
+        return None
+    neg_atomic = first_negative.get("atomic_qas")
+    neg_final = first_negative.get("final_qas")
+    if not isinstance(neg_atomic, list) or not isinstance(neg_final, list):
+        return None
+    if len(neg_atomic) != len(atomic) or len(neg_final) != len(final):
+        return None
+    for idx, neg_qa in enumerate(neg_atomic):
+        if not isinstance(neg_qa, dict):
+            return None
+        answer = str(neg_qa.get("answer") or "").strip()
+        sub_passage = str(neg_qa.get("sub_passage") or "").strip()
+        if not (answer and sub_passage):
+            return None
+        if not contains_text(answer, sub_passage):
+            return None
+        # Force exact question alignment. The loader can fall back by position,
+        # but identical strings keep the contrastive pair unambiguous.
+        neg_qa["question"] = str(atomic[idx].get("question") or "").strip()
+    for idx, neg_qa in enumerate(neg_final):
+        if not isinstance(neg_qa, dict) or not str(neg_qa.get("answer") or "").strip():
+            return None
+        neg_qa["question"] = str(final[idx].get("question") or "").strip()
+
     return {
         "source_id": source_id,
         "speaker": source.get("speaker", ""),

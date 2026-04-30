@@ -5,7 +5,14 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 
-from .config import AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH, MULTIFACT_AUGMENTED_TRAIN_PATH, MULTIFACT_AUGMENTED_VALID_PATH
+from .config import (
+    AIHUB_LECTURE_AUGMENTED_TRAIN_PATH,
+    AIHUB_LECTURE_AUGMENTED_VALID_PATH,
+    AUGMENTED_TRAIN_PATH,
+    AUGMENTED_VALID_PATH,
+    MULTIFACT_AUGMENTED_TRAIN_PATH,
+    MULTIFACT_AUGMENTED_VALID_PATH,
+)
 from .data import get_passage, iter_json_records, normalize_qas
 
 
@@ -17,10 +24,17 @@ def main() -> None:
         action="store_true",
         help="Validate the default multi-fact augmented train/valid files.",
     )
+    parser.add_argument(
+        "--aihub-lecture",
+        action="store_true",
+        help="Validate the AIHub university lecture augmented train/valid files.",
+    )
     parser.add_argument("--show", type=int, default=3)
     args = parser.parse_args()
     if args.multifact:
         args.paths = [str(MULTIFACT_AUGMENTED_TRAIN_PATH), str(MULTIFACT_AUGMENTED_VALID_PATH)]
+    if args.aihub_lecture:
+        args.paths = [str(AIHUB_LECTURE_AUGMENTED_TRAIN_PATH), str(AIHUB_LECTURE_AUGMENTED_VALID_PATH)]
 
     for path in args.paths:
         rows = list(iter_json_records(path))
@@ -43,6 +57,8 @@ def main() -> None:
                     stats["atomic_answer_in_sub_passage"] += int(qa["answer"].lower() in qa["sub_passage"].lower())
             for qa in final:
                 stats["final_qas"] += 1
+            row_neg_mismatch = False
+            row_question_mismatch = False
             for neg in negatives:
                 if not isinstance(neg, dict):
                     continue
@@ -52,7 +68,29 @@ def main() -> None:
                 stats["negative_passages"] += int(bool(neg_passage))
                 stats["negative_atomic_qas"] += len(neg_atomic)
                 stats["negative_final_qas"] += len(neg_final)
-            if shown < args.show and (not atomic or any(not qa.get("sub_passage") for qa in atomic) or not negatives):
+                atomic_count_mismatch = len(neg_atomic) != len(atomic)
+                final_count_mismatch = len(neg_final) != len(final)
+                row_neg_mismatch = row_neg_mismatch or atomic_count_mismatch or final_count_mismatch
+                stats["negative_atomic_count_mismatch"] += int(atomic_count_mismatch)
+                stats["negative_final_count_mismatch"] += int(final_count_mismatch)
+                for idx, qa in enumerate(neg_atomic[:len(atomic)]):
+                    question_mismatch = qa.get("question") != atomic[idx].get("question")
+                    row_question_mismatch = row_question_mismatch or question_mismatch
+                    stats["negative_atomic_question_mismatch"] += int(question_mismatch)
+                    if qa.get("answer") and qa.get("sub_passage"):
+                        stats["negative_atomic_answer_in_sub_passage"] += int(qa["answer"].lower() in qa["sub_passage"].lower())
+                for idx, qa in enumerate(neg_final[:len(final)]):
+                    question_mismatch = qa.get("question") != final[idx].get("question")
+                    row_question_mismatch = row_question_mismatch or question_mismatch
+                    stats["negative_final_question_mismatch"] += int(question_mismatch)
+            warn = (
+                not atomic
+                or any(not qa.get("sub_passage") for qa in atomic)
+                or not negatives
+                or row_neg_mismatch
+                or row_question_mismatch
+            )
+            if shown < args.show and warn:
                 shown += 1
                 print(f"\n[warn example] {path}")
                 print(f"  source_id={row.get('source_id')}")
