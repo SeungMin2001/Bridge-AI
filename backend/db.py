@@ -47,25 +47,14 @@ async def save_transcript_to_db(transcript_data: dict, segment_index: int):
         # transcripts 저장
         await conn.execute("""
             INSERT INTO transcripts
-<<<<<<< HEAD
-                (transcript_id, session_id, chunk_index, start_time, end_time,
-                 speaker_id, speaker_name, chunk_text, corrected_text, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-=======
                 (transcript_id, session_id, chunk_index, start_time, end_time, chunk_text, corrected_text, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
->>>>>>> origin/mtg-s
         """,
             uuid.uuid4(),
             uuid.UUID(transcript_data["session_id"]),
             segment_index,
             float(transcript_data["start_time"]),
             float(transcript_data["end_time"]),
-<<<<<<< HEAD
-            transcript_data.get("speaker_id") or transcript_data.get("speakerId"),
-            transcript_data.get("speaker_name") or transcript_data.get("speaker"),
-=======
->>>>>>> origin/mtg-s
             transcript_data.get("raw_text") or transcript_data.get("text"),
             transcript_data.get("text"),
             datetime.now(),
@@ -80,11 +69,7 @@ async def get_transcripts_by_session(session_id: str) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT transcript_id, chunk_index, start_time, end_time,
-<<<<<<< HEAD
-                   speaker_id, speaker_name, chunk_text, corrected_text
-=======
                    chunk_text, corrected_text
->>>>>>> origin/mtg-s
             FROM transcripts
             WHERE session_id = $1
             ORDER BY chunk_index ASC
@@ -95,11 +80,6 @@ async def get_transcripts_by_session(session_id: str) -> list[dict]:
                 "chunk_index": r["chunk_index"],
                 "start_time": r["start_time"],
                 "end_time": r["end_time"],
-<<<<<<< HEAD
-                "speaker_id": r["speaker_id"],
-                "speaker_name": r["speaker_name"],
-=======
->>>>>>> origin/mtg-s
                 "chunk_text": r["chunk_text"],
                 "corrected_text": r["corrected_text"],
                 "text": r["corrected_text"] or r["chunk_text"],
@@ -121,3 +101,6 @@ async def get_course_id_by_session(session_id: str) -> str | None:
         if row is None or row["course_id"] is None:
             return None
         return str(row["course_id"])
+
+
+
