@@ -53,15 +53,66 @@ def find_json_files(root: Path) -> list[Path]:
     return sorted(root.rglob("*.json"))
 
 
+def infer_domain_from_path(path: Path, label_root: Path) -> str:
+    try:
+        rel_parts = path.relative_to(label_root).parts
+    except ValueError:
+        rel_parts = path.parts
+    if len(rel_parts) >= 2:
+        return "/".join(rel_parts[:2])
+    if rel_parts:
+        return rel_parts[0]
+    return "unknown"
+
+
+def select_balanced_files(files: list[Path], label_root: Path, max_files: int, seed: int) -> list[Path]:
+    if not max_files or len(files) <= max_files:
+        return files
+    rng = random.Random(seed)
+    by_domain: dict[str, list[Path]] = {}
+    for path in files:
+        by_domain.setdefault(infer_domain_from_path(path, label_root), []).append(path)
+    for paths in by_domain.values():
+        rng.shuffle(paths)
+
+    selected: list[Path] = []
+    domains = sorted(by_domain)
+    while len(selected) < max_files and any(by_domain.values()):
+        for domain in domains:
+            if by_domain[domain]:
+                selected.append(by_domain[domain].pop())
+                if len(selected) >= max_files:
+                    break
+
+    counts: dict[str, int] = {}
+    for path in selected:
+        domain = infer_domain_from_path(path, label_root)
+        counts[domain] = counts.get(domain, 0) + 1
+    preview = ", ".join(f"{domain}:{count}" for domain, count in sorted(counts.items())[:30])
+    print(
+        f"[PRAG:aihub-source] balanced_files selected={len(selected)}/{len(files)} "
+        f"domains={len(counts)} preview={preview}"
+    )
+    return sorted(selected)
+
+
 def infer_split_root(base_dir: Path, split: str) -> Path:
     return base_dir / split / "02.라벨링데이터"
 
 
-def collect_lectures(label_root: Path, max_files: int = 0) -> dict[str, dict]:
+def collect_lectures(
+    label_root: Path,
+    max_files: int = 0,
+    balanced_files: bool = False,
+    seed: int = 42,
+) -> dict[str, dict]:
     lectures: dict[str, dict] = {}
     files = find_json_files(label_root)
     if max_files:
-        files = files[:max_files]
+        if balanced_files:
+            files = select_balanced_files(files, label_root, max_files, seed)
+        else:
+            files = files[:max_files]
     for idx, path in enumerate(files, start=1):
         data = read_json(path)
         if not data:
@@ -70,7 +121,9 @@ def collect_lectures(label_root: Path, max_files: int = 0) -> dict[str, dict]:
         if not is_useful_utterance(text):
             continue
         lecture_id = get_nested(data, "02_srcinfo", "1_id") or path.parent.name
-        category = get_nested(data, "01_dataset", "5_category") or path.parts[-4] if len(path.parts) >= 4 else ""
+        category = get_nested(data, "01_dataset", "5_category")
+        if not category:
+            category = infer_domain_from_path(path, label_root).split("/", 1)[0]
         major = get_nested(data, "03_lectureinfo", "3_major_category")
         collection_type = get_nested(data, "03_lectureinfo", "5_collection_type")
         role = get_nested(data, "05_speakerinfo", "4_role")
@@ -187,6 +240,7 @@ def main() -> None:
     parser.add_argument("--max-valid-files", type=int, default=0)
     parser.add_argument("--max-train-lectures", type=int, default=0)
     parser.add_argument("--max-valid-lectures", type=int, default=0)
+    parser.add_argument("--balanced-files", action="store_true", help="Select max files evenly across domain folders before reading JSON.")
     parser.add_argument("--sample-lectures", action="store_true", help="Sample lectures across domains instead of taking the first N.")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -194,8 +248,18 @@ def main() -> None:
     base_dir = Path(args.base_dir)
     train_root = Path(args.train_root) if args.train_root else infer_split_root(base_dir, "Training")
     valid_root = Path(args.valid_root) if args.valid_root else infer_split_root(base_dir, "Validation")
-    train_lectures = collect_lectures(train_root, max_files=args.max_train_files)
-    valid_lectures = collect_lectures(valid_root, max_files=args.max_valid_files)
+    train_lectures = collect_lectures(
+        train_root,
+        max_files=args.max_train_files,
+        balanced_files=args.balanced_files,
+        seed=args.seed,
+    )
+    valid_lectures = collect_lectures(
+        valid_root,
+        max_files=args.max_valid_files,
+        balanced_files=args.balanced_files,
+        seed=args.seed + 1,
+    )
     train_rows = rows_from_lectures(
         train_lectures,
         split="train",
