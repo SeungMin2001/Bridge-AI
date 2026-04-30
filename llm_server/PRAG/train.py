@@ -30,6 +30,11 @@ from .config import (
     KORQUAD_CHECKPOINT_PATH,
     KORQUAD_LOG_PATH,
     KORQUAD_WEIGHTS_PATH,
+    LECTURE_AUGMENTED_TRAIN_PATH,
+    LECTURE_AUGMENTED_VALID_PATH,
+    LECTURE_CHECKPOINT_PATH,
+    LECTURE_LOG_PATH,
+    LECTURE_WEIGHTS_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_CHECKPOINT_PATH,
@@ -344,6 +349,11 @@ def main() -> None:
         action="store_true",
         help="Use the converted KorQuAD Korean MRC train/valid JSONL files and separate KorQuAD output weights.",
     )
+    parser.add_argument(
+        "--lecture",
+        action="store_true",
+        help="Use augmented local lecture transcript train/valid JSONL files and separate lecture output weights.",
+    )
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--max-val-samples", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
@@ -406,6 +416,12 @@ def main() -> None:
         checkpoint_path = KORQUAD_CHECKPOINT_PATH
         weights_path = KORQUAD_WEIGHTS_PATH
         log_path = KORQUAD_LOG_PATH
+    if args.lecture:
+        args.train = str(LECTURE_AUGMENTED_TRAIN_PATH)
+        args.valid = str(LECTURE_AUGMENTED_VALID_PATH)
+        checkpoint_path = LECTURE_CHECKPOINT_PATH
+        weights_path = LECTURE_WEIGHTS_PATH
+        log_path = LECTURE_LOG_PATH
 
     model, tokenizer = load_model()
     device = next(model.parameters()).device
@@ -457,6 +473,7 @@ def main() -> None:
         "objective": "atomic_final_ce_plus_negative_flip",
         "multifact": args.multifact,
         "korquad": args.korquad,
+        "lecture": args.lecture,
         "rank_weight": args.rank_weight,
         "final_weight": args.final_weight,
         "positive_only": args.positive_only,

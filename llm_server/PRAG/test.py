@@ -13,6 +13,8 @@ from .config import (
     AUGMENTED_VALID_PATH,
     KORQUAD_AUGMENTED_VALID_PATH,
     KORQUAD_WEIGHTS_PATH,
+    LECTURE_AUGMENTED_VALID_PATH,
+    LECTURE_WEIGHTS_PATH,
     MODEL_NAME,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_WEIGHTS_PATH,
@@ -192,6 +194,11 @@ def main() -> None:
         action="store_true",
         help="Use the converted KorQuAD valid file and KorQuAD fine-tuned weights.",
     )
+    parser.add_argument(
+        "--lecture",
+        action="store_true",
+        help="Use augmented local lecture transcript valid file and lecture fine-tuned weights.",
+    )
     parser.add_argument("--max-samples", type=int, default=20)
     parser.add_argument("--show", type=int, default=3)
     parser.add_argument("--max-new-tokens", type=int, default=24)
@@ -208,6 +215,9 @@ def main() -> None:
     elif args.korquad:
         args.data = str(KORQUAD_AUGMENTED_VALID_PATH)
         args.weights = str(KORQUAD_WEIGHTS_PATH)
+    elif args.lecture:
+        args.data = str(LECTURE_AUGMENTED_VALID_PATH)
+        args.weights = str(LECTURE_WEIGHTS_PATH)
     elif args.multifact:
         args.data = str(MULTIFACT_AUGMENTED_VALID_PATH)
         args.weights = str(MULTIFACT_WEIGHTS_PATH)

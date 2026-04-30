@@ -45,6 +45,9 @@ should change according to the counterfactual passage.
 
 목표:
 - passage 안의 사실을 원자적 질문/답변으로 분해합니다.
+- 이 passage는 발음 기반 자동 전사라 오탈자와 잘못 인식된 단어가 있을 수 있습니다.
+  의미가 명확한 수업 일정, 과제, 평가, 개념 정의, 용어 관계, 실습 지시만 사용하고,
+  불확실하거나 깨진 문장은 학습 사실로 만들지 마세요.
 - passage 안에 여러 사실이 있으면 각 사실마다 atomic_qas를 하나씩 만듭니다.
 - passage가 "A: B; C: D; E: F"처럼 3개 사실을 포함하면 atomic_qas도 반드시 3개를 만듭니다.
 - 각 원자적 질문/답변마다 sub_passage를 포함합니다. sub_passage는 원문 근거
@@ -96,6 +99,10 @@ should change according to the counterfactual passage.
 
 Goals:
 - Decompose the passage into atomic question/answer pairs.
+- This passage may be a noisy speech transcript. Use only clearly supported
+  facts such as schedules, assignments, evaluation rules, concept definitions,
+  term relations, and practice instructions. Ignore uncertain or corrupted ASR
+  fragments.
 - If the passage contains multiple facts, create one atomic QA for each fact.
 - If the passage contains three facts such as "A: B; C: D; E: F", create exactly
   three atomic_qas.
