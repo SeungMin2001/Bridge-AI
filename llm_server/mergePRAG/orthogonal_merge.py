@@ -20,8 +20,8 @@ def orthogonal_merging(WF:torch.Tensor|None,Wt:torch.tensor,eps=1e-6)->torch.Ten
 
   P=A@gram@A.T #10번수식 적용 [d,d]
 
-  res=B-(torch.eye(d,device=P.device)-P)@B #직교 성분 가져오기.
+  res=(torch.eye(d,device=P.device)-P)@B #직교 성분 가져오기.
 
-  A+=res
+  A=A+res
 
   return A.T # 입력값 차원 그대로 다시 [k,d] 로 반환하기

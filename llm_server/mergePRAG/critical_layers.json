@@ -1,0 +1,147 @@
+{
+  "model": "Qwen/Qwen3.5-4B",
+  "num_layers": 32,
+  "d_model": 2560,
+  "k": 16,
+  "alpha": 1.0,
+  "critical_layers": [
+    11,
+    13,
+    12,
+    17,
+    16
+  ],
+  "all_layers": [
+    {
+      "layer": 11,
+      "avg_loss": 3.9829
+    },
+    {
+      "layer": 13,
+      "avg_loss": 4.235
+    },
+    {
+      "layer": 12,
+      "avg_loss": 4.2572
+    },
+    {
+      "layer": 17,
+      "avg_loss": 4.2819
+    },
+    {
+      "layer": 16,
+      "avg_loss": 4.2878
+    },
+    {
+      "layer": 10,
+      "avg_loss": 4.3203
+    },
+    {
+      "layer": 18,
+      "avg_loss": 4.3206
+    },
+    {
+      "layer": 19,
+      "avg_loss": 4.416
+    },
+    {
+      "layer": 15,
+      "avg_loss": 4.4466
+    },
+    {
+      "layer": 14,
+      "avg_loss": 4.4502
+    },
+    {
+      "layer": 9,
+      "avg_loss": 4.6032
+    },
+    {
+      "layer": 7,
+      "avg_loss": 4.7598
+    },
+    {
+      "layer": 21,
+      "avg_loss": 4.7865
+    },
+    {
+      "layer": 20,
+      "avg_loss": 4.7952
+    },
+    {
+      "layer": 8,
+      "avg_loss": 4.8291
+    },
+    {
+      "layer": 6,
+      "avg_loss": 4.8366
+    },
+    {
+      "layer": 24,
+      "avg_loss": 4.8675
+    },
+    {
+      "layer": 26,
+      "avg_loss": 4.9108
+    },
+    {
+      "layer": 22,
+      "avg_loss": 4.9759
+    },
+    {
+      "layer": 25,
+      "avg_loss": 4.9935
+    },
+    {
+      "layer": 27,
+      "avg_loss": 5.0065
+    },
+    {
+      "layer": 23,
+      "avg_loss": 5.0228
+    },
+    {
+      "layer": 28,
+      "avg_loss": 5.1517
+    },
+    {
+      "layer": 30,
+      "avg_loss": 5.3385
+    },
+    {
+      "layer": 5,
+      "avg_loss": 5.3483
+    },
+    {
+      "layer": 29,
+      "avg_loss": 5.3496
+    },
+    {
+      "layer": 3,
+      "avg_loss": 5.4557
+    },
+    {
+      "layer": 4,
+      "avg_loss": 5.9134
+    },
+    {
+      "layer": 2,
+      "avg_loss": 6.5397
+    },
+    {
+      "layer": 31,
+      "avg_loss": 6.6491
+    },
+    {
+      "layer": 1,
+      "avg_loss": 7.3073
+    },
+    {
+      "layer": 0,
+      "avg_loss": 7.6185
+    }
+  ],
+  "scan_steps": 60,
+  "scan_train_samples": 96,
+  "scan_val_samples": 24
+}

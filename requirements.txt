@@ -1,3 +1,4 @@
+asyncpg==0.31.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1
@@ -59,6 +60,7 @@ threadpoolctl==3.6.0
 tiktoken==0.12.0
 tokenizers==0.22.2
 torch==2.10.0
+torchaudio==2.10.0
 tqdm==4.67.3
 transformers==5.3.0
 typer==0.24.1
@@ -66,8 +68,16 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.35.0
-uvloop==0.22.1
+uvloop==0.22.1; sys_platform != 'win32'
 watchfiles==1.1.1
 websockets==16.0
 wheel==0.46.3
 whisper==1.1.10
+
+kiwipiepy
+psycopg2-binary==2.9.11
+psycopg==3.3.3
+pgvector==0.4.2
+llama-index-core==0.14.18
+llama-index-embeddings-huggingface==0.7.0
+llama-index-vector-stores-postgres==0.8.1

@@ -18,6 +18,9 @@ import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
+from quiz.quiz import router as quiz_router
+from summary.summary import router as summary_router
+from schedule.schedule import router as schedule_router
 
 # device = "cuda" if torch.cuda.is_available() else (
 #     "mps" if torch.backends.mps.is_available() else "cpu"
@@ -54,6 +57,10 @@ app.add_middleware(
 
 # 워크스페이스 DB API 엔드포인트를 main 앱에 등록 <- 신창영
 # app.include_router(workspace_router)
+# ── 라우터 등록 ──
+app.include_router(quiz_router)
+app.include_router(summary_router)
+app.include_router(schedule_router)
 
 #python -c "from huggingface_hub import login; login(token='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')"
 

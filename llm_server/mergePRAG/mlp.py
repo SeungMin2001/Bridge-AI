@@ -2,17 +2,18 @@ import torch
 import torch.nn as nn
 
 class MLP(nn.Module):
-  def __init__(self,d_model):
+  def __init__(self, d_model, hidden_dim=1024):
     super().__init__()
-    self.W=nn.Linear(d_model,d_model)
-    self.V=nn.Linear(d_model,d_model)
-    self.ln=nn.LayerNorm(d_model)
-    self.relu=nn.ReLU()
+    self.W = nn.Linear(d_model, hidden_dim)
+    self.V = nn.Linear(hidden_dim, hidden_dim)
+    self.res = nn.Linear(d_model, hidden_dim)
+    self.ln = nn.LayerNorm(hidden_dim)
+    self.act = nn.GELU()
 
 
   def forward(self,h):
-    # 논문수식을 그대로 적용. 이때 d_model은 512로 고정.
-    # 선형변환도 d_model->d_model로 설정.
-    res=self.relu(self.V(self.ln(self.relu(self.W(h)))))
-
-    return res
+    base = self.res(h)
+    x = self.W(h)
+    x = self.act(self.ln(x))
+    x = self.V(x)
+    return self.act(x + base)

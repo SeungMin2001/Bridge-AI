@@ -1,20 +1,32 @@
 -- pgvector 익스텐션 활성화
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
+CREATE TABLE course_memories
+(
+    memory_id     UUID PRIMARY KEY,
+    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
+    merged_k      BYTEA,
+    merged_v      BYTEA,
+    passage_count INT DEFAULT 0,
+    updated_at    TIMESTAMP NOT NULL
+);
+
 -- 테이블 생성
 CREATE TABLE SCHEDULES
 (
     schedule_id       UUID PRIMARY KEY,
     session_id        UUID NULL,
     transcript_id     UUID NULL,
-    title             VARCHAR(255) NOT NULL,
-    description       TEXT NULL,
-    event_type        VARCHAR(50) NULL,
-    due_date          TIMESTAMP NULL,
-    status            VARCHAR(30) NULL, -- 일정 상태 마감 시간알리는 용도로 사용
-    source_start_time REAL NULL, -- 클릭된 구간 시작 시간
-    source_end_time   REAL NULL, -- 클릭된 구간 끝 시간
-    source_text       TEXT NULL, -- 클릭된 구간 텍스트
+    title             VARCHAR(255) NOT NULL, -- 제목
+    description       TEXT NULL, -- 설명
+    event_type        VARCHAR(50) NULL, -- 시험, 과제, 프로젝트
+    due_date          TIMESTAMP NULL, -- 마감일
+    status            VARCHAR(30) NULL, -- 예정, 진행중, 완료
+    calendar_flag     BOOLEAN NULL, -- 캘린더 표시 여부
+    source_start_time REAL NULL,
+    source_end_time   REAL NULL,
+    source_text       TEXT NULL,
     created_at        TIMESTAMP    NOT NULL,
     updated_at        TIMESTAMP NULL
 );
@@ -37,9 +49,9 @@ CREATE TABLE SUMMARIES
     course_id         UUID NULL,
     transcript_id     UUID NULL,
     speaker_id        TEXT NULL,
-    speaker_summary     TEXT NULL,
+    speaker_summary   TEXT NULL,
+    session_summary   TEXT NULL,
     course_summary    TEXT NULL,
-    session_summary   TEXT NULL,    
     source_start_time REAL NULL,
     source_end_time   REAL NULL,
     source_text       TEXT NULL,
@@ -108,17 +120,6 @@ CREATE TABLE COURSES
     color            VARCHAR(50) NULL,
     icon             VARCHAR(50) NULL,
     created_at       TIMESTAMP NULL
-);
-
--- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
-CREATE TABLE course_memories
-(
-    memory_id     UUID PRIMARY KEY,
-    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
-    merged_k      BYTEA,
-    merged_v      BYTEA,
-    passage_count INT DEFAULT 0,
-    updated_at    TIMESTAMP NOT NULL
 );
 
 CREATE TABLE USERS
