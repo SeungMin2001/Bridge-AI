@@ -11,6 +11,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from .config import (
     ALPHA,
     AUGMENTED_VALID_PATH,
+    KORQUAD_AUGMENTED_VALID_PATH,
+    KORQUAD_WEIGHTS_PATH,
     MODEL_NAME,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_WEIGHTS_PATH,
@@ -185,6 +187,11 @@ def main() -> None:
         action="store_true",
         help="Use the legacy single-fact augmented valid file and weights.",
     )
+    parser.add_argument(
+        "--korquad",
+        action="store_true",
+        help="Use the converted KorQuAD valid file and KorQuAD fine-tuned weights.",
+    )
     parser.add_argument("--max-samples", type=int, default=20)
     parser.add_argument("--show", type=int, default=3)
     parser.add_argument("--max-new-tokens", type=int, default=24)
@@ -198,6 +205,9 @@ def main() -> None:
     if args.singlefact:
         args.data = str(AUGMENTED_VALID_PATH)
         args.weights = str(WEIGHTS_PATH)
+    elif args.korquad:
+        args.data = str(KORQUAD_AUGMENTED_VALID_PATH)
+        args.weights = str(KORQUAD_WEIGHTS_PATH)
     elif args.multifact:
         args.data = str(MULTIFACT_AUGMENTED_VALID_PATH)
         args.weights = str(MULTIFACT_WEIGHTS_PATH)

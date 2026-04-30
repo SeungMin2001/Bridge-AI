@@ -959,3 +959,31 @@ python -m llm_server.PRAG.validate
 ```bash
 python -m llm_server.PRAG.preview_data --samples 5
 ```
+
+### 5. 외부 한국어 MRC 추가 파인튜닝
+
+외부 한국어 데이터셋은 우선 `KorQuAD 1.0`을 사용한다. HotpotQA처럼 명시적인 멀티홉 한국어 공개셋은 선택지가 제한적이고, 현재 목표는 "문단/passage에 있는 정보를 K/V로 주입하면 답이 바뀌는가"이므로 `context-question-answer`가 명확한 KorQuAD가 가장 안전하다.
+
+KorQuAD를 PRAG augmented 포맷으로 변환:
+
+```bash
+python -m llm_server.PRAG.prepare_korquad --max-train-records 2000 --max-valid-records 400
+```
+
+현재 multi-fact로 학습된 가중치를 초기값으로 가져와 KorQuAD 변환 데이터에서 추가 파인튜닝:
+
+```bash
+python -m llm_server.PRAG.train --korquad --epochs 2 --no-resume --init-weights llm_server/PRAG/prag_multifact_memory_weights.pt --final-weight 0.25
+```
+
+KorQuAD 추가 파인튜닝 결과 진단:
+
+```bash
+python -m llm_server.PRAG.test --korquad --max-samples 80 --show 20 --alpha 1.0
+```
+
+참고:
+
+- `--init-weights`는 기존 hypernetwork 가중치만 초기값으로 불러오고 optimizer/scheduler는 새로 시작한다.
+- KorQuAD 출력 파일은 `data/PRAG_korquad_augmented_train.jsonl`, `data/PRAG_korquad_augmented_valid.jsonl`이다.
+- KorQuAD 추가 학습 산출물은 기존 multi-fact 산출물과 분리되어 `llm_server/PRAG/prag_korquad_memory_weights.pt`, `llm_server/PRAG/prag_korquad_memory_checkpoint.pt`에 저장된다.

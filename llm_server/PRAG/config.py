@@ -22,6 +22,8 @@ AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_AUGMENTED_VALID_PATH", str(DATA_DIR 
 MULTIFACT_SOURCE_PATH = Path(os.getenv("PRAG_MULTIFACT_SOURCE_PATH", str(DATA_DIR / "PRAG_multifact_sources.jsonl")))
 MULTIFACT_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_MULTIFACT_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_multifact_augmented_train.jsonl")))
 MULTIFACT_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_MULTIFACT_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_multifact_augmented_valid.jsonl")))
+KORQUAD_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_KORQUAD_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_korquad_augmented_train.jsonl")))
+KORQUAD_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_KORQUAD_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_korquad_augmented_valid.jsonl")))
 
 CHECKPOINT_PATH = Path(os.getenv("PRAG_CHECKPOINT_PATH", str(BASE_DIR / "prag_memory_checkpoint.pt")))
 WEIGHTS_PATH = Path(os.getenv("PRAG_WEIGHTS_PATH", str(BASE_DIR / "prag_memory_weights.pt")))
@@ -29,6 +31,9 @@ LOG_PATH = Path(os.getenv("PRAG_LOG_PATH", str(BASE_DIR / "prag_train_log.json")
 MULTIFACT_CHECKPOINT_PATH = Path(os.getenv("PRAG_MULTIFACT_CHECKPOINT_PATH", str(BASE_DIR / "prag_multifact_memory_checkpoint.pt")))
 MULTIFACT_WEIGHTS_PATH = Path(os.getenv("PRAG_MULTIFACT_WEIGHTS_PATH", str(BASE_DIR / "prag_multifact_memory_weights.pt")))
 MULTIFACT_LOG_PATH = Path(os.getenv("PRAG_MULTIFACT_LOG_PATH", str(BASE_DIR / "prag_multifact_train_log.json")))
+KORQUAD_CHECKPOINT_PATH = Path(os.getenv("PRAG_KORQUAD_CHECKPOINT_PATH", str(BASE_DIR / "prag_korquad_memory_checkpoint.pt")))
+KORQUAD_WEIGHTS_PATH = Path(os.getenv("PRAG_KORQUAD_WEIGHTS_PATH", str(BASE_DIR / "prag_korquad_memory_weights.pt")))
+KORQUAD_LOG_PATH = Path(os.getenv("PRAG_KORQUAD_LOG_PATH", str(BASE_DIR / "prag_korquad_train_log.json")))
 CRITICAL_LAYERS_PATH = Path(os.getenv("PRAG_CRITICAL_LAYERS_PATH", str(BASE_DIR / "critical_layers.json")))
 
 DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "19"))

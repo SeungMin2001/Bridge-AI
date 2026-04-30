@@ -25,6 +25,11 @@ from .config import (
     LOG_PATH,
     LR,
     LR_MIN,
+    KORQUAD_AUGMENTED_TRAIN_PATH,
+    KORQUAD_AUGMENTED_VALID_PATH,
+    KORQUAD_CHECKPOINT_PATH,
+    KORQUAD_LOG_PATH,
+    KORQUAD_WEIGHTS_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_CHECKPOINT_PATH,
@@ -121,6 +126,7 @@ def group_loss(
     device,
     rank_weight: float = RANK_WEIGHT,
     max_qas: int = 6,
+    final_weight: float = 1.0,
 ):
     main_mem = encode_memory(model, tokenizer, hypernet, group.passage, device)
     neg_mem = None
@@ -128,6 +134,7 @@ def group_loss(
         neg_mem = encode_memory(model, tokenizer, hypernet, group.negative_passage, device)
 
     losses = []
+    loss_weights = []
     main_ok = neg_ok = 0
     used = 0
     zero = None
@@ -139,7 +146,10 @@ def group_loss(
             continue
         zero = main_gold.detach().new_tensor(0.0)
         if neg_mem is None or not qa.negative_answer:
-            losses.append(main_gold)
+            weight = final_weight if qa.qa_type == "final" else 1.0
+            if weight > 0:
+                losses.append(main_gold * weight)
+                loss_weights.append(main_gold.detach().new_tensor(weight))
             main_ok += 1
             used += 1
             continue
@@ -154,14 +164,18 @@ def group_loss(
         if any(loss is None for loss in (main_neg, neg_gold, neg_neg)):
             continue
         rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
-        losses.append(main_gold + neg_neg + rank_weight * rank)
+        unit_loss = main_gold + neg_neg + rank_weight * rank
+        weight = final_weight if qa.qa_type == "final" else 1.0
+        if weight > 0:
+            losses.append(unit_loss * weight)
+            loss_weights.append(unit_loss.detach().new_tensor(weight))
         main_ok += int(main_gold.item() < main_neg.item())
         neg_ok += int(neg_neg.item() < neg_gold.item())
         used += 1
 
     if not losses:
         return None
-    objective = torch.stack(losses).mean()
+    objective = torch.stack(losses).sum() / torch.stack(loss_weights).sum().clamp_min(1e-6)
     denom = max(used, 1)
     zero = zero if zero is not None else objective.detach().new_tensor(0.0)
     return {
@@ -178,7 +192,7 @@ def group_loss(
 
 
 @torch.no_grad()
-def evaluate(model, tokenizer, hypernet, target_layer, examples, device):
+def evaluate(model, tokenizer, hypernet, target_layer, examples, device, final_weight: float = 1.0):
     hypernet.eval()
     total = 0
     obj = main_ok = neg_ok = flip_ok = 0.0
@@ -186,6 +200,8 @@ def evaluate(model, tokenizer, hypernet, target_layer, examples, device):
         out = example_loss(model, tokenizer, hypernet, target_layer, example, device)
         if out is None:
             continue
+        if example.qa_type == "final":
+            out["objective"] = out["objective"] * final_weight
         total += 1
         obj += out["objective"].item()
         main_ok += int(out["main_ok"])
@@ -203,12 +219,12 @@ def evaluate(model, tokenizer, hypernet, target_layer, examples, device):
 
 
 @torch.no_grad()
-def evaluate_groups(model, tokenizer, hypernet, target_layer, groups, device, rank_weight: float, max_qas: int):
+def evaluate_groups(model, tokenizer, hypernet, target_layer, groups, device, rank_weight: float, max_qas: int, final_weight: float):
     hypernet.eval()
     total = 0
     obj = main_ok = neg_ok = flip_ok = 0.0
     for group in groups[:EVAL_MAX_SAMPLES]:
-        out = group_loss(model, tokenizer, hypernet, target_layer, group, device, rank_weight, max_qas)
+        out = group_loss(model, tokenizer, hypernet, target_layer, group, device, rank_weight, max_qas, final_weight)
         if out is None:
             continue
         total += 1
@@ -282,11 +298,22 @@ def main() -> None:
         action="store_true",
         help="Use the default multi-fact augmented train/valid JSONL files.",
     )
+    parser.add_argument(
+        "--korquad",
+        action="store_true",
+        help="Use the converted KorQuAD Korean MRC train/valid JSONL files and separate KorQuAD output weights.",
+    )
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--max-val-samples", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--lr", type=float, default=LR)
     parser.add_argument("--rank-weight", type=float, default=RANK_WEIGHT)
+    parser.add_argument(
+        "--final-weight",
+        type=float,
+        default=1.0,
+        help="Loss weight for final/group-summary QA examples. Lower this when broad summary QAs hurt atomic grounding.",
+    )
     parser.add_argument(
         "--group-weight",
         type=float,
@@ -311,6 +338,11 @@ def main() -> None:
         default=1,
         help="Repeat the selected overfit examples this many times.",
     )
+    parser.add_argument(
+        "--init-weights",
+        default="",
+        help="Initialize the hypernetwork from a weights .pt file, then train with a fresh optimizer/scheduler.",
+    )
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     checkpoint_path = CHECKPOINT_PATH
@@ -322,6 +354,12 @@ def main() -> None:
         checkpoint_path = MULTIFACT_CHECKPOINT_PATH
         weights_path = MULTIFACT_WEIGHTS_PATH
         log_path = MULTIFACT_LOG_PATH
+    if args.korquad:
+        args.train = str(KORQUAD_AUGMENTED_TRAIN_PATH)
+        args.valid = str(KORQUAD_AUGMENTED_VALID_PATH)
+        checkpoint_path = KORQUAD_CHECKPOINT_PATH
+        weights_path = KORQUAD_WEIGHTS_PATH
+        log_path = KORQUAD_LOG_PATH
 
     model, tokenizer = load_model()
     device = next(model.parameters()).device
@@ -372,7 +410,9 @@ def main() -> None:
         "alpha": ALPHA,
         "objective": "atomic_final_ce_plus_negative_flip",
         "multifact": args.multifact,
+        "korquad": args.korquad,
         "rank_weight": args.rank_weight,
+        "final_weight": args.final_weight,
         "group_weight": args.group_weight,
         "group_max_qas": args.group_max_qas,
         "train_path": str(args.train),
@@ -394,6 +434,7 @@ def main() -> None:
     step = 0
     print(f"[PRAG:train] outputs weights={weights_path} checkpoint={checkpoint_path} log={log_path}")
 
+    loaded_checkpoint = False
     if args.resume and checkpoint_path.exists():
         ckpt = torch.load(checkpoint_path, map_location=device)
         if ckpt.get("config") == run_config:
@@ -402,9 +443,14 @@ def main() -> None:
             scheduler.load_state_dict(ckpt["scheduler"])
             best_val = float(ckpt.get("best_val", best_val))
             step = int(ckpt.get("step", 0))
+            loaded_checkpoint = True
             print(f"[PRAG:train] resumed step={step} best_val={best_val:.4f}")
         else:
             print("[PRAG:train] checkpoint config mismatch; starting fresh.")
+    if not loaded_checkpoint and args.init_weights:
+        init_state = torch.load(args.init_weights, map_location=device)
+        hypernet.load_state_dict(init_state["hypernet"])
+        print(f"[PRAG:train] initialized hypernet from weights={args.init_weights}")
 
     log = init_training_log(log_path, run_config, step)
     start = time.time()
@@ -428,6 +474,7 @@ def main() -> None:
                     device,
                     rank_weight=args.rank_weight,
                     max_qas=args.group_max_qas,
+                    final_weight=args.final_weight,
                 )
                 if out is not None:
                     out["objective"] = out["objective"] * args.group_weight
@@ -441,6 +488,8 @@ def main() -> None:
                     device,
                     rank_weight=args.rank_weight,
                 )
+                if out is not None and getattr(item, "qa_type", "") == "final":
+                    out["objective"] = out["objective"] * args.final_weight
             if out is None:
                 continue
             optimizer.zero_grad()
@@ -494,7 +543,7 @@ def main() -> None:
                 write_training_log(log_path, log)
                 print(f"  [PRAG:checkpoint] saved step {step}")
             if step % EVAL_EVERY == 0:
-                metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device)
+                metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device, args.final_weight)
                 group_metrics = evaluate_groups(
                     model,
                     tokenizer,
@@ -504,6 +553,7 @@ def main() -> None:
                     device,
                     args.rank_weight,
                     args.group_max_qas,
+                    args.final_weight,
                 ) if valid_groups and args.group_weight > 0 else None
                 selection_objective = metrics["objective"]
                 if group_metrics is not None:
@@ -544,7 +594,7 @@ def main() -> None:
                     log["sessions"][-1]["elapsed_sec"] = round(time.time() - start, 3)
                 write_training_log(log_path, log)
 
-    metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device)
+    metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device, args.final_weight)
     group_metrics = evaluate_groups(
         model,
         tokenizer,
@@ -554,6 +604,7 @@ def main() -> None:
         device,
         args.rank_weight,
         args.group_max_qas,
+        args.final_weight,
     ) if valid_groups and args.group_weight > 0 else None
     selection_objective = metrics["objective"]
     if group_metrics is not None:
