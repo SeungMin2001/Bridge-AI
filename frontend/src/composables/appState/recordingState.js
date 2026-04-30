@@ -1,7 +1,14 @@
 import { computed, ref } from 'vue'
 
 // 녹음 버튼 상태, 타이머, 실시간 전사 목록, WebSocket 음성 전송을 관리합니다.
-const USE_MOCK_DATA = true
+const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_RECORDING === 'true'
+const isWorkspaceUuid = (value = '') => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+
+const getRecordingWebSocketUrl = (sessionId = '') => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const query = isWorkspaceUuid(sessionId) ? `?session_id=${encodeURIComponent(sessionId)}` : ''
+  return `${protocol}//${window.location.host}/ws${query}`
+}
 const mockTranscriptPlanByMode = {
   lecture: [
     { speakerId: 'speaker-me', speaker: '나', text: '안녕하세요, 실시간 음성 전사 테스트 중입니다.', delay: 3000 },
@@ -42,6 +49,7 @@ export function useRecordingState() {
   let lastBubbleTime = 0
   let mockTimers = []
   let mockTranscriptQueue = []
+  let currentSessionId = ''
 
   // 목업 전사 출력을 예약한 타이머를 모두 해제합니다.
   const clearMockTimers = () => {
@@ -94,6 +102,20 @@ export function useRecordingState() {
           item.remaining = 0
           addTranscriptionBubble(item.text, true, item.speaker, item.speakerId)
           mockTimers = mockTimers.filter((entry) => entry.id !== item.id)
+
+          // DB에 실험용 데이터 전송
+          if (currentSessionId && isWorkspaceUuid(currentSessionId)) {
+            fetch(`http://127.0.0.1:8001/api/mock/transcripts`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                session_id: currentSessionId,
+                text: item.text,
+                speakerId: item.speakerId,
+                speaker: item.speaker
+              })
+            }).catch(err => console.error('[mock] mock transcript save failed', err))
+          }
         }, item.remaining)
 
         mockTimers.push({ id: item.id, timeoutId })
@@ -140,13 +162,14 @@ export function useRecordingState() {
   }
 
   // 녹음을 시작하고, 목업 모드가 아니면 마이크 음성을 WebSocket으로 전송합니다.
-  const startRecording = async (mode = 'lecture') => {
+  const startRecording = async (mode = 'lecture', sessionId = '') => {
     recordingMode.value = mode
     isRecording.value = true
     isRecordingPaused.value = false
     recordingSeconds.value = 0
     transcriptions.value = []
     lastBubbleTime = 0
+    currentSessionId = sessionId
 
     syncRecordingTimer()
 
@@ -156,7 +179,7 @@ export function useRecordingState() {
       return
     }
 
-    ws = new WebSocket('ws://100.104.164.84:8000/ws')
+    ws = new WebSocket(getRecordingWebSocketUrl(sessionId))
 
     let segIdCounter = 0
     const pendingSegmentMap = new Map()
@@ -222,8 +245,16 @@ export function useRecordingState() {
         const segId = ++segIdCounter
         const speakerId = data.speaker_id || data.speakerId || null
         const speaker = data.speaker || null
+        const lastTranscript = transcriptions.value[transcriptions.value.length - 1]
+        const shouldCreateBubble = (
+          !lastTranscript ||
+          timeSpan >= 3000 ||
+          lastTranscript.segments.length >= 5 ||
+          lastTranscript.speakerId !== speakerId ||
+          lastTranscript.speaker !== speaker
+        )
 
-        if (transcriptions.value.length === 0 || timeSpan >= 3000 || (recordingMode.value === 'meeting' && transcriptions.value[transcriptions.value.length - 1]?.speaker !== speaker)) {
+        if (shouldCreateBubble) {
           transcriptions.value.push({
             time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
             speakerId,

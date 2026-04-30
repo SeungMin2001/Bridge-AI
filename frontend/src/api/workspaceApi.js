@@ -108,13 +108,13 @@ export const deleteWorkspaceFile = async (fileId) => {
   )
 }
 
-export const saveSessionResourceTree = async (sessionId, weeks = []) => {
+export const saveSessionResources = async (sessionId, weeks = []) => {
   const result = await requestWorkspaceJson(
-    `sessions/${sessionId}/resource-tree`,
+    `sessions/${sessionId}/resources`,
     jsonRequestOptions('PUT', {
-      resource_tree: sanitizeResourceTree(weeks)
+      weeks: sanitizeResourceTree(weeks)
     }),
-    '현재 파일 내부 폴더 저장에 실패했습니다.'
+    '현재 파일 자료 저장에 실패했습니다.'
   )
   return result.node
 }

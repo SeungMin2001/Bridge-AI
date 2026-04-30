@@ -1,7 +1,7 @@
 <!-- 워크스페이스 왼쪽에서 파일 구조를 탐색하고 파일을 선택할 수 있게 돕는 폴더 탐색기 탭입니다. -->
 <script setup>
 import { ref, computed } from 'vue'
-import { isWorkspaceUuid, saveSessionResourceTree } from '../../api/workspaceApi.js'
+import { isWorkspaceUuid, saveSessionResources } from '../../api/workspaceApi.js'
 
 const props = defineProps({
   fileTree: { type: Array, default: () => [] },
@@ -183,9 +183,9 @@ const handleMaterialAction = async (action) => {
 
   if (isWorkspaceUuid(fileId) && Array.isArray(node.weeks)) {
     try {
-      await saveSessionResourceTree(fileId, node.weeks)
+      await saveSessionResources(fileId, node.weeks)
     } catch (error) {
-      console.error('[workspace] resource tree save failed:', error)
+      console.error('[workspace] session resources save failed:', error)
       emit('showToast', 'DB 저장 실패')
     }
   }

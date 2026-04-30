@@ -1,5 +1,5 @@
 import { onUnmounted, ref } from 'vue'
-import { isWorkspaceUuid, saveSessionResourceTree } from '../api/workspaceApi.js'
+import { isWorkspaceUuid, saveSessionResources } from '../api/workspaceApi.js'
 import { useAiState } from './appState/aiState'
 import {
   addRecordingToCurrentWeek,
@@ -106,6 +106,10 @@ export function useAppState() {
     return JSON.parse(JSON.stringify(transcriptions.value || []))
   }
 
+  const handleStartRecording = (mode = 'lecture') => {
+    return startRecording(mode, activeFileId.value)
+  }
+
   const handleStopRecording = async () => {
     const shouldSaveRecording = isRecording.value
     const recordingSnapshot = cloneTranscriptions()
@@ -142,9 +146,9 @@ export function useAppState() {
     const updatedNode = findNodeById(fileTree.value, targetFileId)
     if (isWorkspaceUuid(targetFileId) && Array.isArray(updatedNode?.weeks)) {
       try {
-        await saveSessionResourceTree(targetFileId, updatedNode.weeks)
+        await saveSessionResources(targetFileId, updatedNode.weeks)
       } catch (error) {
-        console.error('[workspace] resource tree save failed:', error)
+        console.error('[workspace] session resources save failed:', error)
       }
     }
   }
@@ -175,7 +179,7 @@ export function useAppState() {
     handleFavoritesUpdate,
     handleAiInputUpdate,
     handleFileSelect,
-    startRecording,
+    startRecording: handleStartRecording,
     pauseRecording,
     resumeRecording,
     stopRecording: handleStopRecording,

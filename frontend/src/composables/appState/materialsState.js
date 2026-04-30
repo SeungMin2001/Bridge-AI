@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import { isWorkspaceUuid, saveSessionResourceTree, uploadWorkspaceMaterial } from '../../api/workspaceApi.js'
+import { isWorkspaceUuid, saveSessionResources, uploadWorkspaceMaterial } from '../../api/workspaceApi.js'
 import { addMaterialToCurrentWeek, findNodeById } from './fileTreeState'
 
 // 워크스페이스에 올린 PDF/PPT 강의자료 첨부와 현재 미리보기 자료를 관리합니다.
@@ -53,9 +53,9 @@ export function useMaterialsState({
     const updatedNode = findNodeById(fileTree.value, targetFileId)
     if (isWorkspaceUuid(targetFileId) && Array.isArray(updatedNode?.weeks)) {
       try {
-        await saveSessionResourceTree(targetFileId, updatedNode.weeks)
+        await saveSessionResources(targetFileId, updatedNode.weeks)
       } catch (error) {
-        console.error('[workspace] resource tree save failed:', error)
+        console.error('[workspace] session resources save failed:', error)
       }
     }
   }
