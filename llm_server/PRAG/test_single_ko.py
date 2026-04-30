@@ -26,13 +26,13 @@ CASES = [
         "name": "ko_lecture_multifact",
         "question": "who is shin?",
         "main_passage": (
-            "shin is sunmoon student"
+            "shin is seung min"
         ),
         "negative_passage": (
-            "shin is seoul student"
+            "shin is student"
         ),
-        "main_answer": "sunmoon",
-        "negative_answer": "seoul",
+        "main_answer": "seungmin",
+        "negative_answer": "student",
     },
 ]
 
