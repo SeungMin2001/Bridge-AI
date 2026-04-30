@@ -12,7 +12,7 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .config import ALPHA, MODEL_NAME, WEIGHTS_PATH, load_critical_layer
+from .config import ALPHA, MODEL_NAME, MULTIFACT_WEIGHTS_PATH, WEIGHTS_PATH, load_critical_layer
 from .memory import (
     HyperKVGenerator,
     build_chat_prompt,
@@ -173,8 +173,16 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", default=str(WEIGHTS_PATH))
+    parser.add_argument(
+        "--multifact",
+        action="store_true",
+        help="Use the multi-fact trained weights by default.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=16)
     args = parser.parse_args()
+
+    if args.multifact and args.weights == str(WEIGHTS_PATH):
+        args.weights = str(MULTIFACT_WEIGHTS_PATH)
 
     model, tokenizer = load_model()
     device = next(model.parameters()).device

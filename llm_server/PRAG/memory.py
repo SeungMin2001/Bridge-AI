@@ -40,12 +40,15 @@ class HyperKVGenerator(nn.Module):
             embeddings = embeddings[:, :MAX_MEMORY_TOKENS]
             attention_mask = attention_mask[:, :MAX_MEMORY_TOKENS] if attention_mask is not None else None
         scores = self.att_pool(embeddings).squeeze(-1)
+        
         if attention_mask is not None:
             scores = scores.masked_fill(attention_mask == 0, torch.finfo(scores.dtype).min)
+            
         weights = torch.softmax(scores, dim=1).unsqueeze(-1)
         pooled = (embeddings * weights).sum(dim=1)
         hidden = self.mlp(pooled)
         batch = hidden.size(0)
+        
         K = self.linear_K(hidden).view(batch, self.num_kv, self.d_model)
         V = self.linear_V(hidden).view(batch, self.num_kv, self.d_model)
         return {"pooled": pooled, "hidden": hidden, "K": K, "V": V, "att_weights": weights}
