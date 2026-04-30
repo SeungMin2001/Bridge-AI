@@ -27,20 +27,32 @@ from .memory import (
 
 CASES = [
     {
-        "name": "ko_quiz_day",
-        "question": "승민의 핸드폰은 무슨색이야?",
-        "main_passage": "승민의 핸드폰은 빨강색이야.",
-        "negative_passage": "승민의 핸드폰은 초록색이야.",
-        "main_answer": "빨강색",
-        "negative_answer": "초록색",
+        "name": "ko_lecture_multifact",
+        "question": "민아 교수의 데이터베이스 설명에서 인덱스 목적은 뭐야?",
+        "main_passage": (
+            "민아 교수의 설명 내용은 다음과 같다. 데이터베이스 강의에서 "
+            "인덱스 목적: 검색 속도 향상; 트랜잭션 조건: 원자성; 정규화 목적: 중복 감소."
+        ),
+        "negative_passage": (
+            "민아 교수의 설명 내용은 다음과 같다. 데이터베이스 강의에서 "
+            "인덱스 목적: 저장 공간 증가; 트랜잭션 조건: 임의 실행; 정규화 목적: 중복 증가."
+        ),
+        "main_answer": "검색 속도 향상",
+        "negative_answer": "저장 공간 증가",
     },
     {
-        "name": "en_phone_color",
-        "question": "What color is Seungmin's phone?",
-        "main_passage": "Seungmin's phone is red.",
-        "negative_passage": "Seungmin's phone is green.",
-        "main_answer": "red",
-        "negative_answer": "green",
+        "name": "en_meeting_multifact",
+        "question": "What is the urgent ticket response time in the operations meeting?",
+        "main_passage": (
+            "Lead Seungmin explained the following points: in operations meeting, "
+            "urgent ticket response time is within 30 minutes; server check time is 2 a.m.; deploy time is Thursday."
+        ),
+        "negative_passage": (
+            "Lead Seungmin explained the following points: in operations meeting, "
+            "urgent ticket response time is within three days; server check time is 9 a.m.; deploy time is Monday."
+        ),
+        "main_answer": "within 30 minutes",
+        "negative_answer": "within three days",
     },
 ]
 
