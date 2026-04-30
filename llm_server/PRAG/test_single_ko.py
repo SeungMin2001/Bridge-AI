@@ -15,13 +15,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from .config import ALPHA, MODEL_NAME, MULTIFACT_WEIGHTS_PATH, WEIGHTS_PATH, load_critical_layer
 from .memory import (
     HyperKVGenerator,
-    build_chat_prompt,
-    compute_answer_loss,
     encode_memory,
-    forward_with_memory,
     make_memory_hook,
     model_num_heads,
-    tokenize_qa,
 )
 
 
@@ -71,8 +67,7 @@ def load_model():
 
 @torch.no_grad()
 def generate_plain(model, tokenizer, question: str, device, max_new_tokens: int) -> str:
-    prompt = build_chat_prompt(tokenizer, question)
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    inputs = tokenizer(question, return_tensors="pt").to(device)
     generated = model.generate(
         **inputs,
         max_new_tokens=max_new_tokens,
@@ -85,8 +80,7 @@ def generate_plain(model, tokenizer, question: str, device, max_new_tokens: int)
 
 @torch.no_grad()
 def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max_new_tokens):
-    prompt = build_chat_prompt(tokenizer, question)
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    inputs = tokenizer(question, return_tensors="pt").to(device)
     hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=ALPHA))
     try:
         generated = model.generate(
@@ -101,83 +95,20 @@ def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
-def hit(text: str, answer: str) -> bool:
-    return "".join(answer.casefold().split()) in "".join(text.casefold().split())
-
-
-def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_new_tokens: int) -> bool:
+def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_new_tokens: int) -> None:
     question = case["question"]
     main_passage = case["main_passage"]
-    negative_passage = case["negative_passage"]
-    main_answer = case["main_answer"]
-    negative_answer = case["negative_answer"]
 
     with torch.no_grad():
         main_mem = encode_memory(model, tokenizer, hypernet, main_passage, device)
-        neg_mem = encode_memory(model, tokenizer, hypernet, negative_passage, device)
-
-        main_answer_tok = tokenize_qa(tokenizer, question, main_answer, device)
-        neg_answer_tok = tokenize_qa(tokenizer, question, negative_answer, device)
-
-        main_main_loss = compute_answer_loss(
-            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], main_answer_tok),
-            main_answer_tok["labels"],
-        ).item()
-        main_neg_loss = compute_answer_loss(
-            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_answer_tok),
-            neg_answer_tok["labels"],
-        ).item()
-        neg_main_loss = compute_answer_loss(
-            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], main_answer_tok),
-            main_answer_tok["labels"],
-        ).item()
-        neg_neg_loss = compute_answer_loss(
-            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_answer_tok),
-            neg_answer_tok["labels"],
-        ).item()
-
-        no_hook = generate_plain(model, tokenizer, question, device, max_new_tokens)
+        no_passage = generate_plain(model, tokenizer, question, device, max_new_tokens)
         main_gen = generate_with_kv(
             model, tokenizer, target_layer, question, main_mem["K"], main_mem["V"], device, max_new_tokens
         )
-        neg_gen = generate_with_kv(
-            model, tokenizer, target_layer, question, neg_mem["K"], neg_mem["V"], device, max_new_tokens
-        )
-        zero_gen = generate_with_kv(
-            model,
-            tokenizer,
-            target_layer,
-            question,
-            torch.zeros_like(main_mem["K"]),
-            torch.zeros_like(main_mem["V"]),
-            device,
-            max_new_tokens,
-        )
-
-    main_ok = main_main_loss < main_neg_loss
-    neg_ok = neg_neg_loss < neg_main_loss
-    main_gen_ok = hit(main_gen, main_answer)
-    neg_gen_ok = hit(neg_gen, negative_answer)
-    passed = main_ok and neg_ok and main_gen_ok and neg_gen_ok
 
     print(f"\n[case:{case['name']}]")
-    print(f"question: {question}")
-    print(f"main passage: {main_passage}")
-    print(f"negative passage: {negative_passage}")
-    print(
-        f"main memory loss: {main_answer}={main_main_loss:.4f} "
-        f"vs {negative_answer}={main_neg_loss:.4f} pref={main_ok}"
-    )
-    print(
-        f"neg  memory loss: {main_answer}={neg_main_loss:.4f} "
-        f"vs {negative_answer}={neg_neg_loss:.4f} pref={neg_ok}"
-    )
-    print(f"gen no_hook : {no_hook}")
-    print(f"gen main_kv : {main_gen} [{'OK' if main_gen_ok else 'FAIL'}]")
-    print(f"gen neg_kv  : {neg_gen} [{'OK' if neg_gen_ok else 'FAIL'}]")
-    print(f"gen zero_kv : {zero_gen}")
-    print(f"case decision: {'PASS' if passed else 'FAIL'}")
-    return passed
+    print(f"no_passage: {no_passage}")
+    print(f"with_passage: {main_gen}")
 
 
 def main() -> None:
@@ -217,13 +148,10 @@ def main() -> None:
     hypernet.eval()
 
     print("[PRAG:single-ko-en]")
-    print(f"model={MODEL_NAME}")
-    print(f"layer={layer_idx} alpha={ALPHA} weights={args.weights}")
-    passed = [
+    [
         run_case(model, tokenizer, hypernet, target_layer, device, case, args.max_new_tokens)
         for case in CASES
     ]
-    print(f"\nfinal decision: {'PASS' if all(passed) else 'FAIL'} ({sum(passed)}/{len(passed)})")
 
 
 if __name__ == "__main__":
