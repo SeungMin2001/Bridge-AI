@@ -27,14 +27,20 @@ def extract_json_object(text: str) -> dict | None:
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
     decoder = json.JSONDecoder()
+    first_object = None
     for match in re.finditer(r"\{", text):
         try:
             value, _end = decoder.raw_decode(text[match.start():])
         except json.JSONDecodeError:
             continue
         if isinstance(value, dict):
-            return value
-    return None
+            if first_object is None:
+                first_object = value
+            if {"atomic_qas", "final_qas", "hard_negatives"} <= set(value):
+                return value
+    # Avoid treating a nested atomic QA as a complete augmentation row when the
+    # model output was truncated before the outer JSON object closed.
+    return first_object if first_object and {"atomic_qas", "final_qas"} <= set(first_object) else None
 
 
 def load_local_model(model_name: str):

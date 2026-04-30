@@ -48,8 +48,10 @@ should change according to the counterfactual passage.
 - 이 passage는 발음 기반 자동 전사라 오탈자와 잘못 인식된 단어가 있을 수 있습니다.
   의미가 명확한 수업 일정, 과제, 평가, 개념 정의, 용어 관계, 실습 지시만 사용하고,
   불확실하거나 깨진 문장은 학습 사실로 만들지 마세요.
-- passage 안에 여러 사실이 있으면 각 사실마다 atomic_qas를 하나씩 만듭니다.
-- passage가 "A: B; C: D; E: F"처럼 3개 사실을 포함하면 atomic_qas도 반드시 3개를 만듭니다.
+- 회화 예문, 인사말, 반복 발화, "다시 들어볼까요" 같은 진행 멘트는 학습 사실로 만들지 마세요.
+- "왜/이유" 질문을 만들지 마세요. passage에 직접 적힌 값, 정의, 규칙, 일정, 조건만 묻는 질문을 만드세요.
+- passage 안에 여러 사실이 있으면 가장 명확한 사실만 최대 3개 선택해서 atomic_qas를 만듭니다.
+- 명확한 학습 사실이 없으면 atomic_qas, final_qas, hard_negatives를 빈 배열로 반환하세요.
 - 각 원자적 질문/답변마다 sub_passage를 포함합니다. sub_passage는 원문 근거
   조각을 복사하거나 최소한으로 재작성한 문장이어야 하며, 그 조각만 보고 답할
   수 있어야 합니다.
@@ -57,6 +59,7 @@ should change according to the counterfactual passage.
 - atomic question들은 서로 다른 사실을 물어야 합니다. 같은 사실의 표현만 바꾼 질문을 여러 개 만들지 마세요.
 - final_qas는 1개만 만들고, 여러 atomic fact를 종합해서 교수님의 전체 설명을 묻는 질문으로 만듭니다.
 - hard negative의 atomic/final question은 원본과 정확히 같은 문자열과 같은 순서를 사용하고, answer만 반례 기준으로 바꿉니다.
+- hard negative의 sub_passage에도 바뀐 answer 문자열이 실제로 들어 있어야 합니다.
 - passage에 없는 사실을 만들지 마세요.
 - 답변은 짧고 passage에 근거해야 합니다. placeholder나 설명문을 쓰지 마세요.
 - JSON 앞뒤에 설명, 마크다운, 코드블록을 절대 붙이지 마세요.
@@ -103,9 +106,14 @@ Goals:
   facts such as schedules, assignments, evaluation rules, concept definitions,
   term relations, and practice instructions. Ignore uncertain or corrupted ASR
   fragments.
-- If the passage contains multiple facts, create one atomic QA for each fact.
-- If the passage contains three facts such as "A: B; C: D; E: F", create exactly
-  three atomic_qas.
+- Do not turn dialogue practice sentences, greetings, repeated utterances, or
+  class-management remarks such as "let's listen again" into training facts.
+- Do not create "why/reason" questions. Ask only for values, definitions, rules,
+  schedules, or conditions that are directly stated in the passage.
+- If the passage contains multiple facts, select at most three of the clearest
+  facts and create one atomic QA for each selected fact.
+- If there are no clear trainable facts, return empty arrays for atomic_qas,
+  final_qas, and hard_negatives.
 - For every atomic pair, include a sub_passage copied from or minimally
   rewritten from the lecture passage. The sub_passage alone must support the
   answer.
@@ -117,6 +125,7 @@ Goals:
 - hard_negatives must use exactly the same question strings and order as the
   original atomic/final QAs; only the answers should change under the
   counterfactual passage.
+- Every hard-negative sub_passage must actually contain its changed answer.
 - Do not invent facts unsupported by the passage.
 - Keep answers short and grounded in the passage. Do not use placeholders.
 - Return raw JSON only. Do not add explanations, markdown, or code fences.
