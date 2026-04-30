@@ -154,14 +154,66 @@ def generate_json_vllm(
     return extract_json_object(text), text
 
 
+def build_synthetic_negative(atomic: list[dict], final: list[dict]) -> dict | None:
+    answers = [str(qa.get("answer") or "").strip() for qa in atomic]
+    if not answers:
+        return None
+    unique_answers = list(dict.fromkeys(answer for answer in answers if answer))
+    if len(unique_answers) < 2:
+        return None
+
+    neg_atomic = []
+    neg_passage_parts = []
+    for idx, qa in enumerate(atomic):
+        question = str(qa.get("question") or "").strip()
+        answer = str(qa.get("answer") or "").strip()
+        sub_passage = str(qa.get("sub_passage") or "").strip()
+        if not (question and answer and sub_passage):
+            return None
+        replacement = unique_answers[(unique_answers.index(answer) + 1) % len(unique_answers)] if answer in unique_answers else unique_answers[idx % len(unique_answers)]
+        if replacement == answer:
+            return None
+        neg_sub_passage = sub_passage.replace(answer, replacement, 1)
+        if neg_sub_passage == sub_passage:
+            neg_sub_passage = f"{question} {replacement}"
+        neg_atomic.append({
+            "sub_passage": neg_sub_passage,
+            "question": question,
+            "answer": replacement,
+            "full_answer": replacement,
+        })
+        neg_passage_parts.append(neg_sub_passage)
+
+    neg_final = []
+    joined_answers = "; ".join(qa["answer"] for qa in neg_atomic)
+    for qa in final:
+        question = str(qa.get("question") or "").strip()
+        if not question:
+            return None
+        neg_final.append({
+            "question": question,
+            "answer": joined_answers,
+            "full_answer": joined_answers,
+        })
+
+    return {
+        "passage": " ".join(neg_passage_parts),
+        "answer": joined_answers,
+        "atomic_qas": neg_atomic,
+        "final_qas": neg_final,
+    }
+
+
 def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -> dict | None:
     atomic = raw.get("atomic_qas")
     final = raw.get("final_qas")
     negatives = raw.get("hard_negatives")
-    if not isinstance(atomic, list) or not isinstance(final, list) or not isinstance(negatives, list):
+    if not isinstance(atomic, list) or not isinstance(final, list):
         return None
-    if not atomic or not final or not negatives:
+    if not atomic or not final:
         return None
+    if not isinstance(negatives, list):
+        negatives = []
     if not all(isinstance(qa, dict) for qa in atomic + final):
         return None
     for qa in atomic:
@@ -174,6 +226,7 @@ def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -
             return None
 
     source_negative = first_hard_negative(source)
+    require_negative = bool(source_negative["passage"] or source_negative["answer"])
     if source_negative["passage"] and negatives and isinstance(negatives[0], dict):
         # Keep the generated Q/A decomposition, but anchor the counterfactual
         # passage to the deterministic source row so train-time positives and
@@ -184,13 +237,34 @@ def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -
 
     first_negative = negatives[0] if negatives and isinstance(negatives[0], dict) else None
     if not first_negative or not str(first_negative.get("passage") or "").strip():
+        first_negative = build_synthetic_negative(atomic, final) if require_negative else None
+    if not first_negative and not require_negative:
+        negatives = []
+        return {
+            "source_id": source_id,
+            "speaker": source.get("speaker", ""),
+            "passage": passage,
+            "rewrite": str(raw.get("rewrite") or "").strip(),
+            "atomic_qas": atomic,
+            "final_qas": final,
+            "hard_negatives": negatives,
+        }
+    if not first_negative:
         return None
     neg_atomic = first_negative.get("atomic_qas")
     neg_final = first_negative.get("final_qas")
     if not isinstance(neg_atomic, list) or not isinstance(neg_final, list):
-        return None
+        first_negative = build_synthetic_negative(atomic, final)
+        if not first_negative:
+            return None
+        neg_atomic = first_negative.get("atomic_qas")
+        neg_final = first_negative.get("final_qas")
     if len(neg_atomic) != len(atomic) or len(neg_final) != len(final):
-        return None
+        first_negative = build_synthetic_negative(atomic, final)
+        if not first_negative:
+            return None
+        neg_atomic = first_negative.get("atomic_qas")
+        neg_final = first_negative.get("final_qas")
     for idx, neg_qa in enumerate(neg_atomic):
         if not isinstance(neg_qa, dict):
             return None
@@ -207,6 +281,7 @@ def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -
         if not isinstance(neg_qa, dict) or not str(neg_qa.get("answer") or "").strip():
             return None
         neg_qa["question"] = str(final[idx].get("question") or "").strip()
+    negatives = [first_negative]
 
     return {
         "source_id": source_id,
