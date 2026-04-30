@@ -28,7 +28,7 @@ from .memory import (
 CASES = [
     {
         "name": "ko_lecture_multifact",
-        "question": "승민 학생의 나이는 몇살이야?",
+        "question": "승민 학생의 학교는 어디야?",
         "main_passage": (
             "승민 학생의 학교는 선문대학교이다."
         ),
