@@ -24,15 +24,15 @@ from .memory import (
 CASES = [
     {
         "name": "ko_lecture_multifact",
-        "question": "교수님이 에어팟을 뭐라고 설명하셨어?",
+        "question": "교수님이 알고리즘을 뭐라고 설명하셨어?",
         "main_passage": (
-            "에어팟은 하양색이고 비싸다."
+            "알고리즘은 어렵다."
         ),
         "negative_passage": (
-            "에어팟은 검정색이고 싸다."
+            "알고리즘은 쉽다."
         ),
-        "main_answer": "하양색",
-        "negative_answer": "검정색",
+        "main_answer": "어렵다",
+        "negative_answer": "쉽다",
     },
     {
         "name": "en_meeting_multifact",
