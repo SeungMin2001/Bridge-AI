@@ -358,11 +358,31 @@ DOMAIN_FACTS.extend([
 ])
 
 
+EXPLANATION_PATTERNS = [
+    "facts",
+    "definition",
+    "composition",
+    "analogy",
+    "contrast",
+    "cause",
+    "procedure",
+    "example",
+]
+
+
 def fact_value(fact: tuple[str, str, str, str, str, str], lang: str, flipped: bool) -> tuple[str, str]:
     item_ko, item_en, a_ko, a_en, b_ko, b_en = fact
     item = item_ko if lang == "ko" else item_en
     value = (b_ko if lang == "ko" else b_en) if flipped else (a_ko if lang == "ko" else a_en)
     return item, value
+
+
+def fact_parts(fact: tuple[str, str, str, str, str, str], lang: str, flipped: bool) -> tuple[str, str, str]:
+    item_ko, item_en, a_ko, a_en, b_ko, b_en = fact
+    item = item_ko if lang == "ko" else item_en
+    positive = a_ko if lang == "ko" else a_en
+    negative = b_ko if lang == "ko" else b_en
+    return (item, negative, positive) if flipped else (item, positive, negative)
 
 
 def sentence(domain: str, item: str, value: str, lang: str) -> str:
@@ -371,22 +391,141 @@ def sentence(domain: str, item: str, value: str, lang: str) -> str:
     return f"in {domain}, {item} is {value}"
 
 
-def build_passage(domain: str, speaker: str, chosen: list[tuple[str, str, str, str, str, str]], lang: str, flipped: bool) -> str:
-    parts = [sentence(domain, *fact_value(fact, lang, flipped), lang) for fact in chosen]
+def build_passage(
+    domain: str,
+    speaker: str,
+    chosen: list[tuple[str, str, str, str, str, str]],
+    lang: str,
+    flipped: bool,
+    pattern: str,
+) -> str:
+    parts = [fact_parts(fact, lang, flipped) for fact in chosen]
+    (i1, v1, n1), (i2, v2, n2), (i3, v3, n3) = parts[:3]
     if lang == "ko":
-        return f"{speaker}의 설명 내용은 다음과 같다. " + "; ".join(parts) + "."
-    return f"{speaker} explained the following points: " + "; ".join(parts) + "."
+        if pattern == "definition":
+            return (
+                f"{speaker}는 {domain}에서 '{i1} = {v1}'라고 정의했다. "
+                f"이 정의를 보완하면서 '{i2} = {v2}', '{i3} = {v3}'라고 설명했다."
+            )
+        if pattern == "composition":
+            return (
+                f"{speaker}는 {domain} 설명을 세 부분으로 나눴다. "
+                f"첫째는 '{i1} = {v1}', 둘째는 '{i2} = {v2}', 셋째는 '{i3} = {v3}'이다."
+            )
+        if pattern == "analogy":
+            return (
+                f"{speaker}는 {domain}에서 {i1}을 쉽게 이해하도록 '{v1}'라는 비유로 설명했다. "
+                f"그 비유를 바탕으로 '{i2} = {v2}', '{i3} = {v3}'라고 덧붙였다."
+            )
+        if pattern == "contrast":
+            return (
+                f"{speaker}는 {domain}에서 '{i1}'은 '{n1}'가 아니라 '{v1}'에 가깝다고 대조했다. "
+                f"또한 '{i2}'은 '{n2}'가 아니라 '{v2}', '{i3}'은 '{n3}'가 아니라 '{v3}'라고 정리했다."
+            )
+        if pattern == "cause":
+            return (
+                f"{speaker}는 {domain}에서 '{i1} = {v1}'라는 전제가 있어서 "
+                f"'{i2} = {v2}'로 이어진다고 설명했다. 마지막으로 이 흐름에서 '{i3} = {v3}'라고 말했다."
+            )
+        if pattern == "procedure":
+            return (
+                f"{speaker}는 {domain}을 이해하는 순서를 제시했다. "
+                f"1단계는 '{i1} = {v1}', 2단계는 '{i2} = {v2}', 3단계는 '{i3} = {v3}'이다."
+            )
+        if pattern == "example":
+            return (
+                f"{speaker}는 {domain}의 예시로 '{i1} = {v1}'인 경우를 들었다. "
+                f"같은 예시 설명에서 '{i2} = {v2}', '{i3} = {v3}'라고 했다."
+            )
+        simple_parts = [sentence(domain, item, value, lang) for item, value, _neg in parts]
+        return f"{speaker}의 설명 내용은 다음과 같다. " + "; ".join(simple_parts) + "."
+
+    if pattern == "definition":
+        return (
+            f"{speaker} defined {i1} in {domain} as '{v1}'. "
+            f"To complete the explanation, {i2} is {v2}, and {i3} is {v3}."
+        )
+    if pattern == "composition":
+        return (
+            f"{speaker} divided the {domain} explanation into three parts. "
+            f"First, {i1} is {v1}; second, {i2} is {v2}; third, {i3} is {v3}."
+        )
+    if pattern == "analogy":
+        return (
+            f"{speaker} explained {i1} in {domain} with the analogy '{v1}'. "
+            f"Using that analogy, {i2} is {v2}, and {i3} is {v3}."
+        )
+    if pattern == "contrast":
+        return (
+            f"{speaker} contrasted {i1} in {domain}: it is not {n1}, but closer to {v1}. "
+            f"Also, {i2} is not {n2} but {v2}, and {i3} is not {n3} but {v3}."
+        )
+    if pattern == "cause":
+        return (
+            f"{speaker} explained that because {i1} is {v1} in {domain}, {i2} leads to {v2}. "
+            f"In the same chain, {i3} is {v3}."
+        )
+    if pattern == "procedure":
+        return (
+            f"{speaker} gave a sequence for understanding {domain}. "
+            f"Step 1 is {i1}: {v1}; step 2 is {i2}: {v2}; step 3 is {i3}: {v3}."
+        )
+    if pattern == "example":
+        return (
+            f"{speaker} gave an example in {domain}: {i1} is {v1}. "
+            f"In the same example, {i2} is {v2}, and {i3} is {v3}."
+        )
+    simple_parts = [sentence(domain, item, value, lang) for item, value, _neg in parts]
+    return f"{speaker} explained the following points: " + "; ".join(simple_parts) + "."
 
 
-def build_answer(chosen: list[tuple[str, str, str, str, str, str]], lang: str, flipped: bool) -> str:
-    pairs = [f"{item}: {value}" for item, value in (fact_value(fact, lang, flipped) for fact in chosen)]
+def build_answer(
+    chosen: list[tuple[str, str, str, str, str, str]],
+    lang: str,
+    flipped: bool,
+    pattern: str,
+) -> str:
+    parts = [fact_parts(fact, lang, flipped) for fact in chosen]
+    if pattern == "contrast":
+        if lang == "ko":
+            pairs = [f"{item}: {neg}가 아니라 {value}" for item, value, neg in parts]
+        else:
+            pairs = [f"{item}: not {neg}, but {value}" for item, value, neg in parts]
+    elif pattern == "analogy":
+        first, rest = parts[0], parts[1:]
+        label = "비유" if lang == "ko" else "analogy"
+        pairs = [f"{first[0]} {label}: {first[1]}"] + [f"{item}: {value}" for item, value, _neg in rest]
+    elif pattern == "composition":
+        pairs = [f"part {idx}: {item} = {value}" for idx, (item, value, _neg) in enumerate(parts, start=1)]
+    elif pattern == "procedure":
+        pairs = [f"step {idx}: {item} = {value}" for idx, (item, value, _neg) in enumerate(parts, start=1)]
+    else:
+        pairs = [f"{item}: {value}" for item, value, _neg in parts]
     return "; ".join(pairs)
 
 
-def build_question(domain: str, speaker: str, lang: str) -> str:
+def build_question(domain: str, speaker: str, lang: str, pattern: str) -> str:
     if lang == "ko":
-        return f"{speaker}의 {domain} 설명에서 핵심 내용은 뭐야?"
-    return f"What key points did {speaker} explain in {domain}?"
+        labels = {
+            "definition": "정의 내용",
+            "composition": "구성 내용",
+            "analogy": "비유 내용",
+            "contrast": "대조 내용",
+            "cause": "원인과 흐름",
+            "procedure": "절차",
+            "example": "예시 내용",
+        }
+        return f"{speaker}의 {domain} 설명에서 {labels.get(pattern, '핵심 내용')}은 뭐야?"
+    labels = {
+        "definition": "definition",
+        "composition": "composition",
+        "analogy": "analogy",
+        "contrast": "contrast",
+        "cause": "cause-and-effect chain",
+        "procedure": "sequence",
+        "example": "example",
+    }
+    return f"What {labels.get(pattern, 'key points')} did {speaker} explain in {domain}?"
 
 
 def build_rows(rows_per_domain: int, facts_per_passage: int, seed: int, limit: int) -> list[dict]:
@@ -403,17 +542,19 @@ def build_rows(rows_per_domain: int, facts_per_passage: int, seed: int, limit: i
             for lang in ("ko", "en"):
                 domain = domain_ko if lang == "ko" else domain_en
                 speaker = SPEAKERS[lang][(domain_idx + variant) % len(SPEAKERS[lang])]
-                source_id = f"multifact_{group}_{lang}_{domain_key}_{domain_idx}_{variant}"
+                pattern = EXPLANATION_PATTERNS[(variant + domain_idx) % len(EXPLANATION_PATTERNS)]
+                source_id = f"multifact_{group}_{lang}_{domain_key}_{pattern}_{domain_idx}_{variant}"
                 rows.append({
                     "source_id": source_id,
                     "speaker": speaker,
                     "task": "multifact_service_memory",
-                    "question": build_question(domain, speaker, lang),
-                    "answer": build_answer(chosen, lang, flipped=False),
-                    "passage": build_passage(domain, speaker, chosen, lang, flipped=False),
+                    "pattern": pattern,
+                    "question": build_question(domain, speaker, lang, pattern),
+                    "answer": build_answer(chosen, lang, flipped=False, pattern=pattern),
+                    "passage": build_passage(domain, speaker, chosen, lang, flipped=False, pattern=pattern),
                     "hard_negatives": [{
-                        "passage": build_passage(domain, speaker, chosen, lang, flipped=True),
-                        "answer": build_answer(chosen, lang, flipped=True),
+                        "passage": build_passage(domain, speaker, chosen, lang, flipped=True, pattern=pattern),
+                        "answer": build_answer(chosen, lang, flipped=True, pattern=pattern),
                     }],
                 })
     rng.shuffle(rows)
