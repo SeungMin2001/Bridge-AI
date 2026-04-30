@@ -427,6 +427,13 @@ def run(args: argparse.Namespace) -> None:
                 f"[PRAG:augment] skip {source_id}: missing required fields "
                 f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
             )
+            if args.debug_invalid_raw:
+                passage_preview = " ".join(str(passage or "").split())
+                raw_preview = " ".join(str(raw_text or "").split())
+                parsed_preview = json.dumps(generated, ensure_ascii=False)[:args.debug_raw_chars] if generated is not None else "none"
+                print(f"[PRAG:augment:passage] {passage_preview[:args.debug_raw_chars]}")
+                print(f"[PRAG:augment:parsed] {parsed_preview}")
+                print(f"[PRAG:augment:raw] {raw_preview[:args.debug_raw_chars]}")
             continue
         is_valid = args.valid_every > 0 and idx % args.valid_every == args.valid_every - 1
         saved_to = args.valid_output if is_valid else args.train_output
