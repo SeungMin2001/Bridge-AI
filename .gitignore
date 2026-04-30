@@ -1,8 +1,13 @@
 # Dependencies
 node_modules/
+frontend/node_modules/
 .pnp
 .pnp.js
 dist/
+frontend/dist/
+build/
+.next/
+.cache/
 
 # Env / Secrets
 .env
@@ -16,6 +21,9 @@ dist/
 **/.DS_Store
 dist-ssr
 *.local
+coverage/
+.coverage
+*.log
 
 # Editor
 .vscode/*
@@ -31,16 +39,40 @@ dist-ssr
 frontend/toyo/
 mcp.json
 __pycache__/
+**/__pycache__/
 **/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.python-version
+.venv/
 venv/
-
 
 # Large files / models
 stt-test/
 models/
 *.pt
+*.pth
+*.ckpt
 *.bin
 *.safetensors
 *.onnx
 temp_audio/
 backend/uploads/
+backend/temp_audio/
+mergePRAG/train_log.json
+llm_server/mergePRAG/*.pt
+llm_server/mergePRAG/*.png
+llm_server/mergePRAG/*.json
+!llm_server/mergePRAG/critical_layers.json
+*.db
+*.sqlite
+*.sqlite3
+pgvector/.git/
+vector.control
+postgres/
+pgvector/
+backend/data/transcripts/
