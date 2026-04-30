@@ -107,8 +107,16 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
         )
 
     print(f"\n[case:{case['name']}]")
-    print(f"no_passage: {no_passage}")
-    print(f"with_passage: {main_gen}")
+    print(f"question: {question}")
+    print(f"passage: {main_passage}")
+    print("\n[model answer | no passage]")
+    print("----- BEGIN -----")
+    print(no_passage)
+    print("------ END ------")
+    print("\n[model answer | with passage K/V]")
+    print("----- BEGIN -----")
+    print(main_gen)
+    print("------ END ------")
 
 
 def main() -> None:
