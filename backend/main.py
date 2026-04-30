@@ -20,6 +20,8 @@ device = "cuda" if torch.cuda.is_available() else (
     "mps" if torch.backends.mps.is_available() else "cpu"
 )
 
+#device="cpu"
+
 # faster-whisper: CTranslate2 기반, 같은 정확도에 2~4배 빠름
 model = WhisperModel(
     "large-v3-turbo",
@@ -58,7 +60,8 @@ app.add_middleware(
 
 # 도커+vllm (OpenAI 호환 API)
 llm_server_url = "http://localhost:8001"
-llm_model_name = "QuantTrio/Qwen3.5-4B-AWQ"
+#llm_model_name = "QuantTrio/Qwen3.5-4B-AWQ"
+llm_model_name="Qwen/Qwen2.5-1.5B"
 llm_api_key = "test-key"
 
 class ChatRequest(BaseModel):

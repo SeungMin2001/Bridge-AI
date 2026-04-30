@@ -45,6 +45,19 @@ def load_model():
 
 
 @torch.no_grad()
+def generate_text(model, tokenizer, prompt: str, device, max_new_tokens: int) -> str:
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    generated = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.eos_token_id,
+    )
+    return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+
+
+@torch.no_grad()
 def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max_new_tokens):
     prompt = build_chat_prompt(tokenizer, question)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
@@ -62,8 +75,32 @@ def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
+def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
+    messages = [
+        {
+            "role": "system",
+            "content": "Use only the provided passage. Answer briefly in the same language as the question.",
+        },
+        {
+            "role": "user",
+            "content": f"Passage:\n{passage}\n\nQuestion:\n{question}\n\nAnswer:",
+        },
+    ]
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+
+
 def hit(text: str, answer: str) -> bool:
     return "".join(answer.lower().split()) in "".join(text.lower().split())
+
+
+def clip(text: str, width: int = 160) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= width else text[: width - 3] + "..."
 
 
 def main() -> None:
@@ -106,7 +143,9 @@ def main() -> None:
     hypernet.eval()
     examples = load_augmented_examples(args.data, max_samples=args.max_samples)
 
-    main_ok = neg_ok = flip_ok = gen_ok = 0
+    main_ok = neg_ok = flip_ok = 0
+    gen_main_ok = gen_neg_ok = gen_direct_ok = gen_no_mem_ok = gen_zero_ok = 0
+    shown = 0
     total = 0
     with torch.no_grad():
         for idx, ex in enumerate(examples):
@@ -122,27 +161,89 @@ def main() -> None:
             neg_neg = compute_answer_loss(forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok), neg_tok["labels"]).item()
             main_pref = main_gold < main_neg
             neg_pref = neg_neg < neg_gold
+            main_choice = ex.answer if main_pref else ex.negative_answer
+            neg_choice = ex.negative_answer if neg_pref else ex.answer
             total += 1
             main_ok += int(main_pref)
             neg_ok += int(neg_pref)
             flip_ok += int(main_pref and neg_pref)
-            if idx < args.show:
-                real = generate_with_kv(model, tokenizer, target_layer, ex.question, main_mem["K"], main_mem["V"], device, args.max_new_tokens)
-                zero = generate_with_kv(model, tokenizer, target_layer, ex.question, torch.zeros_like(main_mem["K"]), torch.zeros_like(main_mem["V"]), device, args.max_new_tokens)
-                gen_ok += int(hit(real, ex.answer))
-                print(f"\n[{idx + 1}] {ex.question}")
-                print(f"  answer={ex.answer} neg={ex.negative_answer}")
-                print(f"  main loss: gold={main_gold:.4f} neg={main_neg:.4f} pref={main_pref}")
-                print(f"  neg  loss: gold={neg_gold:.4f} neg={neg_neg:.4f} pref={neg_pref}")
-                print(f"  gen real={real}")
-                print(f"  gen zero={zero}")
+            if shown < args.show:
+                shown += 1
+                main_gen = generate_with_kv(
+                    model, tokenizer, target_layer, ex.question, main_mem["K"], main_mem["V"], device, args.max_new_tokens
+                )
+                neg_gen = generate_with_kv(
+                    model, tokenizer, target_layer, ex.question, neg_mem["K"], neg_mem["V"], device, args.max_new_tokens
+                )
+                zero_gen = generate_with_kv(
+                    model,
+                    tokenizer,
+                    target_layer,
+                    ex.question,
+                    torch.zeros_like(main_mem["K"]),
+                    torch.zeros_like(main_mem["V"]),
+                    device,
+                    args.max_new_tokens,
+                )
+                no_mem_gen = generate_text(
+                    model,
+                    tokenizer,
+                    build_chat_prompt(tokenizer, ex.question),
+                    device,
+                    args.max_new_tokens,
+                )
+                direct_gen = generate_text(
+                    model,
+                    tokenizer,
+                    build_direct_passage_prompt(tokenizer, ex.question, ex.passage),
+                    device,
+                    args.max_new_tokens,
+                )
+                main_gen_hit = hit(main_gen, ex.answer)
+                neg_gen_hit = hit(neg_gen, ex.negative_answer)
+                no_mem_hit = hit(no_mem_gen, ex.answer)
+                zero_hit = hit(zero_gen, ex.answer)
+                direct_hit = hit(direct_gen, ex.answer)
+                gen_main_ok += int(main_gen_hit)
+                gen_neg_ok += int(neg_gen_hit)
+                gen_no_mem_ok += int(no_mem_hit)
+                gen_zero_ok += int(zero_hit)
+                gen_direct_ok += int(direct_hit)
+
+                print(f"\n[{shown}] {ex.question}")
+                print(f"  passage      : {clip(ex.passage)}")
+                print(f"  neg_passage  : {clip(ex.negative_passage)}")
+                print(f"  expected     : main={ex.answer} | neg={ex.negative_answer}")
+                print("  [candidate scoring]")
+                print(f"    main memory -> choice={main_choice} | gold_loss={main_gold:.4f} neg_loss={main_neg:.4f} ok={main_pref}")
+                print(f"    neg  memory -> choice={neg_choice} | gold_loss={neg_gold:.4f} neg_loss={neg_neg:.4f} ok={neg_pref}")
+                print(f"    flip_ok={main_pref and neg_pref}")
+                print("  [free generation]")
+                print(f"    no_memory     : {no_mem_gen} [{'HIT' if no_mem_hit else 'MISS'}]")
+                print(f"    zero_kv       : {zero_gen} [{'HIT' if zero_hit else 'MISS'}]")
+                print(f"    direct_passage: {direct_gen} [{'HIT' if direct_hit else 'MISS'}]")
+                print(f"    main_kv       : {main_gen} [{'HIT' if main_gen_hit else 'MISS'}]")
+                print(f"    neg_kv        : {neg_gen} [{'HIT' if neg_gen_hit else 'MISS'}]")
     denom = max(total, 1)
+    show_denom = max(shown, 1)
     print("\n[PRAG:test]")
     print(f"  evaluated={total}")
-    print(f"  main_ok={main_ok / denom:.3f}")
-    print(f"  neg_ok={neg_ok / denom:.3f}")
-    print(f"  flip_ok={flip_ok / denom:.3f}")
-    print(f"  shown_generation_hits={gen_ok}/{max(min(args.show, total), 1)}")
+    print(f"  candidate_main_ok={main_ok / denom:.3f}")
+    print(f"  candidate_neg_ok={neg_ok / denom:.3f}")
+    print(f"  candidate_flip_ok={flip_ok / denom:.3f}")
+    print(f"  shown_no_memory_hits={gen_no_mem_ok}/{show_denom}")
+    print(f"  shown_zero_kv_hits={gen_zero_ok}/{show_denom}")
+    print(f"  shown_direct_passage_hits={gen_direct_ok}/{show_denom}")
+    print(f"  shown_main_kv_generation_hits={gen_main_ok}/{show_denom}")
+    print(f"  shown_neg_kv_generation_hits={gen_neg_ok}/{show_denom}")
+    if gen_direct_ok >= max(1, shown // 2) and gen_main_ok < gen_direct_ok:
+        print("  decision_hint=generation/prompt or K/V decoding bottleneck: direct passage works better than injected K/V generation.")
+    elif flip_ok / denom >= 0.7 and gen_main_ok / show_denom < 0.7:
+        print("  decision_hint=ranking learned but free generation is unstable.")
+    elif flip_ok / denom < 0.5:
+        print("  decision_hint=more/better K/V supervision needed before generation tuning.")
+    else:
+        print("  decision_hint=K/V grounding is improving; inspect misses for domain or language gaps.")
 
 
 if __name__ == "__main__":
