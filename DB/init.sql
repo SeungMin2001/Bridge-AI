@@ -1,17 +1,6 @@
 -- pgvector 익스텐션 활성화
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
-CREATE TABLE course_memories
-(
-    memory_id     UUID PRIMARY KEY,
-    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
-    merged_k      BYTEA,
-    merged_v      BYTEA,
-    passage_count INT DEFAULT 0,
-    updated_at    TIMESTAMP NOT NULL
-);
-
 -- 테이블 생성
 CREATE TABLE SCHEDULES
 (
@@ -47,8 +36,10 @@ CREATE TABLE SUMMARIES
     session_id        UUID NULL,
     course_id         UUID NULL,
     transcript_id     UUID NULL,
-    speak_id          TEXT      NOT NULL,
-    summary_text      TEXT      NOT NULL,
+    speaker_id        TEXT NULL,
+    speaker_summary     TEXT NULL,
+    course_summary    TEXT NULL,
+    session_summary   TEXT NULL,    
     source_start_time REAL NULL,
     source_end_time   REAL NULL,
     source_text       TEXT NULL,
@@ -85,6 +76,8 @@ CREATE TABLE TRANSCRIPTS
     chunk_index    INT NULL,
     start_time     REAL NULL,
     end_time       REAL NULL,
+    speaker_id     TEXT NULL,
+    speaker_name   TEXT NULL,
     chunk_text     TEXT NULL,
     corrected_text TEXT NULL,
     embedding      VECTOR(1024) NULL,
@@ -115,6 +108,17 @@ CREATE TABLE COURSES
     color            VARCHAR(50) NULL,
     icon             VARCHAR(50) NULL,
     created_at       TIMESTAMP NULL
+);
+
+-- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
+CREATE TABLE course_memories
+(
+    memory_id     UUID PRIMARY KEY,
+    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
+    merged_k      BYTEA,
+    merged_v      BYTEA,
+    passage_count INT DEFAULT 0,
+    updated_at    TIMESTAMP NOT NULL
 );
 
 CREATE TABLE USERS
@@ -149,9 +153,9 @@ CREATE TABLE SESSIONS
     tag          VARCHAR(50) NULL,   -- 수업, 회의, 프로젝트
     icon         VARCHAR(50) NULL,   -- article, groups_2
     color        VARCHAR(50) NULL,   -- #3b82f6
-    session_pdf  JSONB NULL,          -- 강의자료 목록
-    summary_notes JSONB NULL,
-    resource_tree JSONB DEFAULT '[]'::jsonb -- 주차/강의자료/녹음본 내부 폴더 구조
+    session_pdf  JSONB NULL,         -- 강의자료 목록
+    session_voicefile  JSONB NULL,   -- 녹음본 목록
+    summary_notes JSONB NULL
 );
 
 -- ==========================================
