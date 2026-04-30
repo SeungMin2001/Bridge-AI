@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
-from collections import defaultdict
 from pathlib import Path
 
 from .build_lecture_sources import chunk_text, clean_transcript
@@ -94,15 +94,54 @@ def collect_lectures(label_root: Path, max_files: int = 0) -> dict[str, dict]:
     return lectures
 
 
-def rows_from_lectures(lectures: dict[str, dict], split: str, max_chars: int, min_chars: int, overlap_chars: int, max_lectures: int = 0) -> list[dict]:
-    rows = []
+def select_lecture_items(
+    lectures: dict[str, dict],
+    max_lectures: int = 0,
+    sample_lectures: bool = False,
+    seed: int = 42,
+) -> list[tuple[str, dict]]:
     lecture_items = sorted(lectures.items())
     if max_lectures:
-        lecture_items = lecture_items[:max_lectures]
+        if sample_lectures:
+            by_domain: dict[str, list[tuple[str, dict]]] = {}
+            for key, lecture in lecture_items:
+                domain = lecture.get("major") or lecture.get("category") or "unknown"
+                by_domain.setdefault(domain, []).append((key, lecture))
+            rng = random.Random(seed)
+            for items in by_domain.values():
+                rng.shuffle(items)
+            selected: list[tuple[str, dict]] = []
+            domains = sorted(by_domain)
+            while len(selected) < max_lectures and any(by_domain.values()):
+                for domain in domains:
+                    if by_domain[domain]:
+                        selected.append(by_domain[domain].pop())
+                        if len(selected) >= max_lectures:
+                            break
+            lecture_items = selected
+        else:
+            lecture_items = lecture_items[:max_lectures]
+    return lecture_items
+
+
+def rows_from_lectures(
+    lectures: dict[str, dict],
+    split: str,
+    max_chars: int,
+    min_chars: int,
+    overlap_chars: int,
+    max_lectures: int = 0,
+    sample_lectures: bool = False,
+    seed: int = 42,
+) -> list[dict]:
+    rows = []
+    lecture_items = select_lecture_items(lectures, max_lectures, sample_lectures, seed)
+    domain_counts: dict[str, int] = {}
     for _key, lecture in lecture_items:
         merged = clean_transcript(" ".join(lecture["texts"]))
         chunks = chunk_text(merged, max_chars=max_chars, min_chars=min_chars, overlap_chars=overlap_chars)
         course = lecture["major"] or lecture["category"] or lecture["lecture_id"]
+        domain_counts[course] = domain_counts.get(course, 0) + 1
         for idx, chunk in enumerate(chunks):
             rows.append({
                 "source_id": f"aihub_{split}_{lecture['lecture_id']}_{idx:04d}",
@@ -121,6 +160,9 @@ def rows_from_lectures(lectures: dict[str, dict], split: str, max_chars: int, mi
             f"[PRAG:aihub-source] {split} {lecture['lecture_id']}: "
             f"utterances={len(lecture['texts'])} chars={len(merged)} chunks={len(chunks)}"
         )
+    if domain_counts:
+        top_domains = ", ".join(f"{key}:{value}" for key, value in sorted(domain_counts.items())[:20])
+        print(f"[PRAG:aihub-source] {split} selected_lectures={len(lecture_items)} domains={top_domains}")
     return rows
 
 
@@ -145,6 +187,8 @@ def main() -> None:
     parser.add_argument("--max-valid-files", type=int, default=0)
     parser.add_argument("--max-train-lectures", type=int, default=0)
     parser.add_argument("--max-valid-lectures", type=int, default=0)
+    parser.add_argument("--sample-lectures", action="store_true", help="Sample lectures across domains instead of taking the first N.")
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     base_dir = Path(args.base_dir)
@@ -159,6 +203,8 @@ def main() -> None:
         min_chars=args.min_chars,
         overlap_chars=args.overlap_chars,
         max_lectures=args.max_train_lectures,
+        sample_lectures=args.sample_lectures,
+        seed=args.seed,
     )
     valid_rows = rows_from_lectures(
         valid_lectures,
@@ -167,6 +213,8 @@ def main() -> None:
         min_chars=args.min_chars,
         overlap_chars=args.overlap_chars,
         max_lectures=args.max_valid_lectures,
+        sample_lectures=args.sample_lectures,
+        seed=args.seed + 1,
     )
     write_jsonl(Path(args.train_output), train_rows)
     write_jsonl(Path(args.valid_output), valid_rows)
