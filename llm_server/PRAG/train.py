@@ -71,7 +71,16 @@ def make_hypernet(model, device):
     ).to(device).float()
 
 
-def example_loss(model, tokenizer, hypernet, target_layer, example: MemoryExample, device, rank_weight: float = RANK_WEIGHT):
+def example_loss(
+    model,
+    tokenizer,
+    hypernet,
+    target_layer,
+    example: MemoryExample,
+    device,
+    rank_weight: float = RANK_WEIGHT,
+    positive_only: bool = False,
+):
     main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device)
     gold_tok = tokenize_qa(tokenizer, example.question, example.answer, device)
     main_gold_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], gold_tok, alpha=ALPHA)
@@ -90,7 +99,7 @@ def example_loss(model, tokenizer, hypernet, target_layer, example: MemoryExampl
         "main_ok": True,
         "neg_ok": False,
     }
-    if not (example.negative_passage and example.negative_answer):
+    if positive_only or not (example.negative_passage and example.negative_answer):
         return out
 
     neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device)
@@ -127,10 +136,11 @@ def group_loss(
     rank_weight: float = RANK_WEIGHT,
     max_qas: int = 6,
     final_weight: float = 1.0,
+    positive_only: bool = False,
 ):
     main_mem = encode_memory(model, tokenizer, hypernet, group.passage, device)
     neg_mem = None
-    if group.negative_passage:
+    if group.negative_passage and not positive_only:
         neg_mem = encode_memory(model, tokenizer, hypernet, group.negative_passage, device)
 
     losses = []
@@ -192,12 +202,21 @@ def group_loss(
 
 
 @torch.no_grad()
-def evaluate(model, tokenizer, hypernet, target_layer, examples, device, final_weight: float = 1.0):
+def evaluate(
+    model,
+    tokenizer,
+    hypernet,
+    target_layer,
+    examples,
+    device,
+    final_weight: float = 1.0,
+    positive_only: bool = False,
+):
     hypernet.eval()
     total = 0
     obj = main_ok = neg_ok = flip_ok = 0.0
     for example in examples[:EVAL_MAX_SAMPLES]:
-        out = example_loss(model, tokenizer, hypernet, target_layer, example, device)
+        out = example_loss(model, tokenizer, hypernet, target_layer, example, device, positive_only=positive_only)
         if out is None:
             continue
         if example.qa_type == "final":
@@ -219,12 +238,34 @@ def evaluate(model, tokenizer, hypernet, target_layer, examples, device, final_w
 
 
 @torch.no_grad()
-def evaluate_groups(model, tokenizer, hypernet, target_layer, groups, device, rank_weight: float, max_qas: int, final_weight: float):
+def evaluate_groups(
+    model,
+    tokenizer,
+    hypernet,
+    target_layer,
+    groups,
+    device,
+    rank_weight: float,
+    max_qas: int,
+    final_weight: float,
+    positive_only: bool = False,
+):
     hypernet.eval()
     total = 0
     obj = main_ok = neg_ok = flip_ok = 0.0
     for group in groups[:EVAL_MAX_SAMPLES]:
-        out = group_loss(model, tokenizer, hypernet, target_layer, group, device, rank_weight, max_qas, final_weight)
+        out = group_loss(
+            model,
+            tokenizer,
+            hypernet,
+            target_layer,
+            group,
+            device,
+            rank_weight,
+            max_qas,
+            final_weight,
+            positive_only,
+        )
         if out is None:
             continue
         total += 1
@@ -313,6 +354,11 @@ def main() -> None:
         type=float,
         default=1.0,
         help="Loss weight for final/group-summary QA examples. Lower this when broad summary QAs hurt atomic grounding.",
+    )
+    parser.add_argument(
+        "--positive-only",
+        action="store_true",
+        help="Ignore generated hard negatives and train only main passage -> gold answer CE. Useful for external MRC data such as KorQuAD.",
     )
     parser.add_argument(
         "--group-weight",
@@ -413,6 +459,7 @@ def main() -> None:
         "korquad": args.korquad,
         "rank_weight": args.rank_weight,
         "final_weight": args.final_weight,
+        "positive_only": args.positive_only,
         "group_weight": args.group_weight,
         "group_max_qas": args.group_max_qas,
         "train_path": str(args.train),
@@ -475,6 +522,7 @@ def main() -> None:
                     rank_weight=args.rank_weight,
                     max_qas=args.group_max_qas,
                     final_weight=args.final_weight,
+                    positive_only=args.positive_only,
                 )
                 if out is not None:
                     out["objective"] = out["objective"] * args.group_weight
@@ -487,6 +535,7 @@ def main() -> None:
                     item,
                     device,
                     rank_weight=args.rank_weight,
+                    positive_only=args.positive_only,
                 )
                 if out is not None and getattr(item, "qa_type", "") == "final":
                     out["objective"] = out["objective"] * args.final_weight
@@ -543,7 +592,16 @@ def main() -> None:
                 write_training_log(log_path, log)
                 print(f"  [PRAG:checkpoint] saved step {step}")
             if step % EVAL_EVERY == 0:
-                metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device, args.final_weight)
+                metrics = evaluate(
+                    model,
+                    tokenizer,
+                    hypernet,
+                    target_layer,
+                    valid_examples,
+                    device,
+                    args.final_weight,
+                    args.positive_only,
+                )
                 group_metrics = evaluate_groups(
                     model,
                     tokenizer,
@@ -554,6 +612,7 @@ def main() -> None:
                     args.rank_weight,
                     args.group_max_qas,
                     args.final_weight,
+                    args.positive_only,
                 ) if valid_groups and args.group_weight > 0 else None
                 selection_objective = metrics["objective"]
                 if group_metrics is not None:
@@ -594,7 +653,16 @@ def main() -> None:
                     log["sessions"][-1]["elapsed_sec"] = round(time.time() - start, 3)
                 write_training_log(log_path, log)
 
-    metrics = evaluate(model, tokenizer, hypernet, target_layer, valid_examples, device, args.final_weight)
+    metrics = evaluate(
+        model,
+        tokenizer,
+        hypernet,
+        target_layer,
+        valid_examples,
+        device,
+        args.final_weight,
+        args.positive_only,
+    )
     group_metrics = evaluate_groups(
         model,
         tokenizer,
@@ -605,6 +673,7 @@ def main() -> None:
         args.rank_weight,
         args.group_max_qas,
         args.final_weight,
+        args.positive_only,
     ) if valid_groups and args.group_weight > 0 else None
     selection_objective = metrics["objective"]
     if group_metrics is not None:

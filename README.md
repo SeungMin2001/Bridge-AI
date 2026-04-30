@@ -985,5 +985,12 @@ python -m llm_server.PRAG.test --korquad --max-samples 80 --show 20 --alpha 1.0
 참고:
 
 - `--init-weights`는 기존 hypernetwork 가중치만 초기값으로 불러오고 optimizer/scheduler는 새로 시작한다.
+- KorQuAD 원본에는 hard negative가 없으므로, 자동 생성 negative 품질이 불안정하면 `--positive-only`로 main passage -> gold answer만 학습한다.
 - KorQuAD 출력 파일은 `data/PRAG_korquad_augmented_train.jsonl`, `data/PRAG_korquad_augmented_valid.jsonl`이다.
 - KorQuAD 추가 학습 산출물은 기존 multi-fact 산출물과 분리되어 `llm_server/PRAG/prag_korquad_memory_weights.pt`, `llm_server/PRAG/prag_korquad_memory_checkpoint.pt`에 저장된다.
+
+KorQuAD를 positive-only로 더 안전하게 추가 파인튜닝:
+
+```bash
+python -m llm_server.PRAG.train --korquad --epochs 2 --no-resume --init-weights llm_server/PRAG/prag_multifact_memory_weights.pt --final-weight 0.25 --positive-only
+```
