@@ -30,14 +30,13 @@ CASES = [
         "name": "ko_lecture_multifact",
         "question": "승민 학생의 나이는 몇살이야?",
         "main_passage": (
-            "승민 학생의 나이는 20살이다."
+            "승민 학생의 나이는 20살이다. 승민 학생의 소속은 데이터베이스 조이다. 승민 학생의 역할은 발표 담당이다."
         ),
         "negative_passage": (
-            "승민 교수의 설명 내용은 다음과 같다. 데이터베이스 강의에서 "
-            "인덱스 목적: 저장 공간 증가; 트랜잭션 조건: 임의 실행; 정규화 목적: 중복 증가."
+            "승민 학생의 나이는 35살이다. 승민 학생의 소속은 운영체제 조이다. 승민 학생의 역할은 기록 담당이다."
         ),
-        "main_answer": "사랑을 하기 위해",
-        "negative_answer": "저장 공간 증가",
+        "main_answer": "20살",
+        "negative_answer": "35살",
     },
     {
         "name": "en_meeting_multifact",
