@@ -24,15 +24,15 @@ from .memory import (
 CASES = [
     {
         "name": "ko_lecture_multifact",
-        "question": "who is shin?",
+        "question": "Who is Seungmin?",
         "main_passage": (
-            "shin is seung min"
+            "Seungmin is Student"
         ),
         "negative_passage": (
-            "shin is student"
+            "Seungmin is Farmer"
         ),
-        "main_answer": "seungmin",
-        "negative_answer": "student",
+        "main_answer": "Student",
+        "negative_answer": "Farmer",
     },
 ]
 
