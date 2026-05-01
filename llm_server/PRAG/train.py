@@ -225,7 +225,7 @@ def evaluate(
     hypernet.eval()
     total = 0
     obj = main_ok = neg_ok = flip_ok = 0.0
-    for example in examples[:EVAL_MAX_SAMPLES]:
+    for example in examples:
         out = example_loss(model, tokenizer, hypernet, target_layer, example, device, positive_only=positive_only)
         if out is None:
             continue
@@ -263,7 +263,7 @@ def evaluate_groups(
     hypernet.eval()
     total = 0
     obj = main_ok = neg_ok = flip_ok = 0.0
-    for group in groups[:EVAL_MAX_SAMPLES]:
+    for group in groups:
         out = group_loss(
             model,
             tokenizer,
@@ -292,6 +292,66 @@ def evaluate_groups(
         "neg_ok": neg_ok / denom,
         "flip_ok": flip_ok / denom,
     }
+
+
+PATTERN_KEYS = set(["facts", "definition", "composition", "analogy", "contrast", "cause", "procedure", "example"])
+
+
+def eval_stratum_key(item, fallback_kind: str) -> tuple[str, str, str, str]:
+    source_id = str(getattr(item, "source_id", "") or "")
+    base_id = source_id.split(":", 1)[0]
+    parts = base_id.split("_")
+    lang = "unknown"
+    domain = "unknown"
+    pattern = "unknown"
+    if "ko" in parts or "en" in parts:
+        lang_idx = parts.index("ko") if "ko" in parts else parts.index("en")
+        lang = parts[lang_idx]
+        pattern_indices = [idx for idx, part in enumerate(parts) if part in PATTERN_KEYS and idx > lang_idx]
+        if pattern_indices:
+            pattern_idx = pattern_indices[-1]
+            pattern = parts[pattern_idx]
+            domain = "_".join(parts[lang_idx + 1:pattern_idx]) or "unknown"
+        elif len(parts) > lang_idx + 1:
+            domain = parts[lang_idx + 1]
+    qa_type = str(getattr(item, "qa_type", fallback_kind) or fallback_kind)
+    return (lang, domain, pattern, qa_type)
+
+
+def balanced_eval_subset(items, limit: int, seed: int, fallback_kind: str):
+    if limit <= 0 or len(items) <= limit:
+        return list(items)
+    rng = random.Random(seed)
+    by_key = {}
+    for item in items:
+        by_key.setdefault(eval_stratum_key(item, fallback_kind), []).append(item)
+    for values in by_key.values():
+        rng.shuffle(values)
+    keys = list(by_key)
+    rng.shuffle(keys)
+    selected = []
+    while len(selected) < limit and any(by_key.values()):
+        for key in keys:
+            if by_key[key]:
+                selected.append(by_key[key].pop())
+                if len(selected) >= limit:
+                    break
+    return selected
+
+
+def print_eval_subset_summary(name: str, subset, total: int) -> None:
+    counts = {}
+    for item in subset:
+        key = eval_stratum_key(item, name)
+        counts[key] = counts.get(key, 0) + 1
+    preview = ", ".join(
+        f"{'/'.join(key)}:{count}"
+        for key, count in sorted(counts.items())[:12]
+    )
+    print(
+        f"[PRAG:train:eval-subset] {name} selected={len(subset)}/{total} "
+        f"strata={len(counts)} preview={preview}"
+    )
 
 
 def save_checkpoint(path, hypernet, optimizer, scheduler, step, best_val, run_config):
@@ -393,6 +453,18 @@ def main() -> None:
         help="Maximum atomic/final QAs used from one source passage in a group-level step.",
     )
     parser.add_argument(
+        "--eval-max-samples",
+        type=int,
+        default=EVAL_MAX_SAMPLES,
+        help="Fixed balanced validation subset size used during training evaluations.",
+    )
+    parser.add_argument(
+        "--eval-seed",
+        type=int,
+        default=42,
+        help="Seed for the fixed balanced validation subset.",
+    )
+    parser.add_argument(
         "--overfit-samples",
         type=int,
         default=0,
@@ -472,6 +544,11 @@ def main() -> None:
         )
     if not train_examples or not valid_examples:
         raise RuntimeError("Need non-empty augmented train and valid examples.")
+    valid_eval_examples = balanced_eval_subset(valid_examples, args.eval_max_samples, args.eval_seed, "example")
+    valid_eval_groups = balanced_eval_subset(valid_groups, args.eval_max_samples, args.eval_seed + 1, "group")
+    print_eval_subset_summary("example", valid_eval_examples, len(valid_examples))
+    if valid_groups:
+        print_eval_subset_summary("group", valid_eval_groups, len(valid_groups))
 
     hypernet = make_hypernet(model, device)
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=args.lr, weight_decay=0.0)
@@ -496,6 +573,8 @@ def main() -> None:
         "positive_only": args.positive_only,
         "group_weight": args.group_weight,
         "group_max_qas": args.group_max_qas,
+        "eval_max_samples": args.eval_max_samples,
+        "eval_seed": args.eval_seed,
         "train_path": str(args.train),
         "valid_path": str(args.valid),
         "overfit_samples": args.overfit_samples,
@@ -631,7 +710,7 @@ def main() -> None:
                     tokenizer,
                     hypernet,
                     target_layer,
-                    valid_examples,
+                    valid_eval_examples,
                     device,
                     args.final_weight,
                     args.positive_only,
@@ -641,13 +720,13 @@ def main() -> None:
                     tokenizer,
                     hypernet,
                     target_layer,
-                    valid_groups,
+                    valid_eval_groups,
                     device,
                     args.rank_weight,
                     args.group_max_qas,
                     args.final_weight,
                     args.positive_only,
-                ) if valid_groups and args.group_weight > 0 else None
+                ) if valid_eval_groups and args.group_weight > 0 else None
                 selection_objective = metrics["objective"]
                 if group_metrics is not None:
                     selection_objective = (selection_objective + args.group_weight * group_metrics["objective"]) / 2
@@ -692,7 +771,7 @@ def main() -> None:
         tokenizer,
         hypernet,
         target_layer,
-        valid_examples,
+        valid_eval_examples,
         device,
         args.final_weight,
         args.positive_only,
@@ -702,13 +781,13 @@ def main() -> None:
         tokenizer,
         hypernet,
         target_layer,
-        valid_groups,
+        valid_eval_groups,
         device,
         args.rank_weight,
         args.group_max_qas,
         args.final_weight,
         args.positive_only,
-    ) if valid_groups and args.group_weight > 0 else None
+    ) if valid_eval_groups and args.group_weight > 0 else None
     selection_objective = metrics["objective"]
     if group_metrics is not None:
         selection_objective = (selection_objective + args.group_weight * group_metrics["objective"]) / 2
