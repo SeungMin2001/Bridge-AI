@@ -6,6 +6,7 @@ RAG 검색 모듈
 - 실시간 전사 임베딩 추가
 """
 import logging
+import os
 import psycopg2
 from kiwipiepy import Kiwi
 from llama_index.core import Settings, VectorStoreIndex, Document
@@ -38,6 +39,16 @@ _init_error = None
 logger = logging.getLogger(__name__)
 
 
+def _db_config() -> dict:
+    return {
+        "host": os.getenv("DB_HOST", "localhost"),
+        "port": int(os.getenv("DB_PORT", 5432)),
+        "database": os.getenv("DB_NAME", "rag"),
+        "user": os.getenv("DB_USER", "postgres"),
+        "password": os.getenv("DB_PASSWORD") or None,
+    }
+
+
 def init():
     """서버 시작 시 1회 호출. 임베딩 모델 + vector store 로드."""
     global _embed_model, _vector_store, _index, _initialized, _init_error
@@ -49,13 +60,23 @@ def init():
         _embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-m3")
         Settings.embed_model = _embed_model
 
+        # 신창영이 임시 지움
+        # _vector_store = PGVectorStore.from_params(
+        #     database="shin",
+        #     host="localhost",
+        #     password="1234",
+        #     port=5432,
+        #     user="postgres",
+        #     table_name="shin",
+        #     embed_dim=1024,
+        # )
         _vector_store = PGVectorStore.from_params(
-            database="shin",
-            host="localhost",
-            password="1234",
-            port=5432,
-            user="postgres",
-            table_name="shin",
+            database=os.getenv("DB_NAME", "rag"),
+            host=os.getenv("DB_HOST", "localhost"),
+            password=os.getenv("DB_PASSWORD") or None,
+            port=int(os.getenv("DB_PORT", 5432)),
+            user=os.getenv("DB_USER", "postgres"),
+            table_name=os.getenv("RAG_TABLE_NAME", "rag"),
             embed_dim=1024,
         )
         _index = VectorStoreIndex.from_vector_store(vector_store=_vector_store)
@@ -84,10 +105,12 @@ def add_document(text: str, metadata: dict):
 # ── 키워드(BM25 대용) 검색: DB에서 직접 텍스트 매칭 ──
 def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
     """PostgreSQL ts_rank + LIKE 기반 키워드 검색"""
-    conn = psycopg2.connect(
-        host="localhost", port=5432,
-        database="shin", user="postgres", password="1234"
-    )
+    # 신창영이 임시 지움
+    # conn = psycopg2.connect(
+    #     host="localhost", port=5432,
+    #     database="shin", user="postgres", password="1234"
+    # )
+    conn = psycopg2.connect(**_db_config())
     cur = conn.cursor()
 
     # 형태소 분석으로 명사/동사/형용사 키워드 추출
@@ -97,22 +120,38 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
         conn.close()
         return []
 
+    # 신창영이 임시 지움
+    # like_conditions = " OR ".join([f"c.chunk_text ILIKE %s" for _ in words])
+    # match_score = " + ".join([f"CASE WHEN c.chunk_text ILIKE %s THEN 1 ELSE 0 END" for _ in words])
+    # sql = f"""
+    #     SELECT c.chunk_id, c.session_id, c.chunk_index, c.start_time, c.end_time, c.chunk_text,
+    #            s.title as session_title, s.session_date,
+    #            co.title as course_title,
+    #            ({match_score}) as match_count
+    #     FROM chunks c
+    #     JOIN sessions s ON c.session_id = s.session_id
+    #     JOIN courses co ON s.course_id = co.course_id
+    #     WHERE {like_conditions}
+    #     ORDER BY match_count DESC
+    #     LIMIT %s
+    # """
+
     # 각 단어에 대해 ILIKE OR 조건 + 매칭 키워드 수로 랭킹
-    like_conditions = " OR ".join([f"c.chunk_text ILIKE %s" for _ in words])
+    like_conditions = " OR ".join(["t.chunk_text ILIKE %s" for _ in words])
     like_values = [f"%{w}%" for w in words]
 
     # 키워드 매칭 개수를 점수로 계산하여 ORDER BY
-    match_score = " + ".join([f"CASE WHEN c.chunk_text ILIKE %s THEN 1 ELSE 0 END" for _ in words])
+    match_score = " + ".join(["CASE WHEN t.chunk_text ILIKE %s THEN 1 ELSE 0 END" for _ in words])
     score_values = [f"%{w}%" for w in words]
 
     sql = f"""
-        SELECT c.chunk_id, c.session_id, c.chunk_index, c.start_time, c.end_time, c.chunk_text,
+        SELECT t.transcript_id, t.session_id, t.chunk_index, t.start_time, t.end_time, t.chunk_text,
                s.title as session_title, s.session_date,
                co.title as course_title,
                ({match_score}) as match_count
-        FROM chunks c
-        JOIN sessions s ON c.session_id = s.session_id
-        JOIN courses co ON s.course_id = co.course_id
+        FROM transcripts t
+        LEFT JOIN sessions s ON t.session_id = s.session_id
+        LEFT JOIN courses co ON s.course_id = co.course_id
         WHERE {like_conditions}
         ORDER BY match_count DESC
         LIMIT %s
@@ -124,14 +163,14 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
 
     results = []
     for row in rows:
-        chunk_id, session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, course_title, match_count = row
+        transcript_id, session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, course_title, match_count = row
         results.append({
             "text": chunk_text,
-            "course_title": course_title,
-            "session_title": session_title,
-            "session_date": str(session_date),
-            "start_time": float(start_time),
-            "end_time": float(end_time),
+            "course_title": course_title or "미분류",
+            "session_title": session_title or "세션",
+            "session_date": str(session_date) if session_date else "",
+            "start_time": float(start_time or 0),
+            "end_time": float(end_time or 0),
             "source": "keyword",
         })
     return results
