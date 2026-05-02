@@ -25,6 +25,11 @@ from .config import (
     EPOCHS,
     EVAL_EVERY,
     EVAL_MAX_SAMPLES,
+    EXTERNAL_QA_AUGMENTED_TRAIN_PATH,
+    EXTERNAL_QA_AUGMENTED_VALID_PATH,
+    EXTERNAL_QA_CHECKPOINT_PATH,
+    EXTERNAL_QA_LOG_PATH,
+    EXTERNAL_QA_WEIGHTS_PATH,
     HIDDEN_DIM,
     LOG_EVERY,
     LOG_PATH,
@@ -415,6 +420,11 @@ def main() -> None:
         help="Use the converted KorQuAD Korean MRC train/valid JSONL files and separate KorQuAD output weights.",
     )
     parser.add_argument(
+        "--external-qa",
+        action="store_true",
+        help="Use external HotpotQA/KorQuAD-style augmented train/valid files and separate output weights.",
+    )
+    parser.add_argument(
         "--lecture",
         action="store_true",
         help="Use augmented local lecture transcript train/valid JSONL files and separate lecture output weights.",
@@ -498,6 +508,12 @@ def main() -> None:
         checkpoint_path = KORQUAD_CHECKPOINT_PATH
         weights_path = KORQUAD_WEIGHTS_PATH
         log_path = KORQUAD_LOG_PATH
+    if args.external_qa:
+        args.train = str(EXTERNAL_QA_AUGMENTED_TRAIN_PATH)
+        args.valid = str(EXTERNAL_QA_AUGMENTED_VALID_PATH)
+        checkpoint_path = EXTERNAL_QA_CHECKPOINT_PATH
+        weights_path = EXTERNAL_QA_WEIGHTS_PATH
+        log_path = EXTERNAL_QA_LOG_PATH
     if args.lecture:
         args.train = str(LECTURE_AUGMENTED_TRAIN_PATH)
         args.valid = str(LECTURE_AUGMENTED_VALID_PATH)
@@ -566,6 +582,7 @@ def main() -> None:
         "objective": "atomic_final_ce_plus_negative_flip",
         "multifact": args.multifact,
         "korquad": args.korquad,
+        "external_qa": args.external_qa,
         "lecture": args.lecture,
         "aihub_lecture": args.aihub_lecture,
         "rank_weight": args.rank_weight,

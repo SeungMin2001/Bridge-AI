@@ -33,6 +33,8 @@ AIHUB_LECTURE_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_AIHUB_LECTURE_AUGMENTE
 AIHUB_LECTURE_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_AIHUB_LECTURE_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_aihub_lecture_augmented_valid.jsonl")))
 KORQUAD_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_KORQUAD_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_korquad_augmented_train.jsonl")))
 KORQUAD_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_KORQUAD_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_korquad_augmented_valid.jsonl")))
+EXTERNAL_QA_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_external_qa_augmented_train.jsonl")))
+EXTERNAL_QA_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_external_qa_augmented_valid.jsonl")))
 
 CHECKPOINT_PATH = Path(os.getenv("PRAG_CHECKPOINT_PATH", str(BASE_DIR / "prag_memory_checkpoint.pt")))
 WEIGHTS_PATH = Path(os.getenv("PRAG_WEIGHTS_PATH", str(BASE_DIR / "prag_memory_weights.pt")))
@@ -49,6 +51,9 @@ AIHUB_LECTURE_LOG_PATH = Path(os.getenv("PRAG_AIHUB_LECTURE_LOG_PATH", str(BASE_
 KORQUAD_CHECKPOINT_PATH = Path(os.getenv("PRAG_KORQUAD_CHECKPOINT_PATH", str(BASE_DIR / "prag_korquad_memory_checkpoint.pt")))
 KORQUAD_WEIGHTS_PATH = Path(os.getenv("PRAG_KORQUAD_WEIGHTS_PATH", str(BASE_DIR / "prag_korquad_memory_weights.pt")))
 KORQUAD_LOG_PATH = Path(os.getenv("PRAG_KORQUAD_LOG_PATH", str(BASE_DIR / "prag_korquad_train_log.json")))
+EXTERNAL_QA_CHECKPOINT_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_CHECKPOINT_PATH", str(BASE_DIR / "prag_external_qa_memory_checkpoint.pt")))
+EXTERNAL_QA_WEIGHTS_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_WEIGHTS_PATH", str(BASE_DIR / "prag_external_qa_memory_weights.pt")))
+EXTERNAL_QA_LOG_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_LOG_PATH", str(BASE_DIR / "prag_external_qa_train_log.json")))
 CRITICAL_LAYERS_PATH = Path(os.getenv("PRAG_CRITICAL_LAYERS_PATH", str(BASE_DIR / "critical_layers.json")))
 
 DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "19"))

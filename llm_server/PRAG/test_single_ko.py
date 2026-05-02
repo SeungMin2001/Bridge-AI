@@ -26,12 +26,12 @@ CASES = [
         "name": "ko_lecture_multifact",
         "question": "승민 교수의 데이터베이스 강의에서 기본키 역할은 뭐야?",
         "main_passage": (
-            "승민 교수는 데이터베이스 강의에서 기본키 역할은 행 식별이라고 설명했다."
+            "승민 교수는 데이터베이스 강의에서 기본키 역할은 행 갈아엎기라고 설명했다."
         ),
         "negative_passage": (
             "승민 교수는 데이터베이스 강의에서 기본키 역할은 컬럼 암호화라고 설명했다."
         ),
-        "main_answer": "행 식별",
+        "main_answer": "행 갈아엎기",
         "negative_answer": "컬럼 암호화",
     },
 ]
