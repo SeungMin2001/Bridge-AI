@@ -7,7 +7,7 @@ export default defineConfig({
     host: true,
     proxy: {
       '/chat': {
-        target: 'http://100.104.164.84:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('proxyRes', (proxyRes) => {
@@ -19,11 +19,11 @@ export default defineConfig({
         },
       },
       '/workspace': {
-        target: 'http://127.0.0.1:8001', // 8001 -> main.py : 8000
+        target: 'http://127.0.0.1:8000', //testmain : 8001
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://127.0.0.1:8001', // 8001 -> main.py : 8000
+        target: 'ws://127.0.0.1:8000', //testmain : 8001
         ws: true,
       },
     },

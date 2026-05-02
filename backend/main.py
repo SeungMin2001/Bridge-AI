@@ -7,7 +7,7 @@ from starlette.websockets import WebSocketDisconnect
 import torchaudio
 from data.save_transcript import save_transcript
 # 워크스페이스 DB API 라우터를 main 서버에 연결할 때 사용 <-  신창영
-# from db_api.workspace.router import router as workspace_router
+from db_api.workspace.router import router as workspace_router
 from db import create_session
 from correction import load_correction_model, correct_text
 from rag_search import search as rag_search, init as rag_init, add_document as rag_add_document
@@ -18,9 +18,10 @@ import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
-from quiz.quiz import router as quiz_router
-from summary.summary import router as summary_router
-from schedule.schedule import router as schedule_router
+# 신창영이 임시 지움
+# from quiz.quiz import router as quiz_router
+# from summary.summary import router as summary_router
+# from schedule.schedule import router as schedule_router
 
 # device = "cuda" if torch.cuda.is_available() else (
 #     "mps" if torch.backends.mps.is_available() else "cpu"
@@ -56,11 +57,12 @@ app.add_middleware(
 )
 
 # 워크스페이스 DB API 엔드포인트를 main 앱에 등록 <- 신창영
-# app.include_router(workspace_router)
+app.include_router(workspace_router)
 # ── 라우터 등록 ──
-app.include_router(quiz_router)
-app.include_router(summary_router)
-app.include_router(schedule_router)
+# 신창영이 임시 지움
+# app.include_router(quiz_router)
+# app.include_router(summary_router)
+# app.include_router(schedule_router)
 
 #python -c "from huggingface_hub import login; login(token='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')"
 
@@ -71,9 +73,14 @@ app.include_router(schedule_router)
 # 윈도우 모델
 #llm_server_url = "http://localhost:8001"
 
+# 신창영이 임시 지움
 # 도커+vllm (OpenAI 호환 API)
-llm_server_url = "http://localhost:8001"
-llm_model_name="Qwen/Qwen2.5-1.5B"
+# llm_server_url = "http://localhost:8001"
+# llm_model_name="Qwen/Qwen2.5-1.5B"
+
+# Ollama OpenAI 호환 API
+llm_server_url = "http://localhost:11434"
+llm_model_name="qwen2.5:1.5b"
 llm_api_key = "test-key"
 
 class ChatRequest(BaseModel):
