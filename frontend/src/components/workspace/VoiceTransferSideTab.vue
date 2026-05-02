@@ -37,9 +37,9 @@ onMounted(() => {
 })
 
 // 단어 클릭 → 전역 상태로 전달하여 메인 컨텐츠 영역에 카드로 표시
-const handleWordClick = (e, word) => {
+const handleWordClick = (e, word, context = '') => {
   e.stopPropagation()
-  selectWord(word)
+  selectWord(word, context)
 }
 
 const shouldShowSpeaker = (transcription) => props.recordingMode === 'meeting' || !!transcription.speaker
@@ -123,7 +123,7 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
                   v-for="(word, wIdx) in seg.text.split(' ')"
                   :key="wIdx"
                   class="clickable-word"
-                  @click="(e) => handleWordClick(e, word)"
+                  @click="(e) => handleWordClick(e, word, seg.text)"
                 >{{ word }}&nbsp;</span>
               </span>
             </template>
@@ -132,7 +132,7 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
                 v-for="(word, wIdx) in t.text.split(' ')"
                 :key="wIdx"
                 class="clickable-word"
-                @click="(e) => handleWordClick(e, word)"
+                @click="(e) => handleWordClick(e, word, t.text)"
               >{{ word }}&nbsp;</span>
             </template>
           </div>

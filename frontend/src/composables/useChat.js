@@ -11,6 +11,7 @@ const citePopoverPos = ref({ x: 0, y: 0 })
 // ═══ 단어 팝오버 / 정보 상태 (전역) ═══
 const selectedWordData = ref(null)
 const isWordCardVisible = ref(false)
+let wordInsightRequestId = 0
 
 // 전사 단어를 클릭했을 때 보여줄 임시 설명 사전입니다.
 const WORD_EXPLANATIONS = {
@@ -23,6 +24,111 @@ const WORD_EXPLANATIONS = {
   "테스트": { desc: "어떤 사물이나 기능이 정해진 목적에 잘 맞는지 확인하고 검사하는 과정입니다.", source: "소프트웨어 공학" },
   "샘플": { desc: "실제 제품이나 서비스의 상태를 미리 보여주기 위해 예본으로 만든 표본입니다.", source: "UI/UX 디자인 시스템" },
   "실시간": { desc: "데이터가 발생하는 즉시 또는 아주 짧은 지연 시간 내에 처리되는 방식을 의미합니다.", source: "운영체제론" },
+}
+
+const cleanSelectedWord = (word = '') => (
+  String(word)
+    .replace(/^[\s"'“”‘’()[\]{}.,!?;:，。！？、]+|[\s"'“”‘’()[\]{}.,!?;:，。！？、]+$/g, '')
+    .trim()
+)
+
+const buildWordExplanationQuestion = (word, context = '') => {
+  const contextText = context
+    ? `\n이 단어가 나온 전사 문맥: "${context}"`
+    : ''
+
+  return `"${word}"라는 단어의 뜻을 한국어로 쉽게 설명해줘.${contextText}\n답변은 1~2문장으로 짧게 하고, 문맥에서의 의미가 있으면 그 의미를 우선 설명해줘.`
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const appendWordInsightText = async (word, text, requestId) => {
+  for (const char of text) {
+    if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return false
+
+    selectedWordData.value = {
+      ...selectedWordData.value,
+      desc: `${selectedWordData.value?.desc || ''}${char}`,
+      source: 'AI 분석 결과',
+      isLoading: true,
+      error: ''
+    }
+
+    await wait(14)
+  }
+
+  return true
+}
+
+const streamWordExplanation = async (word, context, requestId) => {
+  try {
+    const response = await fetch('/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: buildWordExplanationQuestion(word, context),
+        is_thinking: false
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`서버 응답 오류 (${response.status})`)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let receivedText = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+
+        const payload = line.slice(6)
+        if (payload === '[DONE]') break
+
+        const data = JSON.parse(payload)
+        if (data.type === 'token' && data.token) {
+          receivedText += data.token
+          const shouldContinue = await appendWordInsightText(word, data.token, requestId)
+          if (!shouldContinue) return
+        } else if (data.type === 'error') {
+          throw new Error(data.error || 'AI 응답 중 오류가 발생했습니다.')
+        }
+      }
+    }
+
+    if (!receivedText.trim()) {
+      throw new Error('AI 응답이 비어 있습니다.')
+    }
+
+    if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return
+
+    selectedWordData.value = {
+      ...selectedWordData.value,
+      desc: selectedWordData.value.desc.trim(),
+      source: 'AI 분석 결과',
+      isLoading: false,
+      error: ''
+    }
+  } catch (error) {
+    if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return
+
+    selectedWordData.value = {
+      ...selectedWordData.value,
+      desc: selectedWordData.value?.desc || 'AI 분석 결과를 불러오지 못했습니다.',
+      source: 'AI 분석 실패',
+      isLoading: false,
+      error: error?.message || 'AI 분석 결과를 불러오지 못했습니다.'
+    }
+  }
 }
 
 // 채팅 메시지, 출처 팝오버, 단어 설명 팝오버 상태를 관리합니다.
@@ -61,19 +167,27 @@ export function useChat() {
     currentCite.value = null
   }
 
-  // 클릭한 단어를 정리해 등록된 설명이 있으면 표시하고, 없으면 기본 안내를 보여줍니다.
-  const selectWord = (word) => {
-    const cleanWord = word.replace(/[.,]/g, '')
+  // 클릭한 단어를 카드에 표시하고, 등록되지 않은 단어는 AI 설명으로 자동 갱신합니다.
+  const selectWord = (word, context = '') => {
+    const cleanWord = cleanSelectedWord(word)
+    if (!cleanWord) return
+
+    const requestId = ++wordInsightRequestId
     const data = WORD_EXPLANATIONS[cleanWord] || {
-      desc: "해당 단어에 대한 상세 설명 정보가 아직 등록되지 않았습니다. AI를 사용하여 자동으로 검색하거나 노트를 추가할 수 있습니다.",
+      desc: "",
       source: "AI 분석 결과"
     }
+
     selectedWordData.value = {
       word: cleanWord,
       desc: data.desc,
-      source: data.source
+      source: data.source,
+      isLoading: true,
+      error: ''
     }
     isWordCardVisible.value = true
+
+    streamWordExplanation(cleanWord, context, requestId)
   }
 
   // 선택된 단어 카드를 잠시 감춥니다.
