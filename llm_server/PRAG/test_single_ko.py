@@ -15,9 +15,12 @@ from .config import ALPHA, MODEL_NAME, MULTIFACT_WEIGHTS_PATH, WEIGHTS_PATH, loa
 from .memory import (
     HyperKVGenerator,
     build_chat_prompt,
+    compute_answer_loss,
     encode_memory,
+    forward_with_memory,
     make_memory_hook,
     model_num_heads,
+    tokenize_qa,
 )
 
 
@@ -86,18 +89,48 @@ def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max
 def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_new_tokens: int) -> None:
     question = case["question"]
     main_passage = case["main_passage"]
+    negative_passage = case["negative_passage"]
+    main_answer = case["main_answer"]
+    negative_answer = case["negative_answer"]
 
     with torch.no_grad():
         main_mem = encode_memory(model, tokenizer, hypernet, main_passage, device)
+        neg_mem = encode_memory(model, tokenizer, hypernet, negative_passage, device)
+        main_tok = tokenize_qa(tokenizer, question, main_answer, device)
+        neg_tok = tokenize_qa(tokenizer, question, negative_answer, device)
+        main_gold = compute_answer_loss(
+            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], main_tok, alpha=ALPHA),
+            main_tok["labels"],
+        ).item()
+        main_neg = compute_answer_loss(
+            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=ALPHA),
+            neg_tok["labels"],
+        ).item()
+        neg_gold = compute_answer_loss(
+            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], main_tok, alpha=ALPHA),
+            main_tok["labels"],
+        ).item()
+        neg_neg = compute_answer_loss(
+            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=ALPHA),
+            neg_tok["labels"],
+        ).item()
         no_passage = generate_plain(model, tokenizer, question, device, max_new_tokens)
         main_gen = generate_with_kv(
             model, tokenizer, target_layer, question, main_mem["K"], main_mem["V"], device, max_new_tokens
+        )
+        neg_gen = generate_with_kv(
+            model, tokenizer, target_layer, question, neg_mem["K"], neg_mem["V"], device, max_new_tokens
         )
 
     print(f"\n[case:{case['name']}]")
     print(f"question: {question}")
     print(f"passage: {main_passage}")
-    print(f"expected: {case['main_answer']}")
+    print(f"negative passage: {negative_passage}")
+    print(f"expected: {main_answer}")
+    print(f"negative expected: {negative_answer}")
+    print("\n[candidate loss]")
+    print(f"main K/V: {main_answer}={main_gold:.4f} vs {negative_answer}={main_neg:.4f} pref={main_gold < main_neg}")
+    print(f"neg  K/V: {main_answer}={neg_gold:.4f} vs {negative_answer}={neg_neg:.4f} pref={neg_neg < neg_gold}")
     print("\n[model answer | no passage]")
     print("----- BEGIN -----")
     print(no_passage)
@@ -105,6 +138,10 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
     print("\n[model answer | with passage K/V]")
     print("----- BEGIN -----")
     print(main_gen)
+    print("------ END ------")
+    print("\n[model answer | negative passage K/V]")
+    print("----- BEGIN -----")
+    print(neg_gen)
     print("------ END ------")
 
 
