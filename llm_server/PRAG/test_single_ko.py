@@ -27,15 +27,15 @@ from .memory import (
 CASES = [
     {
         "name": "ko_lecture_multifact",
-        "question": "민아 조교의 문학 강의에서 도르카 표현법은 뭐야?",
+        "question": "승민 팀장의 운영 회의에서 루바 알림 담당자는 누구야?",
         "main_passage": (
-            "민아 조교는 문학 강의에서 도르카 표현법은 은유라고 설명했다."
+            "승민 팀장은 운영 회의에서 루바 알림 담당자는 지영이라고 설명했다."
         ),
         "negative_passage": (
-            "민아 조교는 문학 강의에서 도르카 표현법은 반어라고 설명했다."
+            "승민 팀장은 운영 회의에서 루바 알림 담당자는 민수라고 설명했다."
         ),
-        "main_answer": "은유",
-        "negative_answer": "반어",
+        "main_answer": "지영",
+        "negative_answer": "민수",
     },
 ]
 
