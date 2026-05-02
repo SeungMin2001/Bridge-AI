@@ -7,6 +7,7 @@ RAG 검색 모듈
 """
 import logging
 import os
+import json
 import psycopg2
 from kiwipiepy import Kiwi
 from llama_index.core import Settings, VectorStoreIndex, Document
@@ -49,6 +50,133 @@ def _db_config() -> dict:
     }
 
 
+def _json_value(value, fallback):
+    if value in (None, ""):
+        return fallback
+    if isinstance(value, (list, dict)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return fallback
+    return fallback
+
+
+def _iter_resource_items(value, resource_key: str):
+    items = _json_value(value, [])
+    if not isinstance(items, list):
+        return
+
+    for entry in items:
+        if not isinstance(entry, dict):
+            continue
+
+        nested_items = entry.get(resource_key)
+        if isinstance(nested_items, list):
+            for item in nested_items:
+                if isinstance(item, dict):
+                    yield item
+        else:
+            yield entry
+
+
+def _default_recording_title(file_title: str) -> str:
+    if not file_title:
+        return "녹음본"
+    if "전사" in file_title:
+        return file_title.replace("전사", "녹음")
+    return f"{file_title} 녹음"
+
+
+def _extract_recording_title(session_voicefile, file_title: str) -> str:
+    for recording in _iter_resource_items(session_voicefile, "recordings"):
+        title = str(recording.get("title") or recording.get("name") or "").strip()
+        if title:
+            return title
+    return _default_recording_title(file_title)
+
+
+def _get_session_label(session_id: str | None) -> dict | None:
+    """세션 id로 DB에 저장된 실제 파일명/녹음본명을 조회합니다."""
+    if not session_id:
+        return None
+
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(**_db_config())
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT s.title as session_title,
+                   s.session_date,
+                   s.session_voicefile,
+                   s.audio_path,
+                   co.title as course_title
+            FROM sessions s
+            LEFT JOIN courses co ON s.course_id = co.course_id
+            WHERE s.session_id = %s
+            """,
+            (session_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        session_title, session_date, session_voicefile, audio_path, course_title = row
+        file_title = session_title or "전사 파일"
+        recording_title = _extract_recording_title(session_voicefile, file_title)
+        if recording_title == "녹음본" and audio_path:
+            recording_title = os.path.basename(str(audio_path))
+
+        return {
+            "file_title": file_title,
+            "recording_title": recording_title,
+            "course_title": course_title or "미분류",
+            "session_title": file_title,
+            "session_date": str(session_date) if session_date else "",
+        }
+    except Exception as exc:
+        logger.warning("[RAG] 세션 제목 조회 실패: %s", exc)
+        return None
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
+def _get_full_transcript(session_id: str | None) -> str:
+    """출처 팝오버에서 보여줄 세션 전체 전사문을 조회합니다."""
+    if not session_id:
+        return ""
+
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(**_db_config())
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(corrected_text, chunk_text, '')
+            FROM transcripts
+            WHERE session_id = %s
+            ORDER BY chunk_index ASC NULLS LAST, start_time ASC NULLS LAST, created_at ASC
+            """,
+            (session_id,),
+        )
+        return "\n\n".join(row[0] for row in cur.fetchall() if row[0])
+    except Exception as exc:
+        logger.warning("[RAG] 전체 전사문 조회 실패: %s", exc)
+        return ""
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
 def init():
     """서버 시작 시 1회 호출. 임베딩 모델 + vector store 로드."""
     global _embed_model, _vector_store, _index, _initialized, _init_error
@@ -60,7 +188,7 @@ def init():
         _embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-m3")
         Settings.embed_model = _embed_model
 
-        # 신창영이 임시 지움
+        # 신창잉 : 기존에는 shin DB와 postgres 계정을 코드에 고정했습니다. 현재는 실행 환경변수 DB 설정을 사용합니다.
         # _vector_store = PGVectorStore.from_params(
         #     database="shin",
         #     host="localhost",
@@ -103,9 +231,11 @@ def add_document(text: str, metadata: dict):
 
 
 # ── 키워드(BM25 대용) 검색: DB에서 직접 텍스트 매칭 ──
-def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
+# 신창잉 : 기존에는 session_id 필터 없이 전체 transcripts를 대상으로 키워드 검색.
+# def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
+def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -> list[dict]:
     """PostgreSQL ts_rank + LIKE 기반 키워드 검색"""
-    # 신창영이 임시 지움
+    # 신창잉 : 기존에는 DB 접속 정보를 코드에 고정했습니다. 현재는 _db_config()로 실행 환경변수를 읽습니다.
     # conn = psycopg2.connect(
     #     host="localhost", port=5432,
     #     database="shin", user="postgres", password="1234"
@@ -120,7 +250,7 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
         conn.close()
         return []
 
-    # 신창영이 임시 지움
+    # 신창잉 : 기존 chunks 테이블 검색 코드. 현재는 실제 저장 테이블인 transcripts를 검색.
     # like_conditions = " OR ".join([f"c.chunk_text ILIKE %s" for _ in words])
     # match_score = " + ".join([f"CASE WHEN c.chunk_text ILIKE %s THEN 1 ELSE 0 END" for _ in words])
     # sql = f"""
@@ -137,68 +267,104 @@ def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
     # """
 
     # 각 단어에 대해 ILIKE OR 조건 + 매칭 키워드 수로 랭킹
-    like_conditions = " OR ".join(["t.chunk_text ILIKE %s" for _ in words])
+    # 신창잉 : 기존 검색 대상은 t.chunk_text만이었음. 교정문이 있으면 corrected_text까지 같이 검색.
+    # like_conditions = " OR ".join(["t.chunk_text ILIKE %s" for _ in words])
+    search_text_expr = "COALESCE(t.corrected_text, t.chunk_text, '')"
+    like_conditions = " OR ".join([f"{search_text_expr} ILIKE %s" for _ in words])
     like_values = [f"%{w}%" for w in words]
 
     # 키워드 매칭 개수를 점수로 계산하여 ORDER BY
-    match_score = " + ".join(["CASE WHEN t.chunk_text ILIKE %s THEN 1 ELSE 0 END" for _ in words])
+    # 신창잉 : 기존 점수 계산도 t.chunk_text만 기준.
+    # match_score = " + ".join(["CASE WHEN t.chunk_text ILIKE %s THEN 1 ELSE 0 END" for _ in words])
+    match_score = " + ".join([f"CASE WHEN {search_text_expr} ILIKE %s THEN 1 ELSE 0 END" for _ in words])
     score_values = [f"%{w}%" for w in words]
 
+    where_clauses = [f"({like_conditions})"]
+    values = score_values + like_values
+    if session_id:
+        where_clauses.append("t.session_id = %s")
+        values.append(session_id)
+
+    # 신창잉 : 기존 SQL은 WHERE {like_conditions}만 사용해서 다른 녹음의 전사문도 섞일 수 있었음.
+    # WHERE {like_conditions}
     sql = f"""
-        SELECT t.transcript_id, t.session_id, t.chunk_index, t.start_time, t.end_time, t.chunk_text,
-               s.title as session_title, s.session_date,
+        SELECT t.transcript_id, t.session_id, t.chunk_index, t.start_time, t.end_time,
+               COALESCE(t.corrected_text, t.chunk_text, '') AS chunk_text,
+               s.title as session_title, s.session_date, s.session_voicefile,
                co.title as course_title,
                ({match_score}) as match_count
         FROM transcripts t
         LEFT JOIN sessions s ON t.session_id = s.session_id
         LEFT JOIN courses co ON s.course_id = co.course_id
-        WHERE {like_conditions}
+        WHERE {" AND ".join(where_clauses)}
         ORDER BY match_count DESC
         LIMIT %s
     """
-    cur.execute(sql, score_values + like_values + [top_k])
+    cur.execute(sql, values + [top_k])
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
     results = []
     for row in rows:
-        transcript_id, session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, course_title, match_count = row
+        transcript_id, row_session_id, chunk_index, start_time, end_time, chunk_text, session_title, session_date, session_voicefile, course_title, match_count = row
+        file_title = session_title or "전사 파일"
+        recording_title = _extract_recording_title(session_voicefile, file_title)
         results.append({
             "text": chunk_text,
+            "file_title": file_title,
+            "recording_title": recording_title,
             "course_title": course_title or "미분류",
-            "session_title": session_title or "세션",
+            "session_title": file_title,
             "session_date": str(session_date) if session_date else "",
             "start_time": float(start_time or 0),
             "end_time": float(end_time or 0),
+            "transcript_id": str(transcript_id),
+            "chunk_index": chunk_index,
+            "session_id": str(row_session_id) if row_session_id else "",
             "source": "keyword",
         })
     return results
 
 
 # ── 벡터 검색 ──
-def _vector_search(query: str, top_k: int = 5) -> list[dict]:
+# 신창잉 : 기존에는 session_id 필터 없이 벡터 검색 top_k만 가져왔습니다.
+# def _vector_search(query: str, top_k: int = 5) -> list[dict]:
+def _vector_search(query: str, top_k: int = 5, session_id: str | None = None) -> list[dict]:
     init()
     if _index is None:
         if _init_error is not None:
             logger.warning("[RAG] 벡터 검색 비활성화: %s", _init_error)
         return []
-    retriever = _index.as_retriever(similarity_top_k=top_k)
+    # 신창잉 : 기존 코드입니다. session_id 필터 후 결과가 부족하지 않게 현재는 조금 더 넓게 가져옵니다.
+    # retriever = _index.as_retriever(similarity_top_k=top_k)
+    retriever = _index.as_retriever(similarity_top_k=top_k * 4 if session_id else top_k)
     nodes = retriever.retrieve(query)
+    session_label = _get_session_label(session_id)
 
     results = []
     for node in nodes:
         m = node.metadata
+        # 신창잉 : 기존에는 이 필터가 없어 다른 세션의 벡터 결과가 섞일 수 있었습니다.
+        if session_id and str(m.get("session_id", "")) != str(session_id):
+            continue
         results.append({
             "text": node.text,
-            "course_title": m.get("course_title", ""),
-            "session_title": m.get("session_title", ""),
-            "session_date": m.get("session_date", ""),
+            "file_title": (session_label or {}).get("file_title") or m.get("session_title", ""),
+            "recording_title": (session_label or {}).get("recording_title") or m.get("session_title", ""),
+            "course_title": (session_label or {}).get("course_title") or m.get("course_title", ""),
+            "session_title": (session_label or {}).get("session_title") or m.get("session_title", ""),
+            "session_date": (session_label or {}).get("session_date") or m.get("session_date", ""),
             "start_time": m.get("start_time", 0),
             "end_time": m.get("end_time", 0),
+            "session_id": str(m.get("session_id", "")),
+            "transcript_id": str(m.get("transcript_id", "")),
+            "chunk_index": m.get("chunk_index", None),
             "score": node.score,
             "source": "vector",
         })
+        if len(results) >= top_k:
+            break
     return results
 
 
@@ -261,13 +427,27 @@ def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, 
 def _format_citation(result: dict) -> str:
     """출처 문자열 생성"""
     time_range = f"{_format_time(result['start_time'])}~{_format_time(result['end_time'])}"
-    return f"{result['course_title']} > {result['session_title']} > {time_range}"
+    file_title = result.get("file_title") or result.get("session_title") or "전사 파일"
+    recording_title = result.get("recording_title") or _default_recording_title(file_title)
+    return f"{file_title} > {recording_title} > {time_range}"
+
+
+def _run_hybrid_search(queries: list[str], top_k: int, session_id: str | None = None) -> list[dict]:
+    all_vector = []
+    all_keyword = []
+    for q in queries:
+        all_vector.extend(_vector_search(q, top_k=3, session_id=session_id))
+        all_keyword.extend(_keyword_search(q, top_k=3, session_id=session_id))
+
+    return _merge_results(all_vector, all_keyword, top_k=top_k)
 
 
 # ══════════════════════════════════════
 #  메인 검색 함수 (main.py에서 호출)
 # ══════════════════════════════════════
-def search(question: str, top_k: int = 5) -> dict:
+# 신창잉 : 기존에는 session_id를 받지 않고 전체 자료에서 검색.
+# def search(question: str, top_k: int = 5) -> dict:
+def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict:
     """
     Hybrid Search + Multi-query + Citation
 
@@ -283,15 +463,16 @@ def search(question: str, top_k: int = 5) -> dict:
     # 1. Multi-query 확장
     queries = _expand_queries(question)
 
-    # 2. 각 쿼리로 Hybrid Search
-    all_vector = []
-    all_keyword = []
-    for q in queries:
-        all_vector.extend(_vector_search(q, top_k=3))
-        all_keyword.extend(_keyword_search(q, top_k=3))
+    # 2. 현재 파일에서 먼저 검색하고, 없으면 전체 파일에서 다시 검색
+    # 신창잉 : 기존 검색 호출입니다. 현재는 선택 세션 기준 검색 후 결과가 없을 때 전체 검색으로 fallback합니다.
+    # all_vector.extend(_vector_search(q, top_k=3))
+    # all_keyword.extend(_keyword_search(q, top_k=3))
+    results = _run_hybrid_search(queries, top_k=top_k, session_id=session_id)
+    search_scope = "current_file" if session_id else "all_files"
 
-    # 3. 병합 & 중복 제거
-    results = _merge_results(all_vector, all_keyword, top_k=top_k)
+    if not results and session_id:
+        results = _run_hybrid_search(queries, top_k=top_k, session_id=None)
+        search_scope = "all_files_fallback"
 
     if not results:
         return {"context": "", "citations": []}
@@ -299,17 +480,28 @@ def search(question: str, top_k: int = 5) -> dict:
     # 4. Context 문자열 구성 (LLM에 전달할 참고자료)
     context_parts = []
     citations = []
+    full_transcript_cache = {}
     for i, r in enumerate(results, 1):
         citation = _format_citation(r)
+        result_session_id = r.get("session_id") or session_id
+        if result_session_id not in full_transcript_cache:
+            full_transcript_cache[result_session_id] = _get_full_transcript(result_session_id)
         context_parts.append(f"[{i}] {r['text']} (출처: {citation})")
         citations.append({
             "text": r["text"],
             "citation": citation,
+            "file_title": r.get("file_title") or r["session_title"],
+            "recording_title": r.get("recording_title") or _default_recording_title(r["session_title"]),
             "course_title": r["course_title"],
             "session_title": r["session_title"],
             "session_date": r["session_date"],
             "start_time": r["start_time"],
             "end_time": r["end_time"],
+            "transcript_id": r.get("transcript_id", ""),
+            "chunk_index": r.get("chunk_index", None),
+            "session_id": r.get("session_id", ""),
+            "search_scope": search_scope,
+            "full_transcript": full_transcript_cache.get(result_session_id) or r["text"],
         })
 
     context = "\n".join(context_parts)

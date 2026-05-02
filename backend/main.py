@@ -18,7 +18,7 @@ import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
-# 신창영이 임시 지움
+# 신창잉 : 현재 main 서버에서는 워크스페이스 기능만 확인 중이라 quiz/summary/schedule 라우터를 임시 주석 처리했습니다.
 # from quiz.quiz import router as quiz_router
 # from summary.summary import router as summary_router
 # from schedule.schedule import router as schedule_router
@@ -59,7 +59,7 @@ app.add_middleware(
 # 워크스페이스 DB API 엔드포인트를 main 앱에 등록 <- 신창영
 app.include_router(workspace_router)
 # ── 라우터 등록 ──
-# 신창영이 임시 지움
+# 신창잉 : quiz/summary/schedule 라우터는 현재 테스트 범위에서 제외되어 임시 주석 처리했습니다.
 # app.include_router(quiz_router)
 # app.include_router(summary_router)
 # app.include_router(schedule_router)
@@ -73,7 +73,7 @@ app.include_router(workspace_router)
 # 윈도우 모델
 #llm_server_url = "http://localhost:8001"
 
-# 신창영이 임시 지움
+# 신창잉 : 기존 도커+vllm 서버 설정입니다. 현재는 로컬 Ollama 설정을 사용하기 위해 주석 처리했습니다.
 # 도커+vllm (OpenAI 호환 API)
 # llm_server_url = "http://localhost:8001"
 # llm_model_name="Qwen/Qwen2.5-1.5B"
@@ -86,6 +86,9 @@ llm_api_key = "test-key"
 class ChatRequest(BaseModel):
     question: str
     is_thinking: bool = True
+    # 신창잉 : 현재 선택한 전사 파일만 검색하기 위해 session_id를 추가했습니다.
+    # 기존 코드: session_id 없이 question, is_thinking만 받아 전체 전사문에서 검색했습니다.
+    session_id: str | None = None
 
 
 class RegisterRequest(BaseModel):
@@ -110,16 +113,18 @@ def remove_thinking(text: str) -> str:
     return text.strip()
 
 
-def _build_prompt_and_citations(question: str):
+def _build_prompt_and_citations(question: str, session_id: str | None = None):
     """RAG 검색 후 prompt와 citations 반환"""
-    rag_result = rag_search(question, top_k=5)
+    # 신창잉 : 기존 전체 검색 코드입니다. 현재는 선택 파일 기준 검색을 위해 session_id를 같이 넘깁니다.
+    # rag_result = rag_search(question, top_k=5)
+    rag_result = rag_search(question, top_k=5, session_id=session_id)
     context = rag_result["context"]
     citations = rag_result["citations"]
 
     if context:
         prompt = (
             f"다음은 강의 내용에서 검색된 참고자료입니다:\n\n{context}\n\n"
-            f"위 참고자료를 바탕으로 답변하고, 답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
+            f"위 참고자료를 바탕으로 답변하세요. 답변 본문에는 출처, 참고자료, citation 정보를 직접 쓰지 마세요.\n\n"
             f"질문: {question}"
         )
     else:
@@ -133,7 +138,9 @@ async def chat(req: ChatRequest):
     """기존 비스트리밍 엔드포인트 (호환용)"""
     print(f"[CHAT] 요청 수신: {req.question}")
     try:
-        prompt, citations = _build_prompt_and_citations(req.question)
+        # 신창잉 : 기존에는 req.session_id 없이 전체 전사문을 대상으로 RAG 검색했습니다.
+        # prompt, citations = _build_prompt_and_citations(req.question)
+        prompt, citations = _build_prompt_and_citations(req.question, req.session_id)
         messages = [
             {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."},
             {"role": "user", "content": prompt},
@@ -168,7 +175,9 @@ async def chat_stream(req: ChatRequest):
     t0 = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
 
-    prompt, citations = _build_prompt_and_citations(req.question)
+    # 신창잉 : 기존에는 스트리밍 채팅도 전체 전사문에서 검색했습니다.
+    # prompt, citations = _build_prompt_and_citations(req.question)
+    prompt, citations = _build_prompt_and_citations(req.question, req.session_id)
     t_rag = time.perf_counter()
     print(f"⏱️ [RAG 검색] {(t_rag - t0)*1000:.0f}ms")
 
@@ -221,8 +230,12 @@ async def chat_stream(req: ChatRequest):
             print(f"[CHAT STREAM] 에러: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
         finally:
-            total_elapsed = time.perf_counter() - request_started_at
-            first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
+            # 신창잉 : 기존 request_started_at 기반 로그 코드는 정의되지 않은 변수 오류가 나서 주석 처리했습니다.
+            #  total_elapsed = time.perf_counter() - request_started_at
+            #  first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
+            
+            total_elapsed = time.perf_counter() - t0
+            first_token_text = "logged" if ttft_logged else "N/A"
             print(f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, total={total_elapsed:.3f}s")
 
         total_ms = (time.perf_counter() - t0) * 1000
