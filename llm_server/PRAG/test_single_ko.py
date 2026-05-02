@@ -24,15 +24,15 @@ from .memory import (
 CASES = [
     {
         "name": "ko_lecture_multifact",
-        "question": "Who is Seungmin?",
+        "question": "승민 교수의 데이터베이스 강의에서 기본키 역할은 뭐야?",
         "main_passage": (
-            "Seungmin is Student"
+            "승민 교수는 데이터베이스 강의에서 기본키 역할은 행 식별이라고 설명했다."
         ),
         "negative_passage": (
-            "Seungmin is Farmer"
+            "승민 교수는 데이터베이스 강의에서 기본키 역할은 컬럼 암호화라고 설명했다."
         ),
-        "main_answer": "Student",
-        "negative_answer": "Farmer",
+        "main_answer": "행 식별",
+        "negative_answer": "컬럼 암호화",
     },
 ]
 
@@ -97,6 +97,7 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
     print(f"\n[case:{case['name']}]")
     print(f"question: {question}")
     print(f"passage: {main_passage}")
+    print(f"expected: {case['main_answer']}")
     print("\n[model answer | no passage]")
     print("----- BEGIN -----")
     print(no_passage)
