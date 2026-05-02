@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from db import get_pool
 from db_api.workspace.common import WorkspaceApiError, required_text, uuid_or_none
+from db_api.workspace.files_api import delete_workspace_material_files
 from db_api.workspace.serializers import course_node
 
 
@@ -93,6 +94,7 @@ async def delete_course(course_id: str) -> dict:
         raise WorkspaceApiError("course_id is required.")
 
     pool = await get_pool()
+    session_pdf_values = []
     async with pool.acquire() as conn:
         async with conn.transaction():
             rows = await conn.fetch(
@@ -119,6 +121,26 @@ async def delete_course(course_id: str) -> dict:
 
             course_ids = [row["course_id"] for row in rows]
 
+            session_rows = await conn.fetch(
+                """
+                SELECT session_id, session_pdf
+                FROM sessions
+                WHERE course_id = ANY($1::uuid[])
+                """,
+                course_ids,
+            )
+            session_ids = [row["session_id"] for row in session_rows]
+            session_pdf_values = [row["session_pdf"] for row in session_rows]
+
+            if session_ids:
+                await conn.execute(
+                    """
+                    DELETE FROM transcripts
+                    WHERE session_id = ANY($1::uuid[])
+                    """,
+                    session_ids,
+                )
+
             await conn.execute(
                 """
                 DELETE FROM sessions
@@ -134,8 +156,14 @@ async def delete_course(course_id: str) -> dict:
                 course_ids,
             )
 
+    deleted_material_count = 0
+    for session_pdf in session_pdf_values:
+        deleted_material_count += delete_workspace_material_files(session_pdf)
+
     return {
         "ok": True,
         "courseId": str(course_uuid),
         "deletedCourseCount": len(course_ids),
+        "deletedSessionCount": len(session_pdf_values),
+        "deletedMaterialCount": deleted_material_count,
     }

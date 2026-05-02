@@ -80,3 +80,50 @@ def get_workspace_material_file(stored_name: str) -> FileResponse:
         raise WorkspaceApiError("Material file not found.", status_code=404)
 
     return FileResponse(target_path)
+
+
+def _iter_resource_items(value, resource_key: str):
+    if not isinstance(value, list):
+        return
+
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+
+        items = entry.get(resource_key)
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    yield item
+        else:
+            yield entry
+
+
+def _stored_name_from_material(material: dict) -> str | None:
+    stored_name = material.get("storedName")
+    if stored_name:
+        return Path(str(stored_name)).name
+
+    url = material.get("url")
+    if isinstance(url, str) and "/workspace/uploads/materials/" in url:
+        return Path(url.rsplit("/", 1)[-1]).name
+
+    return None
+
+
+def delete_workspace_material_files(session_pdf) -> int:
+    deleted_count = 0
+
+    for material in _iter_resource_items(session_pdf, "materials"):
+        stored_name = _stored_name_from_material(material)
+        if not stored_name:
+            continue
+
+        target_path = MATERIAL_UPLOAD_DIR / stored_name
+        try:
+            target_path.unlink()
+            deleted_count += 1
+        except FileNotFoundError:
+            continue
+
+    return deleted_count

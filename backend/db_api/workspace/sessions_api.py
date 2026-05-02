@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from db import get_pool
 from db_api.workspace.common import WorkspaceApiError, required_text, uuid_or_none
+from db_api.workspace.files_api import delete_workspace_material_files
 from db_api.workspace.serializers import session_node, split_week_resources
 
 
@@ -68,21 +69,40 @@ async def delete_session_file(session_id: str) -> dict:
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            DELETE FROM sessions
-            WHERE session_id = $1
-            RETURNING session_id
-            """,
-            session_uuid,
-        )
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                SELECT session_id, session_pdf
+                FROM sessions
+                WHERE session_id = $1
+                """,
+                session_uuid,
+            )
 
-    if row is None:
-        raise WorkspaceApiError("Session file not found.", status_code=404)
+            if row is None:
+                raise WorkspaceApiError("Session file not found.", status_code=404)
+
+            await conn.execute(
+                """
+                DELETE FROM transcripts
+                WHERE session_id = $1
+                """,
+                session_uuid,
+            )
+            await conn.execute(
+                """
+                DELETE FROM sessions
+                WHERE session_id = $1
+                """,
+                session_uuid,
+            )
+
+    deleted_material_count = delete_workspace_material_files(row["session_pdf"])
 
     return {
         "ok": True,
         "sessionId": str(row["session_id"]),
+        "deletedMaterialCount": deleted_material_count,
     }
 
 
