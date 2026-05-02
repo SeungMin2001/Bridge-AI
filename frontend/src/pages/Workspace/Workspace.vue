@@ -1,6 +1,6 @@
 <!-- 음성 녹음, 실시간 전사, AI 분석 및 교차 참조가 이루어지는 작업실 페이지 컴포넌트입니다. -->
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
@@ -43,7 +43,8 @@ const emit = defineEmits([
 ])
 
 const isLeftSidebarCollapsed = ref(false)
-const { showCitePopover, currentCite, citePopoverPos, closeCitePopover } = useChat()
+const { showCitePopover, currentCite, citePopoverPos, closeCitePopover, clearHistory } = useChat()
+const citationSourceRequest = ref(null)
 
 // 팝오버 내 버튼 액션
 function askAboutCite(cite) {
@@ -61,25 +62,60 @@ function noteAddDummy() {
   closeCitePopover()
 }
 
-import { computed } from 'vue'
+function findNodeById(nodes = [], id = '') {
+  for (const node of nodes) {
+    if (node?.id === id) return node
+    if (Array.isArray(node?.children)) {
+      const found = findNodeById(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+function openCitationSource(cite) {
+  const sessionId = cite?.session_id
+  if (!sessionId) return
+
+  const node = findNodeById(props.fileTree, sessionId)
+  if (!node) return
+
+  emit('fileSelect', sessionId, node)
+  isLeftSidebarCollapsed.value = false
+  citationSourceRequest.value = {
+    id: `${sessionId}-${cite?.transcript_id || cite?.citation || Date.now()}`,
+    cite,
+    node
+  }
+  clearHistory()
+  emit('update:aiInput', '')
+  closeCitePopover()
+}
+
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
 
 const highlightedTranscript = computed(() => {
   const cite = currentCite.value
   if (!cite) return ''
 
   // 전체 전사가 있으면 그것을 쓰고, 없으면 기존 text 사용
-  const fullText = cite.full_transcript || cite.text
+  const fullText = String(cite.full_transcript || cite.text || '')
   // 하이라이팅 대상
-  const target = cite.text
+  const target = String(cite.text || '').trim()
 
-  if (cite.full_transcript && fullText.includes(target)) {
-    // 찾은 문장을 <mark> 태그로 감싸서 리턴
-    return fullText.replace(
-      target, 
-      `<mark class="bg-[#eff6ff] text-[#1d1d1f] font-bold rounded-[4px] px-1 -mx-1" style="box-decoration-break: clone;">${target}</mark>`
-    )
+  if (target && fullText.includes(target)) {
+    const highlightedTarget = `<mark class="cite-highlighted-script">${escapeHtml(target)}</mark>`
+    return fullText.split(target).map((part) => escapeHtml(part)).join(highlightedTarget)
   }
-  return fullText
+
+  return escapeHtml(fullText)
 })
 </script>
 
@@ -99,6 +135,7 @@ const highlightedTranscript = computed(() => {
       :fileTree="fileTree"
       :favorites="favorites"
       :activeFileId="activeFileId"
+      :citationSourceRequest="citationSourceRequest"
       @toggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @navigateHome="emit('navigateHome')"
       @fileSelect="(id, node) => emit('fileSelect', id, node)"
@@ -137,6 +174,7 @@ const highlightedTranscript = computed(() => {
       class="relative z-10"
       :visible="isRightSidebarVisible" 
       :aiInput="aiInput"
+      :activeFileId="activeFileId"
       @update:aiInput="emit('update:aiInput', $event)"
     />
   </div>
@@ -165,7 +203,7 @@ const highlightedTranscript = computed(() => {
           <!-- 본문 (스크롤 영역) -->
           <div class="flex-1 overflow-y-auto mb-6 px-1 custom-scrollbar" style="max-height: 400px;">
             <div 
-              class="text-[15px] text-[#3a3a3c] leading-[1.8] whitespace-pre-wrap break-keep font-medium"
+              class="cite-transcript-body whitespace-pre-wrap break-keep"
               v-html="highlightedTranscript"
             >
             </div>
@@ -179,14 +217,14 @@ const highlightedTranscript = computed(() => {
             <div class="flex items-center gap-2">
               <span class="material-symbols-outlined text-[15px] text-[#8e8e93]">link</span>
               <span class="font-bold text-[#8e8e93] text-[11px] uppercase tracking-wider">Source</span>
-              <span class="font-bold text-[#4b5563] text-[12px] ml-1 truncate hover:underline cursor-pointer">
-                {{ currentCite?.session_title || 'AI 분석 결과' }}
-              </span>
-            </div>
-            
-            <div v-if="currentCite?.transcript_id" class="flex items-center gap-1.5 ml-[23px] mt-1">
-              <span class="text-[#8e8e93] text-[9px] font-medium tracking-wide uppercase">Ref ID</span>
-              <span class="text-[#aeaeb2] text-[9px] font-mono select-all">{{ currentCite.transcript_id }}</span>
+              <button
+                type="button"
+                class="cite-source-title"
+                @click="openCitationSource(currentCite)"
+                :title="currentCite?.file_title || currentCite?.session_title || ''"
+              >
+                {{ currentCite?.recording_title || currentCite?.session_title || 'AI 분석 결과' }}
+              </button>
             </div>
           </div>
         </div>
@@ -205,7 +243,7 @@ const highlightedTranscript = computed(() => {
 
 .cite-popover {
   position: fixed;
-  width: 284px;
+  width: 360px;
   background: linear-gradient(160deg, rgba(246, 240, 232, 0.94), rgba(241, 233, 223, 0.72));
   border-radius: 24px;
   box-shadow: 0 24px 48px rgba(148, 163, 184, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
@@ -216,6 +254,42 @@ const highlightedTranscript = computed(() => {
   transform-origin: right top;
   backdrop-filter: blur(22px) saturate(145%);
   -webkit-backdrop-filter: blur(22px) saturate(145%);
+}
+
+:deep(.cite-highlighted-script) {
+  background: #ffeb3b;
+  color: #111827;
+  font-weight: 900;
+  border-radius: 5px;
+  padding: 1px 5px;
+  margin: 0 -2px;
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.45), 0 4px 14px rgba(255, 193, 7, 0.28);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.cite-transcript-body {
+  color: #343437;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.65;
+}
+
+.cite-source-title {
+  min-width: 0;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 800;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cite-source-title:hover {
+  color: #111827;
+  text-decoration: underline;
 }
 
 /* 애니메이션 개선 */

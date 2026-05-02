@@ -1,6 +1,6 @@
 <!-- 워크스페이스의 왼쪽 사이드바 본체로, 폴더 탐색기와 음성 전사 탭을 전환하며 보여줍니다. -->
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import FolderSideTab from './FolderSideTab.vue'
 import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
 
@@ -10,6 +10,7 @@ const props = defineProps({
   transcriptions: { type: Array, default: () => [] },
   recordingMode: { type: String, default: 'lecture' },
   activeFileId: { type: String, default: '' },
+  citationSourceRequest: { type: Object, default: null },
   isCollapsed: { type: Boolean, default: false }
 })
 
@@ -124,6 +125,81 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
   }
   activeTab.value = 'voice'
 }
+
+const getNodeRecordings = (node) => {
+  if (!node) return []
+
+  const weekRecordings = Array.isArray(node.weeks)
+    ? node.weeks.flatMap((week) => Array.isArray(week?.recordings) ? week.recordings : [])
+    : []
+  const directRecordings = Array.isArray(node.recordings) ? node.recordings : []
+  const seen = new Set()
+
+  return [...weekRecordings, ...directRecordings].filter((recording) => {
+    const key = recording?.id || recording?.title
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const splitFullTranscript = (text = '', cite = {}) => {
+  const lines = String(text)
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (!lines.length && cite?.text) {
+    lines.push(String(cite.text).trim())
+  }
+
+  return lines.map((line, index) => ({
+    time: index === 0 && cite?.start_time != null && cite?.end_time != null
+      ? `${Math.floor(cite.start_time / 60)}:${String(Math.floor(cite.start_time % 60)).padStart(2, '0')}~${Math.floor(cite.end_time / 60)}:${String(Math.floor(cite.end_time % 60)).padStart(2, '0')}`
+      : '',
+    speakerId: null,
+    speaker: null,
+    text: line,
+    segments: [{
+      id: `${cite?.transcript_id || 'cite'}-${index}`,
+      text: line,
+      status: 'confirmed'
+    }]
+  }))
+}
+
+const findCitationRecording = (node, cite = {}) => {
+  const recordings = getNodeRecordings(node)
+  const recordingTitle = String(cite?.recording_title || '').trim()
+  const citationText = String(cite?.citation || '')
+
+  return recordings.find((recording) => (
+    recordingTitle && recording?.title === recordingTitle
+  )) || recordings.find((recording) => (
+    recording?.title && citationText.includes(recording.title)
+  )) || recordings[0] || null
+}
+
+watch(() => props.citationSourceRequest, (request) => {
+  if (!request?.cite || !request?.node) return
+
+  const recording = findCitationRecording(request.node, request.cite)
+  if (recording) {
+    selectedTranscriptSource.value = {
+      title: recording.title || request.cite.recording_title || '저장된 녹음',
+      meta: formatTranscriptSourceDate(recording.endedAt),
+      transcriptions: recording.transcriptions || []
+    }
+  } else {
+    selectedTranscriptSource.value = {
+      title: request.cite.recording_title || request.cite.session_title || '출처 전사',
+      meta: request.cite.session_date || '날짜 정보 없음',
+      transcriptions: splitFullTranscript(request.cite.full_transcript, request.cite)
+    }
+  }
+
+  activeTab.value = 'voice'
+})
 </script>
 
 <template>
