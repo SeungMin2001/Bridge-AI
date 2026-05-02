@@ -27,15 +27,15 @@ from .memory import (
 CASES = [
     {
         "name": "ko_lecture_multifact",
-        "question": "하린 교수의 생태학 강의에서 노바잎 지표의 역할은 뭐야?",
+        "question": "승민 교수의 나이는 몇살이야?",
         "main_passage": (
-            "하린 교수는 생태학 강의에서 노바잎 지표의 역할은 습도 변화를 빠르게 알려주는 것이라고 설명했다."
+            "승민 교수의 나이는 스물아홉살이야."
         ),
         "negative_passage": (
-            "하린 교수는 생태학 강의에서 노바잎 지표의 역할은 토양 색을 오래 보존하는 것이라고 설명했다."
+            "승민 교수의 나이는 마흔다섯살이야."
         ),
-        "main_answer": "습도 변화를 빠르게 알려주는 것",
-        "negative_answer": "토양 색을 오래 보존하는 것",
+        "main_answer": "스물아홉살",
+        "negative_answer": "마흔다섯살",
     },
 ]
 
