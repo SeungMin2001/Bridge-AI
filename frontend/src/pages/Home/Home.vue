@@ -8,10 +8,11 @@ import { ref } from 'vue'
 
 const props = defineProps({
   fileTree: { type: Array, default: () => [] },
-  favorites: { type: Set, default: () => new Set() }
+  favorites: { type: Set, default: () => new Set() },
+  recentFiles: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['navigate'])
+const emit = defineEmits(['navigate', 'fileSelect'])
 
 const isSidebarCollapsed = ref(false)
 const hasStartedChat = ref(false)
@@ -26,6 +27,35 @@ const handleMessageSent = (params) => {
 const openReferenceHandler = (refData) => {
   activeReference.value = refData
   isRightSidebarOpen.value = true
+}
+
+const findNodeById = (nodes = [], id = '') => {
+  for (const node of nodes) {
+    if (node?.id === id) return node
+    if (Array.isArray(node?.children)) {
+      const found = findNodeById(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+const openReferenceFileHandler = (refData) => {
+  const sessionId = refData?.raw?.session_id
+  if (!sessionId) return
+
+  const node = findNodeById(props.fileTree, sessionId)
+  if (node) {
+    emit('fileSelect', sessionId, node)
+  }
+
+  emit('navigate', 'workspace')
+}
+
+const openRecentFileHandler = (file) => {
+  if (!file?.id || !file?.node) return
+  emit('fileSelect', file.id, file.node)
+  emit('navigate', 'workspace')
 }
 </script>
 
@@ -52,8 +82,10 @@ const openReferenceHandler = (refData) => {
       ]">
         
         <HomeBanner 
+          :recentFiles="recentFiles"
           @sendMessage="handleMessageSent" 
           @openReference="openReferenceHandler"
+          @openRecentFile="openRecentFileHandler"
           :class="['transition-all duration-700 w-full', hasStartedChat ? 'h-full' : 'max-w-[800px]']" 
         />
         
@@ -76,6 +108,7 @@ const openReferenceHandler = (refData) => {
       :isOpen="isRightSidebarOpen"
       :referenceData="activeReference"
       @close="isRightSidebarOpen = false"
+      @openFile="openReferenceFileHandler"
     />
   </div>
 </template>

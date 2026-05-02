@@ -12,6 +12,7 @@ const { currentView, navigateTo } = usePageNavigation()
 const {
   fileTree,
   favorites,
+  recentFiles,
   transcriptions,
   isRecording,
   isRecordingPaused,
@@ -61,8 +62,10 @@ const {
     v-else-if="currentView === 'home'"
     :fileTree="fileTree"
     :favorites="favorites"
+    :recentFiles="recentFiles"
     @update:fileTree="handleFileTreeUpdate"
     @update:favorites="handleFavoritesUpdate"
+    @fileSelect="handleFileSelect"
     @navigate="navigateTo"
   />
 

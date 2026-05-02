@@ -19,6 +19,7 @@ export function useAppState() {
   const {
     fileTree,
     favorites,
+    recentFiles,
     activeFileName,
     activeFileId,
     activeFileType,
@@ -161,6 +162,7 @@ export function useAppState() {
   return {
     fileTree,
     favorites,
+    recentFiles,
     transcriptions,
     isRecording,
     isRecordingPaused,

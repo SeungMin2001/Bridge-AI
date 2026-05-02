@@ -6,7 +6,8 @@ const STORAGE_KEYS = {
   fileTree: 'lecto_file_tree',
   favorites: 'lecto_favorites',
   activeFileId: 'lecto_active_file_id',
-  activeFileName: 'lecto_active_file_name'
+  activeFileName: 'lecto_active_file_name',
+  recentFileIds: 'lecto_recent_file_ids'
 }
 
 const KOREAN_WEEKDAYS = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']
@@ -261,17 +262,45 @@ const findFirstFileNode = (nodes) => {
   return null
 }
 
+const collectFileNodes = (nodes = []) => {
+  const files = []
+  nodes.forEach((node) => {
+    if (node?.type === 'file') files.push(node)
+    if (Array.isArray(node?.children)) {
+      files.push(...collectFileNodes(node.children))
+    }
+  })
+  return files
+}
+
 // 파일 트리 상태를 localStorage와 동기화해서 새로고침 후에도 목록을 유지합니다.
 export function useFileTreeState() {
   const fileTree = ref([])
   const favorites = ref(new Set())
   const activeFileName = ref(localStorage.getItem(STORAGE_KEYS.activeFileName) || '')
   const activeFileId = ref(localStorage.getItem(STORAGE_KEYS.activeFileId) || '')
+  const recentFileIds = ref([])
 
   const currentFileNode = computed(() => findNodeById(fileTree.value, activeFileId.value))
   const activeFileType = computed(() => currentFileNode.value?.fileKind || 'lecture')
   const currentAttachments = computed(() => collectFileMaterials(currentFileNode.value))
   const currentRecordings = computed(() => collectFileRecordings(currentFileNode.value))
+  const recentFiles = computed(() => {
+    const allFiles = collectFileNodes(fileTree.value)
+    const byId = new Map(allFiles.map((file) => [file.id, file]))
+    const recentNodes = recentFileIds.value
+      .map((id) => byId.get(id))
+      .filter(Boolean)
+    const fallbackNodes = allFiles.filter((file) => !recentFileIds.value.includes(file.id))
+
+    return [...recentNodes, ...fallbackNodes].slice(0, 3).map((file) => ({
+      id: file.id,
+      name: file.name || '이름 없는 파일',
+      type: file.fileKind || file.type || 'file',
+      date: file.date || '최근',
+      node: file
+    }))
+  })
 
   // 외부 컴포넌트에서 수정한 트리 보정
   const handleFileTreeUpdate = (nodes) => {
@@ -288,6 +317,12 @@ export function useFileTreeState() {
     if (!node) return
     activeFileId.value = id
     activeFileName.value = node.name
+    if (node.type === 'file' && id) {
+      recentFileIds.value = [
+        id,
+        ...recentFileIds.value.filter((fileId) => fileId !== id)
+      ].slice(0, 8)
+    }
   }
 
   const syncActiveFileWithTree = () => {
@@ -329,6 +364,11 @@ export function useFileTreeState() {
     if (savedFavs) {
       favorites.value = new Set(JSON.parse(savedFavs))
     }
+
+    const savedRecentFileIds = localStorage.getItem(STORAGE_KEYS.recentFileIds)
+    if (savedRecentFileIds) {
+      recentFileIds.value = JSON.parse(savedRecentFileIds)
+    }
   })
 
   watch(fileTree, (newVal) => {
@@ -349,9 +389,14 @@ export function useFileTreeState() {
     else localStorage.removeItem(STORAGE_KEYS.activeFileName)
   })
 
+  watch(recentFileIds, (newVal) => {
+    localStorage.setItem(STORAGE_KEYS.recentFileIds, JSON.stringify(newVal))
+  }, { deep: true })
+
   return {
     fileTree,
     favorites,
+    recentFiles,
     activeFileName,
     activeFileId,
     activeFileType,
