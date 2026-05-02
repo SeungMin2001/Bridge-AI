@@ -222,6 +222,12 @@ def main() -> None:
         default="",
         help="Comma-separated alpha values to compare, e.g. 0.3,0.5,0.7,1.0,1.3.",
     )
+    parser.add_argument(
+        "--answer-target",
+        choices=("auto", "answer", "full_answer"),
+        default="auto",
+        help="Candidate-scoring target. auto follows the checkpoint config, falling back to short answer.",
+    )
     args = parser.parse_args()
     if args.singlefact:
         args.data = str(AUGMENTED_VALID_PATH)
@@ -246,6 +252,9 @@ def main() -> None:
     device = next(model.parameters()).device
     state = torch.load(Path(args.weights), map_location=device)
     config = state.get("config", {})
+    answer_target = args.answer_target
+    if answer_target == "auto":
+        answer_target = str(config.get("answer_target") or "answer")
     layer_idx = int(config.get("critical_layer", load_critical_layer()))
     target_layer = model.model.layers[layer_idx]
     hypernet = HyperKVGenerator(
@@ -272,8 +281,12 @@ def main() -> None:
                 bucket = by_type.setdefault(qa_type, init_bucket())
                 main_mem = encode_memory(model, tokenizer, hypernet, ex.passage, device)
                 neg_mem = encode_memory(model, tokenizer, hypernet, ex.negative_passage, device)
-                gold_tok = tokenize_qa(tokenizer, ex.question, ex.answer, device)
-                neg_tok = tokenize_qa(tokenizer, ex.question, ex.negative_answer, device)
+                gold_answer = ex.target_answer(answer_target)
+                negative_answer = ex.target_negative_answer(answer_target)
+                if not negative_answer:
+                    continue
+                gold_tok = tokenize_qa(tokenizer, ex.question, gold_answer, device)
+                neg_tok = tokenize_qa(tokenizer, ex.question, negative_answer, device)
                 main_gold = compute_answer_loss(
                     forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], gold_tok, alpha=alpha),
                     gold_tok["labels"],
@@ -292,8 +305,8 @@ def main() -> None:
                 ).item()
                 main_pref = main_gold < main_neg
                 neg_pref = neg_neg < neg_gold
-                main_choice = ex.answer if main_pref else ex.negative_answer
-                neg_choice = ex.negative_answer if neg_pref else ex.answer
+                main_choice = gold_answer if main_pref else negative_answer
+                neg_choice = negative_answer if neg_pref else gold_answer
                 update_bucket(overall, main_pref, neg_pref)
                 update_bucket(bucket, main_pref, neg_pref)
                 if shown < args.show:
@@ -329,6 +342,8 @@ def main() -> None:
                         device,
                         args.max_new_tokens,
                     )
+                    # Generation hit still checks the compact answer span so a
+                    # natural service sentence can pass without exact wording.
                     main_gen_hit = hit(main_gen, ex.answer)
                     neg_gen_hit = hit(neg_gen, ex.negative_answer)
                     no_mem_hit = hit(no_mem_gen, ex.answer)
@@ -356,6 +371,8 @@ def main() -> None:
                         print(f"  passage      : {clip(ex.passage)}")
                         print(f"  neg_passage  : {clip(ex.negative_passage)}")
                         print(f"  expected     : main={ex.answer} | neg={ex.negative_answer}")
+                        if answer_target == "full_answer":
+                            print(f"  scoring_text : main={clip(gold_answer)} | neg={clip(negative_answer)}")
                         print("  [candidate scoring]")
                         print(f"    main memory -> choice={main_choice} | gold_loss={main_gold:.4f} neg_loss={main_neg:.4f} ok={main_pref}")
                         print(f"    neg  memory -> choice={neg_choice} | gold_loss={neg_gold:.4f} neg_loss={neg_neg:.4f} ok={neg_pref}")

@@ -13,7 +13,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import AUGMENT_MODEL_NAME, SOURCE_DATA_PATH, AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
-from .data import extract_answer, get_passage, iter_json_records, jsonl_snapshot, write_jsonl
+from .data import default_full_answer, extract_answer, get_passage, iter_json_records, jsonl_snapshot, write_jsonl
 from .prompts import augmentation_prompt
 
 
@@ -180,7 +180,7 @@ def build_synthetic_negative(atomic: list[dict], final: list[dict]) -> dict | No
             "sub_passage": neg_sub_passage,
             "question": question,
             "answer": replacement,
-            "full_answer": replacement,
+            "full_answer": default_full_answer(question, replacement),
         })
         neg_passage_parts.append(neg_sub_passage)
 
@@ -193,7 +193,7 @@ def build_synthetic_negative(atomic: list[dict], final: list[dict]) -> dict | No
         neg_final.append({
             "question": question,
             "answer": joined_answers,
-            "full_answer": joined_answers,
+            "full_answer": default_full_answer(question, joined_answers),
         })
 
     return {
@@ -224,6 +224,13 @@ def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -
             return None
         if not contains_text(answer, sub_passage):
             return None
+        qa["full_answer"] = str(qa.get("full_answer") or "").strip() or default_full_answer(question, answer)
+    for qa in final:
+        question = str(qa.get("question") or "").strip()
+        answer = str(qa.get("answer") or "").strip()
+        if not (question and answer):
+            return None
+        qa["full_answer"] = str(qa.get("full_answer") or "").strip() or default_full_answer(question, answer)
 
     source_negative = first_hard_negative(source)
     require_negative = bool(source_negative["passage"] or source_negative["answer"])
@@ -277,10 +284,15 @@ def normalize_augmented(raw: dict, source: dict, passage: str, source_id: str) -
         # Force exact question alignment. The loader can fall back by position,
         # but identical strings keep the contrastive pair unambiguous.
         neg_qa["question"] = str(atomic[idx].get("question") or "").strip()
+        neg_qa["full_answer"] = str(neg_qa.get("full_answer") or "").strip() or default_full_answer(neg_qa["question"], answer)
     for idx, neg_qa in enumerate(neg_final):
         if not isinstance(neg_qa, dict) or not str(neg_qa.get("answer") or "").strip():
             return None
         neg_qa["question"] = str(final[idx].get("question") or "").strip()
+        neg_qa["full_answer"] = str(neg_qa.get("full_answer") or "").strip() or default_full_answer(
+            neg_qa["question"],
+            str(neg_qa.get("answer") or "").strip(),
+        )
     negatives = [first_negative]
 
     return {

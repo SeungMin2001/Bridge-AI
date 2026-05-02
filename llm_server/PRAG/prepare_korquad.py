@@ -17,6 +17,15 @@ from typing import Iterable
 from .config import KORQUAD_AUGMENTED_TRAIN_PATH, KORQUAD_AUGMENTED_VALID_PATH
 
 
+def service_full_answer(question: str, answer: str) -> str:
+    answer = str(answer or "").strip()
+    if not answer:
+        return ""
+    if answer.endswith(("다", "요", "음", "함", ".", "?", "!")):
+        return answer
+    return f"{answer}입니다."
+
+
 def normalize_flat_record(item: dict) -> dict | None:
     context = str(item.get("context") or item.get("passage") or "").strip()
     question = str(item.get("question") or "").strip()
@@ -193,7 +202,7 @@ def build_rows(records: list[dict], *, split_name: str, qas_per_row: int, max_co
                     "sub_passage": sub_passage,
                     "question": qa["question"],
                     "answer": answer,
-                    "full_answer": answer,
+                    "full_answer": service_full_answer(qa["question"], answer),
                 })
 
             neg_passage = build_negative_passage(passage, chunk, distractors)
@@ -204,7 +213,7 @@ def build_rows(records: list[dict], *, split_name: str, qas_per_row: int, max_co
                     "sub_passage": neg_sub,
                     "question": qa["question"],
                     "answer": distractor,
-                    "full_answer": distractor,
+                    "full_answer": service_full_answer(qa["question"], distractor),
                 })
 
             final_qas = [make_final_qa(atomic_qas)] if include_final and len(atomic_qas) > 1 else []

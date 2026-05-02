@@ -35,6 +35,21 @@ def normalize_text(text: str) -> str:
     return " ".join(str(text or "").split()).strip()
 
 
+def contains_hangul(text: str) -> bool:
+    return any("\uac00" <= ch <= "\ud7a3" for ch in str(text or ""))
+
+
+def service_full_answer(question: str, answer: str) -> str:
+    answer = normalize_text(answer)
+    if not answer:
+        return ""
+    if answer.endswith((".", "?", "!", "다", "요", "임", "함", "음")):
+        return answer
+    if contains_hangul(question) or contains_hangul(answer):
+        return f"{answer}입니다."
+    return f"{answer}."
+
+
 def contains_ci(needle: str, haystack: str) -> bool:
     return normalize_text(needle).casefold() in normalize_text(haystack).casefold()
 
@@ -259,13 +274,13 @@ def make_row(group: dict, split: str, idx: int, answer_pool: list[str], rng: ran
             "sub_passage": sub_passage,
             "question": question,
             "answer": answer,
-            "full_answer": answer,
+            "full_answer": service_full_answer(question, answer),
         })
         neg_atomic_qas.append({
             "sub_passage": neg_sub,
             "question": question,
             "answer": distractor,
-            "full_answer": distractor,
+            "full_answer": service_full_answer(question, distractor),
         })
         distractors.append(distractor)
 

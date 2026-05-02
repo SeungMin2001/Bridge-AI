@@ -60,6 +60,8 @@ should change according to the counterfactual passage.
 - final_qas는 1개만 만들고, 여러 atomic fact를 종합해서 교수님의 전체 설명을 묻는 질문으로 만듭니다.
 - hard negative의 atomic/final question은 원본과 정확히 같은 문자열과 같은 순서를 사용하고, answer만 반례 기준으로 바꿉니다.
 - hard negative의 sub_passage에도 바뀐 answer 문자열이 실제로 들어 있어야 합니다.
+- 원본과 hard negative의 모든 QA에는 answer뿐 아니라 AI 조교가 사용자에게 말할 자연스러운 완전문장 full_answer도 포함하세요.
+- full_answer는 실제 서비스 답변처럼 핵심 답을 먼저 말하고, 필요하면 짧게 설명하는 한 문장으로 작성하세요.
 - passage에 없는 사실을 만들지 마세요.
 - 답변은 짧고 passage에 근거해야 합니다. placeholder나 설명문을 쓰지 마세요.
 - JSON 앞뒤에 설명, 마크다운, 코드블록을 절대 붙이지 마세요.
@@ -85,11 +87,12 @@ should change according to the counterfactual passage.
         {{
           "sub_passage": "뒤집힌 반례 근거 조각",
           "question": "원본 atomic_qas와 정확히 같은 질문",
-          "answer": "반례 passage 기준 답"
+          "answer": "반례 passage 기준 답",
+          "full_answer": "반례 passage 기준 완전한 문장 답"
         }}
       ],
       "final_qas": [
-        {{"question": "원본 final_qas와 정확히 같은 질문", "answer": "반례 passage 기준 답"}}
+        {{"question": "원본 final_qas와 정확히 같은 질문", "answer": "반례 passage 기준 답", "full_answer": "반례 passage 기준 교수님 설명 기반 답변"}}
       ]
     }}
   ]
@@ -126,6 +129,9 @@ Goals:
   original atomic/final QAs; only the answers should change under the
   counterfactual passage.
 - Every hard-negative sub_passage must actually contain its changed answer.
+- Every original and hard-negative QA must include both answer and full_answer.
+- full_answer must be a natural service-style assistant sentence that starts
+  with the core answer and then gives a concise grounded explanation if needed.
 - Do not invent facts unsupported by the passage.
 - Keep answers short and grounded in the passage. Do not use placeholders.
 - Return raw JSON only. Do not add explanations, markdown, or code fences.
@@ -151,11 +157,12 @@ Return only this JSON object:
         {{
           "sub_passage": "counterfactual evidence chunk",
           "question": "exact same question as the matching original atomic QA",
-          "answer": "answer under the counterfactual passage"
+          "answer": "answer under the counterfactual passage",
+          "full_answer": "complete sentence answer under the counterfactual passage"
         }}
       ],
       "final_qas": [
-        {{"question": "exact same question as the original final QA", "answer": "answer under the counterfactual passage"}}
+        {{"question": "exact same question as the original final QA", "answer": "answer under the counterfactual passage", "full_answer": "grounded answer under the counterfactual passage"}}
       ]
     }}
   ]

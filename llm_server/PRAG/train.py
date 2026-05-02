@@ -95,9 +95,12 @@ def example_loss(
     device,
     rank_weight: float = RANK_WEIGHT,
     positive_only: bool = False,
+    answer_target: str = "full_answer",
 ):
     main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device)
-    gold_tok = tokenize_qa(tokenizer, example.question, example.answer, device)
+    gold_answer = example.target_answer(answer_target)
+    negative_answer = example.target_negative_answer(answer_target)
+    gold_tok = tokenize_qa(tokenizer, example.question, gold_answer, device)
     main_gold_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], gold_tok, alpha=ALPHA)
     main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
     if main_gold is None:
@@ -114,11 +117,11 @@ def example_loss(
         "main_ok": True,
         "neg_ok": False,
     }
-    if positive_only or not (example.negative_passage and example.negative_answer):
+    if positive_only or not (example.negative_passage and negative_answer):
         return out
 
     neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device)
-    neg_tok = tokenize_qa(tokenizer, example.question, example.negative_answer, device)
+    neg_tok = tokenize_qa(tokenizer, example.question, negative_answer, device)
     main_neg_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=ALPHA)
     neg_gold_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], gold_tok, alpha=ALPHA)
     neg_neg_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=ALPHA)
@@ -152,6 +155,7 @@ def group_loss(
     max_qas: int = 6,
     final_weight: float = 1.0,
     positive_only: bool = False,
+    answer_target: str = "full_answer",
 ):
     main_mem = encode_memory(model, tokenizer, hypernet, group.passage, device)
     neg_mem = None
@@ -164,13 +168,15 @@ def group_loss(
     used = 0
     zero = None
     for qa in group.qas[:max_qas]:
-        gold_tok = tokenize_qa(tokenizer, qa.question, qa.answer, device)
+        gold_answer = qa.target_answer(answer_target)
+        negative_answer = qa.target_negative_answer(answer_target)
+        gold_tok = tokenize_qa(tokenizer, qa.question, gold_answer, device)
         main_gold_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], gold_tok, alpha=ALPHA)
         main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
         if main_gold is None:
             continue
         zero = main_gold.detach().new_tensor(0.0)
-        if neg_mem is None or not qa.negative_answer:
+        if neg_mem is None or not negative_answer:
             weight = final_weight if qa.qa_type == "final" else 1.0
             if weight > 0:
                 losses.append(main_gold * weight)
@@ -179,7 +185,7 @@ def group_loss(
             used += 1
             continue
 
-        neg_tok = tokenize_qa(tokenizer, qa.question, qa.negative_answer, device)
+        neg_tok = tokenize_qa(tokenizer, qa.question, negative_answer, device)
         main_neg_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=ALPHA)
         neg_gold_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], gold_tok, alpha=ALPHA)
         neg_neg_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=ALPHA)
@@ -226,12 +232,22 @@ def evaluate(
     device,
     final_weight: float = 1.0,
     positive_only: bool = False,
+    answer_target: str = "full_answer",
 ):
     hypernet.eval()
     total = 0
     obj = main_ok = neg_ok = flip_ok = 0.0
     for example in examples:
-        out = example_loss(model, tokenizer, hypernet, target_layer, example, device, positive_only=positive_only)
+        out = example_loss(
+            model,
+            tokenizer,
+            hypernet,
+            target_layer,
+            example,
+            device,
+            positive_only=positive_only,
+            answer_target=answer_target,
+        )
         if out is None:
             continue
         if example.qa_type == "final":
@@ -264,6 +280,7 @@ def evaluate_groups(
     max_qas: int,
     final_weight: float,
     positive_only: bool = False,
+    answer_target: str = "full_answer",
 ):
     hypernet.eval()
     total = 0
@@ -280,6 +297,7 @@ def evaluate_groups(
             max_qas,
             final_weight,
             positive_only,
+            answer_target,
         )
         if out is None:
             continue
@@ -451,6 +469,15 @@ def main() -> None:
         help="Ignore generated hard negatives and train only main passage -> gold answer CE. Useful for external MRC data such as KorQuAD.",
     )
     parser.add_argument(
+        "--answer-target",
+        choices=("answer", "full_answer"),
+        default="full_answer",
+        help=(
+            "Target text used for generation CE. 'full_answer' trains service-style natural answers; "
+            "'answer' keeps legacy short-span training."
+        ),
+    )
+    parser.add_argument(
         "--group-weight",
         type=float,
         default=1.0,
@@ -588,6 +615,7 @@ def main() -> None:
         "rank_weight": args.rank_weight,
         "final_weight": args.final_weight,
         "positive_only": args.positive_only,
+        "answer_target": args.answer_target,
         "group_weight": args.group_weight,
         "group_max_qas": args.group_max_qas,
         "eval_max_samples": args.eval_max_samples,
@@ -653,6 +681,7 @@ def main() -> None:
                     max_qas=args.group_max_qas,
                     final_weight=args.final_weight,
                     positive_only=args.positive_only,
+                    answer_target=args.answer_target,
                 )
                 if out is not None:
                     out["objective"] = out["objective"] * args.group_weight
@@ -666,6 +695,7 @@ def main() -> None:
                     device,
                     rank_weight=args.rank_weight,
                     positive_only=args.positive_only,
+                    answer_target=args.answer_target,
                 )
                 if out is not None and getattr(item, "qa_type", "") == "final":
                     out["objective"] = out["objective"] * args.final_weight
@@ -731,6 +761,7 @@ def main() -> None:
                     device,
                     args.final_weight,
                     args.positive_only,
+                    args.answer_target,
                 )
                 group_metrics = evaluate_groups(
                     model,
@@ -743,6 +774,7 @@ def main() -> None:
                     args.group_max_qas,
                     args.final_weight,
                     args.positive_only,
+                    args.answer_target,
                 ) if valid_eval_groups and args.group_weight > 0 else None
                 selection_objective = metrics["objective"]
                 if group_metrics is not None:
@@ -792,6 +824,7 @@ def main() -> None:
         device,
         args.final_weight,
         args.positive_only,
+        args.answer_target,
     )
     group_metrics = evaluate_groups(
         model,
@@ -804,6 +837,7 @@ def main() -> None:
         args.group_max_qas,
         args.final_weight,
         args.positive_only,
+        args.answer_target,
     ) if valid_eval_groups and args.group_weight > 0 else None
     selection_objective = metrics["objective"]
     if group_metrics is not None:

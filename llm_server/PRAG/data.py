@@ -14,9 +14,21 @@ class MemoryExample:
     passage: str
     question: str
     answer: str
+    full_answer: str = ""
     negative_passage: str | None = None
     negative_answer: str | None = None
+    negative_full_answer: str | None = None
     qa_type: str = "qa"
+
+    def target_answer(self, mode: str = "answer") -> str:
+        if mode == "full_answer" and self.full_answer:
+            return self.full_answer
+        return self.answer
+
+    def target_negative_answer(self, mode: str = "answer") -> str | None:
+        if mode == "full_answer" and self.negative_full_answer:
+            return self.negative_full_answer
+        return self.negative_answer
 
 
 @dataclass
@@ -110,10 +122,32 @@ def normalize_qas(value) -> list[dict]:
             qas.append({
                 "question": question,
                 "answer": answer,
-                "full_answer": full_answer,
+                "full_answer": full_answer or default_full_answer(question, answer),
                 "sub_passage": sub_passage,
             })
     return qas
+
+
+def contains_hangul(text: str) -> bool:
+    return any("\uac00" <= ch <= "\ud7a3" for ch in str(text or ""))
+
+
+def default_full_answer(question: str, answer: str) -> str:
+    """Backfill service-style answers for older augmented data.
+
+    Earlier augmentation rows sometimes only contain a compact answer span.
+    Free-generation training needs an assistant-like sentence, but the sentence
+    must still start with the answer phrase so token scoring and generation stay
+    aligned.
+    """
+    answer = str(answer or "").strip()
+    if not answer:
+        return ""
+    if answer.endswith((".", "?", "!", "다", "요", "임", "함", "음")):
+        return answer
+    if contains_hangul(question) or contains_hangul(answer):
+        return f"{answer}입니다."
+    return f"{answer}."
 
 
 def answer_in_text(answer: str, text: str) -> bool:
@@ -196,6 +230,7 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
                     neg_item = {
                         "passage": neg_memory_passage,
                         "answer": neg_qa["answer"],
+                        "full_answer": neg_qa.get("full_answer") or default_full_answer(neg_qa["question"], neg_qa["answer"]),
                     }
                     neg_by_question[neg_qa["question"]] = neg_item
                     neg_by_position[(neg_type, neg_idx)] = neg_item
@@ -215,8 +250,10 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
                     passage=memory_passage,
                     question=qa["question"],
                     answer=qa["answer"],
+                    full_answer=qa.get("full_answer") or default_full_answer(qa["question"], qa["answer"]),
                     negative_passage=neg["passage"] if neg else None,
                     negative_answer=neg["answer"] if neg else None,
+                    negative_full_answer=neg.get("full_answer") if neg else None,
                     qa_type=qa_type,
                 )
             )
@@ -246,7 +283,7 @@ def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> l
         negative_passage = None
         neg_by_question = {}
         neg_by_position = {}
-        fallback_answer = ""
+        fallback_answer = None
         for neg in negatives:
             if not isinstance(neg, dict):
                 continue
@@ -254,30 +291,41 @@ def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> l
             if not neg_passage:
                 continue
             negative_passage = negative_passage or neg_passage
-            fallback_answer = str(neg.get("answer") or "").strip()
+            fallback_text = str(neg.get("answer") or "").strip()
+            fallback_answer = {"answer": fallback_text, "full_answer": default_full_answer("", fallback_text)} if fallback_text else None
             neg_atomic = normalize_qas(neg.get("atomic_qas")) + normalize_qas(neg.get("qas"))
             neg_final = normalize_qas(neg.get("final_qas"))
             for neg_idx, neg_qa in enumerate(neg_atomic):
-                neg_by_question[neg_qa["question"]] = neg_qa["answer"]
-                neg_by_position[("atomic", neg_idx)] = neg_qa["answer"]
+                neg_item = {
+                    "answer": neg_qa["answer"],
+                    "full_answer": neg_qa.get("full_answer") or default_full_answer(neg_qa["question"], neg_qa["answer"]),
+                }
+                neg_by_question[neg_qa["question"]] = neg_item
+                neg_by_position[("atomic", neg_idx)] = neg_item
             for neg_idx, neg_qa in enumerate(neg_final):
-                neg_by_question[neg_qa["question"]] = neg_qa["answer"]
-                neg_by_position[("final", neg_idx)] = neg_qa["answer"]
+                neg_item = {
+                    "answer": neg_qa["answer"],
+                    "full_answer": neg_qa.get("full_answer") or default_full_answer(neg_qa["question"], neg_qa["answer"]),
+                }
+                neg_by_question[neg_qa["question"]] = neg_item
+                neg_by_position[("final", neg_idx)] = neg_item
             break
 
         group_qas: list[MemoryExample] = []
         for qa_idx, qa, qa_type in qas:
-            neg_answer = neg_by_question.get(qa["question"]) or neg_by_position.get((qa_type, qa_idx))
-            if neg_answer is None and qa_type == "direct" and fallback_answer:
-                neg_answer = fallback_answer
+            neg_item = neg_by_question.get(qa["question"]) or neg_by_position.get((qa_type, qa_idx))
+            if neg_item is None and qa_type == "direct" and fallback_answer:
+                neg_item = fallback_answer
             group_qas.append(
                 MemoryExample(
                     source_id=f"{source_id}:{qa_type}:{qa_idx}",
                     passage=passage,
                     question=qa["question"],
                     answer=qa["answer"],
+                    full_answer=qa.get("full_answer") or default_full_answer(qa["question"], qa["answer"]),
                     negative_passage=negative_passage,
-                    negative_answer=neg_answer,
+                    negative_answer=neg_item["answer"] if neg_item else None,
+                    negative_full_answer=neg_item["full_answer"] if neg_item else None,
                     qa_type=qa_type,
                 )
             )
