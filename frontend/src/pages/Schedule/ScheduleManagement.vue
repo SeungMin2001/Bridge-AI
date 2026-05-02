@@ -33,25 +33,10 @@ const currentMonthLabel = computed(() => {
 
 const selectedSchedules = computed(() => getSchedulesForDate(selectedDateKey.value))
 
-const confirmedSchedules = computed(() => {
-  return visibleSchedules.value.filter((item) => item.status === 'confirmed')
-})
-
-const currentMonthPrefix = computed(() => {
-  const date = activeMonthDate.value
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-})
-
 const upcomingSchedules = computed(() => {
   const todayKey = formatDateKey(today)
   return visibleSchedules.value.filter((item) => item.dateKey >= todayKey).slice(0, 8)
 })
-
-const scheduleStats = computed(() => [
-  { label: 'AI 후보', value: pendingSchedules.value.length },
-  { label: '확정 일정', value: confirmedSchedules.value.length },
-  { label: '이번 달', value: visibleSchedules.value.filter((item) => item.dateKey.startsWith(currentMonthPrefix.value)).length }
-])
 
 const parseDateKey = (dateKey) => {
   const [year, month, day] = String(dateKey).split('-').map(Number)
@@ -221,12 +206,10 @@ onMounted(() => {
     <main class="schedule-shell">
       <section class="schedule-main-card">
         <header class="schedule-header">
-          <div>
+          <div class="schedule-header-left">
             <button class="schedule-back-btn" @click="emit('navigate', 'home')">
               <span class="material-symbols-outlined">arrow_back</span>
             </button>
-            <div class="schedule-kicker">LectoAI Calendar</div>
-            <h1>일정관리</h1>
           </div>
           <div class="schedule-header-actions">
             <button class="schedule-soft-btn export" @click="downloadGoogleCalendarIcs">
@@ -242,13 +225,6 @@ onMounted(() => {
             </button>
           </div>
         </header>
-
-        <div class="schedule-stats-row">
-          <article v-for="stat in scheduleStats" :key="stat.label" class="schedule-stat">
-            <span>{{ stat.label }}</span>
-            <strong>{{ stat.value }}</strong>
-          </article>
-        </div>
 
         <section class="schedule-calendar-panel">
           <div class="schedule-calendar-title-row">
@@ -422,7 +398,7 @@ onMounted(() => {
 .schedule-main-card {
   display: flex;
   flex-direction: column;
-  padding: 28px;
+  padding: 24px;
   overflow: hidden;
 }
 
@@ -436,9 +412,15 @@ onMounted(() => {
 
 .schedule-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+}
+
+.schedule-header-left {
+  display: flex;
+  align-items: center;
 }
 
 .schedule-back-btn,
@@ -461,7 +443,7 @@ onMounted(() => {
 }
 
 .schedule-back-btn {
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .schedule-soft-btn {
@@ -486,51 +468,12 @@ onMounted(() => {
   gap: 8px;
 }
 
-.schedule-kicker {
-  font-size: 12px;
-  font-weight: 900;
-  color: #6b7280;
-  margin-bottom: 6px;
-}
-
-.schedule-header h1 {
-  font-size: 42px;
-  font-weight: 950;
-  letter-spacing: 0;
-}
-
-.schedule-stats-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.schedule-stat {
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: #f4ede4;
-  border: 1px solid rgba(255, 255, 255, 0.86);
-}
-
-.schedule-stat span {
-  display: block;
-  font-size: 12px;
-  font-weight: 800;
-  color: #6b7280;
-}
-
-.schedule-stat strong {
-  font-size: 28px;
-  font-weight: 950;
-}
-
 .schedule-calendar-panel {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1;
-  padding: 18px;
+  padding: 20px;
   border-radius: 24px;
   background: #f4ede4;
   border: 1px solid rgba(255, 255, 255, 0.86);
@@ -599,6 +542,7 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   gap: 8px;
+  grid-auto-rows: minmax(118px, 1fr);
 }
 
 .schedule-day-cell {
@@ -912,14 +856,6 @@ onMounted(() => {
 
   .schedule-header {
     flex-direction: column;
-  }
-
-  .schedule-header h1 {
-    font-size: 32px;
-  }
-
-  .schedule-stats-row {
-    grid-template-columns: 1fr;
   }
 
   .schedule-day-cell {
