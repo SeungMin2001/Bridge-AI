@@ -131,6 +131,14 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
     print("\n[candidate loss]")
     print(f"main K/V: {main_answer}={main_gold:.4f} vs {negative_answer}={main_neg:.4f} pref={main_gold < main_neg}")
     print(f"neg  K/V: {main_answer}={neg_gold:.4f} vs {negative_answer}={neg_neg:.4f} pref={neg_neg < neg_gold}")
+    print("\n[candidate-selected answer]")
+    main_selected = main_answer if main_gold < main_neg else negative_answer
+    neg_selected = negative_answer if neg_neg < neg_gold else main_answer
+    print(f"main K/V selected: {main_selected}")
+    print(f"neg  K/V selected: {neg_selected}")
+    print("\n[service-safe answer | candidate rerank]")
+    print(f"main K/V service answer: {main_selected}")
+    print(f"neg  K/V service answer: {neg_selected}")
     print("\n[model answer | no passage]")
     print("----- BEGIN -----")
     print(no_passage)
