@@ -1,17 +1,6 @@
 -- pgvector 익스텐션 활성화
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
-CREATE TABLE course_memories
-(
-    memory_id     UUID PRIMARY KEY,
-    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
-    merged_k      BYTEA,
-    merged_v      BYTEA,
-    passage_count INT DEFAULT 0,
-    updated_at    TIMESTAMP NOT NULL
-);
-
 -- 테이블 생성
 CREATE TABLE SCHEDULES
 (
@@ -120,6 +109,17 @@ CREATE TABLE COURSES
     color            VARCHAR(50) NULL,
     icon             VARCHAR(50) NULL,
     created_at       TIMESTAMP NULL
+);
+
+-- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
+CREATE TABLE course_memories
+(
+    memory_id     UUID PRIMARY KEY,
+    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
+    merged_k      BYTEA,
+    merged_v      BYTEA,
+    passage_count INT DEFAULT 0,
+    updated_at    TIMESTAMP NOT NULL
 );
 
 CREATE TABLE USERS
