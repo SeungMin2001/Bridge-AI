@@ -11,6 +11,9 @@ const props = defineProps({
 
 const emit = defineEmits(['toggle', 'navigate'])
 
+const expandedSidebarWidth = 370
+const collapsedSidebarWidth = 56
+
 const weekLabels = ['일', '월', '화', '수', '목', '금', '토']
 const meridiemOptions = ['오전', '오후']
 const hourOptions = Array.from({ length: 12 }, (_, index) => `${index + 1}`.padStart(2, '0'))
@@ -257,10 +260,14 @@ onUnmounted(() => {
   <aside
     id="sidebar"
     :class="[
-      isCollapsed ? 'w-16' : 'w-[340px]',
       'home-sidebar flex flex-col h-full shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] relative z-10 rounded-[24px]',
       { 'sidebar-collapsed': isCollapsed }
     ]"
+    :style="{
+      width: `${isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth}px`,
+      minWidth: `${isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth}px`,
+      maxWidth: `${isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth}px`
+    }"
   >
     <div class="sidebar-main-card card flex flex-col h-full p-5 overflow-hidden min-w-[280px] home-left-sidebar-card">
       <div class="sidebar-header transition-all">
