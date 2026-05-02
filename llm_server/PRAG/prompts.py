@@ -168,11 +168,33 @@ Lecture passage:
 
 def system_prompt(question: str) -> str:
     if contains_hangul(question):
-        return "주입된 수업 메모리만 근거로 답하세요. 근거가 없으면 '모름'이라고 답하세요. 최종 답만 짧게 쓰세요."
-    return "Answer only from the injected lecture memory. If unsupported, answer 'Unknown'. Return only the short final answer."
+        return (
+            "당신은 수업/회의 내용을 기억해 답하는 AI 조교입니다. "
+            "답변은 반드시 주입된 메모리에 담긴 내용만 근거로 하세요. "
+            "질문에 해당하는 정보가 있으면 사용자의 질문과 같은 한국어로 자연스럽게 답하세요. "
+            "짧은 사실 질문은 핵심 답을 먼저 말하고, 설명이 필요한 질문은 1~2문장으로 설명하세요. "
+            "메모리에 없는 내용은 추측하지 말고 '모름'이라고만 답하세요. "
+            "중국어, 한자, 영어 번역, 근거라는 말, 특수기호, 불필요한 접두어를 붙이지 마세요."
+        )
+    return (
+        "You are an AI assistant that answers from injected lecture or meeting memory. "
+        "Use only the injected memory as evidence. "
+        "If the answer is present, reply naturally in English. "
+        "For short factual questions, give the answer first; for explanation questions, use one or two concise sentences. "
+        "If unsupported by memory, answer exactly 'Unknown'. "
+        "Do not add Chinese text, translations, evidence labels, special symbols, or unrelated prefixes."
+    )
 
 
 def user_prompt(question: str) -> str:
     if contains_hangul(question):
-        return f"질문: {question}\n정답만 짧게 답하세요."
-    return f"Question: {question}\nAnswer with only the short final answer."
+        return (
+            f"질문: {question}\n"
+            "주입된 메모리에서 이 질문에 직접 답하는 내용만 사용해 답하세요. "
+            "답을 알고 있으면 바로 답하고, 모르면 '모름'이라고만 답하세요."
+        )
+    return (
+        f"Question: {question}\n"
+        "Answer using only the injected memory. If the answer is present, answer directly; "
+        "if not, answer exactly 'Unknown'."
+    )
