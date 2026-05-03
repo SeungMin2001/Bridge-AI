@@ -874,6 +874,14 @@ SAVE_EVERY = 250 또는 500
 
 현재 새 구현은 `llm_server/PRAG` 폴더 기준이다. 기존 `llm_server/mergePRAG` 실험과 구분한다.
 
+### 구조 메모: FiD 아이디어를 K/V memory로 확장한 부분
+
+FiD(Fusion-in-Decoder)는 검색된 passage를 질문과 쌍으로 묶어 `question + passage` 형태로 encoder에 넣고, decoder가 여러 passage representation을 합쳐 답을 생성하는 RAG 계열 구조다.
+
+우리 구현은 FiD처럼 passage를 prompt/context로 그대로 넘기지는 않는다. 대신 FiD의 핵심 아이디어인 "passage representation을 질문 조건부로 만든다"는 점만 가져와서, `question + passage`를 모델에 통과시킨 contextual hidden state를 HyperNetwork 입력에 반영한다. 그 결과 같은 passage라도 사용자 질문이 다르면 다른 K/V memory가 생성되도록 학습한다.
+
+참고 논문: Gautier Izacard, Edouard Grave, [Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering](https://arxiv.org/abs/2007.01282), 2020.
+
 ### 1. 데이터셋 증강
 
 기본 입력/출력 경로는 코드에 들어 있다.
