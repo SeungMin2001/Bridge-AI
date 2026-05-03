@@ -62,6 +62,18 @@ HIDDEN_DIM = int(os.getenv("PRAG_HIDDEN_DIM", "1024"))
 ALPHA = float(os.getenv("PRAG_ALPHA", "1.0"))
 MAX_MEMORY_TOKENS = int(os.getenv("PRAG_MAX_MEMORY_TOKENS", "256"))
 MAX_SEQ_LEN = int(os.getenv("PRAG_MAX_SEQ_LEN", "512"))
+USE_CONTEXTUAL_MEMORY = os.getenv("PRAG_USE_CONTEXTUAL_MEMORY", "1").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+QUESTION_CONDITIONED_MEMORY = os.getenv("PRAG_QUESTION_CONDITIONED_MEMORY", "1").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 RANK_MARGIN = float(os.getenv("PRAG_RANK_MARGIN", "0.5"))
 RANK_WEIGHT = float(os.getenv("PRAG_RANK_WEIGHT", "1.0"))
 LR = float(os.getenv("PRAG_LR", "8e-5"))

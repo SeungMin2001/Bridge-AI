@@ -52,9 +52,11 @@ from .config import (
     MULTIFACT_WEIGHTS_PATH,
     MODEL_NAME,
     NUM_KV,
+    QUESTION_CONDITIONED_MEMORY,
     RANK_MARGIN,
     RANK_WEIGHT,
     SAVE_EVERY,
+    USE_CONTEXTUAL_MEMORY,
     WEIGHTS_PATH,
     load_critical_layer,
 )
@@ -79,11 +81,33 @@ def load_model():
 
 
 def make_hypernet(model, device):
+    feature_dim = model.config.hidden_size * (2 if USE_CONTEXTUAL_MEMORY else 1)
     return HyperKVGenerator(
         d_model=model.config.hidden_size,
         num_kv=NUM_KV,
         hidden_dim=HIDDEN_DIM,
+        feature_dim=feature_dim,
+        legacy=False,
     ).to(device).float()
+
+
+def load_compatible_hypernet_weights(hypernet, weights_path: str, device) -> tuple[int, int]:
+    """Load only same-shape tensors when architecture changed.
+
+    This lets us reuse compatible MLP weights from older runs while safely
+    reinitializing newly added contextual/slotwise layers.
+    """
+    init_state = torch.load(weights_path, map_location=device)
+    saved = init_state.get("hypernet", init_state)
+    current = hypernet.state_dict()
+    compatible = {
+        key: value
+        for key, value in saved.items()
+        if key in current and tuple(value.shape) == tuple(current[key].shape)
+    }
+    current.update(compatible)
+    hypernet.load_state_dict(current)
+    return len(compatible), max(len(saved) - len(compatible), 0)
 
 
 def example_loss(
@@ -97,7 +121,7 @@ def example_loss(
     positive_only: bool = False,
     answer_target: str = "full_answer",
 ):
-    main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device)
+    main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
     gold_answer = example.target_answer(answer_target)
     negative_answer = example.target_negative_answer(answer_target)
     gold_tok = tokenize_qa(tokenizer, example.question, gold_answer, device)
@@ -120,7 +144,7 @@ def example_loss(
     if positive_only or not (example.negative_passage and negative_answer):
         return out
 
-    neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device)
+    neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device, question=example.question)
     neg_tok = tokenize_qa(tokenizer, example.question, negative_answer, device)
     main_neg_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=ALPHA)
     neg_gold_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], gold_tok, alpha=ALPHA)
@@ -157,17 +181,17 @@ def group_loss(
     positive_only: bool = False,
     answer_target: str = "full_answer",
 ):
-    main_mem = encode_memory(model, tokenizer, hypernet, group.passage, device)
-    neg_mem = None
-    if group.negative_passage and not positive_only:
-        neg_mem = encode_memory(model, tokenizer, hypernet, group.negative_passage, device)
-
     losses = []
     loss_weights = []
     main_ok = neg_ok = 0
     used = 0
     zero = None
+    has_negative = bool(group.negative_passage and not positive_only)
     for qa in group.qas[:max_qas]:
+        main_mem = encode_memory(model, tokenizer, hypernet, group.passage, device, question=qa.question)
+        neg_mem = None
+        if has_negative:
+            neg_mem = encode_memory(model, tokenizer, hypernet, group.negative_passage, device, question=qa.question)
         gold_answer = qa.target_answer(answer_target)
         negative_answer = qa.target_negative_answer(answer_target)
         gold_tok = tokenize_qa(tokenizer, qa.question, gold_answer, device)
@@ -215,7 +239,7 @@ def group_loss(
         "neg_neg": zero,
         "rank": zero,
         "main_ok": main_ok == used,
-        "neg_ok": neg_ok == used if neg_mem is not None else False,
+        "neg_ok": neg_ok == used if has_negative else False,
         "group_qas": used,
         "group_main_rate": main_ok / denom,
         "group_neg_rate": neg_ok / denom,
@@ -605,6 +629,9 @@ def main() -> None:
         "critical_layer": layer_idx,
         "num_kv": NUM_KV,
         "hidden_dim": HIDDEN_DIM,
+        "feature_dim": model.config.hidden_size * (2 if USE_CONTEXTUAL_MEMORY else 1),
+        "use_contextual_memory": USE_CONTEXTUAL_MEMORY,
+        "question_conditioned_memory": QUESTION_CONDITIONED_MEMORY,
         "alpha": ALPHA,
         "objective": "atomic_final_ce_plus_negative_flip",
         "multifact": args.multifact,
@@ -653,9 +680,11 @@ def main() -> None:
         else:
             print("[PRAG:train] checkpoint config mismatch; starting fresh.")
     if not loaded_checkpoint and args.init_weights:
-        init_state = torch.load(args.init_weights, map_location=device)
-        hypernet.load_state_dict(init_state["hypernet"])
-        print(f"[PRAG:train] initialized hypernet from weights={args.init_weights}")
+        loaded_keys, skipped_keys = load_compatible_hypernet_weights(hypernet, args.init_weights, device)
+        print(
+            f"[PRAG:train] initialized compatible hypernet tensors from weights={args.init_weights} "
+            f"(loaded={loaded_keys}, skipped_shape_or_missing={skipped_keys})"
+        )
 
     log = init_training_log(log_path, run_config, step)
     start = time.time()

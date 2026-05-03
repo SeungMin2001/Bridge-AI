@@ -119,7 +119,17 @@ def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
-def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_new_tokens: int, alpha: float) -> None:
+def run_case(
+    model,
+    tokenizer,
+    hypernet,
+    target_layer,
+    device,
+    case: dict,
+    max_new_tokens: int,
+    alpha: float,
+    question_conditioned: bool,
+) -> None:
     question = case["question"]
     main_passage = case["main_passage"]
     negative_passage = case["negative_passage"]
@@ -127,8 +137,24 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
     negative_answer = case["negative_answer"]
 
     with torch.no_grad():
-        main_mem = encode_memory(model, tokenizer, hypernet, main_passage, device)
-        neg_mem = encode_memory(model, tokenizer, hypernet, negative_passage, device)
+        main_mem = encode_memory(
+            model,
+            tokenizer,
+            hypernet,
+            main_passage,
+            device,
+            question=question,
+            question_conditioned=question_conditioned,
+        )
+        neg_mem = encode_memory(
+            model,
+            tokenizer,
+            hypernet,
+            negative_passage,
+            device,
+            question=question,
+            question_conditioned=question_conditioned,
+        )
         main_tok = tokenize_qa(tokenizer, question, main_answer, device)
         neg_tok = tokenize_qa(tokenizer, question, negative_answer, device)
         main_gold = compute_answer_loss(
@@ -225,18 +251,32 @@ def main() -> None:
     config = state.get("config", {})
     layer_idx = int(config.get("critical_layer", load_critical_layer()))
     target_layer = model.model.layers[layer_idx]
+    question_conditioned = bool(config.get("question_conditioned_memory", False))
+    legacy_hypernet = "feature_dim" not in config
 
     hypernet = HyperKVGenerator(
         d_model=model.config.hidden_size,
         num_kv=int(config.get("num_kv", 8)),
         hidden_dim=int(config.get("hidden_dim", 1024)),
+        feature_dim=int(config.get("feature_dim", model.config.hidden_size)),
+        legacy=legacy_hypernet,
     ).to(device).float()
     hypernet.load_state_dict(state["hypernet"])
     hypernet.eval()
 
     print("[PRAG:single-ko]")
     [
-        run_case(model, tokenizer, hypernet, target_layer, device, case, args.max_new_tokens, args.alpha)
+        run_case(
+            model,
+            tokenizer,
+            hypernet,
+            target_layer,
+            device,
+            case,
+            args.max_new_tokens,
+            args.alpha,
+            question_conditioned,
+        )
         for case in CASES
     ]
 

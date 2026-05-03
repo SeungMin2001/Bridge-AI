@@ -8,50 +8,105 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .config import ALPHA, HIDDEN_DIM, MAX_MEMORY_TOKENS, MAX_SEQ_LEN, NUM_KV
+from .config import (
+    ALPHA,
+    HIDDEN_DIM,
+    MAX_MEMORY_TOKENS,
+    MAX_SEQ_LEN,
+    NUM_KV,
+    QUESTION_CONDITIONED_MEMORY,
+    USE_CONTEXTUAL_MEMORY,
+    contains_hangul,
+)
 from .prompts import system_prompt, user_prompt
 
 
 class HyperKVGenerator(nn.Module):
-    """Paper-style HyperKVGeneratorFixed with dynamic model dimensions.
+    """MergePRAG-style HyperKV generator adapted for service QA.
 
-    This follows the local MergePRAG author code closely:
-      token embeddings -> attentive pooling -> MLP -> linear K/V
-    The difference is that num_kv can be >1 for service memory capacity.
+    The paper path is preserved: passage features -> attentive pooling -> MLP
+    -> linear K/V. For the service setting, the input features can include the
+    base model's contextual hidden states, and the memory text can include the
+    user question. This lets K/V encode "the answer to this question from this
+    retrieved passage" instead of a question-agnostic bag of token embeddings.
     """
 
-    def __init__(self, d_model: int, num_kv: int = NUM_KV, hidden_dim: int = HIDDEN_DIM):
+    def __init__(
+        self,
+        d_model: int,
+        num_kv: int = NUM_KV,
+        hidden_dim: int = HIDDEN_DIM,
+        feature_dim: int | None = None,
+        legacy: bool = False,
+    ):
         super().__init__()
         self.d_model = d_model
+        self.feature_dim = feature_dim or d_model
         self.num_kv = num_kv
-        self.att_pool = nn.Linear(d_model, 1)
+        self.legacy = legacy
+        if legacy:
+            self.att_pool = nn.Linear(d_model, 1)
+        else:
+            self.input_norm = nn.LayerNorm(self.feature_dim)
+            self.input_proj = nn.Sequential(
+                nn.Linear(self.feature_dim, d_model),
+                nn.GELU(),
+                nn.LayerNorm(d_model),
+            )
+            self.att_pool = nn.Linear(d_model, num_kv)
+        activation = nn.ReLU if legacy else nn.GELU
         self.mlp = nn.Sequential(
             nn.Linear(d_model, hidden_dim),
-            nn.ReLU(),
+            activation(),
             nn.LayerNorm(hidden_dim),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+            activation(),
         )
-        self.linear_K = nn.Linear(hidden_dim, num_kv * d_model)
-        self.linear_V = nn.Linear(hidden_dim, num_kv * d_model)
+        if legacy:
+            self.linear_K = nn.Linear(hidden_dim, num_kv * d_model)
+            self.linear_V = nn.Linear(hidden_dim, num_kv * d_model)
+        else:
+            self.linear_K = nn.Linear(hidden_dim, d_model)
+            self.linear_V = nn.Linear(hidden_dim, d_model)
 
-    def forward(self, embeddings: torch.Tensor, attention_mask: torch.Tensor | None = None):
-        if MAX_MEMORY_TOKENS > 0 and embeddings.size(1) > MAX_MEMORY_TOKENS:
-            embeddings = embeddings[:, :MAX_MEMORY_TOKENS]
+    def forward(self, features: torch.Tensor, attention_mask: torch.Tensor | None = None):
+        if MAX_MEMORY_TOKENS > 0 and features.size(1) > MAX_MEMORY_TOKENS:
+            features = features[:, :MAX_MEMORY_TOKENS]
             attention_mask = attention_mask[:, :MAX_MEMORY_TOKENS] if attention_mask is not None else None
-        scores = self.att_pool(embeddings).squeeze(-1)
+        if self.legacy:
+            encoded = features
+            scores = self.att_pool(encoded).squeeze(-1)
+            if attention_mask is not None:
+                scores = scores.masked_fill(attention_mask == 0, torch.finfo(scores.dtype).min)
+            weights = torch.softmax(scores, dim=1).unsqueeze(-1)
+            pooled = (encoded * weights).sum(dim=1)
+            hidden = self.mlp(pooled)
+            batch = hidden.size(0)
+            K = self.linear_K(hidden).view(batch, self.num_kv, self.d_model)
+            V = self.linear_V(hidden).view(batch, self.num_kv, self.d_model)
+            return {"encoded": encoded, "pooled": pooled, "hidden": hidden, "K": K, "V": V, "att_weights": weights}
+
+        encoded = self.input_proj(self.input_norm(features))
+        scores = self.att_pool(encoded)
         
         if attention_mask is not None:
-            scores = scores.masked_fill(attention_mask == 0, torch.finfo(scores.dtype).min)
+            scores = scores.masked_fill(attention_mask.unsqueeze(-1) == 0, torch.finfo(scores.dtype).min)
             
-        weights = torch.softmax(scores, dim=1).unsqueeze(-1)
-        pooled = (embeddings * weights).sum(dim=1)
+        weights = torch.softmax(scores, dim=1)
+        pooled = torch.einsum("btd,bts->bsd", encoded, weights)
         hidden = self.mlp(pooled)
-        batch = hidden.size(0)
         
-        K = self.linear_K(hidden).view(batch, self.num_kv, self.d_model)
-        V = self.linear_V(hidden).view(batch, self.num_kv, self.d_model)
-        return {"pooled": pooled, "hidden": hidden, "K": K, "V": V, "att_weights": weights}
+        K = self.linear_K(hidden)
+        V = self.linear_V(hidden)
+        return {"encoded": encoded, "pooled": pooled, "hidden": hidden, "K": K, "V": V, "att_weights": weights}
+
+
+def build_memory_text(passage: str, question: str | None = None, question_conditioned: bool = QUESTION_CONDITIONED_MEMORY) -> str:
+    if question and question_conditioned:
+        if contains_hangul(f"{question}\n{passage}"):
+            return f"질문: {question}\n관련 수업/회의 내용: {passage}"
+        return f"Question: {question}\nRelevant lecture/meeting content: {passage}"
+    return passage
 
 
 def tokenize_passage(tokenizer, passage: str, device):
@@ -65,12 +120,61 @@ def tokenize_passage(tokenizer, passage: str, device):
     return {k: v.to(device) for k, v in encoded.items()}
 
 
-def encode_memory(model, tokenizer, hypernet: HyperKVGenerator, passage: str, device):
-    encoded = tokenize_passage(tokenizer, passage, device)
-    embeddings = model.model.embed_tokens(encoded["input_ids"]).to(dtype=torch.float32)
-    memory = hypernet(embeddings, encoded.get("attention_mask"))
-    memory["input_ids"] = encoded["input_ids"]
-    memory["attention_mask"] = encoded.get("attention_mask")
+@torch.no_grad()
+def passage_features(
+    model,
+    tokenizer,
+    passage: str,
+    device,
+    *,
+    question: str | None = None,
+    use_contextual: bool | None = None,
+    question_conditioned: bool = QUESTION_CONDITIONED_MEMORY,
+):
+    memory_text = build_memory_text(passage, question, question_conditioned=question_conditioned)
+    encoded = tokenize_passage(tokenizer, memory_text, device)
+    raw = model.model.embed_tokens(encoded["input_ids"]).to(dtype=torch.float32)
+    if use_contextual is None:
+        use_contextual = USE_CONTEXTUAL_MEMORY
+    if not use_contextual:
+        features = raw
+    else:
+        outputs = model.model(
+            input_ids=encoded["input_ids"],
+            attention_mask=encoded["attention_mask"],
+            use_cache=False,
+            return_dict=True,
+        )
+        contextual = outputs.last_hidden_state.to(dtype=torch.float32)
+        features = torch.cat([raw, contextual], dim=-1)
+    return features, encoded.get("attention_mask"), encoded["input_ids"]
+
+
+def encode_memory(
+    model,
+    tokenizer,
+    hypernet: HyperKVGenerator,
+    passage: str,
+    device,
+    *,
+    question: str | None = None,
+    use_contextual: bool | None = None,
+    question_conditioned: bool = QUESTION_CONDITIONED_MEMORY,
+):
+    if use_contextual is None:
+        use_contextual = hypernet.feature_dim != hypernet.d_model
+    features, attention_mask, input_ids = passage_features(
+        model,
+        tokenizer,
+        passage,
+        device,
+        question=question,
+        use_contextual=use_contextual,
+        question_conditioned=question_conditioned,
+    )
+    memory = hypernet(features, attention_mask)
+    memory["input_ids"] = input_ids
+    memory["attention_mask"] = attention_mask
     return memory
 
 
@@ -162,4 +266,3 @@ def forward_with_memory(model, target_layer, K: torch.Tensor, V: torch.Tensor, t
     finally:
         hook.remove()
     return logits
-

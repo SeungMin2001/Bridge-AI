@@ -257,10 +257,14 @@ def main() -> None:
         answer_target = str(config.get("answer_target") or "answer")
     layer_idx = int(config.get("critical_layer", load_critical_layer()))
     target_layer = model.model.layers[layer_idx]
+    question_conditioned = bool(config.get("question_conditioned_memory", False))
+    legacy_hypernet = "feature_dim" not in config
     hypernet = HyperKVGenerator(
         d_model=model.config.hidden_size,
         num_kv=int(config.get("num_kv", 8)),
         hidden_dim=int(config.get("hidden_dim", 1024)),
+        feature_dim=int(config.get("feature_dim", model.config.hidden_size)),
+        legacy=legacy_hypernet,
     ).to(device).float()
     hypernet.load_state_dict(state["hypernet"])
     hypernet.eval()
@@ -279,8 +283,24 @@ def main() -> None:
                     continue
                 qa_type = ex.qa_type or "qa"
                 bucket = by_type.setdefault(qa_type, init_bucket())
-                main_mem = encode_memory(model, tokenizer, hypernet, ex.passage, device)
-                neg_mem = encode_memory(model, tokenizer, hypernet, ex.negative_passage, device)
+                main_mem = encode_memory(
+                    model,
+                    tokenizer,
+                    hypernet,
+                    ex.passage,
+                    device,
+                    question=ex.question,
+                    question_conditioned=question_conditioned,
+                )
+                neg_mem = encode_memory(
+                    model,
+                    tokenizer,
+                    hypernet,
+                    ex.negative_passage,
+                    device,
+                    question=ex.question,
+                    question_conditioned=question_conditioned,
+                )
                 gold_answer = ex.target_answer(answer_target)
                 negative_answer = ex.target_negative_answer(answer_target)
                 if not negative_answer:
