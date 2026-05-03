@@ -68,11 +68,44 @@ def generate_plain(model, tokenizer, question: str, device, max_new_tokens: int)
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
+def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
+    messages = [
+        {
+            "role": "system",
+            "content": "제공된 passage만 근거로 한국어로 짧게 답하세요. passage에 없으면 '모름'이라고 답하세요.",
+        },
+        {
+            "role": "user",
+            "content": f"passage:\n{passage}\n\n질문:\n{question}\n\n답변:",
+        },
+    ]
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+
+
 @torch.no_grad()
-def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max_new_tokens):
+def generate_direct_passage(model, tokenizer, question: str, passage: str, device, max_new_tokens: int) -> str:
+    prompt = build_direct_passage_prompt(tokenizer, question, passage)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    generated = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.eos_token_id,
+    )
+    return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+
+
+@torch.no_grad()
+def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max_new_tokens, alpha: float):
     prompt = build_chat_prompt(tokenizer, question)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=ALPHA))
+    hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=alpha))
     try:
         generated = model.generate(
             **inputs,
@@ -86,7 +119,7 @@ def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
-def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_new_tokens: int) -> None:
+def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_new_tokens: int, alpha: float) -> None:
     question = case["question"]
     main_passage = case["main_passage"]
     negative_passage = case["negative_passage"]
@@ -99,30 +132,33 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
         main_tok = tokenize_qa(tokenizer, question, main_answer, device)
         neg_tok = tokenize_qa(tokenizer, question, negative_answer, device)
         main_gold = compute_answer_loss(
-            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], main_tok, alpha=ALPHA),
+            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], main_tok, alpha=alpha),
             main_tok["labels"],
         ).item()
         main_neg = compute_answer_loss(
-            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=ALPHA),
+            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=alpha),
             neg_tok["labels"],
         ).item()
         neg_gold = compute_answer_loss(
-            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], main_tok, alpha=ALPHA),
+            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], main_tok, alpha=alpha),
             main_tok["labels"],
         ).item()
         neg_neg = compute_answer_loss(
-            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=ALPHA),
+            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=alpha),
             neg_tok["labels"],
         ).item()
         no_passage = generate_plain(model, tokenizer, question, device, max_new_tokens)
+        direct_main = generate_direct_passage(model, tokenizer, question, main_passage, device, max_new_tokens)
+        direct_neg = generate_direct_passage(model, tokenizer, question, negative_passage, device, max_new_tokens)
         main_gen = generate_with_kv(
-            model, tokenizer, target_layer, question, main_mem["K"], main_mem["V"], device, max_new_tokens
+            model, tokenizer, target_layer, question, main_mem["K"], main_mem["V"], device, max_new_tokens, alpha
         )
         neg_gen = generate_with_kv(
-            model, tokenizer, target_layer, question, neg_mem["K"], neg_mem["V"], device, max_new_tokens
+            model, tokenizer, target_layer, question, neg_mem["K"], neg_mem["V"], device, max_new_tokens, alpha
         )
 
     print(f"\n[case:{case['name']}]")
+    print(f"alpha: {alpha}")
     print(f"question: {question}")
     print(f"passage: {main_passage}")
     print(f"negative passage: {negative_passage}")
@@ -142,6 +178,14 @@ def run_case(model, tokenizer, hypernet, target_layer, device, case: dict, max_n
     print("\n[model answer | no passage]")
     print("----- BEGIN -----")
     print(no_passage)
+    print("------ END ------")
+    print("\n[model answer | direct main passage]")
+    print("----- BEGIN -----")
+    print(direct_main)
+    print("------ END ------")
+    print("\n[model answer | direct negative passage]")
+    print("----- BEGIN -----")
+    print(direct_neg)
     print("------ END ------")
     print("\n[model answer | with passage K/V]")
     print("----- BEGIN -----")
@@ -167,6 +211,7 @@ def main() -> None:
         help="Use the legacy single-fact trained weights.",
     )
     parser.add_argument("--max-new-tokens", type=int, default=16)
+    parser.add_argument("--alpha", type=float, default=ALPHA)
     args = parser.parse_args()
 
     if args.singlefact:
@@ -191,7 +236,7 @@ def main() -> None:
 
     print("[PRAG:single-ko]")
     [
-        run_case(model, tokenizer, hypernet, target_layer, device, case, args.max_new_tokens)
+        run_case(model, tokenizer, hypernet, target_layer, device, case, args.max_new_tokens, args.alpha)
         for case in CASES
     ]
 
