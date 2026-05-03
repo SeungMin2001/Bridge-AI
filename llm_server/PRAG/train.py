@@ -24,6 +24,9 @@ from .config import (
     CHECKPOINT_PATH,
     EPOCHS,
     EVAL_EVERY,
+    EVAL_GENERATION_EVERY,
+    EVAL_GENERATION_MAX_NEW_TOKENS,
+    EVAL_GENERATION_SAMPLES,
     EVAL_MAX_SAMPLES,
     EXTERNAL_QA_AUGMENTED_TRAIN_PATH,
     EXTERNAL_QA_AUGMENTED_VALID_PATH,
@@ -696,7 +699,7 @@ def main() -> None:
     parser.add_argument(
         "--eval-generation-samples",
         type=int,
-        default=0,
+        default=EVAL_GENERATION_SAMPLES,
         help=(
             "Run a small free-generation validation probe on this many balanced examples. "
             "Set 0 to disable because generation is much slower than loss scoring."
@@ -705,13 +708,13 @@ def main() -> None:
     parser.add_argument(
         "--eval-generation-every",
         type=int,
-        default=1000,
+        default=EVAL_GENERATION_EVERY,
         help="Run the optional free-generation probe every N steps. Use 0 to run at every validation.",
     )
     parser.add_argument(
         "--eval-generation-max-new-tokens",
         type=int,
-        default=64,
+        default=EVAL_GENERATION_MAX_NEW_TOKENS,
         help="Maximum generated tokens for the optional free-generation validation probe.",
     )
     parser.add_argument(

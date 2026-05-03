@@ -104,10 +104,12 @@ python -m llm_server.PRAG.preview_data \
 Train HyperKV memory:
 
 ```bash
-python -m llm_server.PRAG.train \
-  --train data/PRAG_augmented_train.jsonl \
-  --valid data/PRAG_augmented_valid.jsonl
+python -m llm_server.PRAG.train --multifact --no-resume
 ```
+
+Default training settings are kept in `llm_server/PRAG/config.py`: `epochs=4`,
+`num_kv=16`, `alpha=1.0`, `answer_target=full_answer`, and a small
+free-generation validation probe every 1000 steps.
 
 Evaluate:
 

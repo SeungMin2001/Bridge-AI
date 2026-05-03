@@ -916,7 +916,7 @@ python -m llm_server.PRAG.augment
 데이터셋이 계속 추가되는 실험 단계에서는 기존 checkpoint를 이어받지 않고 새로 학습한다.
 
 ```bash
-python -m llm_server.PRAG.train --epochs 3 --no-resume
+python -m llm_server.PRAG.train --multifact --no-resume
 ```
 
 현재 새 PRAG 기본 설정:
@@ -925,6 +925,11 @@ python -m llm_server.PRAG.train --epochs 3 --no-resume
 num_kv = 16
 alpha = 1.0
 hidden_dim = 1024
+epochs = 4
+answer_target = full_answer
+eval_generation_samples = 4
+eval_generation_every = 1000
+eval_generation_max_new_tokens = 64
 ```
 
 주의:

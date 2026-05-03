@@ -78,11 +78,14 @@ RANK_MARGIN = float(os.getenv("PRAG_RANK_MARGIN", "0.5"))
 RANK_WEIGHT = float(os.getenv("PRAG_RANK_WEIGHT", "1.0"))
 LR = float(os.getenv("PRAG_LR", "8e-5"))
 LR_MIN = float(os.getenv("PRAG_LR_MIN", "1e-6"))
-EPOCHS = int(os.getenv("PRAG_EPOCHS", "1"))
+EPOCHS = int(os.getenv("PRAG_EPOCHS", "4"))
 LOG_EVERY = int(os.getenv("PRAG_LOG_EVERY", "25"))
 SAVE_EVERY = int(os.getenv("PRAG_SAVE_EVERY", "250"))
 EVAL_EVERY = int(os.getenv("PRAG_EVAL_EVERY", "250"))
 EVAL_MAX_SAMPLES = int(os.getenv("PRAG_EVAL_MAX_SAMPLES", "120"))
+EVAL_GENERATION_SAMPLES = int(os.getenv("PRAG_EVAL_GENERATION_SAMPLES", "4"))
+EVAL_GENERATION_EVERY = int(os.getenv("PRAG_EVAL_GENERATION_EVERY", "1000"))
+EVAL_GENERATION_MAX_NEW_TOKENS = int(os.getenv("PRAG_EVAL_GENERATION_MAX_NEW_TOKENS", "64"))
 
 
 def contains_hangul(text: str) -> bool:
