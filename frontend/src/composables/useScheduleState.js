@@ -1,6 +1,8 @@
 import { computed, ref } from 'vue'
 
 const STORAGE_KEY = 'lecto_home_calendar_schedules'
+const API_BASE = '/schedule'
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const scheduleItems = ref([])
 const hasLoadedSchedules = ref(false)
@@ -10,6 +12,8 @@ const TYPE_LABELS = {
   meeting: '회의',
   assignment: '과제',
   exam: '시험',
+  presentation: '발표',
+  project: '프로젝트',
   etc: '기타'
 }
 
@@ -18,6 +22,8 @@ const TYPE_ICONS = {
   meeting: 'groups_2',
   assignment: 'assignment',
   exam: 'quiz',
+  presentation: 'campaign',
+  project: 'workspaces',
   etc: 'event'
 }
 
@@ -25,6 +31,28 @@ const STATUS_LABELS = {
   pending: '확인 필요',
   confirmed: '예정',
   ignored: '무시됨'
+}
+
+const EVENT_TYPE_TO_FRONTEND = {
+  수업: 'lecture',
+  강의: 'lecture',
+  회의: 'meeting',
+  과제: 'assignment',
+  제출: 'assignment',
+  시험: 'exam',
+  발표: 'presentation',
+  프로젝트: 'project',
+  기타: 'etc'
+}
+
+const FRONTEND_TYPE_TO_EVENT = {
+  lecture: '수업',
+  meeting: '회의',
+  assignment: '과제',
+  exam: '시험',
+  presentation: '발표',
+  project: '프로젝트',
+  etc: '기타'
 }
 
 const formatDateKey = (date = new Date()) => {
@@ -74,30 +102,88 @@ const normalizeStatus = (status, origin = 'manual') => {
   return origin === 'ai' ? 'pending' : 'confirmed'
 }
 
-const normalizeScheduleItem = (item) => {
-  const origin = item.origin || (item.sourceText ? 'ai' : 'manual')
-  const dateKey = item.dateKey || formatDateKey()
-  const startTime = item.startTime || ''
-  const endTime = item.endTime || ''
-  const time = item.time || [startTime, endTime].filter(Boolean).join(' - ')
+const normalizeEventType = (type, origin = 'manual') => {
+  if (TYPE_LABELS[type]) return type
+  if (type && EVENT_TYPE_TO_FRONTEND[type]) return EVENT_TYPE_TO_FRONTEND[type]
+  return origin === 'ai' ? 'meeting' : 'etc'
+}
 
-  return {
-    ...item,
-    id: item.id || createLocalId(origin === 'ai' ? 'ai-schedule' : 'schedule'),
-    origin,
-    type: item.type || item.fileKind || (origin === 'ai' ? 'meeting' : 'etc'),
+const formatKoreanTime = (date) => {
+  let hour = date.getHours()
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  const meridiem = hour < 12 ? '오전' : '오후'
+  hour %= 12
+  if (hour === 0) hour = 12
+  return `${meridiem} ${String(hour).padStart(2, '0')}:${minute}`
+}
+
+const parseDueDate = (dueDate) => {
+  if (!dueDate) return null
+  const parsed = new Date(dueDate)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed
+}
+
+const parseKoreanTime = (timeText = '오전 09:00') => {
+  const match = String(timeText).match(/(오전|오후)\s*(\d{1,2}):(\d{2})/)
+  if (!match) return { hour: 9, minute: 0 }
+
+  const [, meridiem, rawHour, rawMinute] = match
+  let hour = Number(rawHour)
+  const minute = Number(rawMinute)
+
+  if (meridiem === '오전' && hour === 12) hour = 0
+  if (meridiem === '오후' && hour !== 12) hour += 12
+
+  return { hour, minute }
+}
+
+const toApiDueDate = (item) => {
+  const { hour, minute } = parseKoreanTime(item.startTime || item.time)
+  return `${item.dateKey}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`
+}
+
+const mapScheduleFromApi = (item) => {
+  const dueDate = parseDueDate(item.due_date)
+  const dateKey = dueDate ? formatDateKey(dueDate) : formatDateKey()
+  const startTime = dueDate ? formatKoreanTime(dueDate) : ''
+
+  return normalizeScheduleItem({
+    id: item.schedule_id,
+    apiId: item.schedule_id,
+    origin: item.source_text ? 'ai' : 'manual',
+    type: normalizeEventType(item.event_type, item.source_text ? 'ai' : 'manual'),
     dateKey,
-    weekKey: item.weekKey || getWeekKeyFromDateKey(dateKey),
+    title: item.title,
     startTime,
-    endTime,
-    time,
-    note: item.note || '',
-    sourceText: item.sourceText || '',
-    sourceSessionTitle: item.sourceSessionTitle || '',
-    workspaceFileId: item.workspaceFileId || '',
-    confidence: typeof item.confidence === 'number' ? item.confidence : null,
-    status: normalizeStatus(item.status, origin)
+    endTime: startTime,
+    time: startTime,
+    note: item.description || '',
+    sourceText: item.source_text || '',
+    sourceSessionTitle: item.session_title || item.course_title || '',
+    workspaceFileId: item.session_id || '',
+    confidence: null,
+    status: item.status,
+    transcriptId: item.transcript_id || '',
+    sourceStartTime: item.source_start_time,
+    sourceEndTime: item.source_end_time
+  })
+}
+
+const requestJson = async (url, options = {}) => {
+  const response = await fetch(url, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    },
+    ...options
+  })
+
+  if (!response.ok) {
+    throw new Error(`Schedule API request failed: ${response.status}`)
   }
+
+  return response.json()
 }
 
 const createSampleAiSchedules = () => {
@@ -158,6 +244,33 @@ const createSampleAiSchedules = () => {
   ].map(normalizeScheduleItem)
 }
 
+const normalizeScheduleItem = (item) => {
+  const origin = item.origin || (item.sourceText ? 'ai' : 'manual')
+  const dateKey = item.dateKey || formatDateKey()
+  const startTime = item.startTime || ''
+  const endTime = item.endTime || ''
+  const time = item.time || [startTime, endTime].filter(Boolean).join(' - ')
+
+  return {
+    ...item,
+    id: item.id || createLocalId(origin === 'ai' ? 'ai-schedule' : 'schedule'),
+    apiId: item.apiId || (UUID_PATTERN.test(item.id || '') ? item.id : ''),
+    origin,
+    type: normalizeEventType(item.type || item.fileKind, origin),
+    dateKey,
+    weekKey: item.weekKey || getWeekKeyFromDateKey(dateKey),
+    startTime,
+    endTime,
+    time,
+    note: item.note || '',
+    sourceText: item.sourceText || '',
+    sourceSessionTitle: item.sourceSessionTitle || '',
+    workspaceFileId: item.workspaceFileId || '',
+    confidence: typeof item.confidence === 'number' ? item.confidence : null,
+    status: normalizeStatus(item.status, origin)
+  }
+}
+
 const persistSchedules = (items) => {
   scheduleItems.value = items.map(normalizeScheduleItem)
   localStorage.setItem(STORAGE_KEY, JSON.stringify(scheduleItems.value))
@@ -169,6 +282,17 @@ const mergeSampleSchedules = (items) => {
   return [...items, ...samples]
 }
 
+const loadCachedSchedules = () => {
+  const raw = localStorage.getItem(STORAGE_KEY)
+  if (!raw) return []
+
+  try {
+    return JSON.parse(raw).map(normalizeScheduleItem)
+  } catch {
+    return []
+  }
+}
+
 const sortSchedules = (items) => {
   return [...items].sort((a, b) => {
     const dateCompare = a.dateKey.localeCompare(b.dateKey)
@@ -177,24 +301,55 @@ const sortSchedules = (items) => {
   })
 }
 
+const syncScheduleStatus = (scheduleId, status) => {
+  const endpoint = status === 'confirmed' ? 'confirm' : 'ignore'
+  if (!UUID_PATTERN.test(scheduleId) || (status !== 'confirmed' && status !== 'ignored')) return
+  requestJson(`${API_BASE}/${scheduleId}/${endpoint}`, { method: 'PUT' }).catch((error) => {
+    console.warn('[Schedule] status sync failed', error)
+  })
+}
+
+const syncManualSchedule = (localItem) => {
+  requestJson(`${API_BASE}/manual`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: localItem.title,
+      description: localItem.note,
+      event_type: FRONTEND_TYPE_TO_EVENT[localItem.type] || '기타',
+      due_date: toApiDueDate(localItem),
+      status: 'confirmed'
+    })
+  })
+    .then((saved) => {
+      if (!saved?.schedule_id) return
+      const apiItem = mapScheduleFromApi(saved)
+      persistSchedules(scheduleItems.value.map((item) => (
+        item.id === localItem.id ? apiItem : item
+      )))
+    })
+    .catch((error) => {
+      console.warn('[Schedule] manual schedule sync failed', error)
+    })
+}
+
 export function useScheduleState() {
-  const hydrateSchedules = () => {
-    if (hasLoadedSchedules.value) return
+  const hydrateSchedules = async ({ force = false } = {}) => {
+    if (hasLoadedSchedules.value && !force) return scheduleItems.value
 
-    const raw = localStorage.getItem(STORAGE_KEY)
-    let loadedItems = []
-
-    if (raw) {
-      try {
-        loadedItems = JSON.parse(raw).map(normalizeScheduleItem)
-      } catch {
-        loadedItems = []
-      }
+    try {
+      const data = await requestJson(`${API_BASE}/`)
+      const apiItems = Array.isArray(data.schedules)
+        ? data.schedules.map(mapScheduleFromApi)
+        : []
+      persistSchedules(apiItems)
+    } catch (error) {
+      console.warn('[Schedule] API load failed, using local fallback', error)
+      const cachedItems = loadCachedSchedules()
+      persistSchedules(mergeSampleSchedules(cachedItems))
     }
 
-    scheduleItems.value = mergeSampleSchedules(loadedItems)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(scheduleItems.value))
     hasLoadedSchedules.value = true
+    return scheduleItems.value
   }
 
   const visibleSchedules = computed(() => {
@@ -226,6 +381,7 @@ export function useScheduleState() {
       status: 'confirmed'
     })
     persistSchedules([...scheduleItems.value, item])
+    syncManualSchedule(item)
     return item
   }
 
@@ -235,6 +391,7 @@ export function useScheduleState() {
         ? normalizeScheduleItem({ ...item, status })
         : item
     )))
+    syncScheduleStatus(scheduleId, status)
   }
 
   const confirmSchedule = (scheduleId) => updateScheduleStatus(scheduleId, 'confirmed')

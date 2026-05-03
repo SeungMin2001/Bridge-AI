@@ -23,8 +23,10 @@ const {
   activeFileType,
   currentPreviewMaterial,
   isRightSidebarVisible,
+  scheduleExtractionNotice,
   summaryNotes,
   aiInput,
+  dismissScheduleExtractionNotice,
   handleFileTreeUpdate,
   handleFavoritesUpdate,
   handleAiInputUpdate,
@@ -88,13 +90,16 @@ const {
     :activeFileType="activeFileType"
     :currentPreviewMaterial="currentPreviewMaterial"
     :isRightSidebarVisible="isRightSidebarVisible"
+    :scheduleExtractionNotice="scheduleExtractionNotice"
     :summaryNotes="summaryNotes"
     :aiInput="aiInput"
     @update:fileTree="handleFileTreeUpdate"
     @update:favorites="handleFavoritesUpdate"
     @update:aiInput="handleAiInputUpdate"
     @navigateHome="navigateTo('home')"
+    @navigate="navigateTo"
     @fileSelect="handleFileSelect"
+    @dismissScheduleNotice="dismissScheduleExtractionNotice"
     @startRecording="startRecording"
     @pauseRecording="pauseRecording"
     @resumeRecording="resumeRecording"

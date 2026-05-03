@@ -10,10 +10,12 @@ import {
 } from './appState/fileTreeState'
 import { useMaterialsState } from './appState/materialsState'
 import { useRecordingState } from './appState/recordingState'
+import { useScheduleState } from './useScheduleState'
 
 // 앱 전체에서 공유하는 상태 모듈들을 하나로 묶어 App.vue에 전달합니다.
 export function useAppState() {
   const isRightSidebarVisible = ref(true)
+  const scheduleExtractionNotice = ref(null)
 
   // 파일 트리, 즐겨찾기, 현재 선택 파일 상태입니다.
   const {
@@ -42,6 +44,10 @@ export function useAppState() {
     resumeRecording,
     stopRecording: stopActiveRecording
   } = useRecordingState()
+
+  const {
+    hydrateSchedules
+  } = useScheduleState()
 
   // AI 입력, 정리 노트, 우측 사이드바 상태입니다.
   const {
@@ -111,6 +117,53 @@ export function useAppState() {
     return startRecording(mode, activeFileId.value)
   }
 
+  const showScheduleExtractionNotice = (sessionId, notifications = []) => {
+    const items = notifications
+      .filter((item) => item?.schedule_id && item?.title)
+      .map((item) => ({
+        id: item.schedule_id,
+        title: item.title,
+        dueDate: item.due_date || '',
+        eventType: item.event_type || '',
+        description: item.description || '',
+        sourceText: item.source_text || ''
+      }))
+
+    if (items.length === 0) {
+      scheduleExtractionNotice.value = null
+      return
+    }
+
+    scheduleExtractionNotice.value = {
+      id: `${sessionId}-${Date.now()}`,
+      sessionId,
+      count: items.length,
+      items
+    }
+  }
+
+  const dismissScheduleExtractionNotice = () => {
+    scheduleExtractionNotice.value = null
+  }
+
+  const extractSchedulesForSession = async (sessionId) => {
+    if (!isWorkspaceUuid(sessionId)) return
+
+    const response = await fetch('/schedule/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId })
+    })
+
+    if (!response.ok) {
+      throw new Error(`schedule extract failed: ${response.status}`)
+    }
+
+    const result = await response.json()
+    await hydrateSchedules({ force: true })
+    showScheduleExtractionNotice(sessionId, result?.notifications || [])
+  }
+
   const handleStopRecording = async () => {
     const shouldSaveRecording = isRecording.value
     const recordingSnapshot = cloneTranscriptions()
@@ -151,6 +204,12 @@ export function useAppState() {
       } catch (error) {
         console.error('[workspace] session resources save failed:', error)
       }
+
+      try {
+        await extractSchedulesForSession(targetFileId)
+      } catch (error) {
+        console.error('[schedule] extract after recording failed:', error)
+      }
     }
   }
 
@@ -175,8 +234,10 @@ export function useAppState() {
     currentRecordings,
     currentPreviewMaterial,
     isRightSidebarVisible,
+    scheduleExtractionNotice,
     summaryNotes,
     aiInput,
+    dismissScheduleExtractionNotice,
     handleFileTreeUpdate,
     handleFavoritesUpdate,
     handleAiInputUpdate,
