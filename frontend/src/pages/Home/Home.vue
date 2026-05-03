@@ -70,6 +70,7 @@ const openRecentFileHandler = (file) => {
       :favorites="favorites"
       @toggle="isSidebarCollapsed = !isSidebarCollapsed"
       @navigate="emit('navigate', $event)"
+      @openScheduleSource="openReferenceHandler"
     />
 
     <main id="home-main-content" class="flex-1 relative z-10 transition-all duration-700 overflow-hidden">

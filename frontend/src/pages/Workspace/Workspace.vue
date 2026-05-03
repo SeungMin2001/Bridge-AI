@@ -20,16 +20,19 @@ const props = defineProps({
   activeFileType: { type: String, default: 'lecture' },
   currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
+  scheduleExtractionNotice: { type: Object, default: null },
   summaryNotes: { type: Array, default: () => [] },
   aiInput: { type: String, default: '' }
 })
 
 const emit = defineEmits([
   'navigateHome',
+  'navigate',
   'fileSelect',
   'update:fileTree',
   'update:favorites',
   'update:aiInput',
+  'dismissScheduleNotice',
   'startRecording',
   'pauseRecording',
   'resumeRecording',
@@ -45,6 +48,42 @@ const emit = defineEmits([
 const isLeftSidebarCollapsed = ref(false)
 const { showCitePopover, currentCite, citePopoverPos, closeCitePopover, clearHistory } = useChat()
 const citationSourceRequest = ref(null)
+
+const scheduleNoticeItems = computed(() => props.scheduleExtractionNotice?.items || [])
+const visibleScheduleNoticeItems = computed(() => scheduleNoticeItems.value.slice(0, 3))
+const hiddenScheduleNoticeCount = computed(() => Math.max(scheduleNoticeItems.value.length - 3, 0))
+const scheduleNoticeTitle = computed(() => (
+  scheduleNoticeItems.value.length > 1
+    ? `새 일정 ${scheduleNoticeItems.value.length}개가 추가되었습니다`
+    : '새 일정이 추가되었습니다'
+))
+
+function formatScheduleNoticeDate(value = '') {
+  if (!value) return ''
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+
+  const year = parsed.getFullYear()
+  const month = parsed.getMonth() + 1
+  const day = parsed.getDate()
+  let hour = parsed.getHours()
+  const minute = String(parsed.getMinutes()).padStart(2, '0')
+  const meridiem = hour < 12 ? '오전' : '오후'
+  hour %= 12
+  if (hour === 0) hour = 12
+
+  return `${year}년 ${month}월 ${day}일 ${meridiem} ${hour}:${minute}`
+}
+
+function closeScheduleNotice() {
+  emit('dismissScheduleNotice')
+}
+
+function goSchedulePageFromNotice() {
+  emit('dismissScheduleNotice')
+  emit('navigate', 'schedule')
+}
 
 // 팝오버 내 버튼 액션
 function askAboutCite(cite) {
@@ -127,6 +166,57 @@ const highlightedTranscript = computed(() => {
     ]"
   >
     <InfiniteGrid class="absolute inset-0 z-0" />
+
+    <transition name="schedule-notice-fade">
+      <section
+        v-if="scheduleNoticeItems.length"
+        class="workspace-schedule-notice"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="workspace-schedule-notice-top">
+          <div class="workspace-schedule-notice-icon">
+            <span class="material-symbols-outlined">event_available</span>
+          </div>
+          <div class="workspace-schedule-notice-heading">
+            <span>AI 일정 감지</span>
+            <strong>{{ scheduleNoticeTitle }}</strong>
+          </div>
+          <button
+            type="button"
+            class="workspace-schedule-notice-close"
+            aria-label="일정 알림 닫기"
+            @click="closeScheduleNotice"
+          >
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        <div class="workspace-schedule-notice-list">
+          <article
+            v-for="item in visibleScheduleNoticeItems"
+            :key="item.id"
+            class="workspace-schedule-notice-item"
+          >
+            <strong>{{ item.title }}</strong>
+            <span>{{ formatScheduleNoticeDate(item.dueDate) }}</span>
+          </article>
+          <div v-if="hiddenScheduleNoticeCount" class="workspace-schedule-notice-more">
+            외 {{ hiddenScheduleNoticeCount }}개 일정
+          </div>
+        </div>
+
+        <div class="workspace-schedule-notice-actions">
+          <button type="button" class="workspace-schedule-notice-secondary" @click="closeScheduleNotice">
+            확인
+          </button>
+          <button type="button" class="workspace-schedule-notice-primary" @click="goSchedulePageFromNotice">
+            일정관리로 이동
+          </button>
+        </div>
+      </section>
+    </transition>
+
     <LeftSidebar
       class="relative z-10"
       :isCollapsed="isLeftSidebarCollapsed"
@@ -234,6 +324,174 @@ const highlightedTranscript = computed(() => {
 </template>
 
 <style scoped>
+.workspace-schedule-notice {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 80;
+  width: min(380px, calc(100vw - 32px));
+  padding: 16px;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 20px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.workspace-schedule-notice-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workspace-schedule-notice-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2563eb;
+  background: #eef4ff;
+  border: 1px solid #dbe7ff;
+  flex: 0 0 auto;
+}
+
+.workspace-schedule-notice-icon .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.workspace-schedule-notice-heading {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-schedule-notice-heading span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workspace-schedule-notice-heading strong {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.workspace-schedule-notice-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  color: #94a3b8;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.workspace-schedule-notice-close:hover {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.workspace-schedule-notice-close .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.workspace-schedule-notice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.workspace-schedule-notice-item {
+  padding: 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e5edf6;
+}
+
+.workspace-schedule-notice-item strong,
+.workspace-schedule-notice-item span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.workspace-schedule-notice-item strong {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.workspace-schedule-notice-item span {
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workspace-schedule-notice-more {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 4px;
+}
+
+.workspace-schedule-notice-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.workspace-schedule-notice-primary,
+.workspace-schedule-notice-secondary {
+  min-height: 38px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 15px;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.workspace-schedule-notice-primary {
+  color: #ffffff;
+  background: #1f2937;
+}
+
+.workspace-schedule-notice-secondary {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.workspace-schedule-notice-primary:hover,
+.workspace-schedule-notice-secondary:hover {
+  transform: translateY(-1px);
+}
+
+.schedule-notice-fade-enter-active,
+.schedule-notice-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.schedule-notice-fade-enter-from,
+.schedule-notice-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
 .cite-popover-overlay {
   position: fixed;
   inset: 0;
