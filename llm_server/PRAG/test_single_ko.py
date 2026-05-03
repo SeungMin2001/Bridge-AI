@@ -27,15 +27,15 @@ from .memory import (
 CASES = [
     {
         "name": "ko_lecture_multifact",
-        "question": "승민 교수의 나이는 몇살이야?",
+        "question": "라온 교수의 자료구조 강의에서 벨토 큐의 역할은 뭐야?",
         "main_passage": (
-            "승민 교수의 나이는 스물아홉살이야."
+            "라온 교수는 자료구조 강의에서 벨토 큐의 역할은 대기 작업을 앞에서부터 꺼내는 것이라고 설명했다."
         ),
         "negative_passage": (
-            "승민 교수의 나이는 마흔다섯살이야."
+            "라온 교수는 자료구조 강의에서 벨토 큐의 역할은 완료 기록을 색깔별로 보관하는 것이라고 설명했다."
         ),
-        "main_answer": "스물아홉살",
-        "negative_answer": "마흔다섯살",
+        "main_answer": "대기 작업을 앞에서부터 꺼내는 것",
+        "negative_answer": "완료 기록을 색깔별로 보관하는 것",
     },
 ]
 
