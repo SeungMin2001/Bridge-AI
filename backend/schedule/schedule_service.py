@@ -25,7 +25,7 @@ import logging
 import httpx
 import os
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +40,29 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 #  LLM 프롬프트 템플릿
 SCHEDULE_SYSTEM_PROMPT = """당신은 대학 강의 전사문에서 일정 관련 정보를 추출하는 AI 비서입니다.
 시험, 과제, 프로젝트, 발표, 제출 마감일 등 학사 일정을 정확하게 찾아내세요.
+반드시 전사문에 명시된 날짜/시간/마감 표현이 있는 항목만 추출하세요.
+잡담, 인사, 간식, 일반 설명, 개념 설명, 학습 조언, 날짜가 없는 할 일은 일정이 아닙니다.
+전사문에 없는 시험/과제/날짜를 추측하거나 만들어내면 안 됩니다.
 반드시 아래 JSON 형식으로만 응답하세요. JSON 외의 텍스트는 절대 포함하지 마세요.
 일정이 없으면 빈 배열 []을 반환하세요."""
 
-SCHEDULE_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
+SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜는 {today}입니다.
+
+아래는 강의 전사문입니다:
 
 {transcript_text}
 
-위 전사문에서 일정 관련 내용을 모두 찾아 아래 JSON 배열 형식으로 추출하세요.
-날짜가 명시되지 않은 경우 due_date는 null로 설정하세요.
+위 전사문에서 일정 관련 내용을 찾아 아래 JSON 배열 형식으로 추출하세요.
+
+추출 규칙:
+- 과제 제출, 시험, 발표, 프로젝트, 보강 수업, 회의처럼 사용자가 캘린더에 등록할 만한 항목만 추출하세요.
+- 반드시 날짜나 시간이 있는 문장만 추출하세요. 날짜/시간이 없으면 제외하세요.
+- "내일", "다음 주" 같은 상대 날짜는 오늘 날짜를 기준으로 YYYY-MM-DDTHH:MM:SS로 바꾸세요.
+- 제목은 전사문에 실제로 나온 과목/대상/일정유형만 사용하세요.
+- 제목에 전사문에 없는 과목명, 약어, 주제어를 새로 만들거나 예시 문구를 복사하지 마세요.
+- 구체적인 대상이 없으면 "시험 일정", "과제 제출", "발표 일정"처럼 일정유형 중심으로 작성하세요.
+- source_text는 반드시 전사문에 실제로 나온 문장 또는 그 문장의 일부여야 합니다.
+- 일정이 없으면 []만 반환하세요.
 날짜 형식은 "YYYY-MM-DD" 또는 "YYYY-MM-DDTHH:MM:SS"로 작성하세요.
 
 [
@@ -65,6 +79,7 @@ SCHEDULE_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 def _build_schedule_prompt(transcript_text: str) -> list[dict]:
     """LLM에 보낼 일정 추출 프롬프트 messages 배열을 구성한다."""
     user_prompt = SCHEDULE_USER_PROMPT_TEMPLATE.format(
+        today=datetime.now().strftime("%Y-%m-%d"),
         transcript_text=transcript_text[:6000]  # 토큰 제한 고려
     )
     return [
@@ -92,9 +107,12 @@ def _parse_schedule_json(raw_text: str) -> list[dict]:
 
     try:
         schedules = json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.error(f"일정 JSON 파싱 실패: {e}\n원본: {raw_text[:500]}")
-        raise ValueError(f"LLM 응답을 JSON으로 파싱할 수 없습니다: {e}")
+    except json.JSONDecodeError as first_error:
+        try:
+            schedules = json.loads(_escape_control_chars_in_json_strings(text))
+        except json.JSONDecodeError as e:
+            logger.error(f"일정 JSON 파싱 실패: {e}\n원본: {raw_text[:500]}")
+            raise ValueError(f"LLM 응답을 JSON으로 파싱할 수 없습니다: {first_error}")
 
     if not isinstance(schedules, list):
         raise ValueError("LLM 응답이 JSON 배열이 아닙니다")
@@ -107,7 +125,221 @@ def _parse_schedule_json(raw_text: str) -> list[dict]:
         s.setdefault("due_date", None)
         s.setdefault("source_text", "")
 
-    return schedules
+    return _filter_valid_schedules(schedules)
+
+
+def _escape_control_chars_in_json_strings(text: str) -> str:
+    """LLM이 JSON 문자열 안에 실제 줄바꿈을 넣은 경우 유효한 JSON으로 보정한다."""
+    result = []
+    in_string = False
+    escaped = False
+
+    for char in text:
+        if in_string:
+            if escaped:
+                result.append(char)
+                escaped = False
+                continue
+            if char == "\\":
+                result.append(char)
+                escaped = True
+                continue
+            if char == '"':
+                result.append(char)
+                in_string = False
+                continue
+            if char == "\n":
+                result.append("\\n")
+                continue
+            if char == "\r":
+                result.append("\\r")
+                continue
+            if char == "\t":
+                result.append("\\t")
+                continue
+
+            result.append(char)
+            continue
+
+        result.append(char)
+        if char == '"':
+            in_string = True
+
+    return "".join(result)
+
+
+SCHEDULE_EVENT_KEYWORDS = (
+    "과제", "제출", "마감", "보고서", "레포트", "리포트",
+    "시험", "고사", "퀴즈", "발표", "프로젝트", "회의",
+    "수업", "보강", "실습"
+)
+
+TITLE_GENERIC_WORDS = (
+    "일정", "과제", "제출", "마감", "보고서", "레포트", "리포트",
+    "시험", "고사", "퀴즈", "발표", "프로젝트", "회의",
+    "수업", "보강", "실습", "중간", "기말", "중간고사", "기말고사"
+)
+
+SCHEDULE_DATE_HINT_PATTERN = re.compile(
+    r"(\d{4}[./-]\d{1,2}[./-]\d{1,2}|"
+    r"\d{1,2}\s*월\s*\d{1,2}\s*일|"
+    r"오늘|내일|모레|다음\s*주|이번\s*주|"
+    r"오전\s*\d{1,2}\s*시|오후\s*\d{1,2}\s*시|"
+    r"\d{1,2}\s*시|\d{1,2}\s*분|까지|마감)"
+)
+
+TIME_HINT_PATTERN = re.compile(r"(오전|오후)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?")
+
+
+WEEKDAY_INDEX = {
+    "월": 0,
+    "월요일": 0,
+    "화": 1,
+    "화요일": 1,
+    "수": 2,
+    "수요일": 2,
+    "목": 3,
+    "목요일": 3,
+    "금": 4,
+    "금요일": 4,
+    "토": 5,
+    "토요일": 5,
+    "일": 6,
+    "일요일": 6,
+}
+
+
+def _filter_valid_schedules(schedules: list[dict]) -> list[dict]:
+    """LLM이 과하게 뽑은 후보를 저장 전에 한 번 더 걸러낸다."""
+    valid = []
+    seen = set()
+
+    for item in schedules:
+        title = str(item.get("title") or "").strip()
+        description = str(item.get("description") or "").strip()
+        event_type = str(item.get("event_type") or "").strip()
+        due_date = item.get("due_date")
+        source_text = str(item.get("source_text") or "").strip()
+        combined = " ".join([title, description, event_type, source_text])
+
+        if not title or not source_text:
+            logger.info(f"[SCHEDULE] 후보 제외: 제목/source_text 없음 - {item}")
+            continue
+
+        parsed_due_date = parse_due_date(str(due_date)) if due_date else None
+        parsed_source_date = parse_due_date(source_text) if SCHEDULE_DATE_HINT_PATTERN.search(source_text) else None
+        if (
+            parsed_due_date is not None
+            and parsed_source_date is not None
+            and not _has_time_hint(str(due_date))
+            and _has_time_hint(source_text)
+        ):
+            parsed_due_date = parsed_source_date
+        elif parsed_due_date is None:
+            parsed_due_date = parsed_source_date
+
+        if parsed_due_date is None:
+            logger.info(f"[SCHEDULE] 후보 제외: 파싱 가능한 날짜 없음 - {title}")
+            continue
+        item["due_date"] = parsed_due_date.isoformat()
+
+        if not any(keyword in combined for keyword in SCHEDULE_EVENT_KEYWORDS):
+            logger.info(f"[SCHEDULE] 후보 제외: 일정 키워드 없음 - {title}")
+            continue
+
+        if not SCHEDULE_DATE_HINT_PATTERN.search(source_text):
+            logger.info(f"[SCHEDULE] 후보 제외: source_text에 날짜/마감 표현 없음 - {title}")
+            continue
+
+        item["title"] = _normalize_schedule_title(title, event_type, source_text)
+
+        key = (title, str(due_date), source_text)
+        if key in seen:
+            continue
+        seen.add(key)
+        valid.append(item)
+
+    return valid
+
+
+def _has_time_hint(text: str | None) -> bool:
+    """문장에 명시적인 시간 표현이 있는지 확인한다."""
+    return bool(text and TIME_HINT_PATTERN.search(str(text)))
+
+
+def _title_has_unsupported_subject(title: str, source_text: str) -> bool:
+    """제목에 원문에 없는 과목명/약어가 들어가면 예시 복사를 의심한다."""
+    source_compact = source_text.replace(" ", "").lower()
+    title_tokens = re.findall(r"[A-Za-z][A-Za-z0-9+#.-]*|[가-힣]{2,}", title)
+
+    for token in title_tokens:
+        token_lower = token.lower()
+        if token in TITLE_GENERIC_WORDS:
+            continue
+        if token_lower not in source_compact:
+            return True
+
+    return False
+
+
+def _normalize_schedule_title(title: str, event_type: str, source_text: str) -> str:
+    """LLM이 프롬프트 예시의 과목명을 베껴 쓴 경우 안전한 제목으로 바꾼다."""
+    clean_title = title.strip()
+    clean_event_type = event_type.strip()
+    if not _title_has_unsupported_subject(clean_title, source_text):
+        return clean_title
+
+    if "시험" in source_text or clean_event_type == "시험":
+        safe_title = "시험 일정"
+    elif any(word in source_text for word in ("과제", "제출", "마감")) or clean_event_type == "과제":
+        safe_title = "과제 제출"
+    elif "발표" in source_text or clean_event_type == "발표":
+        safe_title = "발표 일정"
+    elif "회의" in source_text or clean_event_type == "회의":
+        safe_title = "회의 일정"
+    elif any(word in source_text for word in ("수업", "보강")):
+        safe_title = "수업 일정"
+    else:
+        safe_title = clean_event_type or "일정"
+
+    logger.info(f"[SCHEDULE] 원문에 없는 제목 보정: '{clean_title}' -> '{safe_title}'")
+    return safe_title
+
+
+def _parse_time_from_text(text: str) -> tuple[int, int]:
+    """문장 안의 한국어 시간 표현을 찾고, 없으면 오전 9시로 둔다."""
+    hour = 9
+    minute = 0
+    time_match = re.search(r"(오전|오후)?\s*(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분)?", text)
+    if not time_match:
+        return hour, minute
+
+    meridiem, raw_hour, raw_minute = time_match.groups()
+    hour = int(raw_hour)
+    minute = int(raw_minute or 0)
+    if meridiem == "오후" and hour != 12:
+        hour += 12
+    if meridiem == "오전" and hour == 12:
+        hour = 0
+    return hour, minute
+
+
+def _parse_weekday_relative_date(text: str) -> datetime | None:
+    """'이번주 일요일', '다음 주 목요일' 같은 표현을 날짜로 변환한다."""
+    match = re.search(r"(이번|다음)\s*주\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일|월|화|수|목|금|토|일)", text)
+    if not match:
+        return None
+
+    week_word, weekday_text = match.groups()
+    target_weekday = WEEKDAY_INDEX[weekday_text]
+    today = datetime.now()
+    week_start = today - timedelta(days=today.weekday())
+    if week_word == "다음":
+        week_start += timedelta(days=7)
+
+    target_date = week_start + timedelta(days=target_weekday)
+    hour, minute = _parse_time_from_text(text)
+    return target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
 def parse_due_date(date_str: str | None) -> datetime | None:
@@ -117,6 +349,25 @@ def parse_due_date(date_str: str | None) -> datetime | None:
     """
     if not date_str:
         return None
+
+    normalized = str(date_str).strip()
+    normalized = normalized.replace("오정", "오전")
+
+    week_relative_date = _parse_weekday_relative_date(normalized)
+    if week_relative_date is not None:
+        return week_relative_date
+
+    relative_base = None
+    if "오늘" in normalized:
+        relative_base = datetime.now()
+    elif "내일" in normalized:
+        relative_base = datetime.now() + timedelta(days=1)
+    elif "모레" in normalized:
+        relative_base = datetime.now() + timedelta(days=2)
+
+    if relative_base is not None:
+        hour, minute = _parse_time_from_text(normalized)
+        return relative_base.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
     formats = [
         "%Y-%m-%dT%H:%M:%S",
@@ -132,7 +383,7 @@ def parse_due_date(date_str: str | None) -> datetime | None:
         except ValueError:
             continue
 
-    logger.warning(f"날짜 파싱 실패, None 반환: {date_str}")
+    logger.debug(f"날짜 파싱 실패, None 반환: {date_str}")
     return None
 
 
@@ -158,6 +409,19 @@ def find_source_in_transcripts(source_text: str, transcripts: list[dict]) -> dic
                 "end_time": t["end_time"],
             }
 
+    # 여러 짧은 청크에 걸친 문장도 찾는다.
+    for window_size in range(2, 7):
+        for index in range(0, max(0, len(transcripts) - window_size + 1)):
+            window = transcripts[index:index + window_size]
+            window_text = "".join((t.get("text") or "") for t in window).replace(" ", "")
+            if clean_source in window_text or window_text in clean_source:
+                return {
+                    "transcript_id": window[0]["transcript_id"],
+                    "chunk_index": window[0]["chunk_index"],
+                    "start_time": window[0]["start_time"],
+                    "end_time": window[-1]["end_time"],
+                }
+
     # 완전 매칭이 안 되면 핵심 키워드 3개 이상 겹치는 청크 탐색
     source_words = set(source_text.split())
     best_match = None
@@ -166,7 +430,7 @@ def find_source_in_transcripts(source_text: str, transcripts: list[dict]) -> dic
     for t in transcripts:
         t_words = set((t.get("text") or "").split())
         overlap = len(source_words & t_words)
-        if overlap > best_overlap and overlap >= 3:
+        if overlap > best_overlap and overlap >= 2:
             best_overlap = overlap
             best_match = {
                 "transcript_id": t["transcript_id"],
@@ -282,19 +546,31 @@ async def filter_already_ignored_semantic(
     to_notify = []
     auto_ignored = []
 
+    if not ignored_metadata:
+        return extracted, []
+
     # 1. 무시된 일정들의 임베딩을 미리 생성 (비교 최적화)
     ignored_embeddings = []
-    for item in ignored_metadata:
-        emb = await get_embedding(item["title"])
-        ignored_embeddings.append({
-            "emb": emb, 
-            "due_date": item["due_date"]  # DB에서 가져온 값 (이미 datetime이거나 변환된 상태)
-        })
+    try:
+        for item in ignored_metadata:
+            emb = await get_embedding(item["title"])
+            ignored_embeddings.append({
+                "emb": emb,
+                "due_date": item["due_date"]  # DB에서 가져온 값 (이미 datetime이거나 변환된 상태)
+            })
+    except Exception as e:
+        logger.warning(f"[SCHEDULE] ignored 일정 임베딩 생성 실패, 중복 필터 생략: {e}")
+        return extracted, []
 
     for new_s in extracted:
         is_duplicate = False
         new_date = parse_due_date(new_s.get("due_date"))
-        new_title_emb = await get_embedding(new_s["title"])
+        try:
+            new_title_emb = await get_embedding(new_s["title"])
+        except Exception as e:
+            logger.warning(f"[SCHEDULE] 새 일정 임베딩 생성 실패, 알림 대상으로 유지: {e}")
+            to_notify.append(new_s)
+            continue
 
         for ign in ignored_embeddings:
             # 날짜 비교: 두 날짜가 모두 존재하는데 다르면 무조건 새 일정

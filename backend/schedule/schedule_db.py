@@ -14,10 +14,15 @@ import uuid as _uuid
 from datetime import datetime
 from db import get_pool
 
+SAMPLE_SESSION_IDS = (
+    _uuid.UUID("22222222-2222-2222-2222-222222222222"),
+    _uuid.UUID("55555555-5555-5555-5555-555555555555"),
+)
+
 
 async def save_schedule(
     schedule_id: str,
-    session_id: str,
+    session_id: str | None,
     title: str,
     description: str | None = None,
     event_type: str | None = None,
@@ -38,9 +43,9 @@ async def save_schedule(
                  source_start_time, source_end_time, source_text,
                  created_at, updated_at)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-        """,
+            """,
             _uuid.UUID(schedule_id),
-            _uuid.UUID(session_id),
+            _uuid.UUID(session_id) if session_id else None,
             _uuid.UUID(transcript_id) if transcript_id else None,
             title,
             description,
@@ -55,6 +60,27 @@ async def save_schedule(
             datetime.now(),
         )
     return {"schedule_id": schedule_id, "status": "pending"}
+
+
+async def get_all_schedules() -> list[dict]:
+    """전체 일정을 반환한다. 프론트의 일정 관리 화면 초기 로딩용."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT s.schedule_id, s.session_id, s.transcript_id,
+                   s.title, s.description, s.event_type, s.due_date,
+                   s.status, s.calendar_flag,
+                   s.source_start_time, s.source_end_time, s.source_text,
+                   s.created_at, s.updated_at,
+                   se.title AS session_title,
+                   c.title AS course_title
+            FROM schedules s
+            LEFT JOIN sessions se ON s.session_id = se.session_id
+            LEFT JOIN courses c ON se.course_id = c.course_id
+            WHERE s.session_id IS NULL OR s.session_id <> ALL($1::uuid[])
+            ORDER BY s.due_date ASC NULLS LAST, s.created_at DESC
+        """, list(SAMPLE_SESSION_IDS))
+        return [_row_to_dict(r) for r in rows]
 
 
 async def get_schedule(schedule_id: str) -> dict | None:
@@ -106,9 +132,28 @@ async def get_confirmed_schedules() -> list[dict]:
                    created_at, updated_at
             FROM schedules
             WHERE status = 'confirmed' AND calendar_flag = true
+              AND (session_id IS NULL OR session_id <> ALL($1::uuid[]))
             ORDER BY due_date ASC NULLS LAST
-        """)
+        """, list(SAMPLE_SESSION_IDS))
         return [_row_to_dict(r) for r in rows]
+
+
+async def get_ignored_schedules_metadata() -> list[dict]:
+    """시멘틱 중복 필터링용 ignored 일정의 제목과 날짜를 반환한다."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT title, due_date
+            FROM schedules
+            WHERE status = 'ignored'
+        """)
+        return [
+            {
+                "title": r["title"],
+                "due_date": r["due_date"],
+            }
+            for r in rows
+        ]
 
 
 async def update_schedule_status(schedule_id: str, new_status: str) -> dict:
@@ -144,8 +189,8 @@ async def find_ignored_titles(session_id: str | None = None) -> set[str]:
         if session_id:
             rows = await conn.fetch("""
                 SELECT DISTINCT title FROM schedules
-                WHERE status = 'ignored'
-            """)
+                WHERE status = 'ignored' AND session_id = $1
+            """, _uuid.UUID(session_id))
         else:
             rows = await conn.fetch("""
                 SELECT DISTINCT title FROM schedules
@@ -188,6 +233,7 @@ async def get_schedule_with_transcript(schedule_id: str) -> dict | None:
 
 def _row_to_dict(row) -> dict:
     """DB Row를 딕셔너리로 변환하는 내부 헬퍼."""
+    keys = set(row.keys())
     return {
         "schedule_id": str(row["schedule_id"]),
         "session_id": str(row["session_id"]) if row["session_id"] else None,
@@ -203,4 +249,6 @@ def _row_to_dict(row) -> dict:
         "source_text": row["source_text"],
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        "session_title": row["session_title"] if "session_title" in keys else None,
+        "course_title": row["course_title"] if "course_title" in keys else None,
     }

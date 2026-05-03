@@ -3,6 +3,8 @@
 
 엔드포인트:
   POST /schedule/extract                - 세션 전사문에서 일정 추출 (녹음 종료 시 호출)
+  GET  /schedule/                       - 전체 일정 조회 (일정 관리 화면)
+  POST /schedule/manual                 - 사용자가 직접 추가한 일정 저장
   GET  /schedule/calendar               - 확정된 일정만 반환 (달력 표시용)
   GET  /schedule/session/{session_id}   - 세션별 전체 일정 조회
   PUT  /schedule/{schedule_id}/confirm  - 일정 확정 (달력에 표시)
@@ -21,6 +23,7 @@ import logging
 from db import get_transcripts_by_session
 from schedule.schedule_db import (
     save_schedule,
+    get_all_schedules,
     get_schedule,
     get_schedules_by_session,
     get_confirmed_schedules,
@@ -50,6 +53,23 @@ class ScheduleExtractTextRequest(BaseModel):
     """직접 텍스트로 일정 추출 (테스트용)"""
     text: str = Field(..., min_length=10, description="일정 추출 대상 텍스트")
     session_id: str | None = None
+
+
+class ScheduleManualRequest(BaseModel):
+    """사용자가 직접 입력한 일정 저장 요청"""
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    event_type: str | None = None
+    due_date: str | None = None
+    status: str = "confirmed"
+    session_id: str | None = None
+    transcript_id: str | None = None
+    source_start_time: float | None = None
+    source_end_time: float | None = None
+    source_text: str | None = None
+
+
+VALID_SCHEDULE_STATUSES = {"pending", "confirmed", "ignored"}
 
 
 
@@ -110,6 +130,9 @@ async def schedule_extract(req: ScheduleExtractRequest):
         schedule_id = str(uuid.uuid4())
 
         source_match = find_source_in_transcripts(s.get("source_text", ""), transcripts)
+        if source_match is None:
+            logger.info(f"[SCHEDULE] 출처 매칭 실패 후보 제외: {s.get('title')}")
+            continue
         transcript_id = source_match["transcript_id"] if source_match else None
 
         await save_schedule(
@@ -208,6 +231,44 @@ async def schedule_extract_from_text(req: ScheduleExtractTextRequest):
         "notifications": notifications,
         "total_extracted": len(extracted),
     }
+
+
+@router.get("/")
+async def schedule_list():
+    """전체 일정을 반환한다. 일정 관리 화면의 기본 데이터로 사용한다."""
+    schedules = await get_all_schedules()
+    return {
+        "count": len(schedules),
+        "schedules": schedules,
+    }
+
+
+@router.post("/manual")
+async def schedule_create_manual(req: ScheduleManualRequest):
+    """사용자가 직접 추가한 일정을 저장한다."""
+    if req.status not in VALID_SCHEDULE_STATUSES:
+        raise HTTPException(status_code=422, detail=f"지원하지 않는 일정 상태입니다: {req.status}")
+
+    schedule_id = str(uuid.uuid4())
+
+    await save_schedule(
+        schedule_id=schedule_id,
+        session_id=req.session_id,
+        title=req.title,
+        description=req.description,
+        event_type=req.event_type,
+        due_date=parse_due_date(req.due_date),
+        source_start_time=req.source_start_time,
+        source_end_time=req.source_end_time,
+        source_text=req.source_text,
+        transcript_id=req.transcript_id,
+    )
+
+    if req.status != "pending":
+        await update_schedule_status(schedule_id, req.status)
+
+    schedule = await get_schedule(schedule_id)
+    return schedule or {"schedule_id": schedule_id, "status": req.status}
 
 
 #  확정된 일정만 (달력 표시용)
