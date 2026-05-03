@@ -16,6 +16,7 @@ from .memory import (
     HyperKVGenerator,
     build_chat_prompt,
     compute_answer_loss,
+    deterministic_generation_config,
     encode_memory,
     forward_with_memory,
     make_memory_hook,
@@ -60,10 +61,7 @@ def generate_plain(model, tokenizer, question: str, device, max_new_tokens: int)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     generated = model.generate(
         **inputs,
-        max_new_tokens=max_new_tokens,
-        do_sample=False,
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.eos_token_id,
+        generation_config=deterministic_generation_config(tokenizer, max_new_tokens),
     )
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
@@ -93,10 +91,7 @@ def generate_direct_passage(model, tokenizer, question: str, passage: str, devic
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     generated = model.generate(
         **inputs,
-        max_new_tokens=max_new_tokens,
-        do_sample=False,
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.eos_token_id,
+        generation_config=deterministic_generation_config(tokenizer, max_new_tokens),
     )
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
@@ -109,10 +104,7 @@ def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max
     try:
         generated = model.generate(
             **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            eos_token_id=tokenizer.eos_token_id,
-            pad_token_id=tokenizer.eos_token_id,
+            generation_config=deterministic_generation_config(tokenizer, max_new_tokens),
         )
     finally:
         hook.remove()

@@ -7,6 +7,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers import GenerationConfig
 
 from .config import (
     ALPHA,
@@ -19,6 +20,25 @@ from .config import (
     contains_hangul,
 )
 from .prompts import system_prompt, user_prompt
+
+
+def deterministic_generation_config(tokenizer, max_new_tokens: int) -> GenerationConfig:
+    """Greedy generation config without stale sampling flags from model config.
+
+    Some chat models ship `temperature`, `top_p`, or `top_k` in their default
+    generation config. We run diagnostics with `do_sample=False` for
+    reproducibility, so those sampling-only fields should be cleared to avoid
+    noisy Transformers warnings during validation probes.
+    """
+    return GenerationConfig(
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        temperature=None,
+        top_p=None,
+        top_k=None,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.eos_token_id,
+    )
 
 
 class HyperKVGenerator(nn.Module):
