@@ -41,6 +41,7 @@ def write_step_csv(path: Path, rows: list[dict]) -> None:
         "neg_ok",
         "lr",
         "elapsed_min",
+        "cumulative_elapsed_min",
         "group_qas",
         "group_main_rate",
         "group_neg_rate",
@@ -56,6 +57,7 @@ def write_val_csv(path: Path, rows: list[dict]) -> None:
     fields = [
         "step",
         "elapsed_min",
+        "cumulative_elapsed_min",
         "individual_objective",
         "individual_main_ok",
         "individual_neg_ok",
@@ -64,6 +66,12 @@ def write_val_csv(path: Path, rows: list[dict]) -> None:
         "group_main_ok",
         "group_neg_ok",
         "group_flip_ok",
+        "generation_count",
+        "generation_main_kv_hit_rate",
+        "generation_neg_kv_hit_rate",
+        "generation_direct_passage_hit_rate",
+        "generation_no_memory_hit_rate",
+        "generation_zero_kv_hit_rate",
     ]
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
@@ -71,9 +79,11 @@ def write_val_csv(path: Path, rows: list[dict]) -> None:
         for row in rows:
             individual = row.get("individual") or {}
             group = row.get("group") or {}
+            generation = row.get("generation") or {}
             writer.writerow({
                 "step": row.get("step", ""),
                 "elapsed_min": row.get("elapsed_min", ""),
+                "cumulative_elapsed_min": row.get("cumulative_elapsed_min", ""),
                 "individual_objective": individual.get("objective", ""),
                 "individual_main_ok": individual.get("main_ok", ""),
                 "individual_neg_ok": individual.get("neg_ok", ""),
@@ -82,6 +92,12 @@ def write_val_csv(path: Path, rows: list[dict]) -> None:
                 "group_main_ok": group.get("main_ok", ""),
                 "group_neg_ok": group.get("neg_ok", ""),
                 "group_flip_ok": group.get("flip_ok", ""),
+                "generation_count": generation.get("count", ""),
+                "generation_main_kv_hit_rate": generation.get("main_kv_hit_rate", ""),
+                "generation_neg_kv_hit_rate": generation.get("neg_kv_hit_rate", ""),
+                "generation_direct_passage_hit_rate": generation.get("direct_passage_hit_rate", ""),
+                "generation_no_memory_hit_rate": generation.get("no_memory_hit_rate", ""),
+                "generation_zero_kv_hit_rate": generation.get("zero_kv_hit_rate", ""),
             })
 
 
@@ -98,7 +114,7 @@ def plot_png(output: Path, step_rows: list[dict], val_rows: list[dict], smooth: 
     steps = [int(row["step"]) for row in step_rows]
     objectives = [float(row["objective"]) for row in step_rows]
     ranks = [float(row.get("rank") or 0.0) for row in step_rows]
-    elapsed = [float(row.get("elapsed_min") or 0.0) for row in step_rows]
+    elapsed = [float(row.get("cumulative_elapsed_min") or row.get("elapsed_min") or 0.0) for row in step_rows]
 
     val_steps = [int(row["step"]) for row in val_rows]
     val_obj = [float((row.get("individual") or {}).get("objective", 0.0)) for row in val_rows]
@@ -106,6 +122,13 @@ def plot_png(output: Path, step_rows: list[dict], val_rows: list[dict], smooth: 
     group_steps = [int(row["step"]) for row in val_rows if row.get("group")]
     val_flip = [float((row.get("individual") or {}).get("flip_ok", 0.0)) for row in val_rows]
     group_flip = [float((row.get("group") or {}).get("flip_ok", 0.0)) for row in val_rows if row.get("group")]
+    generation_rows = [row for row in val_rows if row.get("generation")]
+    generation_steps = [int(row["step"]) for row in generation_rows]
+    generation_main = [float((row.get("generation") or {}).get("main_kv_hit_rate", 0.0)) for row in generation_rows]
+    generation_neg = [float((row.get("generation") or {}).get("neg_kv_hit_rate", 0.0)) for row in generation_rows]
+    generation_direct = [
+        float((row.get("generation") or {}).get("direct_passage_hit_rate", 0.0)) for row in generation_rows
+    ]
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     fig.suptitle("PRAG Training Log")
@@ -128,8 +151,12 @@ def plot_png(output: Path, step_rows: list[dict], val_rows: list[dict], smooth: 
     axes[1, 0].plot(val_steps, val_flip, marker="o", label="val flip")
     if group_flip:
         axes[1, 0].plot(group_steps, group_flip, marker="o", label="group val flip")
+    if generation_rows:
+        axes[1, 0].plot(generation_steps, generation_main, marker="x", linestyle="--", label="gen main_kv")
+        axes[1, 0].plot(generation_steps, generation_neg, marker="x", linestyle="--", label="gen neg_kv")
+        axes[1, 0].plot(generation_steps, generation_direct, marker="x", linestyle="--", label="gen direct")
     axes[1, 0].set_ylim(-0.05, 1.05)
-    axes[1, 0].set_title("Flip Accuracy")
+    axes[1, 0].set_title("Candidate And Generation Accuracy")
     axes[1, 0].set_xlabel("step")
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
@@ -174,17 +201,22 @@ def main() -> None:
 
     final_val = data.get("final_val") or {}
     final_group = data.get("final_group_val") or {}
+    final_generation = data.get("final_generation_val") or {}
     sessions = data.get("sessions") or []
+    generation_evals = [row for row in val_rows if row.get("generation")]
     summary = {
         "log": str(log_path),
         "steps_logged": len(step_rows),
         "val_evals": len(val_rows),
+        "generation_evals": len(generation_evals),
         "final_step": data.get("final_step"),
         "total_logged_runtime_sec": data.get("total_logged_runtime_sec"),
         "total_logged_runtime_min": round(float(data.get("total_logged_runtime_sec") or 0.0) / 60, 4),
         "sessions": sessions,
         "final_val": final_val,
         "final_group_val": final_group,
+        "final_generation_val": final_generation,
+        "last_generation_eval": generation_evals[-1].get("generation") if generation_evals else {},
     }
     summary_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     plotted = plot_png(png_path, step_rows, val_rows, args.smooth) if step_rows else False
@@ -194,6 +226,8 @@ def main() -> None:
     print(f"[PRAG:plot] runtime_min={summary['total_logged_runtime_min']}")
     print(f"[PRAG:plot] final_val={final_val}")
     print(f"[PRAG:plot] final_group_val={final_group}")
+    if final_generation:
+        print(f"[PRAG:plot] final_generation_val={final_generation}")
     print(f"[PRAG:plot] step_csv={step_csv}")
     print(f"[PRAG:plot] val_csv={val_csv}")
     print(f"[PRAG:plot] summary={summary_json}")

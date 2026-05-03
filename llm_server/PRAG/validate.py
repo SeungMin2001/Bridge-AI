@@ -13,7 +13,24 @@ from .config import (
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
 )
-from .data import get_passage, iter_json_records, normalize_qas
+from .data import contains_hangul, get_passage, iter_json_records, normalize_qas
+
+
+def raw_qas(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def add_raw_qa_stats(stats: Counter, prefix: str, qas: list[dict]) -> None:
+    for qa in qas:
+        stats[f"{prefix}_raw_qas"] += 1
+        stats[f"{prefix}_missing_question"] += int(not str(qa.get("question") or qa.get("sub_question") or "").strip())
+        stats[f"{prefix}_missing_answer"] += int(not str(qa.get("answer") or qa.get("sub_answer") or "").strip())
+        stats[f"{prefix}_missing_full_answer"] += int(not str(qa.get("full_answer") or "").strip())
+        stats[f"{prefix}_missing_sub_passage"] += int(
+            not str(qa.get("sub_passage") or qa.get("evidence") or qa.get("passage") or "").strip()
+        )
 
 
 def main() -> None:
@@ -42,17 +59,23 @@ def main() -> None:
         shown = 0
         for row in rows:
             passage = get_passage(row)
+            raw_atomic = raw_qas(row.get("atomic_qas"))
+            raw_final = raw_qas(row.get("final_qas"))
             atomic = normalize_qas(row.get("atomic_qas"))
             final = normalize_qas(row.get("final_qas"))
             negatives = row.get("hard_negatives") if isinstance(row.get("hard_negatives"), list) else []
             stats["rows"] += 1
+            stats["ko_rows"] += int(contains_hangul(passage))
+            stats["en_rows"] += int(bool(passage) and not contains_hangul(passage))
             stats["missing_passage"] += int(not passage)
             stats["missing_atomic"] += int(not atomic)
             stats["missing_final"] += int(not final)
             stats["missing_negative"] += int(not negatives)
+            add_raw_qa_stats(stats, "atomic", raw_atomic)
+            add_raw_qa_stats(stats, "final", raw_final)
             for qa in atomic:
                 stats["atomic_qas"] += 1
-                stats["atomic_missing_sub_passage"] += int(not qa.get("sub_passage"))
+                stats["atomic_normalized_missing_sub_passage"] += int(not qa.get("sub_passage"))
                 if qa.get("answer") and qa.get("sub_passage"):
                     stats["atomic_answer_in_sub_passage"] += int(qa["answer"].lower() in qa["sub_passage"].lower())
             for qa in final:
@@ -63,8 +86,12 @@ def main() -> None:
                 if not isinstance(neg, dict):
                     continue
                 neg_passage = get_passage(neg)
+                raw_neg_atomic = raw_qas(neg.get("atomic_qas")) + raw_qas(neg.get("qas"))
+                raw_neg_final = raw_qas(neg.get("final_qas"))
                 neg_atomic = normalize_qas(neg.get("atomic_qas")) + normalize_qas(neg.get("qas"))
                 neg_final = normalize_qas(neg.get("final_qas"))
+                add_raw_qa_stats(stats, "negative_atomic", raw_neg_atomic)
+                add_raw_qa_stats(stats, "negative_final", raw_neg_final)
                 stats["negative_passages"] += int(bool(neg_passage))
                 stats["negative_atomic_qas"] += len(neg_atomic)
                 stats["negative_final_qas"] += len(neg_final)
@@ -104,8 +131,15 @@ def main() -> None:
         if stats["rows"]:
             missing_atomic_ratio = stats["missing_atomic"] / stats["rows"]
             missing_negative_ratio = stats["missing_negative"] / stats["rows"]
+            raw_qa_total = stats["atomic_raw_qas"] + stats["final_raw_qas"]
+            raw_full_missing = stats["atomic_missing_full_answer"] + stats["final_missing_full_answer"]
+            neg_raw_qa_total = stats["negative_atomic_raw_qas"] + stats["negative_final_raw_qas"]
+            neg_raw_full_missing = stats["negative_atomic_missing_full_answer"] + stats["negative_final_missing_full_answer"]
             print(f"  missing_atomic_ratio: {missing_atomic_ratio:.3f}")
             print(f"  missing_negative_ratio: {missing_negative_ratio:.3f}")
+            print(f"  raw_full_answer_missing_ratio: {raw_full_missing / max(raw_qa_total, 1):.3f}")
+            print(f"  negative_raw_full_answer_missing_ratio: {neg_raw_full_missing / max(neg_raw_qa_total, 1):.3f}")
+            print(f"  ko_row_ratio: {stats['ko_rows'] / stats['rows']:.3f}")
 
 
 if __name__ == "__main__":

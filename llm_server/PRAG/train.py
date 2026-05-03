@@ -61,7 +61,16 @@ from .config import (
     load_critical_layer,
 )
 from .data import MemoryExample, MemoryGroup, jsonl_snapshot, load_augmented_examples, load_augmented_groups
-from .memory import HyperKVGenerator, compute_answer_loss, encode_memory, forward_with_memory, tokenize_qa
+from .memory import (
+    HyperKVGenerator,
+    build_chat_prompt,
+    compute_answer_loss,
+    encode_memory,
+    forward_with_memory,
+    make_memory_hook,
+    model_num_heads,
+    tokenize_qa,
+)
 
 
 def load_model():
@@ -341,6 +350,165 @@ def evaluate_groups(
     }
 
 
+def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
+    messages = [
+        {
+            "role": "system",
+            "content": "Use only the provided passage. Answer briefly in the same language as the question.",
+        },
+        {
+            "role": "user",
+            "content": f"Passage:\n{passage}\n\nQuestion:\n{question}\n\nAnswer:",
+        },
+    ]
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+
+
+def text_hit(text: str, answer: str) -> bool:
+    return "".join(str(answer).lower().split()) in "".join(str(text).lower().split())
+
+
+@torch.no_grad()
+def generate_text(model, tokenizer, prompt: str, device, max_new_tokens: int) -> str:
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    generated = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.eos_token_id,
+    )
+    return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+
+
+@torch.no_grad()
+def generate_with_kv(model, tokenizer, target_layer, question: str, K, V, device, max_new_tokens: int, alpha: float):
+    prompt = build_chat_prompt(tokenizer, question)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=alpha))
+    try:
+        generated = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    finally:
+        hook.remove()
+    return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+
+
+def empty_generation_bucket() -> dict:
+    return {
+        "count": 0,
+        "main_kv_hits": 0,
+        "neg_kv_hits": 0,
+        "direct_passage_hits": 0,
+        "no_memory_hits": 0,
+        "zero_kv_hits": 0,
+    }
+
+
+def update_generation_bucket(bucket: dict, *, main_hit: bool, neg_hit: bool, direct_hit: bool, no_mem_hit: bool, zero_hit: bool) -> None:
+    bucket["count"] += 1
+    bucket["main_kv_hits"] += int(main_hit)
+    bucket["neg_kv_hits"] += int(neg_hit)
+    bucket["direct_passage_hits"] += int(direct_hit)
+    bucket["no_memory_hits"] += int(no_mem_hit)
+    bucket["zero_kv_hits"] += int(zero_hit)
+
+
+def generation_rates(bucket: dict) -> dict:
+    denom = max(int(bucket.get("count", 0)), 1)
+    return {
+        "count": int(bucket.get("count", 0)),
+        "main_kv_hit_rate": bucket.get("main_kv_hits", 0) / denom,
+        "neg_kv_hit_rate": bucket.get("neg_kv_hits", 0) / denom,
+        "direct_passage_hit_rate": bucket.get("direct_passage_hits", 0) / denom,
+        "no_memory_hit_rate": bucket.get("no_memory_hits", 0) / denom,
+        "zero_kv_hit_rate": bucket.get("zero_kv_hits", 0) / denom,
+        "main_kv_hits": int(bucket.get("main_kv_hits", 0)),
+        "neg_kv_hits": int(bucket.get("neg_kv_hits", 0)),
+        "direct_passage_hits": int(bucket.get("direct_passage_hits", 0)),
+        "no_memory_hits": int(bucket.get("no_memory_hits", 0)),
+        "zero_kv_hits": int(bucket.get("zero_kv_hits", 0)),
+    }
+
+
+@torch.no_grad()
+def evaluate_generation(
+    model,
+    tokenizer,
+    hypernet,
+    target_layer,
+    examples,
+    device,
+    *,
+    max_new_tokens: int,
+    alpha: float,
+):
+    """Small fixed free-generation probe for plotting service behavior.
+
+    Candidate loss can improve while generation remains unstable. This probe is
+    intentionally small and optional because generation is much slower than CE
+    scoring during training.
+    """
+    hypernet.eval()
+    overall = empty_generation_bucket()
+    by_type: dict[str, dict] = {}
+    for example in examples:
+        if not (example.negative_passage and example.negative_answer):
+            continue
+        main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
+        neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device, question=example.question)
+        main_gen = generate_with_kv(
+            model, tokenizer, target_layer, example.question, main_mem["K"], main_mem["V"], device, max_new_tokens, alpha
+        )
+        neg_gen = generate_with_kv(
+            model, tokenizer, target_layer, example.question, neg_mem["K"], neg_mem["V"], device, max_new_tokens, alpha
+        )
+        zero_gen = generate_with_kv(
+            model,
+            tokenizer,
+            target_layer,
+            example.question,
+            torch.zeros_like(main_mem["K"]),
+            torch.zeros_like(main_mem["V"]),
+            device,
+            max_new_tokens,
+            alpha,
+        )
+        no_mem_gen = generate_text(model, tokenizer, build_chat_prompt(tokenizer, example.question), device, max_new_tokens)
+        direct_gen = generate_text(
+            model,
+            tokenizer,
+            build_direct_passage_prompt(tokenizer, example.question, example.passage),
+            device,
+            max_new_tokens,
+        )
+        qa_type = example.qa_type or "qa"
+        bucket = by_type.setdefault(qa_type, empty_generation_bucket())
+        values = {
+            "main_hit": text_hit(main_gen, example.answer),
+            "neg_hit": text_hit(neg_gen, example.negative_answer),
+            "direct_hit": text_hit(direct_gen, example.answer),
+            "no_mem_hit": text_hit(no_mem_gen, example.answer),
+            "zero_hit": text_hit(zero_gen, example.answer),
+        }
+        update_generation_bucket(overall, **values)
+        update_generation_bucket(bucket, **values)
+    hypernet.train()
+    rates = generation_rates(overall)
+    rates["by_type"] = {qa_type: generation_rates(bucket) for qa_type, bucket in sorted(by_type.items())}
+    return rates
+
+
 PATTERN_KEYS = set(["facts", "definition", "composition", "analogy", "contrast", "cause", "procedure", "example"])
 
 
@@ -526,6 +694,27 @@ def main() -> None:
         help="Seed for the fixed balanced validation subset.",
     )
     parser.add_argument(
+        "--eval-generation-samples",
+        type=int,
+        default=0,
+        help=(
+            "Run a small free-generation validation probe on this many balanced examples. "
+            "Set 0 to disable because generation is much slower than loss scoring."
+        ),
+    )
+    parser.add_argument(
+        "--eval-generation-every",
+        type=int,
+        default=1000,
+        help="Run the optional free-generation probe every N steps. Use 0 to run at every validation.",
+    )
+    parser.add_argument(
+        "--eval-generation-max-new-tokens",
+        type=int,
+        default=64,
+        help="Maximum generated tokens for the optional free-generation validation probe.",
+    )
+    parser.add_argument(
         "--overfit-samples",
         type=int,
         default=0,
@@ -613,9 +802,19 @@ def main() -> None:
         raise RuntimeError("Need non-empty augmented train and valid examples.")
     valid_eval_examples = balanced_eval_subset(valid_examples, args.eval_max_samples, args.eval_seed, "example")
     valid_eval_groups = balanced_eval_subset(valid_groups, args.eval_max_samples, args.eval_seed + 1, "group")
+    valid_generation_examples = []
+    if args.eval_generation_samples > 0:
+        valid_generation_examples = balanced_eval_subset(
+            valid_examples,
+            args.eval_generation_samples,
+            args.eval_seed + 2,
+            "generation",
+        )
     print_eval_subset_summary("example", valid_eval_examples, len(valid_examples))
     if valid_groups:
         print_eval_subset_summary("group", valid_eval_groups, len(valid_groups))
+    if valid_generation_examples:
+        print_eval_subset_summary("generation", valid_generation_examples, len(valid_examples))
 
     hypernet = make_hypernet(model, device)
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=args.lr, weight_decay=0.0)
@@ -687,6 +886,19 @@ def main() -> None:
         )
 
     log = init_training_log(log_path, run_config, step)
+    log["generation_eval_config"] = {
+        "enabled": bool(valid_generation_examples),
+        "samples": len(valid_generation_examples),
+        "every": args.eval_generation_every,
+        "max_new_tokens": args.eval_generation_max_new_tokens,
+        "alpha": ALPHA,
+        "note": "Free-generation probe is intentionally outside checkpoint config so resume compatibility is stable.",
+    }
+    previous_runtime_sec = round(
+        sum(float(session.get("elapsed_sec", 0.0)) for session in log.get("sessions", [])[:-1]),
+        3,
+    )
+    log["previous_logged_runtime_sec"] = previous_runtime_sec
     start = time.time()
     hypernet.train()
     for _epoch in range(args.epochs):
@@ -738,6 +950,7 @@ def main() -> None:
             step += 1
             obj = out["objective"].item()
             elapsed_sec = time.time() - start
+            cumulative_elapsed_sec = previous_runtime_sec + elapsed_sec
             lr_now = scheduler.get_last_lr()[0]
             running.append(obj)
             running_kind[kind] += 1
@@ -755,6 +968,8 @@ def main() -> None:
                 "lr": lr_now,
                 "elapsed_sec": round(elapsed_sec, 3),
                 "elapsed_min": round(elapsed_sec / 60, 4),
+                "cumulative_elapsed_sec": round(cumulative_elapsed_sec, 3),
+                "cumulative_elapsed_min": round(cumulative_elapsed_sec / 60, 4),
             }
             if kind == "group":
                 log_entry.update({
@@ -818,12 +1033,39 @@ def main() -> None:
                         f"main={group_metrics['main_ok']:.3f} neg={group_metrics['neg_ok']:.3f} "
                         f"flip={group_metrics['flip_ok']:.3f}"
                     )
+                generation_metrics = None
+                should_run_generation = (
+                    bool(valid_generation_examples)
+                    and (args.eval_generation_every <= 0 or step % args.eval_generation_every == 0)
+                )
+                if should_run_generation:
+                    generation_metrics = evaluate_generation(
+                        model,
+                        tokenizer,
+                        hypernet,
+                        target_layer,
+                        valid_generation_examples,
+                        device,
+                        max_new_tokens=args.eval_generation_max_new_tokens,
+                        alpha=ALPHA,
+                    )
+                    print(
+                        f"  -- [PRAG:gen-val @ {step}] count={generation_metrics['count']} | "
+                        f"main_kv={generation_metrics['main_kv_hit_rate']:.3f} "
+                        f"neg_kv={generation_metrics['neg_kv_hit_rate']:.3f} "
+                        f"direct={generation_metrics['direct_passage_hit_rate']:.3f} "
+                        f"no_mem={generation_metrics['no_memory_hit_rate']:.3f} "
+                        f"zero={generation_metrics['zero_kv_hit_rate']:.3f}"
+                    )
                 log["val_evals"].append({
                     "step": step,
                     "elapsed_sec": round(time.time() - start, 3),
                     "elapsed_min": round((time.time() - start) / 60, 4),
+                    "cumulative_elapsed_sec": round(previous_runtime_sec + (time.time() - start), 3),
+                    "cumulative_elapsed_min": round((previous_runtime_sec + (time.time() - start)) / 60, 4),
                     "individual": metrics,
                     "group": group_metrics,
+                    "generation": generation_metrics,
                 })
                 if selection_objective < best_val:
                     best_val = selection_objective
@@ -835,6 +1077,7 @@ def main() -> None:
                             "config": run_config,
                             "val_metrics": metrics,
                             "group_val_metrics": group_metrics,
+                            "generation_val_metrics": generation_metrics,
                         },
                         weights_path,
                     )
@@ -871,6 +1114,26 @@ def main() -> None:
     selection_objective = metrics["objective"]
     if group_metrics is not None:
         selection_objective = (selection_objective + args.group_weight * group_metrics["objective"]) / 2
+    final_generation_metrics = None
+    if valid_generation_examples:
+        final_generation_metrics = evaluate_generation(
+            model,
+            tokenizer,
+            hypernet,
+            target_layer,
+            valid_generation_examples,
+            device,
+            max_new_tokens=args.eval_generation_max_new_tokens,
+            alpha=ALPHA,
+        )
+        print(
+            f"[PRAG:gen-final] count={final_generation_metrics['count']} | "
+            f"main_kv={final_generation_metrics['main_kv_hit_rate']:.3f} "
+            f"neg_kv={final_generation_metrics['neg_kv_hit_rate']:.3f} "
+            f"direct={final_generation_metrics['direct_passage_hit_rate']:.3f} "
+            f"no_mem={final_generation_metrics['no_memory_hit_rate']:.3f} "
+            f"zero={final_generation_metrics['zero_kv_hit_rate']:.3f}"
+        )
     if selection_objective < best_val:
         torch.save(
             {
@@ -879,6 +1142,7 @@ def main() -> None:
                 "config": run_config,
                 "val_metrics": metrics,
                 "group_val_metrics": group_metrics,
+                "generation_val_metrics": final_generation_metrics,
             },
             weights_path,
         )
@@ -892,6 +1156,7 @@ def main() -> None:
     log["final_step"] = step
     log["final_val"] = metrics
     log["final_group_val"] = group_metrics
+    log["final_generation_val"] = final_generation_metrics
     log["total_logged_runtime_sec"] = round(sum(float(session.get("elapsed_sec", 0.0)) for session in log.get("sessions", [])), 3)
     write_training_log(log_path, log)
     print(f"[PRAG:train] done step={step} final_val={metrics} final_group_val={group_metrics}")
