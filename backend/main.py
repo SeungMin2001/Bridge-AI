@@ -21,7 +21,7 @@ from pydantic import BaseModel
 # 신창잉 : 현재 main 서버에서는 워크스페이스 기능만 확인 중이라 quiz/summary/schedule 라우터를 임시 주석 처리했습니다.
 # from quiz.quiz import router as quiz_router
 # from summary.summary import router as summary_router
-# from schedule.schedule import router as schedule_router
+from schedule.schedule import router as schedule_router
 
 # device = "cuda" if torch.cuda.is_available() else (
 #     "mps" if torch.backends.mps.is_available() else "cpu"
@@ -59,10 +59,10 @@ app.add_middleware(
 # 워크스페이스 DB API 엔드포인트를 main 앱에 등록 <- 신창영
 app.include_router(workspace_router)
 # ── 라우터 등록 ──
-# 신창잉 : quiz/summary/schedule 라우터는 현재 테스트 범위에서 제외되어 임시 주석 처리했습니다.
+# 신창잉 : quiz/summary 라우터는 현재 테스트 범위에서 제외되어 임시 주석 처리했습니다.
 # app.include_router(quiz_router)
 # app.include_router(summary_router)
-# app.include_router(schedule_router)
+app.include_router(schedule_router)
 
 #python -c "from huggingface_hub import login; login(token='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')"
 
@@ -301,7 +301,11 @@ CHUNK_SIZE = 240000  # ~2.5초 (체감 응답 빠르게)
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     audio_buffer = bytearray()
-    session_id = str(uuid.uuid4())
+    requested_session_id = ws.query_params.get("session_id")
+    try:
+        session_id = str(uuid.UUID(requested_session_id)) if requested_session_id else str(uuid.uuid4())
+    except (TypeError, ValueError):
+        session_id = str(uuid.uuid4())
     processed_seconds = 0.0
     try:
         await create_session(session_id)
