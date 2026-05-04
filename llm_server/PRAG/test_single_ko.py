@@ -11,7 +11,16 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .config import ALPHA, MODEL_NAME, MULTIFACT_WEIGHTS_PATH, WEIGHTS_PATH, contains_hangul, load_critical_layer
+from .config import (
+    ALPHA,
+    MODEL_NAME,
+    MULTIFACT_AUGMENTED_VALID_PATH,
+    MULTIFACT_WEIGHTS_PATH,
+    WEIGHTS_PATH,
+    contains_hangul,
+    load_critical_layer,
+)
+from .data import MemoryExample, load_augmented_examples
 from .memory import (
     HyperKVGenerator,
     build_chat_prompt,
@@ -40,6 +49,46 @@ CASES = [
         "negative_answer": "1층 초록함",
     },
 ]
+
+
+def example_to_case(example: MemoryExample, index: int) -> dict:
+    return {
+        "name": f"dataset_ko_{index}_{example.qa_type}",
+        "source_id": example.source_id,
+        "qa_type": example.qa_type,
+        "question": example.question,
+        "main_passage": example.passage,
+        "negative_passage": example.negative_passage or "",
+        "main_answer": example.answer,
+        "negative_answer": example.negative_answer or "",
+        "full_answer": example.full_answer,
+        "negative_full_answer": example.negative_full_answer or "",
+    }
+
+
+def load_dataset_cases(path: str, *, case_index: int, max_cases: int) -> list[dict]:
+    examples = load_augmented_examples(path)
+    selected = [
+        ex
+        for ex in examples
+        if ex.qa_type == "atomic"
+        and ex.negative_passage
+        and ex.negative_answer
+        and contains_hangul(f"{ex.question}\n{ex.passage}\n{ex.answer}")
+    ]
+    if not selected:
+        selected = [
+            ex
+            for ex in examples
+            if ex.negative_passage
+            and ex.negative_answer
+            and contains_hangul(f"{ex.question}\n{ex.passage}\n{ex.answer}")
+        ]
+    if not selected:
+        raise ValueError(f"No Korean hard-pair examples found in {path}")
+    start = min(max(case_index, 0), max(len(selected) - 1, 0))
+    end = min(start + max_cases, len(selected))
+    return [example_to_case(ex, idx) for idx, ex in enumerate(selected[start:end], start=start)]
 
 
 def load_model():
@@ -332,12 +381,20 @@ def run_case(
             generations[prompt_style] = (main_gen, neg_gen)
 
     print(f"\n[case:{case['name']}]")
+    if case.get("source_id"):
+        print(f"source_id: {case['source_id']}")
+    if case.get("qa_type"):
+        print(f"qa_type: {case['qa_type']}")
     print(f"alpha: {alpha}")
     print(f"question: {question}")
     print(f"passage: {main_passage}")
     print(f"negative passage: {negative_passage}")
     print(f"expected: {main_answer}")
     print(f"negative expected: {negative_answer}")
+    if case.get("full_answer"):
+        print(f"full expected: {case['full_answer']}")
+    if case.get("negative_full_answer"):
+        print(f"negative full expected: {case['negative_full_answer']}")
     print("\n[candidate loss]")
     print(f"main K/V: {main_answer}={main_gold:.4f} vs {negative_answer}={main_neg:.4f} pref={main_gold < main_neg}")
     print(f"neg  K/V: {main_answer}={neg_gold:.4f} vs {negative_answer}={neg_neg:.4f} pref={neg_neg < neg_gold}")
@@ -397,6 +454,32 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--alpha", type=float, default=ALPHA)
     parser.add_argument(
+        "--data",
+        default=str(MULTIFACT_AUGMENTED_VALID_PATH),
+        help="Augmented valid JSONL used when --case-mode includes dataset examples.",
+    )
+    parser.add_argument(
+        "--case-mode",
+        choices=("dataset", "synthetic", "both"),
+        default="dataset",
+        help=(
+            "dataset: use an actual Korean multi-fact valid example to check learned-distribution injection; "
+            "synthetic: use the fixed out-of-distribution sanity case; both: run both."
+        ),
+    )
+    parser.add_argument(
+        "--case-index",
+        type=int,
+        default=0,
+        help="Index into filtered Korean valid examples when --case-mode includes dataset.",
+    )
+    parser.add_argument(
+        "--max-cases",
+        type=int,
+        default=1,
+        help="Number of dataset cases to run from --case-index.",
+    )
+    parser.add_argument(
         "--prompt-style",
         choices=("service", "short-chat", "memory-cued", "paper", "all"),
         default="all",
@@ -428,9 +511,19 @@ def main() -> None:
     hypernet.load_state_dict(state["hypernet"])
     hypernet.eval()
     prompt_styles = ["service", "short-chat", "memory-cued", "paper"] if args.prompt_style == "all" else [args.prompt_style]
+    if args.case_mode == "dataset":
+        cases = load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases)
+    elif args.case_mode == "synthetic":
+        cases = CASES
+    else:
+        cases = load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases) + CASES
 
     print("[PRAG:single-ko]")
-    [
+    print(
+        f"case_mode={args.case_mode} | weights={args.weights} | data={args.data} | "
+        f"question_conditioned={question_conditioned}"
+    )
+    for case in cases:
         run_case(
             model,
             tokenizer,
@@ -443,8 +536,6 @@ def main() -> None:
             question_conditioned,
             prompt_styles,
         )
-        for case in CASES
-    ]
 
 
 if __name__ == "__main__":

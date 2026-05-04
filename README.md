@@ -882,34 +882,42 @@ FiD(Fusion-in-Decoder)는 검색된 passage를 질문과 쌍으로 묶어 `quest
 
 참고 논문: Gautier Izacard, Edouard Grave, [Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering](https://arxiv.org/abs/2007.01282), 2020.
 
-### 1. 데이터셋 증강
+### 1. multi-fact 데이터셋 생성/증강
 
-기본 입력/출력 경로는 코드에 들어 있다.
+현재 주 학습 데이터는 single-fact `PRAG_augmented_*.jsonl`이 아니라 multi-fact 데이터다. 한 passage 안에 여러 수업/회의 fact를 넣고, 각 fact별 atomic QA와 전체 요약 final QA를 함께 만든다.
+
+기본 경로는 코드에 들어 있다.
 
 ```text
-input:  C:\Users\user\Documents\last_project\data\ServiceHardPair_train.jsonl
-train:  C:\Users\user\Documents\last_project\data\PRAG_augmented_train.jsonl
-valid:  C:\Users\user\Documents\last_project\data\PRAG_augmented_valid.jsonl
+source: C:\Users\user\Documents\last_project\data\PRAG_multifact_sources.jsonl
+train:  C:\Users\user\Documents\last_project\data\PRAG_multifact_augmented_train.jsonl
+valid:  C:\Users\user\Documents\last_project\data\PRAG_multifact_augmented_valid.jsonl
 ```
 
-처음부터 새로 만들기:
+multi-fact 원본 source 생성:
 
 ```bash
-python -m llm_server.PRAG.augment --no-resume
+python -m llm_server.PRAG.build_multifact_sources --rows-per-domain 120 --facts-per-passage 3 --seed 42
 ```
 
-중간 저장분부터 이어서 만들기:
+VLLM 서버를 켜둔 상태에서 증강:
 
 ```bash
-python -m llm_server.PRAG.augment
+python -m llm_server.PRAG.augment_multifact --backend vllm --vllm-url http://localhost:8001/v1/chat/completions --model Qwen/Qwen3.5-4B --max-new-tokens 1536
+```
+
+처음부터 새로 증강하려면:
+
+```bash
+python -m llm_server.PRAG.augment_multifact --backend vllm --vllm-url http://localhost:8001/v1/chat/completions --model Qwen/Qwen3.5-4B --max-new-tokens 1536 --no-resume
 ```
 
 참고:
 
 - 증강은 기본적으로 입력 row를 shuffle해서 다양한 주제가 섞이게 만든다.
-- 성공한 샘플은 즉시 `PRAG_augmented_train.jsonl` 또는 `PRAG_augmented_valid.jsonl`에 append 저장된다.
+- 성공한 샘플은 즉시 `PRAG_multifact_augmented_train.jsonl` 또는 `PRAG_multifact_augmented_valid.jsonl`에 append 저장된다.
 - 기본값은 `--valid-every 5`라서 5번째마다 valid에 저장된다.
-- 중간에 끊어도 다시 `python -m llm_server.PRAG.augment`를 실행하면 기존 `source_id`를 건너뛰고 이어서 진행한다.
+- 중간에 끊어도 다시 `python -m llm_server.PRAG.augment_multifact ...`를 실행하면 기존 `source_id`를 건너뛰고 이어서 진행한다.
 
 ### 2. 학습
 
@@ -972,7 +980,7 @@ python -m llm_server.PRAG.train --multifact --epochs 1 --no-resume --init-weight
 valid 데이터셋 기준 통계 진단:
 
 ```bash
-python -m llm_server.PRAG.test --show 20
+python -m llm_server.PRAG.test --multifact --show 20 --alpha 1.0 --answer-target auto
 ```
 
 한국어/영어 단일 예시 진단:
@@ -1018,7 +1026,7 @@ prompt=paper
 현재까지 저장된 train/valid 데이터 품질 확인:
 
 ```bash
-python -m llm_server.PRAG.validate
+python -m llm_server.PRAG.validate --multifact --show 5
 ```
 
 증강 샘플 직접 보기:
