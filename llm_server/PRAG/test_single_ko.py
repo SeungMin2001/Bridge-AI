@@ -11,7 +11,7 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .config import ALPHA, MODEL_NAME, MULTIFACT_WEIGHTS_PATH, WEIGHTS_PATH, load_critical_layer
+from .config import ALPHA, MODEL_NAME, MULTIFACT_WEIGHTS_PATH, WEIGHTS_PATH, contains_hangul, load_critical_layer
 from .memory import (
     HyperKVGenerator,
     build_chat_prompt,
@@ -23,6 +23,7 @@ from .memory import (
     model_num_heads,
     tokenize_qa,
 )
+from .prompts import system_prompt, user_prompt
 
 
 CASES = [
@@ -66,6 +67,71 @@ def generate_plain(model, tokenizer, question: str, device, max_new_tokens: int)
     return tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
 
 
+def build_memory_cued_prompt(tokenizer, question: str) -> str:
+    if contains_hangul(question):
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    system_prompt(question)
+                    + " 지금 이 질문에 필요한 수업 내용은 텍스트로 보이지 않지만 모델 내부 K/V 메모리로 이미 주입되어 있습니다. "
+                    "일반 지식이나 추측을 쓰지 말고, 주입된 메모리가 떠올리는 핵심 구절만 답하세요."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"질문: {question}\n"
+                    "내부에 주입된 메모리에서 이 질문의 답이 되는 장소, 날짜, 이름, 용어 같은 핵심 구절을 먼저 찾으세요. "
+                    "답을 찾으면 그 핵심 구절만 출력하고, 없으면 '모름'이라고만 답하세요.\n"
+                    "정답:"
+                ),
+            },
+        ]
+    else:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    system_prompt(question)
+                    + " The needed lecture content is not visible in the text prompt, but it has been injected as internal K/V memory. "
+                    "Do not use general knowledge or guessing; answer only with the answer phrase recalled from injected memory."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Question: {question}\n"
+                    "First consult the injected internal memory for the exact answer phrase. "
+                    "If present, output only that phrase. If absent, answer exactly 'Unknown'.\n"
+                    "Answer:"
+                ),
+            },
+        ]
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+
+
+def build_paper_prompt(question: str) -> str:
+    if contains_hangul(question):
+        return f"질문: {question}\n답변:"
+    return f"Question: {question}\nAnswer:"
+
+
+def build_generation_prompt(tokenizer, question: str, prompt_style: str) -> str:
+    if prompt_style == "service":
+        return build_chat_prompt(tokenizer, question)
+    if prompt_style == "memory-cued":
+        return build_memory_cued_prompt(tokenizer, question)
+    if prompt_style == "paper":
+        return build_paper_prompt(question)
+    raise ValueError(f"Unsupported prompt style: {prompt_style}")
+
+
 def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
     messages = [
         {
@@ -97,8 +163,19 @@ def generate_direct_passage(model, tokenizer, question: str, passage: str, devic
 
 
 @torch.no_grad()
-def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max_new_tokens, alpha: float):
-    prompt = build_chat_prompt(tokenizer, question)
+def generate_with_kv(
+    model,
+    tokenizer,
+    target_layer,
+    question,
+    K,
+    V,
+    device,
+    max_new_tokens,
+    alpha: float,
+    prompt_style: str,
+):
+    prompt = build_generation_prompt(tokenizer, question, prompt_style)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=alpha))
     try:
@@ -121,6 +198,7 @@ def run_case(
     max_new_tokens: int,
     alpha: float,
     question_conditioned: bool,
+    prompt_styles: list[str],
 ) -> None:
     question = case["question"]
     main_passage = case["main_passage"]
@@ -168,12 +246,33 @@ def run_case(
         no_passage = generate_plain(model, tokenizer, question, device, max_new_tokens)
         direct_main = generate_direct_passage(model, tokenizer, question, main_passage, device, max_new_tokens)
         direct_neg = generate_direct_passage(model, tokenizer, question, negative_passage, device, max_new_tokens)
-        main_gen = generate_with_kv(
-            model, tokenizer, target_layer, question, main_mem["K"], main_mem["V"], device, max_new_tokens, alpha
-        )
-        neg_gen = generate_with_kv(
-            model, tokenizer, target_layer, question, neg_mem["K"], neg_mem["V"], device, max_new_tokens, alpha
-        )
+        generations = {}
+        for prompt_style in prompt_styles:
+            main_gen = generate_with_kv(
+                model,
+                tokenizer,
+                target_layer,
+                question,
+                main_mem["K"],
+                main_mem["V"],
+                device,
+                max_new_tokens,
+                alpha,
+                prompt_style,
+            )
+            neg_gen = generate_with_kv(
+                model,
+                tokenizer,
+                target_layer,
+                question,
+                neg_mem["K"],
+                neg_mem["V"],
+                device,
+                max_new_tokens,
+                alpha,
+                prompt_style,
+            )
+            generations[prompt_style] = (main_gen, neg_gen)
 
     print(f"\n[case:{case['name']}]")
     print(f"alpha: {alpha}")
@@ -205,14 +304,15 @@ def run_case(
     print("----- BEGIN -----")
     print(direct_neg)
     print("------ END ------")
-    print("\n[model answer | with passage K/V]")
-    print("----- BEGIN -----")
-    print(main_gen)
-    print("------ END ------")
-    print("\n[model answer | negative passage K/V]")
-    print("----- BEGIN -----")
-    print(neg_gen)
-    print("------ END ------")
+    for prompt_style, (main_gen, neg_gen) in generations.items():
+        print(f"\n[model answer | with passage K/V | prompt={prompt_style}]")
+        print("----- BEGIN -----")
+        print(main_gen)
+        print("------ END ------")
+        print(f"\n[model answer | negative passage K/V | prompt={prompt_style}]")
+        print("----- BEGIN -----")
+        print(neg_gen)
+        print("------ END ------")
 
 
 def main() -> None:
@@ -230,6 +330,12 @@ def main() -> None:
     )
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--alpha", type=float, default=ALPHA)
+    parser.add_argument(
+        "--prompt-style",
+        choices=("service", "memory-cued", "paper", "all"),
+        default="all",
+        help="Prompt used for K/V free generation. 'all' compares service, memory-cued, and paper prompts.",
+    )
     args = parser.parse_args()
 
     if args.singlefact:
@@ -255,6 +361,7 @@ def main() -> None:
     ).to(device).float()
     hypernet.load_state_dict(state["hypernet"])
     hypernet.eval()
+    prompt_styles = ["service", "memory-cued", "paper"] if args.prompt_style == "all" else [args.prompt_style]
 
     print("[PRAG:single-ko]")
     [
@@ -268,6 +375,7 @@ def main() -> None:
             args.max_new_tokens,
             args.alpha,
             question_conditioned,
+            prompt_styles,
         )
         for case in CASES
     ]
