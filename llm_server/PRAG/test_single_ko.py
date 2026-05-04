@@ -51,6 +51,39 @@ CASES = [
 ]
 
 
+BAD_QUESTION_PREFIXES = (
+    "첫째는 무엇",
+    "둘째는 무엇",
+    "셋째는 무엇",
+    "첫 번째는 무엇",
+    "두 번째는 무엇",
+    "세 번째는 무엇",
+)
+
+
+def is_good_single_case(example: MemoryExample) -> bool:
+    question = example.question.strip()
+    answer = example.answer.strip()
+    passage = example.passage.strip()
+    if example.qa_type != "atomic":
+        return False
+    if not (example.negative_passage and example.negative_answer):
+        return False
+    if not contains_hangul(f"{question}\n{passage}\n{answer}"):
+        return False
+    if len(question) < 14 or len(answer) < 2:
+        return False
+    if any(question.startswith(prefix) for prefix in BAD_QUESTION_PREFIXES):
+        return False
+    if question in {"무엇인가?", "무엇이야?", "뭐야?", "어디야?", "누구야?"}:
+        return False
+    # Very short ordinal questions make generation follow a list template rather
+    # than test whether the injected passage fact is recalled.
+    if question.startswith(("첫째", "둘째", "셋째")) and len(question) < 20:
+        return False
+    return True
+
+
 def example_to_case(example: MemoryExample, index: int) -> dict:
     return {
         "name": f"dataset_ko_{index}_{example.qa_type}",
@@ -68,14 +101,7 @@ def example_to_case(example: MemoryExample, index: int) -> dict:
 
 def load_dataset_cases(path: str, *, case_index: int, max_cases: int) -> list[dict]:
     examples = load_augmented_examples(path)
-    selected = [
-        ex
-        for ex in examples
-        if ex.qa_type == "atomic"
-        and ex.negative_passage
-        and ex.negative_answer
-        and contains_hangul(f"{ex.question}\n{ex.passage}\n{ex.answer}")
-    ]
+    selected = [ex for ex in examples if is_good_single_case(ex)]
     if not selected:
         selected = [
             ex
