@@ -116,6 +116,25 @@ def build_memory_cued_prompt(tokenizer, question: str) -> str:
     )
 
 
+def build_short_chat_prompt(tokenizer, question: str) -> str:
+    if contains_hangul(question):
+        messages = [
+            {"role": "system", "content": "주입된 메모리만 근거로 정답 구절만 짧게 답하세요. 없으면 '모름'이라고 답하세요."},
+            {"role": "user", "content": f"질문: {question}\n답변:"},
+        ]
+    else:
+        messages = [
+            {"role": "system", "content": "Answer only with the short answer phrase from injected memory. If absent, answer 'Unknown'."},
+            {"role": "user", "content": f"Question: {question}\nAnswer:"},
+        ]
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+
+
 def build_paper_prompt(question: str) -> str:
     if contains_hangul(question):
         return f"질문: {question}\n답변:"
@@ -125,11 +144,28 @@ def build_paper_prompt(question: str) -> str:
 def build_generation_prompt(tokenizer, question: str, prompt_style: str) -> str:
     if prompt_style == "service":
         return build_chat_prompt(tokenizer, question)
+    if prompt_style == "short-chat":
+        return build_short_chat_prompt(tokenizer, question)
     if prompt_style == "memory-cued":
         return build_memory_cued_prompt(tokenizer, question)
     if prompt_style == "paper":
         return build_paper_prompt(question)
     raise ValueError(f"Unsupported prompt style: {prompt_style}")
+
+
+def tokenize_prompt_answer(tokenizer, prompt: str, answer: str, device):
+    answer_text = f"{answer}{tokenizer.eos_token}"
+    tok_prompt = tokenizer(prompt, return_tensors="pt")
+    tok_answer = tokenizer(answer_text, return_tensors="pt", add_special_tokens=False)
+    input_ids = torch.cat([tok_prompt["input_ids"], tok_answer["input_ids"]], dim=-1).to(device)
+    labels = torch.cat(
+        [
+            torch.full((1, tok_prompt["input_ids"].shape[1]), -100, dtype=torch.long),
+            tok_answer["input_ids"],
+        ],
+        dim=-1,
+    ).to(device)
+    return {"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids), "labels": labels}
 
 
 def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
@@ -247,7 +283,28 @@ def run_case(
         direct_main = generate_direct_passage(model, tokenizer, question, main_passage, device, max_new_tokens)
         direct_neg = generate_direct_passage(model, tokenizer, question, negative_passage, device, max_new_tokens)
         generations = {}
+        prompt_losses = {}
         for prompt_style in prompt_styles:
+            prompt = build_generation_prompt(tokenizer, question, prompt_style)
+            style_main_tok = tokenize_prompt_answer(tokenizer, prompt, main_answer, device)
+            style_neg_tok = tokenize_prompt_answer(tokenizer, prompt, negative_answer, device)
+            style_main_gold = compute_answer_loss(
+                forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], style_main_tok, alpha=alpha),
+                style_main_tok["labels"],
+            ).item()
+            style_main_neg = compute_answer_loss(
+                forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], style_neg_tok, alpha=alpha),
+                style_neg_tok["labels"],
+            ).item()
+            style_neg_gold = compute_answer_loss(
+                forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], style_main_tok, alpha=alpha),
+                style_main_tok["labels"],
+            ).item()
+            style_neg_neg = compute_answer_loss(
+                forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], style_neg_tok, alpha=alpha),
+                style_neg_tok["labels"],
+            ).item()
+            prompt_losses[prompt_style] = (style_main_gold, style_main_neg, style_neg_gold, style_neg_neg)
             main_gen = generate_with_kv(
                 model,
                 tokenizer,
@@ -292,6 +349,15 @@ def run_case(
     print("\n[service-safe answer | candidate rerank]")
     print(f"main K/V service answer: {main_selected}")
     print(f"neg  K/V service answer: {neg_selected}")
+    print("\n[candidate loss by generation prompt]")
+    for prompt_style, (style_main_gold, style_main_neg, style_neg_gold, style_neg_neg) in prompt_losses.items():
+        main_margin = style_main_neg - style_main_gold
+        neg_margin = style_neg_gold - style_neg_neg
+        print(
+            f"{prompt_style}: main {main_answer}={style_main_gold:.4f} vs {negative_answer}={style_main_neg:.4f} "
+            f"margin={main_margin:+.4f} | neg {negative_answer}={style_neg_neg:.4f} vs {main_answer}={style_neg_gold:.4f} "
+            f"margin={neg_margin:+.4f}"
+        )
     print("\n[model answer | no passage]")
     print("----- BEGIN -----")
     print(no_passage)
@@ -332,9 +398,9 @@ def main() -> None:
     parser.add_argument("--alpha", type=float, default=ALPHA)
     parser.add_argument(
         "--prompt-style",
-        choices=("service", "memory-cued", "paper", "all"),
+        choices=("service", "short-chat", "memory-cued", "paper", "all"),
         default="all",
-        help="Prompt used for K/V free generation. 'all' compares service, memory-cued, and paper prompts.",
+        help="Prompt used for K/V free generation. 'all' compares service, short-chat, memory-cued, and paper prompts.",
     )
     args = parser.parse_args()
 
@@ -361,7 +427,7 @@ def main() -> None:
     ).to(device).float()
     hypernet.load_state_dict(state["hypernet"])
     hypernet.eval()
-    prompt_styles = ["service", "memory-cued", "paper"] if args.prompt_style == "all" else [args.prompt_style]
+    prompt_styles = ["service", "short-chat", "memory-cued", "paper"] if args.prompt_style == "all" else [args.prompt_style]
 
     print("[PRAG:single-ko]")
     [
