@@ -123,6 +123,21 @@ def load_compatible_hypernet_weights(hypernet, weights_path: str, device) -> tup
     return len(compatible), max(len(saved) - len(compatible), 0)
 
 
+def compute_prefix_answer_loss(logits: torch.Tensor, labels: torch.Tensor, prefix_tokens: int):
+    """CE on the first answer tokens, which dominate free-generation starts."""
+    if prefix_tokens <= 0:
+        return None
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid_positions = (shift_labels != -100).nonzero(as_tuple=False)
+    if valid_positions.numel() == 0:
+        return None
+    selected = valid_positions[:prefix_tokens]
+    selected_logits = shift_logits[selected[:, 0], selected[:, 1]]
+    selected_labels = shift_labels[selected[:, 0], selected[:, 1]]
+    return F.cross_entropy(selected_logits, selected_labels)
+
+
 def example_loss(
     model,
     tokenizer,
@@ -133,6 +148,9 @@ def example_loss(
     rank_weight: float = RANK_WEIGHT,
     positive_only: bool = False,
     answer_target: str = "full_answer",
+    short_answer_weight: float = 0.0,
+    answer_prefix_weight: float = 0.0,
+    answer_prefix_tokens: int = 3,
 ):
     main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
     gold_answer = example.target_answer(answer_target)
@@ -142,15 +160,32 @@ def example_loss(
     main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
     if main_gold is None:
         return None
+    main_gold_prefix = compute_prefix_answer_loss(main_gold_logits, gold_tok["labels"], answer_prefix_tokens)
 
     zero = main_gold.detach().new_tensor(0.0)
+    objective = main_gold
+    if answer_prefix_weight > 0 and main_gold_prefix is not None:
+        objective = objective + answer_prefix_weight * main_gold_prefix
+
+    main_short = zero
+    if short_answer_weight > 0 and example.answer and example.answer != gold_answer:
+        short_tok = tokenize_qa(tokenizer, example.question, example.answer, device)
+        main_short_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], short_tok, alpha=ALPHA)
+        main_short_loss = compute_answer_loss(main_short_logits, short_tok["labels"])
+        if main_short_loss is not None:
+            main_short = main_short_loss
+            objective = objective + short_answer_weight * main_short_loss
+
     out = {
-        "objective": main_gold,
+        "objective": objective,
         "main_gold": main_gold,
         "main_neg": zero,
         "neg_gold": zero,
         "neg_neg": zero,
         "rank": zero,
+        "main_short": main_short,
+        "neg_short": zero,
+        "prefix": main_gold_prefix if main_gold_prefix is not None else zero,
         "main_ok": True,
         "neg_ok": False,
     }
@@ -167,14 +202,32 @@ def example_loss(
     neg_neg = compute_answer_loss(neg_neg_logits, neg_tok["labels"])
     if any(loss is None for loss in (main_neg, neg_gold, neg_neg)):
         return None
+    neg_neg_prefix = compute_prefix_answer_loss(neg_neg_logits, neg_tok["labels"], answer_prefix_tokens)
     rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
-    objective = main_gold + neg_neg + rank_weight * rank
+    objective = objective + neg_neg + rank_weight * rank
+    if answer_prefix_weight > 0 and neg_neg_prefix is not None:
+        objective = objective + answer_prefix_weight * neg_neg_prefix
+
+    neg_short = zero
+    if short_answer_weight > 0 and example.negative_answer and example.negative_answer != negative_answer:
+        neg_short_tok = tokenize_qa(tokenizer, example.question, example.negative_answer, device)
+        neg_short_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_short_tok, alpha=ALPHA)
+        neg_short_loss = compute_answer_loss(neg_short_logits, neg_short_tok["labels"])
+        if neg_short_loss is not None:
+            neg_short = neg_short_loss
+            objective = objective + short_answer_weight * neg_short_loss
+
     out.update({
         "objective": objective,
         "main_neg": main_neg,
         "neg_gold": neg_gold,
         "neg_neg": neg_neg,
         "rank": rank,
+        "neg_short": neg_short,
+        "prefix": (
+            (main_gold_prefix if main_gold_prefix is not None else zero)
+            + (neg_neg_prefix if neg_neg_prefix is not None else zero)
+        ),
         "main_ok": main_gold.item() < main_neg.item(),
         "neg_ok": neg_neg.item() < neg_gold.item(),
     })
@@ -193,6 +246,9 @@ def group_loss(
     final_weight: float = 1.0,
     positive_only: bool = False,
     answer_target: str = "full_answer",
+    short_answer_weight: float = 0.0,
+    answer_prefix_weight: float = 0.0,
+    answer_prefix_tokens: int = 3,
 ):
     losses = []
     loss_weights = []
@@ -212,11 +268,21 @@ def group_loss(
         main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
         if main_gold is None:
             continue
+        main_gold_prefix = compute_prefix_answer_loss(main_gold_logits, gold_tok["labels"], answer_prefix_tokens)
         zero = main_gold.detach().new_tensor(0.0)
+        gold_unit = main_gold
+        if answer_prefix_weight > 0 and main_gold_prefix is not None:
+            gold_unit = gold_unit + answer_prefix_weight * main_gold_prefix
+        if short_answer_weight > 0 and qa.answer and qa.answer != gold_answer:
+            short_tok = tokenize_qa(tokenizer, qa.question, qa.answer, device)
+            short_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], short_tok, alpha=ALPHA)
+            short_loss = compute_answer_loss(short_logits, short_tok["labels"])
+            if short_loss is not None:
+                gold_unit = gold_unit + short_answer_weight * short_loss
         if neg_mem is None or not negative_answer:
             weight = final_weight if qa.qa_type == "final" else 1.0
             if weight > 0:
-                losses.append(main_gold * weight)
+                losses.append(gold_unit * weight)
                 loss_weights.append(main_gold.detach().new_tensor(weight))
             main_ok += 1
             used += 1
@@ -231,8 +297,17 @@ def group_loss(
         neg_neg = compute_answer_loss(neg_neg_logits, neg_tok["labels"])
         if any(loss is None for loss in (main_neg, neg_gold, neg_neg)):
             continue
+        neg_neg_prefix = compute_prefix_answer_loss(neg_neg_logits, neg_tok["labels"], answer_prefix_tokens)
         rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
-        unit_loss = main_gold + neg_neg + rank_weight * rank
+        unit_loss = gold_unit + neg_neg + rank_weight * rank
+        if answer_prefix_weight > 0 and neg_neg_prefix is not None:
+            unit_loss = unit_loss + answer_prefix_weight * neg_neg_prefix
+        if short_answer_weight > 0 and qa.negative_answer and qa.negative_answer != negative_answer:
+            neg_short_tok = tokenize_qa(tokenizer, qa.question, qa.negative_answer, device)
+            neg_short_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_short_tok, alpha=ALPHA)
+            neg_short_loss = compute_answer_loss(neg_short_logits, neg_short_tok["labels"])
+            if neg_short_loss is not None:
+                unit_loss = unit_loss + short_answer_weight * neg_short_loss
         weight = final_weight if qa.qa_type == "final" else 1.0
         if weight > 0:
             losses.append(unit_loss * weight)
@@ -270,6 +345,9 @@ def evaluate(
     final_weight: float = 1.0,
     positive_only: bool = False,
     answer_target: str = "full_answer",
+    short_answer_weight: float = 0.0,
+    answer_prefix_weight: float = 0.0,
+    answer_prefix_tokens: int = 3,
 ):
     hypernet.eval()
     total = 0
@@ -284,6 +362,9 @@ def evaluate(
             device,
             positive_only=positive_only,
             answer_target=answer_target,
+            short_answer_weight=short_answer_weight,
+            answer_prefix_weight=answer_prefix_weight,
+            answer_prefix_tokens=answer_prefix_tokens,
         )
         if out is None:
             continue
@@ -318,6 +399,9 @@ def evaluate_groups(
     final_weight: float,
     positive_only: bool = False,
     answer_target: str = "full_answer",
+    short_answer_weight: float = 0.0,
+    answer_prefix_weight: float = 0.0,
+    answer_prefix_tokens: int = 3,
 ):
     hypernet.eval()
     total = 0
@@ -335,6 +419,9 @@ def evaluate_groups(
             final_weight,
             positive_only,
             answer_target,
+            short_answer_weight,
+            answer_prefix_weight,
+            answer_prefix_tokens,
         )
         if out is None:
             continue
@@ -668,6 +755,30 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--short-answer-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Extra CE weight on the compact answer span even when --answer-target=full_answer. "
+            "Use this for free-generation tuning so outputs start with the grounded answer phrase."
+        ),
+    )
+    parser.add_argument(
+        "--answer-prefix-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Extra CE weight on the first answer tokens. This directly pressures greedy generation "
+            "to begin with the passage-grounded answer instead of a plausible hallucinated phrase."
+        ),
+    )
+    parser.add_argument(
+        "--answer-prefix-tokens",
+        type=int,
+        default=3,
+        help="Number of initial answer tokens used by --answer-prefix-weight.",
+    )
+    parser.add_argument(
         "--group-weight",
         type=float,
         default=1.0,
@@ -849,6 +960,11 @@ def main() -> None:
         "overfit_samples": args.overfit_samples,
         "overfit_repeat": args.overfit_repeat,
     }
+    if args.short_answer_weight > 0:
+        run_config["short_answer_weight"] = args.short_answer_weight
+    if args.answer_prefix_weight > 0:
+        run_config["answer_prefix_weight"] = args.answer_prefix_weight
+        run_config["answer_prefix_tokens"] = args.answer_prefix_tokens
     print(f"[PRAG:train] config: {run_config}")
     print(
         f"[PRAG:train] expanded_examples train={len(train_examples)} valid={len(valid_examples)} "
@@ -921,6 +1037,9 @@ def main() -> None:
                     final_weight=args.final_weight,
                     positive_only=args.positive_only,
                     answer_target=args.answer_target,
+                    short_answer_weight=args.short_answer_weight,
+                    answer_prefix_weight=args.answer_prefix_weight,
+                    answer_prefix_tokens=args.answer_prefix_tokens,
                 )
                 if out is not None:
                     out["objective"] = out["objective"] * args.group_weight
@@ -935,6 +1054,9 @@ def main() -> None:
                     rank_weight=args.rank_weight,
                     positive_only=args.positive_only,
                     answer_target=args.answer_target,
+                    short_answer_weight=args.short_answer_weight,
+                    answer_prefix_weight=args.answer_prefix_weight,
+                    answer_prefix_tokens=args.answer_prefix_tokens,
                 )
                 if out is not None and getattr(item, "qa_type", "") == "final":
                     out["objective"] = out["objective"] * args.final_weight
@@ -960,6 +1082,9 @@ def main() -> None:
                 "neg_gold": round(float(out.get("neg_gold", out["rank"]).detach().item()), 6),
                 "neg_neg": round(float(out["neg_neg"].detach().item()), 6),
                 "rank": round(float(out["rank"].detach().item()), 6),
+                "prefix": round(float(out.get("prefix", out["rank"]).detach().item()), 6),
+                "main_short": round(float(out.get("main_short", out["rank"]).detach().item()), 6),
+                "neg_short": round(float(out.get("neg_short", out["rank"]).detach().item()), 6),
                 "main_ok": bool(out.get("main_ok", False)),
                 "neg_ok": bool(out.get("neg_ok", False)),
                 "kind": kind,
@@ -1004,6 +1129,9 @@ def main() -> None:
                     args.final_weight,
                     args.positive_only,
                     args.answer_target,
+                    args.short_answer_weight,
+                    args.answer_prefix_weight,
+                    args.answer_prefix_tokens,
                 )
                 group_metrics = evaluate_groups(
                     model,
@@ -1017,6 +1145,9 @@ def main() -> None:
                     args.final_weight,
                     args.positive_only,
                     args.answer_target,
+                    args.short_answer_weight,
+                    args.answer_prefix_weight,
+                    args.answer_prefix_tokens,
                 ) if valid_eval_groups and args.group_weight > 0 else None
                 selection_objective = metrics["objective"]
                 if group_metrics is not None:
@@ -1095,6 +1226,9 @@ def main() -> None:
         args.final_weight,
         args.positive_only,
         args.answer_target,
+        args.short_answer_weight,
+        args.answer_prefix_weight,
+        args.answer_prefix_tokens,
     )
     group_metrics = evaluate_groups(
         model,
@@ -1108,6 +1242,9 @@ def main() -> None:
         args.final_weight,
         args.positive_only,
         args.answer_target,
+        args.short_answer_weight,
+        args.answer_prefix_weight,
+        args.answer_prefix_tokens,
     ) if valid_eval_groups and args.group_weight > 0 else None
     selection_objective = metrics["objective"]
     if group_metrics is not None:

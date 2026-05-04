@@ -937,6 +937,36 @@ eval_generation_max_new_tokens = 64
 - `num_kv`를 바꾸면 기존 `prag_memory_checkpoint.pt`, `prag_memory_weights.pt`와 호환되지 않는다.
 - 데이터셋이 늘어난 뒤에는 당분간 `--no-resume`으로 새로 학습하는 것이 안전하다.
 
+### 2-1. 자유답변 생성형 파인튜닝
+
+현재 `main_ok`, `neg_ok`, `flip_ok`는 K/V가 main answer와 negative answer 중 어느 후보를 더 선호하는지 보는 후보 선택 지표다. 이 값이 높아도 자유 생성에서는 `도서관 대강당`, `비서실` 같은 그럴듯한 장소를 생성할 수 있다. 우리의 최종 목표는 후보 rerank가 아니라 **passage를 prompt에 다시 넣지 않고 K/V 주입만으로 passage 관련 답변을 자유 생성하는 것**이므로, flip 학습 이후 생성형 파인튜닝 단계를 추가했다.
+
+`llm_server/PRAG/train.py`에 추가된 옵션:
+
+```text
+--short-answer-weight
+  answer_target=full_answer일 때도 짧은 정답 구절 자체를 추가 CE로 학습한다.
+
+--answer-prefix-weight
+  답변 초반 토큰에 추가 CE를 걸어 greedy generation이 정답 구절로 시작하도록 압박한다.
+
+--answer-prefix-tokens
+  answer-prefix CE를 적용할 답변 초반 토큰 수. 기본 3.
+```
+
+권장 사용 방식은 기존 multi-fact 학습이 충분히 된 뒤, 최신 checkpoint를 초기값으로 가져와 optimizer/scheduler는 새로 시작하는 것이다.
+
+```bash
+python -m llm_server.PRAG.train --multifact --epochs 1 --no-resume --init-weights llm_server/PRAG/prag_multifact_memory_checkpoint.pt --short-answer-weight 1.0 --answer-prefix-weight 2.0 --answer-prefix-tokens 3 --eval-generation-samples 20 --eval-generation-every 250 --eval-generation-max-new-tokens 64
+```
+
+해석 기준:
+
+- `flip_ok`는 객관식/후보 선택 성공에 가깝다.
+- `gen-val main_kv`, `gen-val neg_kv`가 자유답변 생성 성공률이다.
+- 생성형 파인튜닝에서는 `flip_ok`가 조금 유지되면서 `gen-val`이 올라가는지를 본다.
+- 새 옵션을 켜면 checkpoint config가 달라지므로 기존 checkpoint를 그대로 resume하지 말고 `--no-resume --init-weights ...`를 사용한다.
+
 ### 3. 진단
 
 valid 데이터셋 기준 통계 진단:
@@ -951,6 +981,12 @@ python -m llm_server.PRAG.test --show 20
 python -m llm_server.PRAG.test_single_ko
 ```
 
+최신 multi-fact checkpoint를 직접 보고 싶으면:
+
+```bash
+python -m llm_server.PRAG.test_single_ko --weights llm_server/PRAG/prag_multifact_memory_checkpoint.pt --max-new-tokens 64 --alpha 1.0
+```
+
 진단에서 볼 핵심:
 
 - `main_ok`: main passage K/V로 main answer를 선택했는지
@@ -958,6 +994,24 @@ python -m llm_server.PRAG.test_single_ko
 - `flip_ok`: main/negative가 둘 다 성공해서 답이 passage에 맞게 뒤집혔는지
 - `gen real`: 실제 K/V 주입 생성 답변
 - `gen zero`: K/V가 없을 때의 답변
+
+`test_single_ko.py`에는 자유 생성 프롬프트 비교도 추가했다.
+
+```text
+prompt=service
+  현재 PRAG 서비스 chat prompt.
+
+prompt=short-chat
+  짧은 chat prompt. "주입된 메모리만 근거로 정답 구절만 짧게 답"하도록 유도한다.
+
+prompt=memory-cued
+  텍스트에는 passage가 보이지 않지만 내부 K/V 메모리가 주입되어 있다고 명시한다.
+
+prompt=paper
+  논문식 plain prompt, "질문/답변:" 또는 "Question/Answer:".
+```
+
+관찰상 Qwen chat 모델에서는 `paper` prompt가 `Human: ... err ...`처럼 출력 분포를 깨뜨릴 수 있으므로, 현재 서비스 진단에서는 참고용으로만 본다. 핵심은 `[candidate loss by generation prompt]`에서 각 prompt별 margin과 실제 자유 생성 답변을 함께 보는 것이다.
 
 ### 4. 데이터 확인
 
