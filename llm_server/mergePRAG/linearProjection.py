@@ -1,17 +1,41 @@
 import torch
 import torch.nn as nn
 
+
 class LinearProjection(nn.Module):
-  def __init__(self,d_model1,d_model2,k):
-    super().__init__()
-    self.k=k
-    self.K=nn.Linear(d_model1,k*d_model2)
-    self.V=nn.Linear(d_model1,k*d_model2)
-    self.d=d_model2
+    """논문 HyperKVGeneratorFixed의 linear_K, linear_V와 일치.
 
-  def forward(self,h):
-    B,d=h.size()
-    res_k=self.K(h).view(B,self.k,self.d)
-    res_v=self.V(h).view(B,self.k,self.d)
+    hidden_dim → num_kv * d_model 로 flatten 후 view(B, num_kv, d_model).
+    """
 
-    return res_k,res_v
+    def __init__(self, hidden_dim, d_model, num_kv):
+        super().__init__()
+        self.num_kv = num_kv
+        self.d_model = d_model
+        self.linear_K = nn.Linear(hidden_dim, num_kv * d_model)
+        self.linear_V = nn.Linear(hidden_dim, num_kv * d_model)
+
+    def _project(self, linear, hidden):
+        out = linear(hidden)
+        if hidden.dim() == 2:
+            batch = hidden.size(0)
+            return out.view(batch, self.num_kv, self.d_model)
+
+        if hidden.dim() == 3:
+            batch, slots, _ = hidden.shape
+            out = out.view(batch, slots, self.num_kv, self.d_model)
+            if slots == self.num_kv:
+                # Each pooled slot owns the matching output block. This keeps the
+                # old num_kv*d projection shape while letting slots specialize.
+                idx = torch.arange(slots, device=hidden.device)
+                return out[:, idx, idx, :]
+            return out.mean(dim=1)
+
+        raise ValueError(f"Unsupported hidden rank for LinearProjection: {hidden.dim()}")
+
+    def forward(self, h_k, h_v=None):
+        if h_v is None:
+            h_v = h_k
+        K = self._project(self.linear_K, h_k)
+        V = self._project(self.linear_V, h_v)
+        return K, V

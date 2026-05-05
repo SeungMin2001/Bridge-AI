@@ -14,12 +14,17 @@ import torch
 from ..run_model import run_model
 from .config import (
     ALPHA,
-    TRAIN_DATA_PATH,
+    MEMORY_ENCODER_INSTRUCTION,
     NUM_KV,
+    SYSTEM_PROMPT,
+    TRAIN_DATA_PATH,
+    USE_CONTEXTUAL_PASSAGE_ENCODER,
+    USE_QUESTION_CONDITIONED_MEMORY,
+    build_chat_text,
     load_critical_layer,
     load_hypernet_state_dict,
 )
-from .embedding import encode_passage_states, tokenize_conditioned_memory
+from .embedding import encode_passage_states, tokenize_conditioned_memory, tokenize_passage_memory
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -27,6 +32,16 @@ from .cross_attention import cross_attention
 NUM_SAMPLES_TO_SHOW = 3
 MAX_ROWS = 200
 CRITICAL_LAYER = load_critical_layer()
+
+
+def build_memory_query_for_task(question: str, task: str = "final_qa") -> str:
+    question = str(question or "").strip()
+    if task == "hop_fact":
+        return (
+            "Task: identify the supporting fact currently grounded in the passage.\n"
+            f"Question: {question}"
+        )
+    return question
 
 
 def iter_jsonl(path: str):
@@ -48,42 +63,41 @@ def masked_mean(hidden, mask):
 
 def encode_passage(model, tokenizer, hypernet, question: str, passage: str, device):
     with torch.no_grad():
-        encoded = tokenize_conditioned_memory(
-            tokenizer,
-            question,
-            passage,
-            device,
-            max_length=512,
-        )
+        if USE_QUESTION_CONDITIONED_MEMORY:
+            encoded = tokenize_conditioned_memory(
+                tokenizer,
+                question,
+                passage,
+                device,
+                max_length=512,
+            )
+        else:
+            encoded = tokenize_passage_memory(tokenizer, passage, device, max_length=512)
         ids = encoded["input_ids"]
         attention_mask = encoded["attention_mask"]
         question_mask = encoded["question_mask"]
         passage_mask = encoded["passage_mask"]
-        focus_weight = encoded.get("focus_weight")
+        query_focus_mask = encoded.get("query_focus_mask")
         emb = encode_passage_states(
             model,
             ids,
             attention_mask=attention_mask,
-            use_contextual=True,
+            use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
         )
-        query = masked_mean(emb, question_mask)
-        pooled = hypernet.pooling(
-            emb,
-            mask=attention_mask,
-            query=query,
-            focus_mask=passage_mask,
-            focus_weight=focus_weight,
-        )
-        h = hypernet.mlp(pooled)
-        k_raw, v_raw = hypernet.lp(h)
-        k, v = hypernet(
+        query = masked_mean(emb, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
+        parts = hypernet.encode_embedded_components(
             emb,
             attention_mask=attention_mask,
             query=query,
             focus_mask=passage_mask,
-            focus_weight=focus_weight,
+            query_focus_mask=query_focus_mask,
         )
-    return pooled, h, k_raw, v_raw, k, v
+        pooled = parts["pooled"]
+        hidden = parts["hidden"]
+        k_raw = parts["K_raw"]
+        v_raw = parts["V_raw"]
+        k, v = hypernet.normalize_kv(k_raw, v_raw)
+    return pooled, hidden, k_raw, v_raw, k, v
 
 
 def cosine(a: torch.Tensor, b: torch.Tensor) -> float:
@@ -104,15 +118,7 @@ def make_hook(dk, dv, alpha=ALPHA):
 
 
 def decode_answer(model, tokenizer, question: str, dk, dv, layer_idx: int | None):
-    prompt = tokenizer.apply_chat_template(
-        [
-            {"role": "system", "content": "Answer in English with one short sentence."},
-            {"role": "user", "content": question},
-        ],
-        tokenize=False,
-        add_generation_prompt=True,
-        enable_thinking=False,
-    )
+    prompt = build_chat_text(tokenizer, question=question, enable_thinking=False)
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     hook = None
     if layer_idx is not None:
@@ -140,6 +146,8 @@ def main():
     print(f"[diag] hypernet source: {load_info['source']} ({load_info['kind']}, step={load_info['step']})")
     print(f"[diag] critical layer: {CRITICAL_LAYER}")
     print(f"[diag] dataset: {TRAIN_DATA_PATH}")
+    print(f"[diag] system prompt: {SYSTEM_PROMPT[:160]}")
+    print(f"[diag] memory encoder instruction: {MEMORY_ENCODER_INSTRUCTION[:200]}")
 
     rows = []
     for idx, item in enumerate(iter_jsonl(TRAIN_DATA_PATH)):
@@ -159,11 +167,13 @@ def main():
 
     # Compare first two real training samples
     s1, s2 = rows[0], rows[1]
-    p1 = " ".join(s1.get("facts", []))
-    p2 = " ".join(s2.get("facts", []))
+    p1 = s1.get("passage") or " ".join(s1.get("facts", []))
+    p2 = s2.get("passage") or " ".join(s2.get("facts", []))
 
-    pooled1, h1, k1_raw, v1_raw, k1, v1 = encode_passage(model, tokenizer, hypernet, s1["question"], p1, device)
-    pooled2, h2, k2_raw, v2_raw, k2, v2 = encode_passage(model, tokenizer, hypernet, s2["question"], p2, device)
+    q1 = build_memory_query_for_task(s1["question"], s1.get("task", "final_qa"))
+    q2 = build_memory_query_for_task(s2["question"], s2.get("task", "final_qa"))
+    pooled1, h1, k1_raw, v1_raw, k1, v1 = encode_passage(model, tokenizer, hypernet, q1, p1, device)
+    pooled2, h2, k2_raw, v2_raw, k2, v2 = encode_passage(model, tokenizer, hypernet, q2, p2, device)
 
     print("\n[real sample comparison]")
     print(f"q1: {s1['question']}")

@@ -24,60 +24,24 @@ async function sendMessage() {
   inputText.value = ''
   isLoading.value = true
 
-  const idx = messages.value.length
-  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
-
-  const t0 = performance.now()
-  let ttftLogged = false
+  // 로딩 표시용 임시 버블
+  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'thinking' })
 
   try {
-    const res = await fetch('/chat/stream', {
+    const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question }),
     })
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let tokenCount = 0
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop()
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const payload = line.slice(6)
-        if (payload === '[DONE]') break
-
-        const data = JSON.parse(payload)
-        const msg = messages.value[idx]
-
-        if (data.type === 'citations') {
-          messages.value[idx] = { ...msg, citations: data.citations }
-        } else if (data.type === 'token') {
-          if (!ttftLogged) {
-            console.log(`[TTFT] 첫 토큰까지: ${(performance.now() - t0).toFixed(0)}ms`)
-            ttftLogged = true
-          }
-          tokenCount++
-          messages.value[idx] = { ...msg, text: msg.text + data.token }
-        } else if (data.type === 'error') {
-          messages.value[idx] = { ...msg, text: msg.text + `\n오류: ${data.error}` }
-        }
-      }
+    const data = await res.json()
+    // 마지막 메시지를 교체 (Vue 반응성 보장)
+    messages.value[messages.value.length - 1] = {
+      role: 'ai',
+      thinking: data.thinking || '',
+      text: data.answer || '',
+      citations: data.citations || [],
+      phase: 'done',
     }
-
-    const totalMs = performance.now() - t0
-    console.log(`[응답완료] 총: ${totalMs.toFixed(0)}ms | 토큰: ${tokenCount}개 | 속도: ${(tokenCount / (totalMs / 1000)).toFixed(1)} tok/s`)
-
-    const msg = messages.value[idx]
-    messages.value[idx] = { ...msg, phase: 'done' }
   } catch (e) {
     console.error('[AI Chat] fetch error:', e)
     messages.value[messages.value.length - 1] = {

@@ -1,18 +1,14 @@
-<!-- 실시간 음성 전사 결과를 확인하고 AI에게 질문하거나 노트에 추가하는 사이드 탭 컴포넌트입니다. -->
 <script setup>
 import { ref, watch, onMounted, nextTick } from 'vue'
-import { useChat } from '../../composables/useChat'
-
-const { selectWord } = useChat()
 
 const props = defineProps({
-  transcriptions: { type: Array, default: () => [] },
-  variant: { type: String, default: 'sidebar' }
+  transcriptions: { type: Array, default: () => [] }
 })
 
 const emit = defineEmits(['addToNote', 'askAi'])
 
 const transSearch = ref('')
+const wordPopover = ref({ visible: false, x: 0, y: 0, word: '' })
 const scrollContainer = ref(null)
 
 // 최하단으로 스크롤 이동
@@ -35,17 +31,48 @@ onMounted(() => {
   scrollToBottom()
 })
 
-// 단어 클릭 → 전역 상태로 전달하여 메인 컨텐츠 영역에 카드로 표시
+// 단어 클릭 이벤트
 const handleWordClick = (e, word) => {
   e.stopPropagation()
-  selectWord(word)
+  const rect = e.currentTarget.getBoundingClientRect()
+  const bubbleRect = e.currentTarget.closest('.message-bubble').getBoundingClientRect()
+  
+  wordPopover.value = {
+    visible: true,
+    x: bubbleRect.right + 10,
+    y: rect.top - 20,
+    word: word
+  }
+}
+
+const closePopover = () => {
+  wordPopover.value.visible = false
+}
+
+const WORD_EXPLANATIONS = {
+  "기초": { desc: "어떤 지식이나 기술 따위의 바탕이 되는 토대입니다.", source: "강의 교안 Chapter 1" },
+  "네트워크": { desc: "여러 대의 컴퓨터나 통신기기를 통신망으로 연결하여 데이터를 주고받는 가상의 연결 체계입니다.", source: "IT 용어 대사전" },
+  "OSI": { desc: "Open Systems Interconnection의 약자로, 국제표준화기구(ISO)에서 제정한 네트워크 통신 계층 모델입니다.", source: "네트워크 개론 p.42" },
+  "전사": { desc: "음성이나 말소리를 텍스트 형태의 글자로 옮겨 적는 작업을 의미합니다.", source: "언어학 입문" },
+  "백엔드": { desc: "사용자의 눈에 보이지 않는 서버 측의 로직, 데이터베이스 관리, API 등을 처리하는 영역입니다.", source: "풀스택 개발 가이드" },
+  "데이터": { desc: "컴퓨터가 처리할 수 있는 문자, 숫자, 소리, 그림 따위의 가공되지 않은 정보의 단위입니다.", source: "데이터 정보학" },
+  "테스트": { desc: "어떤 사물이나 기능이 정해진 목적에 잘 맞는지 확인하고 검사하는 과정입니다.", source: "소프트웨어 공학" },
+  "샘플": { desc: "실제 제품이나 서비스의 상태를 미리 보여주기 위해 예본으로 만든 표본입니다.", source: "UI/UX 디자인 시스템" },
+  "실시간": { desc: "데이터가 발생하는 즉시 또는 아주 짧은 지연 시간 내에 처리되는 방식을 의미합니다.", source: "운영체제론" },
+}
+
+const getWordData = (word) => {
+  return WORD_EXPLANATIONS[word.replace(/[.,]/g, '')] || {
+    desc: "해당 단어에 대한 상세 설명 정보가 아직 등록되지 않았습니다. AI를 사용하여 자동으로 검색하거나 노트를 추가할 수 있습니다.",
+    source: "AI 분석 결과"
+  }
 }
 </script>
 
 <template>
-  <div class="flex flex-col flex-1 overflow-hidden" :class="{ 'transcript-panel-content': variant === 'content' }">
+  <div class="flex flex-col flex-1 overflow-hidden">
     <!-- 검색 창 -->
-    <div class="sidebar-search-bg workspace-inset-shell transcript-search-shell rounded-[24px] px-3 py-2.5 flex items-center gap-3 mb-6">
+    <div class="sidebar-search-bg rounded-[14px] px-4 py-2 flex items-center gap-2.5 mb-6">
       <span class="material-symbols-outlined text-[#8e8e93] text-[20px]">search</span>
       <input
         class="bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
@@ -80,7 +107,7 @@ const handleWordClick = (e, word) => {
             </div>
             <span class="text-[11px] font-bold text-[#1d1d1f]">나</span>
           </div>
-          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[13px] leading-[1.6]" :class="{ 'is-content': variant === 'content' }">
+          <div class="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
             <template v-if="t.segments && t.segments.length">
               <span
                 v-for="(seg, sIdx) in t.segments"
@@ -109,6 +136,58 @@ const handleWordClick = (e, word) => {
       </template>
     </div>
   </div>
+
+  <!-- 단어 팝오버 메뉴 -->
+  <Transition name="popover">
+    <div
+      v-if="wordPopover.visible"
+      class="fixed z-[10000] bg-white/80 backdrop-blur-md rounded-[20px] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-white/40 flex flex-col gap-3 min-w-[240px] max-w-[280px]"
+      :style="{ left: wordPopover.x + 'px', top: wordPopover.y + 'px' }"
+      @click.stop
+    >
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></div>
+          <span class="text-[15px] font-extrabold text-[#1d1d1f] tracking-tight">{{ wordPopover.word }}</span>
+        </div>
+        <button @click="closePopover" class="p-1 rounded-full hover:bg-black/5 transition-colors">
+          <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">close</span>
+        </button>
+      </div>
+      
+      <div class="text-[13px] text-[#3a3a3c] leading-[1.6] font-medium tracking-tight">
+        {{ getWordData(wordPopover.word).desc }}
+      </div>
+
+      <div class="flex items-center gap-1.5 mt-1 border-t border-black/5 pt-3">
+        <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
+        <span class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">Source:</span>
+        <span class="text-[11px] font-bold text-blue-500 cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2">{{ getWordData(wordPopover.word).source }}</span>
+      </div>
+
+      <div class="flex gap-2 mt-1">
+        <button 
+          class="flex-1 bg-blue-500 text-white border-none py-2 rounded-xl text-[12px] font-bold hover:bg-blue-600 transition-colors shadow-sm"
+          @click="emit('askAi', wordPopover.word); closePopover();"
+        >
+          AI에게 질문
+        </button>
+        <button 
+          class="flex-1 bg-[#f2f2f7] text-[#1d1d1f] border-none py-2 rounded-xl text-[12px] font-bold hover:bg-[#e5e5ea] transition-colors"
+          @click="emit('addToNote', getWordData(wordPopover.word).desc, getWordData(wordPopover.word).source); closePopover();"
+        >
+          노트에 추가
+        </button>
+      </div>
+    </div>
+  </Transition>
+
+  <!-- 팝오버 외부 영역 클릭 시 닫기 -->
+  <div
+    v-if="wordPopover.visible"
+    style="position: fixed; inset: 0; z-index: 9998;"
+    @click="closePopover"
+  ></div>
 </template>
 
 <style scoped>
@@ -160,46 +239,5 @@ const handleWordClick = (e, word) => {
   0%   { color: #aeaeb2; }
   40%  { color: #3b82f6; }
   100% { color: #1d1d1f; }
-}
-
-.voice-message-bubble {
-  position: relative;
-  width: fit-content;
-  max-width: min(100%, 440px);
-  background: #f4ede4;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow: none;
-  overflow: hidden;
-}
-
-.transcript-panel-content .voice-message-bubble.is-content {
-  max-width: min(100%, 860px);
-}
-
-.transcript-search-shell {
-  position: relative;
-  background: #f4ede4;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow: none;
-  overflow: hidden;
-}
-
-.transcript-search-shell::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.58), transparent 42%);
-  pointer-events: none;
-}
-
-.voice-message-bubble::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.18), transparent 34%);
-  pointer-events: none;
 }
 </style>

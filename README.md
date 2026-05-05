@@ -200,87 +200,87 @@ compare memory -> Friday
 ### 설정과 공통 케이스
 
 - `llm_server/mergePRAG/config.py`
-    - 현재 하이퍼파라미터 기본값, 경로, system prompt, checkpoint/weights 로딩 정책.
-    - 기본 로딩은 `hypernet_weights.pt` 우선이다.
+  - 현재 하이퍼파라미터 기본값, 경로, system prompt, checkpoint/weights 로딩 정책.
+  - 기본 로딩은 `hypernet_weights.pt` 우선이다.
 - `llm_server/mergePRAG/eval_cases.py`
-    - 학습 데이터 생성, `test_mergeprag.py`, `debug_mergeprag.py`가 공유하는 공통 진단 케이스.
-    - 질문/passage 진단 케이스를 바꿀 때는 이 파일을 먼저 바꿔야 한다.
+  - 학습 데이터 생성, `test_mergeprag.py`, `debug_mergeprag.py`가 공유하는 공통 진단 케이스.
+  - 질문/passage 진단 케이스를 바꿀 때는 이 파일을 먼저 바꿔야 한다.
 
 ### HyperNetwork / K,V 생성
 
 - `llm_server/mergePRAG/service_memory.py`
-    - 현재 주 진행 구조.
-    - raw token embedding과 contextual hidden을 함께 사용한다.
-    - multi-slot learned pooling으로 passage의 여러 token 영역을 K/V slot으로 보존한다.
-    - `make_memory_hook`, service chat prompt, answer loss, slot diversity 등 service memory 학습/진단 공통 함수를 포함한다.
+  - 현재 주 진행 구조.
+  - raw token embedding과 contextual hidden을 함께 사용한다.
+  - multi-slot learned pooling으로 passage의 여러 token 영역을 K/V slot으로 보존한다.
+  - `make_memory_hook`, service chat prompt, answer loss, slot diversity 등 service memory 학습/진단 공통 함수를 포함한다.
 - `llm_server/mergePRAG/embedding.py`
-    - passage 또는 question-conditioned memory sequence를 tokenization한다.
-    - 영어/한국어에 따라 memory instruction과 label을 바꾼다.
-    - `question_mask`, `passage_mask`를 만들어 query와 pooling 영역을 분리한다.
-    - `query_focus_mask`를 만들어 질문 핵심 단어가 passage에 나온 주변 token window를 표시한다.
+  - passage 또는 question-conditioned memory sequence를 tokenization한다.
+  - 영어/한국어에 따라 memory instruction과 label을 바꾼다.
+  - `question_mask`, `passage_mask`를 만들어 query와 pooling 영역을 분리한다.
+  - `query_focus_mask`를 만들어 질문 핵심 단어가 passage에 나온 주변 token window를 표시한다.
 - `llm_server/mergePRAG/pooling.py`
-    - `AttentivePooling`.
-    - question query와 passage token 유사도를 attention score에 더한다.
-    - `query_focus_mask`가 있으면 해당 window에 추가 attention boost를 준다.
-    - `USE_SLOTWISE_POOLING=True`이면 `num_kv`개 attention map을 만들어 pooled를 `[B, num_kv, d]`로 반환한다.
+  - `AttentivePooling`.
+  - question query와 passage token 유사도를 attention score에 더한다.
+  - `query_focus_mask`가 있으면 해당 window에 추가 attention boost를 준다.
+  - `USE_SLOTWISE_POOLING=True`이면 `num_kv`개 attention map을 만들어 pooled를 `[B, num_kv, d]`로 반환한다.
 - `llm_server/mergePRAG/hypernetwork.py`
-    - passage hidden -> pooled -> MLP -> K/V projection.
-    - 현재 `k_mlp_v_hybrid` 기본값:
-        - `K_raw = K_mlp`
-        - `V_raw = V_mlp + V_skip`
-    - K/V RMS clamp를 적용한다.
+  - passage hidden -> pooled -> MLP -> K/V projection.
+  - 현재 `k_mlp_v_hybrid` 기본값:
+    - `K_raw = K_mlp`
+    - `V_raw = V_mlp + V_skip`
+  - K/V RMS clamp를 적용한다.
 - `llm_server/mergePRAG/cross_attention.py`
-    - hook에서 사용하는 cross-attention 계산.
+  - hook에서 사용하는 cross-attention 계산.
 
 ### 학습/데이터
 
 - `llm_server/mergePRAG/prepare_service_hardpairs.py`
-    - 현재 핵심 학습 데이터 생성기.
-    - 영어/한국어 service-style hard pair를 만든다.
-    - 모든 row는 `hard_negatives`와 `contrast_id`를 가진다.
-    - `eval_cases.py`의 공통 진단 케이스도 학습 데이터에 포함한다.
+  - 현재 핵심 학습 데이터 생성기.
+  - 영어/한국어 service-style hard pair를 만든다.
+  - 모든 row는 `hard_negatives`와 `contrast_id`를 가진다.
+  - `eval_cases.py`의 공통 진단 케이스도 학습 데이터에 포함한다.
 - `llm_server/mergePRAG/train.py`
-    - Qwen base model은 freeze하고 HyperNetwork만 학습한다.
-    - positive answer CE, negative grounding, answer-rank, K/V repulsion, question-conditioned repulsion, slot diversity를 사용한다.
-    - validation도 이제 hard negative와 answer-rank를 포함한다.
+  - Qwen base model은 freeze하고 HyperNetwork만 학습한다.
+  - positive answer CE, negative grounding, answer-rank, K/V repulsion, question-conditioned repulsion, slot diversity를 사용한다.
+  - validation도 이제 hard negative와 answer-rank를 포함한다.
 - `llm_server/mergePRAG/train2.py`
-    - 로컬 클론 논문 코드의 `KV_train.py`, `HyperKVGeneratorFixed`를 최대한 따른 baseline.
-    - token embedding -> single attentive pooling -> MLP -> linear K/V -> layer hook.
-    - 현재 hard-pair service 목표에는 K/V collapse로 실패한 baseline으로 남긴다.
+  - 로컬 클론 논문 코드의 `KV_train.py`, `HyperKVGeneratorFixed`를 최대한 따른 baseline.
+  - token embedding -> single attentive pooling -> MLP -> linear K/V -> layer hook.
+  - 현재 hard-pair service 목표에는 K/V collapse로 실패한 baseline으로 남긴다.
 - `llm_server/mergePRAG/train2_repair.py`
-    - `train2.py`와 같은 구조를 유지하되 hard-pair bidirectional rank objective만 추가한 repair baseline.
-    - K/V cosine은 일부 낮췄지만 validation flip은 아직 0에 가까웠다.
+  - `train2.py`와 같은 구조를 유지하되 hard-pair bidirectional rank objective만 추가한 repair baseline.
+  - K/V cosine은 일부 낮췄지만 validation flip은 아직 0에 가까웠다.
 - `llm_server/mergePRAG/train_service_memory.py`
-    - 현재 주 진행 학습 스크립트.
-    - service-oriented multi-slot memory encoder를 학습한다.
-    - 산출물은 `service_memory_weights.pt`, `service_memory_checkpoint.pt`, `service_memory_log.json`.
+  - 현재 주 진행 학습 스크립트.
+  - service-oriented multi-slot memory encoder를 학습한다.
+  - 산출물은 `service_memory_weights.pt`, `service_memory_checkpoint.pt`, `service_memory_log.json`.
 - `llm_server/mergePRAG/audit_dataset.py`
-    - 데이터셋 중복, hard negative 유무, answer/passage 문제 진단.
+  - 데이터셋 중복, hard negative 유무, answer/passage 문제 진단.
 
 ### 진단
 
 - `llm_server/test_mergeprag.py`
-    - 빠른 진단.
-    - `no_hook`, `direct main`, `direct comp`, hook generation, candidate choice, K/V cosine을 본다.
+  - 빠른 진단.
+  - `no_hook`, `direct main`, `direct comp`, hook generation, candidate choice, K/V cosine을 본다.
 - `llm_server/debug_mergeprag.py`
-    - 심층 진단.
-    - 어느 stage에서 passage 차이가 사라지는지, hook이 logit을 바꾸는지, slot이 실제로 기여하는지 본다.
+  - 심층 진단.
+  - 어느 stage에서 passage 차이가 사라지는지, hook이 logit을 바꾸는지, slot이 실제로 기여하는지 본다.
 - `llm_server/mergePRAG/diagnose_hotpot.py`
-    - HotPot processed 데이터용 진단.
+  - HotPot processed 데이터용 진단.
 - `llm_server/mergePRAG/test_train2.py`
-    - train2/train2_repair baseline 전용 진단.
-    - direct passage score, memory score, K/V cosine, bidirectional flip success를 본다.
+  - train2/train2_repair baseline 전용 진단.
+  - direct passage score, memory score, K/V cosine, bidirectional flip success를 본다.
 - `llm_server/mergePRAG/test_service_memory.py`
-    - 현재 주 진행 구조 전용 진단.
-    - service memory weights를 로드해 passage 없이 K/V 주입만으로 답 후보가 뒤집히는지 본다.
+  - 현재 주 진행 구조 전용 진단.
+  - service memory weights를 로드해 passage 없이 K/V 주입만으로 답 후보가 뒤집히는지 본다.
 
 ### 서비스/API
 
 - `llm_server/mergePRAG/main.py`
-    - course memory manager와 hook inference.
-    - question-conditioned memory가 켜져 있으면 raw passage를 보관하고 질문마다 K/V를 재계산하는 경로가 중요하다.
+  - course memory manager와 hook inference.
+  - question-conditioned memory가 켜져 있으면 raw passage를 보관하고 질문마다 K/V를 재계산하는 경로가 중요하다.
 - `llm_server/api.py`
-    - `/generate`, `/generate/rag`, `/generate/mergeprag`, memory add/list/clear endpoint 연결.
+  - `/generate`, `/generate/rag`, `/generate/mergeprag`, memory add/list/clear endpoint 연결.
 
 ## 현재 기본 파라미터
 
@@ -848,15 +848,15 @@ SAVE_EVERY = 250 또는 500
 ## 주의사항
 
 - 질문/passage 진단 케이스를 바꿀 때 `test_mergeprag.py`만 직접 바꾸지 말 것.
-    - `llm_server/mergePRAG/eval_cases.py`를 수정해야 train/test/debug가 같이 맞춰진다.
+  - `llm_server/mergePRAG/eval_cases.py`를 수정해야 train/test/debug가 같이 맞춰진다.
 - `MERGEPRAG_LOAD_SOURCE=checkpoint`가 남아 있으면 마지막 checkpoint를 읽어 결과가 달라진다.
-    - 진단은 기본적으로 `weights`를 보게 해야 한다.
+  - 진단은 기본적으로 `weights`를 보게 해야 한다.
 - `.pt`, `train_log.json`, `train_loss_curve.png`는 실험 산출물이다.
-    - 코드 커밋 시 실수로 포함하지 않도록 주의.
+  - 코드 커밋 시 실수로 포함하지 않도록 주의.
 - `num_kv=1`은 K 선택 역할이 사라져 V collapse에 취약했다.
-    - 현재 기본은 `num_kv=4`.
+  - 현재 기본은 `num_kv=4`.
 - `alpha=1.0`은 hidden을 과하게 덮어써 이상한 생성이 나올 수 있다.
-    - 서비스/진단 기본은 `alpha=0.1`.
+  - 서비스/진단 기본은 `alpha=0.1`.
 
 ## 다음 AI가 바로 해야 할 일
 
@@ -869,3 +869,141 @@ SAVE_EVERY = 250 또는 500
 7. 우선순위는 "K/V cosine 숫자만 낮추기"가 아니라 "주입 후 답이 passage에 맞게 뒤집히는지"다.
 
 현재 프로젝트의 방향은 "외부 데이터셋 일반 QA 성능"보다 "주입된 발화 passage가 답변을 실제로 뒤집는가"에 맞춰져 있다. 다른 AI가 이어받을 때도 이 기준을 최우선으로 봐야 한다.
+
+## 새 PRAG 파이프라인 실행 명령어
+
+현재 새 구현은 `llm_server/PRAG` 폴더 기준이다. 기존 `llm_server/mergePRAG` 실험과 구분한다.
+
+### 구조 메모: FiD 아이디어를 K/V memory로 확장한 부분
+
+FiD(Fusion-in-Decoder)는 검색된 passage를 질문과 쌍으로 묶어 `question + passage` 형태로 encoder에 넣고, decoder가 여러 passage representation을 합쳐 답을 생성하는 RAG 계열 구조다.
+
+우리 구현은 FiD처럼 passage를 prompt/context로 그대로 넘기지는 않는다. 대신 FiD의 핵심 아이디어인 "passage representation을 질문 조건부로 만든다"는 점만 가져와서, `question + passage`를 모델에 통과시킨 contextual hidden state를 HyperNetwork 입력에 반영한다. 그 결과 같은 passage라도 사용자 질문이 다르면 다른 K/V memory가 생성되도록 학습한다.
+
+참고 논문: Gautier Izacard, Edouard Grave, [Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering](https://arxiv.org/abs/2007.01282), 2020.
+
+### 1. 데이터셋 증강
+
+기본 입력/출력 경로는 코드에 들어 있다.
+
+```text
+input:  C:\Users\user\Documents\last_project\data\ServiceHardPair_train.jsonl
+train:  C:\Users\user\Documents\last_project\data\PRAG_augmented_train.jsonl
+valid:  C:\Users\user\Documents\last_project\data\PRAG_augmented_valid.jsonl
+```
+
+처음부터 새로 만들기:
+
+```bash
+python -m llm_server.PRAG.augment --no-resume
+```
+
+중간 저장분부터 이어서 만들기:
+
+```bash
+python -m llm_server.PRAG.augment
+```
+
+참고:
+
+- 증강은 기본적으로 입력 row를 shuffle해서 다양한 주제가 섞이게 만든다.
+- 성공한 샘플은 즉시 `PRAG_augmented_train.jsonl` 또는 `PRAG_augmented_valid.jsonl`에 append 저장된다.
+- 기본값은 `--valid-every 5`라서 5번째마다 valid에 저장된다.
+- 중간에 끊어도 다시 `python -m llm_server.PRAG.augment`를 실행하면 기존 `source_id`를 건너뛰고 이어서 진행한다.
+
+### 2. 학습
+
+데이터셋이 계속 추가되는 실험 단계에서는 기존 checkpoint를 이어받지 않고 새로 학습한다.
+
+```bash
+python -m llm_server.PRAG.train --multifact --no-resume
+```
+
+현재 새 PRAG 기본 설정:
+
+```text
+num_kv = 16
+alpha = 1.0
+hidden_dim = 1024
+epochs = 4
+answer_target = full_answer
+eval_generation_samples = 4
+eval_generation_every = 1000
+eval_generation_max_new_tokens = 64
+```
+
+주의:
+
+- `num_kv`를 바꾸면 기존 `prag_memory_checkpoint.pt`, `prag_memory_weights.pt`와 호환되지 않는다.
+- 데이터셋이 늘어난 뒤에는 당분간 `--no-resume`으로 새로 학습하는 것이 안전하다.
+
+### 3. 진단
+
+valid 데이터셋 기준 통계 진단:
+
+```bash
+python -m llm_server.PRAG.test --show 20
+```
+
+한국어/영어 단일 예시 진단:
+
+```bash
+python -m llm_server.PRAG.test_single_ko
+```
+
+진단에서 볼 핵심:
+
+- `main_ok`: main passage K/V로 main answer를 선택했는지
+- `neg_ok`: negative passage K/V로 negative answer를 선택했는지
+- `flip_ok`: main/negative가 둘 다 성공해서 답이 passage에 맞게 뒤집혔는지
+- `gen real`: 실제 K/V 주입 생성 답변
+- `gen zero`: K/V가 없을 때의 답변
+
+### 4. 데이터 확인
+
+현재까지 저장된 train/valid 데이터 품질 확인:
+
+```bash
+python -m llm_server.PRAG.validate
+```
+
+증강 샘플 직접 보기:
+
+```bash
+python -m llm_server.PRAG.preview_data --samples 5
+```
+
+### 5. 외부 한국어 MRC 추가 파인튜닝
+
+외부 한국어 데이터셋은 우선 `KorQuAD 1.0`을 사용한다. HotpotQA처럼 명시적인 멀티홉 한국어 공개셋은 선택지가 제한적이고, 현재 목표는 "문단/passage에 있는 정보를 K/V로 주입하면 답이 바뀌는가"이므로 `context-question-answer`가 명확한 KorQuAD가 가장 안전하다.
+
+KorQuAD를 PRAG augmented 포맷으로 변환:
+
+```bash
+python -m llm_server.PRAG.prepare_korquad --max-train-records 2000 --max-valid-records 400
+```
+
+현재 multi-fact로 학습된 가중치를 초기값으로 가져와 KorQuAD 변환 데이터에서 추가 파인튜닝:
+
+```bash
+python -m llm_server.PRAG.train --korquad --epochs 2 --no-resume --init-weights llm_server/PRAG/prag_multifact_memory_weights.pt --final-weight 0.25
+```
+
+KorQuAD 추가 파인튜닝 결과 진단:
+
+```bash
+python -m llm_server.PRAG.test --korquad --max-samples 80 --show 20 --alpha 1.0
+```
+
+참고:
+
+- `--init-weights`는 기존 hypernetwork 가중치만 초기값으로 불러오고 optimizer/scheduler는 새로 시작한다.
+- KorQuAD 원본에는 hard negative가 없으므로, 자동 생성 negative 품질이 불안정하면 `--positive-only`로 main passage -> gold answer만 학습한다.
+- KorQuAD 출력 파일은 `data/PRAG_korquad_augmented_train.jsonl`, `data/PRAG_korquad_augmented_valid.jsonl`이다.
+- KorQuAD 추가 학습 산출물은 기존 multi-fact 산출물과 분리되어 `llm_server/PRAG/prag_korquad_memory_weights.pt`, `llm_server/PRAG/prag_korquad_memory_checkpoint.pt`에 저장된다.
+
+KorQuAD를 positive-only로 더 안전하게 추가 파인튜닝:
+
+```bash
+python -m llm_server.PRAG.train --korquad --epochs 2 --no-resume --init-weights llm_server/PRAG/prag_multifact_memory_weights.pt --final-weight 0.25 --positive-only
+```

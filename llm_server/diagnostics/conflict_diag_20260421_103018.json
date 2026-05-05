@@ -1,0 +1,65 @@
+{
+  "input": "<internal_default_pairs>",
+  "max_pairs": 200,
+  "summary": {
+    "count": 3,
+    "embedding_cosine_mean": 0.9833222230275472,
+    "embedding_cosine_p90": 0.990025544166565,
+    "embedding_cosine_p95": 0.991143774986267,
+    "mean_margin_a_over_b_when_passage_a": 10.833333333333334,
+    "mean_margin_b_over_a_when_passage_b": -5.645833333333333,
+    "mean_min_margin": -6.666666666666667,
+    "flip_accuracy": 0.6666666666666666,
+    "same_answer_bias_rate": 0.3333333333333333,
+    "high_sim_0_99_count": 1,
+    "high_sim_0_99_flip_accuracy": 1.0,
+    "corr_embedding_cosine_vs_min_margin": 0.7146096540445341
+  },
+  "per_pair": [
+    {
+      "idx": 1,
+      "question": "What color is the apple?",
+      "answer_a": "green",
+      "answer_b": "red",
+      "embedding_cosine": 0.9810796976089478,
+      "logprob_answer_a_given_passage_a": -15.0,
+      "logprob_answer_b_given_passage_a": -17.875,
+      "logprob_answer_a_given_passage_b": -19.125,
+      "logprob_answer_b_given_passage_b": -14.5625,
+      "margin_a_over_b_when_passage_a": 2.875,
+      "margin_b_over_a_when_passage_b": 4.5625,
+      "flip_correct": true,
+      "same_answer_bias": false
+    },
+    {
+      "idx": 2,
+      "question": "Who submitted the report?",
+      "answer_a": "Mina",
+      "answer_b": "Jisoo",
+      "embedding_cosine": 0.9766249656677246,
+      "logprob_answer_a_given_passage_a": -19.75,
+      "logprob_answer_b_given_passage_a": -46.75,
+      "logprob_answer_a_given_passage_b": -26.0,
+      "logprob_answer_b_given_passage_b": -51.5,
+      "margin_a_over_b_when_passage_a": 27.0,
+      "margin_b_over_a_when_passage_b": -25.5,
+      "flip_correct": false,
+      "same_answer_bias": true
+    },
+    {
+      "idx": 3,
+      "question": "What day is the deadline?",
+      "answer_a": "Monday",
+      "answer_b": "Friday",
+      "embedding_cosine": 0.9922620058059692,
+      "logprob_answer_a_given_passage_a": -15.5,
+      "logprob_answer_b_given_passage_a": -18.125,
+      "logprob_answer_a_given_passage_b": -17.0,
+      "logprob_answer_b_given_passage_b": -13.0,
+      "margin_a_over_b_when_passage_a": 2.625,
+      "margin_b_over_a_when_passage_b": 4.0,
+      "flip_correct": true,
+      "same_answer_bias": false
+    }
+  ]
+}

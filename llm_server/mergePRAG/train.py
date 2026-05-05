@@ -15,26 +15,69 @@ import torch.nn.functional as F
 import json
 import os
 import time
+from collections import Counter
 from pathlib import Path
 from datetime import datetime
-import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from .config import (
     ALPHA,
+    ALLOW_CONFIG_MISMATCH_RESUME,
+    ALLOW_LEGACY_CHECKPOINT_RESUME,
+    ANSWER_RANK_LOSS_WEIGHT,
+    ANSWER_RANK_MARGIN,
     CHART_PATH,
     CHECKPOINT_PATH,
+    HIDDEN_SIM_TARGET,
+    K_SIM_TARGET,
+    KV_PATH_MODE,
     LOG_PATH,
     MAX_SEQ_LEN,
+    MEMORY_ENCODER_INSTRUCTION,
+    MEMORY_ENCODER_INSTRUCTION_KO,
     MODEL_NAME,
+    NEGATIVE_LOSS_WEIGHT,
+    NEGATIVE_MARGIN,
     NUM_KV,
+    POOLED_KV_SKIP_SCALE,
+    POOLED_K_SKIP_SCALE,
+    POOLED_V_SKIP_SCALE,
+    QUESTION_NEGATIVE_LOSS_WEIGHT,
+    QUESTION_REPULSION_LOSS_WEIGHT,
+    QUERY_LEXICAL_FOCUS_SCALE,
+    QUERY_LEXICAL_FOCUS_WINDOW,
+    QUERY_POOL_SCALE,
+    REPULSION_LOSS_WEIGHT,
+    SLOT_DIVERSITY_LOSS_WEIGHT,
+    SLOT_DIVERSITY_TARGET,
+    SYSTEM_PROMPT,
+    SYSTEM_PROMPT_KO,
+    TOKEN_EMBED_SKIP_SCALE,
     TRAIN_DATA_PATH,
+    TRAIN_PROMPT_FORMAT,
+    USE_POOLED_KV_SKIP,
+    USE_K_RMS_CLAMP,
+    USE_V_RMS_CLAMP,
+    USE_CONTEXTUAL_PASSAGE_ENCODER,
+    USE_QUESTION_CONDITIONED_MEMORY,
+    USE_QUERY_LEXICAL_FOCUS,
+    USE_SLOTWISE_POOLING,
+    K_RMS_CLAMP,
     VALID_DATA_PATH,
+    V_SIM_TARGET,
+    V_REPULSION_MULTIPLIER,
+    V_RMS_CLAMP,
     WEIGHTS_PATH as SAVE_PATH,
+    build_chat_text,
+    contains_hangul,
     load_critical_layer,
 )
-from .embedding import encode_passage_states, tokenize_conditioned_memory
+from .embedding import (
+    encode_passage_states,
+    tokenize_conditioned_memory,
+    tokenize_passage_memory,
+)
 from .hypernetwork import HyperNetwork
 from .cross_attention import cross_attention
 
@@ -45,19 +88,13 @@ LR_MIN = 1e-6               # 논문 CosineAnnealing eta_min
 EPOCHS = 1                  # 논문: 1 epoch (single pass)
 MAX_SAMPLES = None           # 전체 학습
 MAX_VAL_SAMPLES = None       # 전체 검증
-EVAL_EVERY = 1000           # N step마다 validation
+EVAL_EVERY = 500            # 500 step마다 validation
 EVAL_MAX_SAMPLES = 500      # validation 시 최대 샘플 수 (전체 순회 방지)
 LOG_EVERY = 50              # N step마다 터미널 출력 (논문: 49)
-SAVE_EVERY = 500            # 중간 체크포인트 저장 주기
-PATIENCE = 5                # early stopping patience
+SAVE_EVERY = 500            # 500 step마다 체크포인트 저장
+PATIENCE = 3                # 5→3으로 감소 (overfitting 방지)
 TRAIN_MAX_PASSAGE_SENTENCES = 6
-TRAIN_SYSTEM_PREFIX = "Answer the question using the passage-grounded fact."
-NEGATIVE_MARGIN = 0.5
-NEGATIVE_LOSS_WEIGHT = 0.5
-REPULSION_LOSS_WEIGHT = 0.1
-USE_CONTEXTUAL_PASSAGE_ENCODER = True
-
-
+GRAD_CLIP_NORM = 1.0
 def iter_records(dataset_path: str):
     path = Path(dataset_path)
     if not path.exists():
@@ -125,11 +162,59 @@ def extract_hotpot_passage(sample: dict, max_sentences: int = TRAIN_MAX_PASSAGE_
     return " ".join(selected).strip()
 
 
+def format_speaker_text(speaker: str | None, text: str) -> str:
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    speaker = str(speaker or "").strip()
+    if speaker:
+        return f"{speaker}: {text}"
+    return text
+
+
+def extract_utterance_passage(sample: dict) -> str:
+    """서비스 데이터는 transcript/chunk 형태일 수 있어 speaker 발화를 passage로 정규화한다."""
+    utterance = sample.get("utterance")
+    if isinstance(utterance, str) and utterance.strip():
+        return format_speaker_text(sample.get("speaker"), utterance)
+
+    for key in ("text", "content", "transcript", "chunk_text"):
+        value = sample.get(key)
+        if isinstance(value, str) and value.strip():
+            return format_speaker_text(sample.get("speaker"), value)
+
+    for key in ("utterances", "messages", "turns"):
+        value = sample.get(key)
+        if not isinstance(value, list):
+            continue
+        lines = []
+        for item in value:
+            if isinstance(item, str):
+                line = item.strip()
+            elif isinstance(item, dict):
+                line = format_speaker_text(
+                    item.get("speaker") or item.get("role") or item.get("name"),
+                    item.get("utterance") or item.get("text") or item.get("content"),
+                )
+            else:
+                line = ""
+            if line:
+                lines.append(line)
+        if lines:
+            return "\n".join(lines)
+
+    return ""
+
+
 def extract_passage(sample: dict) -> str:
     """서비스용 QA-passage 학습에 맞는 근거 passage를 선택한다."""
     passage = sample.get("passage")
     if isinstance(passage, str) and passage.strip():
         return passage.strip()
+
+    utterance_passage = extract_utterance_passage(sample)
+    if utterance_passage:
+        return utterance_passage
 
     hotpot_passage = extract_hotpot_passage(sample)
     if hotpot_passage:
@@ -207,11 +292,22 @@ class MergePRAGDataset(Dataset):
                     "num_hops": len(expanded),
                 })
         self.indices_by_source = {}
+        self.indices_by_passage = {}
+        self.indices_by_question = {}
+        self.indices_by_contrast = {}
         for idx, sample in enumerate(self.data):
             source_id = sample.get("source_id") or sample.get("id")
-            if source_id is None:
-                continue
-            self.indices_by_source.setdefault(str(source_id), []).append(idx)
+            if source_id is not None:
+                self.indices_by_source.setdefault(str(source_id), []).append(idx)
+            question_key = normalize_passage_text(sample.get("question", ""))
+            if question_key:
+                self.indices_by_question.setdefault(question_key, []).append(idx)
+            contrast_id = sample.get("contrast_id") or sample.get("group_id")
+            if contrast_id is not None:
+                self.indices_by_contrast.setdefault(str(contrast_id), []).append(idx)
+            passage_key = normalize_passage_text(sample.get("passage", ""))
+            if passage_key:
+                self.indices_by_passage.setdefault(passage_key, []).append(idx)
         print(f"[데이터] {len(self.data)}개 샘플 로드됨 ({jsonl_path})")
 
     def __len__(self):
@@ -261,39 +357,59 @@ def masked_mean(hidden, mask):
     return (hidden * weights).sum(dim=1) / denom
 
 
+def build_memory_query_for_task(question: str, task: str = "final_qa") -> str:
+    """Question-conditioned memory에도 task 의도를 넣는다.
+
+    HotPot processed 데이터는 같은 원문 question/passage 조합이 hop_fact와
+    final_qa로 동시에 등장할 수 있다. memory query가 원문 question만 보면
+    두 task가 같은 K/V를 공유하게 되어 supervision 충돌이 생긴다.
+    """
+    question = str(question or "").strip()
+    if task == "hop_fact":
+        return (
+            "Task: identify the supporting fact currently grounded in the passage.\n"
+            f"Question: {question}"
+        )
+    return question
+
+
 def encode_memory(model, hypernet, tokenizer, question: str, passage: str, device):
-    encoded = tokenize_conditioned_memory(
-        tokenizer,
-        question,
-        passage,
-        device,
-        max_length=MAX_SEQ_LEN,
-    )
+    if USE_QUESTION_CONDITIONED_MEMORY:
+        encoded = tokenize_conditioned_memory(
+            tokenizer,
+            question,
+            passage,
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
+    else:
+        encoded = tokenize_passage_memory(
+            tokenizer,
+            passage,
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
     input_ids = encoded["input_ids"]
     attention_mask = encoded["attention_mask"]
     question_mask = encoded["question_mask"]
     passage_mask = encoded["passage_mask"]
+    query_focus_mask = encoded.get("query_focus_mask")
     embedded = encode_passage_states(
         model,
         input_ids,
         attention_mask=attention_mask,
         use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
     )
-    query = masked_mean(embedded, question_mask)
-    pooled, hidden, delta_K, delta_V = hypernet.encode_embedded(
+    query = masked_mean(embedded, question_mask) if USE_QUESTION_CONDITIONED_MEMORY else None
+    pooled, hidden, raw_K, raw_V = hypernet.encode_embedded(
         embedded,
         attention_mask=attention_mask,
         query=query,
         focus_mask=passage_mask,
+        query_focus_mask=query_focus_mask,
     )
+    delta_K, delta_V = hypernet.normalize_kv(raw_K, raw_V)
     return input_ids, embedded, pooled, hidden, delta_K, delta_V
-
-
-def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
-    hidden_sim = F.cosine_similarity(hidden_pos, hidden_neg).mean()
-    k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
-    v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
-    return torch.clamp((hidden_sim + k_sim + v_sim) / 3.0, min=0.0)
 
 
 def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
@@ -306,11 +422,19 @@ def forward_with_memory(model, target_layer, delta_K, delta_V, tok):
 
 
 def build_training_prompt(question: str) -> str:
-    return f"{TRAIN_SYSTEM_PREFIX}\nQuestion: {question}\nAnswer:"
+    if contains_hangul(question):
+        return f"질문: {question}\n답변:"
+    return f"Question: {question}\nAnswer:"
 
 
 def build_prompt_for_task(question: str, task: str) -> str:
     if task == "hop_fact":
+        if contains_hangul(question):
+            return (
+                "본문을 읽고 현재 근거가 되는 보조 사실을 출력하세요.\n"
+                f"질문: {question}\n"
+                "보조 사실:"
+            )
         return (
             "Read the passage and output the supporting fact that is currently grounded.\n"
             f"Question: {question}\n"
@@ -320,45 +444,258 @@ def build_prompt_for_task(question: str, task: str) -> str:
 
 
 def tokenize_qa(tokenizer, question, answer, device, task: str = "final_qa"):
-    """논문 원본과 더 가까운 단순 QA 포맷으로 토큰화."""
-    prompt = build_prompt_for_task(question, task)
-    answer_text = f" {answer}{tokenizer.eos_token}"
+    """QA 토큰화 — compute_loss의 shift와 정확히 맞도록 정렬.
+    input_ids = [prompt] + [answer+eos]  (전체)
+    labels    = [-100]*prompt_len + [answer+eos]
+    → compute_loss가 logits[:,:-1]과 labels[:,1:]로 shift하면
+      prompt 마지막 토큰을 본 후 첫 answer 토큰을 예측."""
+    task_prompt = build_prompt_for_task(question, task)
+    if TRAIN_PROMPT_FORMAT == "chat":
+        prompt = build_chat_text(
+            tokenizer,
+            question=task_prompt,
+            enable_thinking=False,
+        )
+        answer_text = f"{answer}{tokenizer.eos_token}"
+    elif TRAIN_PROMPT_FORMAT == "plain":
+        prompt = task_prompt
+        answer_text = f" {answer}{tokenizer.eos_token}"
+    else:
+        raise ValueError(f"Unsupported MERGEPRAG_TRAIN_PROMPT_FORMAT: {TRAIN_PROMPT_FORMAT}")
 
     tok_prompt = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN)
     tok_answer = tokenizer(answer_text, return_tensors="pt", add_special_tokens=False, truncation=True, max_length=MAX_SEQ_LEN)
 
-    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"][:, :-1]), dim=-1).to(device)
+    prompt_len = tok_prompt["input_ids"].shape[1]
+    input_ids = torch.cat((tok_prompt["input_ids"], tok_answer["input_ids"]), dim=-1).to(device)
     labels = torch.cat((
-        torch.full((1, tok_prompt["input_ids"].shape[1] - 1), -100, dtype=torch.long),
+        torch.full((1, prompt_len), -100, dtype=torch.long),
         tok_answer["input_ids"]
     ), dim=-1).to(device)
 
     return {"input_ids": input_ids, "labels": labels}
 
 
+def normalize_passage_text(text: str) -> str:
+    return " ".join((text or "").split()).strip().lower()
+
+
+def build_inline_negative_sample(sample: dict, raw_negative, fallback_question: str) -> dict | None:
+    if isinstance(raw_negative, str):
+        passage = raw_negative.strip()
+        if not passage:
+            return None
+        return {
+            "question": fallback_question,
+            "answer": "__hard_negative__",
+            "passage": passage,
+            "task": sample.get("task", "final_qa"),
+            "negative_type": "explicit",
+        }
+
+    if isinstance(raw_negative, dict):
+        passage = extract_passage(raw_negative)
+        if not passage:
+            return None
+        return {
+            **raw_negative,
+            "question": str(raw_negative.get("question") or fallback_question).strip(),
+            "answer": extract_answer(raw_negative) or str(
+                raw_negative.get("negative_answer")
+                or raw_negative.get("counterfactual_answer")
+                or "__hard_negative__"
+            ),
+            "passage": passage,
+            "task": raw_negative.get("task") or sample.get("task", "final_qa"),
+            "negative_type": "explicit",
+        }
+
+    return None
+
+
+def has_valid_contrast_answer(sample: dict, negative_sample: dict) -> bool:
+    answer = str(sample.get("answer") or "").strip()
+    negative_answer = str(negative_sample.get("answer") or "").strip()
+    if not (answer and negative_answer):
+        return False
+    if negative_answer == "__hard_negative__":
+        return False
+    return normalize_passage_text(answer) != normalize_passage_text(negative_answer)
+
+
+def iter_explicit_negative_samples(sample: dict):
+    question = str(sample.get("question", "")).strip()
+    for key in (
+        "hard_negative_passage",
+        "negative_passage",
+        "counterfactual_passage",
+        "distractor_passage",
+    ):
+        value = sample.get(key)
+        negative = build_inline_negative_sample(sample, value, question)
+        if negative is not None:
+            yield negative
+
+    for key in ("hard_negatives", "negative_passages", "counterfactuals", "distractors"):
+        values = sample.get(key)
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            negative = build_inline_negative_sample(sample, item, question)
+            if negative is not None:
+                yield negative
+
+
+def is_valid_negative(sample: dict, candidate: dict, *, require_diff_passage: bool = True) -> bool:
+    if candidate is sample:
+        return False
+    sample_answer = sample.get("answer")
+    sample_passage_key = normalize_passage_text(sample.get("passage", ""))
+    candidate_passage_key = normalize_passage_text(candidate.get("passage", ""))
+    if require_diff_passage and candidate_passage_key == sample_passage_key:
+        return False
+    return candidate.get("answer") != sample_answer
+
+
+def select_negative_from_indices(dataset: MergePRAGDataset, sample: dict, index: int, indices: list[int]):
+    candidates = [
+        dataset.data[idx]
+        for idx in indices
+        if idx != index and is_valid_negative(sample, dataset.data[idx])
+    ]
+    if not candidates:
+        return None
+    return candidates[index % len(candidates)]
+
+
 def get_negative_sample(dataset: MergePRAGDataset, index: int):
     sample = dataset[index]
+    for explicit_negative in iter_explicit_negative_samples(sample):
+        if is_valid_negative(sample, explicit_negative):
+            return explicit_negative
+
+    contrast_id = sample.get("contrast_id") or sample.get("group_id")
+    if contrast_id is not None:
+        contrast_negative = select_negative_from_indices(
+            dataset,
+            sample,
+            index,
+            dataset.indices_by_contrast.get(str(contrast_id), []),
+        )
+        if contrast_negative is not None:
+            return contrast_negative
+
+    question_key = normalize_passage_text(sample.get("question", ""))
+    if question_key:
+        same_question_negative = select_negative_from_indices(
+            dataset,
+            sample,
+            index,
+            dataset.indices_by_question.get(question_key, []),
+        )
+        if same_question_negative is not None:
+            return same_question_negative
+
     source_id = sample.get("source_id") or sample.get("id")
     if source_id is not None:
-        candidates = [
-            dataset.data[idx]
-            for idx in dataset.indices_by_source.get(str(source_id), [])
-            if idx != index and dataset.data[idx].get("answer") != sample.get("answer")
-        ]
-        if candidates:
-            return candidates[index % len(candidates)]
+        source_negative = select_negative_from_indices(
+            dataset,
+            sample,
+            index,
+            dataset.indices_by_source.get(str(source_id), []),
+        )
+        if source_negative is not None:
+            return source_negative
 
     dataset_size = len(dataset)
     for offset in range(1, dataset_size):
         candidate = dataset[(index + offset) % dataset_size]
-        if candidate.get("answer") != sample.get("answer"):
+        if is_valid_negative(sample, candidate):
             return candidate
+
+    # 정말로 다른 passage를 못 찾으면 그때만 기존 fallback을 허용.
+    for offset in range(1, dataset_size):
+        candidate = dataset[(index + offset) % dataset_size]
+        if is_valid_negative(sample, candidate, require_diff_passage=False):
+            return candidate
+
     return dataset[(index + 1) % dataset_size]
+
+
+def get_same_passage_negative_sample(dataset: MergePRAGDataset, index: int):
+    sample = dataset[index]
+    sample_answer = sample.get("answer")
+    sample_passage_key = normalize_passage_text(sample.get("passage", ""))
+    sample_query = normalize_passage_text(
+        build_memory_query_for_task(
+            sample.get("question", ""),
+            sample.get("task", "final_qa"),
+        )
+    )
+    if not sample_passage_key:
+        return None
+
+    candidates = [
+        dataset.data[idx]
+        for idx in dataset.indices_by_passage.get(sample_passage_key, [])
+        if (
+            idx != index
+            and dataset.data[idx].get("answer") != sample_answer
+            and normalize_passage_text(
+                build_memory_query_for_task(
+                    dataset.data[idx].get("question", ""),
+                    dataset.data[idx].get("task", "final_qa"),
+                )
+            )
+            != sample_query
+        )
+    ]
+    if not candidates:
+        return None
+    return candidates[index % len(candidates)]
+
+
+def compute_repulsion_loss(hidden_pos, hidden_neg, delta_k_pos, delta_k_neg, delta_v_pos, delta_v_neg):
+    hidden_sim = F.cosine_similarity(hidden_pos.flatten(1), hidden_neg.flatten(1)).mean()
+    k_sim = F.cosine_similarity(delta_k_pos.flatten(1), delta_k_neg.flatten(1)).mean()
+    v_sim = F.cosine_similarity(delta_v_pos.flatten(1), delta_v_neg.flatten(1)).mean()
+    loss = (
+        torch.relu(hidden_sim - HIDDEN_SIM_TARGET)
+        + torch.relu(k_sim - K_SIM_TARGET)
+        + V_REPULSION_MULTIPLIER * torch.relu(v_sim - V_SIM_TARGET)
+    )
+    return loss, hidden_sim, k_sim, v_sim
+
+
+def compute_slot_diversity_loss(delta_k, delta_v):
+    """num_kv>1에서 여러 slot이 같은 방향으로 복제되는 것을 약하게 막는다."""
+    if delta_k.size(1) <= 1:
+        zero = delta_k.new_tensor(0.0)
+        nan = float("nan")
+        return zero, nan, nan
+
+    def offdiag_penalty(x):
+        x = F.normalize(x, dim=-1)
+        sim = torch.matmul(x, x.transpose(1, 2))
+        num_slots = sim.size(-1)
+        mask = ~torch.eye(num_slots, dtype=torch.bool, device=sim.device).unsqueeze(0)
+        offdiag = sim.masked_select(mask)
+        penalty = torch.relu(offdiag.abs() - SLOT_DIVERSITY_TARGET).mean()
+        return penalty, offdiag.abs().mean()
+
+    k_loss, k_abs_sim = offdiag_penalty(delta_k)
+    v_loss, v_abs_sim = offdiag_penalty(delta_v)
+    return k_loss + v_loss, k_abs_sim.item(), v_abs_sim.item()
 
 
 # ── Validation ──
 def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
-    """Validation loss 계산 (hook per sample, no gradient)"""
+    """Validation objective 계산.
+
+    Positive answer CE만 보면 "main은 맞지만 hard-pair flip은 실패"하는
+    checkpoint가 best로 저장될 수 있다. Validation도 explicit hard negative와
+    answer-rank margin을 포함해 실제 서비스 목표와 맞춘다.
+    """
     hypernet.eval()
     total_loss = 0
     count = 0
@@ -368,29 +705,17 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
             if idx >= EVAL_MAX_SAMPLES:
                 break
 
-            encoded = tokenize_conditioned_memory(
-                tokenizer,
+            memory_query = build_memory_query_for_task(
                 sample["question"],
+                sample.get("task", "final_qa"),
+            )
+            _, c_emb, _, _, delta_K, delta_V = encode_memory(
+                model,
+                hypernet,
+                tokenizer,
+                memory_query,
                 sample["passage"],
                 device,
-                max_length=MAX_SEQ_LEN,
-            )
-            input_ids = encoded["input_ids"]
-            attention_mask = encoded["attention_mask"]
-            question_mask = encoded["question_mask"]
-            passage_mask = encoded["passage_mask"]
-            c_emb = encode_passage_states(
-                model,
-                input_ids,
-                attention_mask=attention_mask,
-                use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
-            )
-            query = masked_mean(c_emb, question_mask)
-            delta_K, delta_V = hypernet(
-                c_emb,
-                attention_mask=attention_mask,
-                query=query,
-                focus_mask=passage_mask,
             )
 
             hook = target_layer.register_forward_hook(make_hook(delta_K, delta_V))
@@ -406,7 +731,56 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
 
             loss = compute_loss(logits, tok["labels"])
             if loss is not None:
-                total_loss += loss.item()
+                objective = loss
+                negative_sample = get_negative_sample(dataset, idx)
+                _, _, _, hidden_neg, neg_K, neg_V = encode_memory(
+                    model,
+                    hypernet,
+                    tokenizer,
+                    memory_query,
+                    negative_sample["passage"],
+                    device,
+                )
+                neg_logits = forward_with_memory(model, target_layer, neg_K, neg_V, tok)
+                neg_task_loss = compute_loss(neg_logits, tok["labels"])
+                if neg_task_loss is None:
+                    neg_task_loss = loss.detach()
+
+                grounding_loss = torch.relu(NEGATIVE_MARGIN + loss - neg_task_loss)
+                objective = objective + NEGATIVE_LOSS_WEIGHT * grounding_loss
+
+                if has_valid_contrast_answer(sample, negative_sample):
+                    neg_answer_tok = tokenize_qa(
+                        tokenizer,
+                        sample["question"],
+                        negative_sample["answer"],
+                        device,
+                        task=sample.get("task", "final_qa"),
+                    )
+                    pos_wrong_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        delta_K,
+                        delta_V,
+                        neg_answer_tok,
+                    )
+                    pos_wrong_loss = compute_loss(pos_wrong_logits, neg_answer_tok["labels"])
+                    neg_correct_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        neg_K,
+                        neg_V,
+                        neg_answer_tok,
+                    )
+                    neg_correct_loss = compute_loss(neg_correct_logits, neg_answer_tok["labels"])
+                    if pos_wrong_loss is not None and neg_correct_loss is not None:
+                        answer_rank_loss = (
+                            torch.relu(ANSWER_RANK_MARGIN + loss - pos_wrong_loss)
+                            + torch.relu(ANSWER_RANK_MARGIN + neg_correct_loss - neg_task_loss)
+                        )
+                        objective = objective + ANSWER_RANK_LOSS_WEIGHT * answer_rank_loss
+
+                total_loss += objective.item()
                 count += 1
 
             # VRAM 정리
@@ -420,6 +794,8 @@ def evaluate(model, tokenizer, hypernet, target_layer, dataset, device):
 # ── 차트 저장 ──
 def save_chart(log_data):
     """Train/Val loss 곡선 차트 (발표자료용)"""
+    import matplotlib.pyplot as plt
+
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
     # 좌측: Step별 Train Loss (smoothed)
@@ -469,6 +845,300 @@ def save_chart(log_data):
     print(f"[차트] 저장: {CHART_PATH}")
 
 
+def dataset_fingerprint(path: str) -> dict:
+    """Prevent accidental resume when a dataset was regenerated at the same path."""
+    abs_path = os.path.abspath(path)
+    try:
+        stat = os.stat(abs_path)
+    except OSError:
+        return {"path": abs_path, "missing": True}
+    return {
+        "path": abs_path,
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+
+
+def current_training_config() -> dict:
+    return {
+        "model": MODEL_NAME,
+        "critical_layer": CRITICAL_LAYER,
+        "num_kv": NUM_KV,
+        "alpha": ALPHA,
+        "max_seq_len": MAX_SEQ_LEN,
+        "contextual": USE_CONTEXTUAL_PASSAGE_ENCODER,
+        "token_embed_skip_scale": TOKEN_EMBED_SKIP_SCALE,
+        "question_conditioned": USE_QUESTION_CONDITIONED_MEMORY,
+        "query_pool_scale": QUERY_POOL_SCALE,
+        "query_lexical_focus": USE_QUERY_LEXICAL_FOCUS,
+        "query_lexical_focus_scale": QUERY_LEXICAL_FOCUS_SCALE,
+        "query_lexical_focus_window": QUERY_LEXICAL_FOCUS_WINDOW,
+        "slotwise_pooling": USE_SLOTWISE_POOLING,
+        "kv_path_mode": KV_PATH_MODE,
+        "pooled_kv_skip": USE_POOLED_KV_SKIP,
+        "pooled_k_skip_scale": POOLED_K_SKIP_SCALE,
+        "pooled_v_skip_scale": POOLED_V_SKIP_SCALE,
+        "k_rms_clamp": USE_K_RMS_CLAMP,
+        "k_rms_clamp_value": K_RMS_CLAMP,
+        "v_rms_clamp": USE_V_RMS_CLAMP,
+        "v_rms_clamp_value": V_RMS_CLAMP,
+        "hidden_sim_target": HIDDEN_SIM_TARGET,
+        "k_sim_target": K_SIM_TARGET,
+        "v_sim_target": V_SIM_TARGET,
+        "v_repulsion_multiplier": V_REPULSION_MULTIPLIER,
+        "system_prompt": SYSTEM_PROMPT,
+        "system_prompt_ko": SYSTEM_PROMPT_KO,
+        "train_prompt_format": TRAIN_PROMPT_FORMAT,
+        "train_data_path": TRAIN_DATA_PATH,
+        "valid_data_path": VALID_DATA_PATH,
+        "train_data_fingerprint": dataset_fingerprint(TRAIN_DATA_PATH),
+        "valid_data_fingerprint": dataset_fingerprint(VALID_DATA_PATH),
+        "memory_query_format": "task_aware_v1",
+        "validation_objective": "hard_pair_answer_rank_v1",
+        "memory_encoder_instruction": MEMORY_ENCODER_INSTRUCTION,
+        "memory_encoder_instruction_ko": MEMORY_ENCODER_INSTRUCTION_KO,
+        "answer_rank_margin": ANSWER_RANK_MARGIN,
+        "answer_rank_loss_weight": ANSWER_RANK_LOSS_WEIGHT,
+        "negative_margin": NEGATIVE_MARGIN,
+        "negative_loss_weight": NEGATIVE_LOSS_WEIGHT,
+        "repulsion_loss_weight": REPULSION_LOSS_WEIGHT,
+        "question_negative_loss_weight": QUESTION_NEGATIVE_LOSS_WEIGHT,
+        "question_repulsion_loss_weight": QUESTION_REPULSION_LOSS_WEIGHT,
+        "slot_diversity_loss_weight": SLOT_DIVERSITY_LOSS_WEIGHT,
+        "slot_diversity_target": SLOT_DIVERSITY_TARGET,
+    }
+
+
+def checkpoint_config_mismatches(saved_config: dict, current_config: dict) -> list[str]:
+    checked_keys = (
+        "model",
+        "critical_layer",
+        "num_kv",
+        "alpha",
+        "max_seq_len",
+        "contextual",
+        "token_embed_skip_scale",
+        "question_conditioned",
+        "query_pool_scale",
+        "query_lexical_focus",
+        "query_lexical_focus_scale",
+        "query_lexical_focus_window",
+        "slotwise_pooling",
+        "kv_path_mode",
+        "pooled_kv_skip",
+        "pooled_k_skip_scale",
+        "pooled_v_skip_scale",
+        "k_rms_clamp",
+        "k_rms_clamp_value",
+        "v_rms_clamp",
+        "v_rms_clamp_value",
+        "hidden_sim_target",
+        "k_sim_target",
+        "v_sim_target",
+        "v_repulsion_multiplier",
+        "system_prompt",
+        "system_prompt_ko",
+        "train_prompt_format",
+        "train_data_path",
+        "valid_data_path",
+        "train_data_fingerprint",
+        "valid_data_fingerprint",
+        "memory_query_format",
+        "validation_objective",
+        "memory_encoder_instruction",
+        "memory_encoder_instruction_ko",
+        "answer_rank_margin",
+        "answer_rank_loss_weight",
+        "negative_margin",
+        "negative_loss_weight",
+        "repulsion_loss_weight",
+        "question_negative_loss_weight",
+        "question_repulsion_loss_weight",
+        "slot_diversity_loss_weight",
+        "slot_diversity_target",
+    )
+    mismatches = []
+    for key in checked_keys:
+        if saved_config.get(key) != current_config.get(key):
+            mismatches.append(f"{key}: checkpoint={saved_config.get(key)!r}, current={current_config.get(key)!r}")
+    return mismatches
+
+
+def short_text(text: str, limit: int = 96) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def language_tag(text: str) -> str:
+    return "ko" if contains_hangul(text) else "en"
+
+
+def format_fingerprint(fingerprint: dict) -> str:
+    if fingerprint.get("missing"):
+        return f"{fingerprint.get('path')} (missing)"
+    size_mb = fingerprint.get("size", 0) / (1024 * 1024)
+    mtime_ns = fingerprint.get("mtime_ns")
+    if mtime_ns is None:
+        mtime = "unknown"
+    else:
+        mtime = datetime.fromtimestamp(mtime_ns / 1_000_000_000).strftime("%Y-%m-%d %H:%M:%S")
+    return f"{fingerprint.get('path')} ({size_mb:.2f} MB, mtime={mtime})"
+
+
+def dataset_health_summary(dataset: MergePRAGDataset) -> dict:
+    task_counts = Counter()
+    question_lang_counts = Counter()
+    passage_lang_counts = Counter()
+    hard_negative_count = 0
+    contrast_count = 0
+    language_mismatch_count = 0
+    same_answer_hard_negative_count = 0
+
+    for sample in dataset.data:
+        question = sample.get("question", "")
+        passage = sample.get("passage", "")
+        answer = sample.get("answer", "")
+        q_lang = language_tag(question)
+        p_lang = language_tag(passage)
+        task_counts[sample.get("task", "final_qa")] += 1
+        question_lang_counts[q_lang] += 1
+        passage_lang_counts[p_lang] += 1
+        if q_lang != p_lang:
+            language_mismatch_count += 1
+        if sample.get("contrast_id") or sample.get("group_id"):
+            contrast_count += 1
+        negatives = list(iter_explicit_negative_samples(sample))
+        if negatives:
+            hard_negative_count += 1
+            if normalize_passage_text(negatives[0].get("answer", "")) == normalize_passage_text(answer):
+                same_answer_hard_negative_count += 1
+
+    return {
+        "rows": len(dataset),
+        "tasks": task_counts,
+        "question_lang": question_lang_counts,
+        "passage_lang": passage_lang_counts,
+        "language_mismatch": language_mismatch_count,
+        "hard_negative": hard_negative_count,
+        "contrast": contrast_count,
+        "same_answer_hard_negative": same_answer_hard_negative_count,
+    }
+
+
+def print_sample_preview(name: str, sample: dict):
+    negatives = list(iter_explicit_negative_samples(sample))
+    print(
+        f"[시작점검] {name} sample | task={sample.get('task', 'final_qa')} | "
+        f"lang(q/p)={language_tag(sample.get('question', ''))}/{language_tag(sample.get('passage', ''))}"
+    )
+    print(f"           q: {short_text(sample.get('question', ''))}")
+    print(f"           a: {short_text(sample.get('answer', ''))}")
+    print(f"           p: {short_text(sample.get('passage', ''))}")
+    if negatives:
+        negative = negatives[0]
+        print(
+            f"           hard_neg_a: {short_text(negative.get('answer', ''))} | "
+            f"hard_neg_p: {short_text(negative.get('passage', ''))}"
+        )
+    else:
+        print("           hard_neg: missing")
+
+
+def print_memory_token_preview(tokenizer, sample: dict, device):
+    if not sample:
+        return
+    memory_query = build_memory_query_for_task(
+        sample.get("question", ""),
+        sample.get("task", "final_qa"),
+    )
+    if USE_QUESTION_CONDITIONED_MEMORY:
+        encoded = tokenize_conditioned_memory(
+            tokenizer,
+            memory_query,
+            sample.get("passage", ""),
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
+    else:
+        encoded = tokenize_passage_memory(
+            tokenizer,
+            sample.get("passage", ""),
+            device,
+            max_length=MAX_SEQ_LEN,
+        )
+    total_tokens = int(encoded["attention_mask"].sum().item())
+    question_tokens = int(encoded["question_mask"].sum().item())
+    passage_tokens = int(encoded["passage_mask"].sum().item())
+    focus_tokens = int(encoded.get("query_focus_mask", torch.zeros_like(encoded["attention_mask"])).sum().item())
+    print(
+        "[시작점검] memory tokens | "
+        f"total={total_tokens}/{MAX_SEQ_LEN}, question={question_tokens}, "
+        f"passage={passage_tokens}, query_focus={focus_tokens}, "
+        f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}"
+    )
+
+
+def print_environment_overrides():
+    overrides = {
+        key: value
+        for key, value in sorted(os.environ.items())
+        if key.startswith("MERGEPRAG_")
+    }
+    if not overrides:
+        print("[시작점검] MERGEPRAG_* env overrides: none")
+        return
+    print("[시작점검] MERGEPRAG_* env overrides:")
+    for key, value in overrides.items():
+        print(f"           {key}={short_text(value, 120)}")
+
+
+def print_startup_integrity_check(tokenizer, train_dataset, val_dataset, run_config, resume_step, device):
+    print("\n[시작점검] resolved data")
+    print(f"           train: {format_fingerprint(run_config['train_data_fingerprint'])}")
+    print(f"           valid: {format_fingerprint(run_config['valid_data_fingerprint'])}")
+
+    for name, dataset in (("train", train_dataset), ("valid", val_dataset)):
+        summary = dataset_health_summary(dataset)
+        task_text = ", ".join(f"{task}:{count}" for task, count in summary["tasks"].most_common(5))
+        print(
+            f"[시작점검] {name} rows={summary['rows']} | "
+            f"q_lang={dict(summary['question_lang'])} | p_lang={dict(summary['passage_lang'])} | "
+            f"lang_mismatch={summary['language_mismatch']} | "
+            f"hard_neg={summary['hard_negative']}/{summary['rows']} | "
+            f"contrast={summary['contrast']}/{summary['rows']} | "
+            f"same_answer_hard_neg={summary['same_answer_hard_negative']} | "
+            f"tasks={task_text}"
+        )
+
+    if len(train_dataset) > 0:
+        print_sample_preview("train", train_dataset[0])
+        print_memory_token_preview(tokenizer, train_dataset[0], device)
+    if len(val_dataset) > 0:
+        print_sample_preview("valid", val_dataset[0])
+
+    print(
+        "[시작점검] active hyperparams | "
+        f"model={MODEL_NAME}, layer={CRITICAL_LAYER}, num_kv={NUM_KV}, alpha={ALPHA}, "
+        f"kv_path_mode={KV_PATH_MODE}, contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, "
+        f"token_embed_skip={TOKEN_EMBED_SKIP_SCALE}, slotwise={USE_SLOTWISE_POOLING}, "
+        f"query_focus={USE_QUERY_LEXICAL_FOCUS}:{QUERY_LEXICAL_FOCUS_SCALE}/{QUERY_LEXICAL_FOCUS_WINDOW}, "
+        f"k_clamp={USE_K_RMS_CLAMP}:{K_RMS_CLAMP}, v_clamp={USE_V_RMS_CLAMP}:{V_RMS_CLAMP}, "
+        f"prompt={TRAIN_PROMPT_FORMAT}"
+    )
+    print(
+        "[시작점검] losses | "
+        f"neg={NEGATIVE_LOSS_WEIGHT}:{NEGATIVE_MARGIN}, "
+        f"answer_rank={ANSWER_RANK_LOSS_WEIGHT}:{ANSWER_RANK_MARGIN}, "
+        f"repulsion={REPULSION_LOSS_WEIGHT}, qneg={QUESTION_NEGATIVE_LOSS_WEIGHT}, "
+        f"qrep={QUESTION_REPULSION_LOSS_WEIGHT}, slot={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}, "
+        f"v_target={V_SIM_TARGET}, v_mult={V_REPULSION_MULTIPLIER}"
+    )
+    print(f"[시작점검] checkpoint mode | resume_step={resume_step}, source={CHECKPOINT_PATH}")
+    print_environment_overrides()
+
+
 # ── 학습 메인 ──
 def train():
     print(f"[학습] 모델 로딩: {MODEL_NAME}")
@@ -480,7 +1150,7 @@ def train():
         MODEL_NAME,
         device_map="auto",
         trust_remote_code=True,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
     )
 
     # ── Qwen freeze (논문 동일) ──
@@ -496,8 +1166,10 @@ def train():
     # ── HyperNetwork 초기화 ──
     hypernet = HyperNetwork(d_model, k=NUM_KV).to(device).float()
 
-    # ── Optimizer: AdamW (논문 동일) ──
-    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR)
+    # ── Optimizer: AdamW (weight_decay=0 — MLP 붕괴 방지) ──
+    # 기본 weight_decay=0.01은 훈련 신호가 약할 때 가중치를 0으로 끌어당겨
+    # MLP 출력이 bias에 수렴 → 서로 다른 passage가 동일한 K/V로 붕괴함.
+    optimizer = torch.optim.AdamW(hypernet.parameters(), lr=LR, weight_decay=0.0)
 
     # ── 데이터 로드 ──
     train_dataset = MergePRAGDataset(TRAIN_DATA_PATH, max_samples=MAX_SAMPLES)
@@ -510,21 +1182,48 @@ def train():
 
     # ── 체크포인트 복구 (중간에 끊긴 경우) ──
     resume_step = 0
+    run_config = current_training_config()
     if os.path.exists(CHECKPOINT_PATH):
         ckpt = torch.load(CHECKPOINT_PATH, map_location=device)
-        hypernet.load_state_dict(ckpt["hypernet"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-        scheduler.load_state_dict(ckpt["scheduler"])
-        resume_step = ckpt["step"]
-        best_val_loss = ckpt.get("best_val_loss", float("inf"))
-        print(f"[복구] 체크포인트에서 재개: step {resume_step}")
+        try:
+            checkpoint_config = ckpt.get("config")
+            can_resume = True
+            if checkpoint_config is None:
+                can_resume = ALLOW_LEGACY_CHECKPOINT_RESUME
+                print(
+                    "[경고] 체크포인트에 config snapshot이 없습니다. "
+                    "설정 불일치로 인한 잘못된 재개를 막기 위해 기본값으로는 새 학습을 시작합니다."
+                )
+                if not can_resume:
+                    print("       정말 이어서 학습하려면 MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME=true 를 설정하세요.")
+            else:
+                mismatches = checkpoint_config_mismatches(checkpoint_config, run_config)
+                if mismatches and not ALLOW_CONFIG_MISMATCH_RESUME:
+                    can_resume = False
+                    print("[경고] 현재 설정과 체크포인트 설정이 달라 새 학습을 시작합니다.")
+                    for mismatch in mismatches[:10]:
+                        print(f"       - {mismatch}")
+                    if len(mismatches) > 10:
+                        print(f"       - ... and {len(mismatches) - 10} more")
+                    print("       강제로 재개하려면 MERGEPRAG_ALLOW_CONFIG_MISMATCH_RESUME=true 를 설정하세요.")
+
+            if can_resume:
+                hypernet.load_state_dict(ckpt["hypernet"])
+                optimizer.load_state_dict(ckpt["optimizer"])
+                scheduler.load_state_dict(ckpt["scheduler"])
+                resume_step = ckpt["step"]
+                best_val_loss = ckpt.get("best_val_loss", float("inf"))
+                print(f"[복구] 체크포인트에서 재개: step {resume_step}")
+        except (RuntimeError, KeyError, AttributeError) as e:
+            print(f"[경고] 체크포인트 차원 불일치 (설정 변경됨), 처음부터 학습: {e}")
+            resume_step = 0
+
+    print_startup_integrity_check(tokenizer, train_dataset, val_dataset, run_config, resume_step, device)
 
     # ── 로그 ──
     log_data = {
         "config": {
-            "model": MODEL_NAME,
-            "critical_layer": CRITICAL_LAYER,
-            "num_kv": NUM_KV,
+            **run_config,
             "lr": LR,
             "lr_min": LR_MIN,
             "optimizer": "AdamW",
@@ -547,6 +1246,25 @@ def train():
 
     print(f"\n[학습] 시작: {EPOCHS} epoch, train={len(train_dataset)}, val={len(val_dataset)}")
     print(f"[학습] AdamW lr={LR}, CosineAnnealing eta_min={LR_MIN}")
+    print(
+        f"[학습] config | num_kv={NUM_KV}, alpha={ALPHA}, "
+        f"contextual={USE_CONTEXTUAL_PASSAGE_ENCODER}, kv_path_mode={KV_PATH_MODE}, "
+        f"token_embed_skip_scale={TOKEN_EMBED_SKIP_SCALE}, "
+        f"k_skip_scale={POOLED_K_SKIP_SCALE}, v_skip_scale={POOLED_V_SKIP_SCALE}, "
+        f"k_rms_clamp={'on' if USE_K_RMS_CLAMP else 'off'}:{K_RMS_CLAMP}, "
+        f"v_rms_clamp={'on' if USE_V_RMS_CLAMP else 'off'}:{V_RMS_CLAMP}, "
+        f"question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
+        f"query_pool_scale={QUERY_POOL_SCALE}, "
+        f"query_lexical_focus={USE_QUERY_LEXICAL_FOCUS}:{QUERY_LEXICAL_FOCUS_SCALE}/{QUERY_LEXICAL_FOCUS_WINDOW}, "
+        f"slotwise_pooling={USE_SLOTWISE_POOLING}, "
+        f"train_prompt_format={TRAIN_PROMPT_FORMAT}, "
+        f"slot_diversity={SLOT_DIVERSITY_LOSS_WEIGHT}:{SLOT_DIVERSITY_TARGET}, "
+        f"answer_rank={ANSWER_RANK_LOSS_WEIGHT}:{ANSWER_RANK_MARGIN}"
+    )
+    print(f"[학습] system_prompt_en: {SYSTEM_PROMPT[:160]}")
+    print(f"[학습] system_prompt_ko: {SYSTEM_PROMPT_KO[:160]}")
+    print(f"[학습] memory_encoder_instruction_en: {MEMORY_ENCODER_INSTRUCTION[:200]}")
+    print(f"[학습] memory_encoder_instruction_ko: {MEMORY_ENCODER_INSTRUCTION_KO[:200]}")
     hypernet.train()
     start_time = time.time()
     start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -566,10 +1284,12 @@ def train():
                 continue
 
             try:
-                # 1. positive passage → HyperNetwork → delta_K, delta_V
+                # 1. passage → HyperNetwork → delta_K, delta_V (논문: CE loss만)
                 passage = sample["passage"]
+                task = sample.get("task", "final_qa")
+                memory_query = build_memory_query_for_task(sample["question"], task)
                 input_ids, c_emb, pooled_pos, hidden_pos, delta_K, delta_V = encode_memory(
-                    model, hypernet, tokenizer, sample["question"], passage, device
+                    model, hypernet, tokenizer, memory_query, passage, device
                 )
 
                 # 2. Q+A 토큰화 (labels=-100 마스킹)
@@ -578,22 +1298,21 @@ def train():
                     sample["question"],
                     sample["answer"],
                     device,
-                    task=sample.get("task", "final_qa"),
+                    task=task,
                 )
 
-                # 3. positive memory로 정답 loss 계산
+                # 3. memory로 정답 loss — 원본 CE objective 유지
                 logits = forward_with_memory(model, target_layer, delta_K, delta_V, tok)
                 task_loss = compute_loss(logits, tok["labels"])
                 if task_loss is None:
                     continue
 
-                # 4. 다른 샘플 passage를 negative memory로 사용해 grounding ranking 추가
                 negative_sample = get_negative_sample(train_dataset, i)
                 _, neg_emb, pooled_neg, hidden_neg, neg_K, neg_V = encode_memory(
                     model,
                     hypernet,
                     tokenizer,
-                    sample["question"],
+                    memory_query,
                     negative_sample["passage"],
                     device,
                 )
@@ -603,7 +1322,47 @@ def train():
                     neg_task_loss = task_loss.detach()
 
                 grounding_loss = torch.relu(NEGATIVE_MARGIN + task_loss - neg_task_loss)
-                repulsion_loss = compute_repulsion_loss(
+                answer_rank_loss = torch.tensor(0.0, device=device)
+                pos_wrong_loss_val = float("nan")
+                neg_correct_loss_val = float("nan")
+                extra_logits = []
+                if has_valid_contrast_answer(sample, negative_sample):
+                    neg_answer_tok = tokenize_qa(
+                        tokenizer,
+                        sample["question"],
+                        negative_sample["answer"],
+                        device,
+                        task=task,
+                    )
+                    pos_wrong_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        delta_K,
+                        delta_V,
+                        neg_answer_tok,
+                    )
+                    extra_logits.append(pos_wrong_logits)
+                    pos_wrong_loss = compute_loss(pos_wrong_logits, neg_answer_tok["labels"])
+                    neg_correct_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        neg_K,
+                        neg_V,
+                        neg_answer_tok,
+                    )
+                    extra_logits.append(neg_correct_logits)
+                    neg_correct_loss = compute_loss(neg_correct_logits, neg_answer_tok["labels"])
+                    if pos_wrong_loss is not None and neg_correct_loss is not None:
+                        pos_rank_loss = torch.relu(
+                            ANSWER_RANK_MARGIN + task_loss - pos_wrong_loss
+                        )
+                        neg_rank_loss = torch.relu(
+                            ANSWER_RANK_MARGIN + neg_correct_loss - neg_task_loss
+                        )
+                        answer_rank_loss = pos_rank_loss + neg_rank_loss
+                        pos_wrong_loss_val = pos_wrong_loss.item()
+                        neg_correct_loss_val = neg_correct_loss.item()
+                repulsion_loss, hidden_sim_t, k_sim_t, v_sim_t = compute_repulsion_loss(
                     hidden_pos,
                     hidden_neg,
                     delta_K,
@@ -611,30 +1370,110 @@ def train():
                     delta_V,
                     neg_V,
                 )
+                slot_diversity_loss, slot_k_abs_sim, slot_v_abs_sim = compute_slot_diversity_loss(
+                    delta_K,
+                    delta_V,
+                )
+                question_neg_loss = torch.tensor(0.0, device=device)
+                question_repulsion_loss = torch.tensor(0.0, device=device)
+                question_k_sim = float("nan")
+                question_v_sim = float("nan")
+                same_passage_question_neg = get_same_passage_negative_sample(train_dataset, i)
+                if USE_QUESTION_CONDITIONED_MEMORY and same_passage_question_neg is not None:
+                    same_passage_memory_query = build_memory_query_for_task(
+                        same_passage_question_neg["question"],
+                        same_passage_question_neg.get("task", "final_qa"),
+                    )
+                    _, same_passage_emb, _, hidden_same_passage, same_passage_K, same_passage_V = encode_memory(
+                        model,
+                        hypernet,
+                        tokenizer,
+                        same_passage_memory_query,
+                        same_passage_question_neg["passage"],
+                        device,
+                    )
+                    same_passage_logits = forward_with_memory(
+                        model,
+                        target_layer,
+                        same_passage_K,
+                        same_passage_V,
+                        tok,
+                    )
+                    same_passage_task_loss = compute_loss(same_passage_logits, tok["labels"])
+                    if same_passage_task_loss is None:
+                        same_passage_task_loss = task_loss.detach()
+                    question_neg_loss = torch.relu(
+                        NEGATIVE_MARGIN + task_loss - same_passage_task_loss
+                    )
+                    question_repulsion_loss, _, question_k_sim_t, question_v_sim_t = compute_repulsion_loss(
+                        hidden_pos,
+                        hidden_same_passage,
+                        delta_K,
+                        same_passage_K,
+                        delta_V,
+                        same_passage_V,
+                    )
+                    question_k_sim = question_k_sim_t.item()
+                    question_v_sim = question_v_sim_t.item()
                 loss = (
                     task_loss
                     + NEGATIVE_LOSS_WEIGHT * grounding_loss
+                    + ANSWER_RANK_LOSS_WEIGHT * answer_rank_loss
                     + REPULSION_LOSS_WEIGHT * repulsion_loss
+                    + QUESTION_NEGATIVE_LOSS_WEIGHT * question_neg_loss
+                    + QUESTION_REPULSION_LOSS_WEIGHT * question_repulsion_loss
+                    + SLOT_DIVERSITY_LOSS_WEIGHT * slot_diversity_loss
                 )
+                loss_val = task_loss.item()
+                k_vec_norm = delta_K.detach().norm(dim=-1).mean().item()
+                v_vec_norm = delta_V.detach().norm(dim=-1).mean().item()
+                neg_loss_val = neg_task_loss.item()
+                grounding_val = grounding_loss.item()
+                answer_rank_val = answer_rank_loss.item()
+                repulsion_val = repulsion_loss.item()
+                slot_diversity_val = slot_diversity_loss.item()
+                question_neg_val = question_neg_loss.item()
+                question_repulsion_val = question_repulsion_loss.item()
+                same_passage_neg = (
+                    normalize_passage_text(negative_sample.get("passage", ""))
+                    == normalize_passage_text(sample.get("passage", ""))
+                )
+                pooled_cos = F.cosine_similarity(
+                    pooled_pos.flatten(1),
+                    pooled_neg.flatten(1),
+                ).mean().item()
+                hidden_sim = hidden_sim_t.item()
+                k_sim = k_sim_t.item()
+                v_sim = v_sim_t.item()
 
-                # 5. backward → HyperNetwork만 업데이트
+                # 진단: memory 없이 같은 샘플 평가 → memory 기여도 확인
+                # global_step 증가는 아래에서 일어나므로 +1로 로깅 조건과 맞춤
+                if (global_step + 1) % LOG_EVERY == 0:
+                    with torch.no_grad():
+                        base_logits = model(input_ids=tok["input_ids"])["logits"]
+                        base_loss = compute_loss(base_logits, tok["labels"])
+                    base_loss_val = base_loss.item() if base_loss is not None else float("nan")
+                    del base_logits
+                else:
+                    base_loss_val = None
+
+                # 4. backward → HyperNetwork만 업데이트
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(hypernet.parameters(), GRAD_CLIP_NORM)
                 optimizer.step()
                 scheduler.step()
 
-                loss_val = task_loss.item()
-                grounding_val = grounding_loss.item()
-                repulsion_val = repulsion_loss.item()
-                neg_loss_val = neg_task_loss.item()
-                k_vec_norm = delta_K.squeeze(0).norm(dim=-1).mean().item()
-                v_vec_norm = delta_V.squeeze(0).norm(dim=-1).mean().item()
                 total_loss += loss_val
                 count += 1
                 global_step += 1
 
                 # VRAM 정리
-                del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids
+                del logits, neg_logits, loss, c_emb, neg_emb, delta_K, delta_V, neg_K, neg_V, input_ids, hidden_pos, hidden_neg, pooled_neg
+                for extra_logit in extra_logits:
+                    del extra_logit
+                if USE_QUESTION_CONDITIONED_MEMORY and same_passage_question_neg is not None:
+                    del same_passage_logits, same_passage_K, same_passage_V, hidden_same_passage, same_passage_emb
                 if global_step % 100 == 0:
                     torch.cuda.empty_cache()
 
@@ -647,13 +1486,19 @@ def train():
                 else:
                     raise e
 
-            # 로그 기록
+            # 로그 기록 — 논문 스타일: CE loss만
             log_data["step_losses"].append({
                 "step": global_step,
                 "loss": round(loss_val, 4),
                 "negative_loss": round(neg_loss_val, 4),
                 "grounding_loss": round(grounding_val, 4),
+                "answer_rank_loss": round(answer_rank_val, 4),
+                "positive_memory_wrong_answer_loss": round(pos_wrong_loss_val, 4),
+                "negative_memory_correct_answer_loss": round(neg_correct_loss_val, 4),
                 "repulsion_loss": round(repulsion_val, 4),
+                "slot_diversity_loss": round(slot_diversity_val, 4),
+                "question_negative_loss": round(question_neg_val, 4),
+                "question_repulsion_loss": round(question_repulsion_val, 4),
             })
 
             if global_step % LOG_EVERY == 0:
@@ -664,11 +1509,24 @@ def train():
                 })
                 avg = total_loss / count
                 elapsed = (time.time() - start_time) / 60
+                # base_loss 대비 memory loss가 낮아야 훈련이 실제로 의미 있음
+                diag = ""
+                if base_loss_val is not None:
+                    gain = base_loss_val - loss_val
+                    diag = f" | base: {base_loss_val:.4f} (gain: {gain:+.4f})"
                 print(
                     f"  Step {global_step}/{len(train_dataset)} | "
                     f"loss: {loss_val:.4f} | avg: {avg:.4f} | lr: {lr_now:.2e} | "
-                    f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | rep: {repulsion_val:.4f} | "
+                    f"neg: {neg_loss_val:.4f} | rank: {grounding_val:.4f} | arank: {answer_rank_val:.4f} | "
+                    f"rep: {repulsion_val:.4f} | "
+                    f"slot: {slot_diversity_val:.4f} | "
+                    f"qneg: {question_neg_val:.4f} | qrep: {question_repulsion_val:.4f} | "
                     f"Knorm: {k_vec_norm:.3f} | Vnorm: {v_vec_norm:.3f} | "
+                    f"Pcos: {pooled_cos:.4f} | Hcos: {hidden_sim:.4f} | Kcos: {k_sim:.4f} | Vcos: {v_sim:.4f}"
+                    f" | slotK: {slot_k_abs_sim:.4f} | slotV: {slot_v_abs_sim:.4f}"
+                    f" | qKcos: {question_k_sim:.4f} | qVcos: {question_v_sim:.4f}"
+                    f" | neg_same_passage: {same_passage_neg}"
+                    f"{diag} | "
                     f"{elapsed:.1f}min"
                 )
 
@@ -680,6 +1538,7 @@ def train():
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict(),
                     "best_val_loss": best_val_loss,
+                    "config": run_config,
                 }, CHECKPOINT_PATH)
                 # 중간 로그도 저장 (크래시 대비)
                 with open(LOG_PATH, "w", encoding="utf-8") as f:
@@ -700,7 +1559,12 @@ def train():
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    torch.save(hypernet.state_dict(), SAVE_PATH)
+                    torch.save({
+                        "step": global_step,
+                        "hypernet": hypernet.state_dict(),
+                        "config": run_config,
+                        "val_loss": val_loss,
+                    }, SAVE_PATH)
                     print(f"     ★ Best val_loss → 가중치 저장")
                 else:
                     patience_counter += 1
@@ -735,9 +1599,6 @@ def train():
     print(f"[로그] 저장: {LOG_PATH}")
 
     save_chart(log_data)
-
-    if not early_stopped:
-        torch.save(hypernet.state_dict(), SAVE_PATH)
 
     print(f"\n[학습] 완료! 총 {elapsed_total/60:.1f}분 소요")
     print(f"[학습] best_val_loss: {best_val_loss:.4f}, 가중치: {SAVE_PATH}")
