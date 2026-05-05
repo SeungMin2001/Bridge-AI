@@ -1,10 +1,12 @@
 import json
+import os
+
 from datetime import date, datetime
 from uuid import uuid4
 
 from db import get_pool
 from db_api.workspace.common import WorkspaceApiError, required_text, uuid_or_none
-from db_api.workspace.files_api import delete_workspace_material_files
+from db_api.workspace.files_api import delete_workspace_material_files, delete_workspace_transcript_file
 from db_api.workspace.serializers import session_node, split_week_resources
 
 
@@ -96,8 +98,21 @@ async def delete_session_file(session_id: str) -> dict:
                 """,
                 session_uuid,
             )
+            rag_table_name = f"data_{os.getenv('RAG_TABLE_NAME', 'rag')}"
+            try:
+                await conn.execute(
+                    f"""
+                    DELETE FROM {rag_table_name}
+                    WHERE metadata_->>'session_id' = $1
+                    """,
+                    str(session_uuid),
+                )
+            except Exception as e:
+                # RAG 테이블이 아직 생성되지 않은 경우 등 오류 무시
+                pass
 
     deleted_material_count = delete_workspace_material_files(row["session_pdf"])
+    delete_workspace_transcript_file(session_id)
 
     return {
         "ok": True,

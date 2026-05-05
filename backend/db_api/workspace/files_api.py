@@ -127,3 +127,15 @@ def delete_workspace_material_files(session_pdf) -> int:
             continue
 
     return deleted_count
+
+
+def delete_workspace_transcript_file(session_id: str):
+    session_uuid = uuid_or_none(session_id, "session_id")
+    if not session_uuid:
+        return
+
+    target_path = BACKEND_ROOT / "data" / "transcripts" / f"{session_uuid}.jsonl"
+    try:
+        target_path.unlink()
+    except FileNotFoundError:
+        pass
