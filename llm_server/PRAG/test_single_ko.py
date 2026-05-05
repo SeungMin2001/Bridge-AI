@@ -84,6 +84,10 @@ def is_good_single_case(example: MemoryExample) -> bool:
     return True
 
 
+def has_equals_pattern(example: MemoryExample) -> bool:
+    return "=" in f"{example.question}\n{example.passage}\n{example.answer}\n{example.negative_passage or ''}\n{example.negative_answer or ''}"
+
+
 def example_to_case(example: MemoryExample, index: int) -> dict:
     return {
         "name": f"dataset_ko_{index}_{example.qa_type}",
@@ -101,7 +105,9 @@ def example_to_case(example: MemoryExample, index: int) -> dict:
 
 def load_dataset_cases(path: str, *, case_index: int, max_cases: int) -> list[dict]:
     examples = load_augmented_examples(path)
-    selected = [ex for ex in examples if is_good_single_case(ex)]
+    good = [ex for ex in examples if is_good_single_case(ex)]
+    no_equals = [ex for ex in good if not has_equals_pattern(ex)]
+    selected = no_equals or good
     if not selected:
         selected = [
             ex
