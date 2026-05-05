@@ -3,6 +3,10 @@
 -- 실행:
 --   psql -h localhost -p 5432 -d shin -f DB/sample_ai_sidebar_combined_test.sql
 
+-- 일정데이터만 삭제
+--  psql -h localhost -p 5432 -d rag -U changyoung -c "DELETE FROM schedules;"
+
+
 -- 일정 테이블이 예전 스키마로 생성된 DB를 위한 보정
 ALTER TABLE schedules
 ADD COLUMN IF NOT EXISTS calendar_flag BOOLEAN DEFAULT FALSE;
