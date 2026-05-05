@@ -1,14 +1,19 @@
+<!-- 실시간 음성 전사 결과를 확인하고 AI에게 질문하거나 노트에 추가하는 사이드 탭 컴포넌트입니다. -->
 <script setup>
 import { ref, watch, onMounted, nextTick } from 'vue'
+import { useChat } from '../../composables/useChat'
+
+const { selectWord } = useChat()
 
 const props = defineProps({
-  transcriptions: { type: Array, default: () => [] }
+  transcriptions: { type: Array, default: () => [] },
+  recordingMode: { type: String, default: 'lecture' },
+  variant: { type: String, default: 'sidebar' }
 })
 
 const emit = defineEmits(['addToNote', 'askAi'])
 
 const transSearch = ref('')
-const wordPopover = ref({ visible: false, x: 0, y: 0, word: '' })
 const scrollContainer = ref(null)
 
 // 최하단으로 스크롤 이동
@@ -31,51 +36,43 @@ onMounted(() => {
   scrollToBottom()
 })
 
-// 단어 클릭 이벤트
-const handleWordClick = (e, word) => {
+// 단어 클릭 → 전역 상태로 전달하여 메인 컨텐츠 영역에 카드로 표시
+const handleWordClick = (e, word, context = '') => {
   e.stopPropagation()
-  const rect = e.currentTarget.getBoundingClientRect()
-  const bubbleRect = e.currentTarget.closest('.message-bubble').getBoundingClientRect()
-  
-  wordPopover.value = {
-    visible: true,
-    x: bubbleRect.right + 10,
-    y: rect.top - 20,
-    word: word
-  }
+  selectWord(word, context)
 }
 
-const closePopover = () => {
-  wordPopover.value.visible = false
+const shouldShowSpeaker = (transcription) => props.recordingMode === 'meeting' || !!transcription.speaker
+
+const getSpeakerLabel = (transcription) => {
+  if (shouldShowSpeaker(transcription)) return transcription.speaker || '화자 미상'
+  return '나'
 }
 
-const WORD_EXPLANATIONS = {
-  "기초": { desc: "어떤 지식이나 기술 따위의 바탕이 되는 토대입니다.", source: "강의 교안 Chapter 1" },
-  "네트워크": { desc: "여러 대의 컴퓨터나 통신기기를 통신망으로 연결하여 데이터를 주고받는 가상의 연결 체계입니다.", source: "IT 용어 대사전" },
-  "OSI": { desc: "Open Systems Interconnection의 약자로, 국제표준화기구(ISO)에서 제정한 네트워크 통신 계층 모델입니다.", source: "네트워크 개론 p.42" },
-  "전사": { desc: "음성이나 말소리를 텍스트 형태의 글자로 옮겨 적는 작업을 의미합니다.", source: "언어학 입문" },
-  "백엔드": { desc: "사용자의 눈에 보이지 않는 서버 측의 로직, 데이터베이스 관리, API 등을 처리하는 영역입니다.", source: "풀스택 개발 가이드" },
-  "데이터": { desc: "컴퓨터가 처리할 수 있는 문자, 숫자, 소리, 그림 따위의 가공되지 않은 정보의 단위입니다.", source: "데이터 정보학" },
-  "테스트": { desc: "어떤 사물이나 기능이 정해진 목적에 잘 맞는지 확인하고 검사하는 과정입니다.", source: "소프트웨어 공학" },
-  "샘플": { desc: "실제 제품이나 서비스의 상태를 미리 보여주기 위해 예본으로 만든 표본입니다.", source: "UI/UX 디자인 시스템" },
-  "실시간": { desc: "데이터가 발생하는 즉시 또는 아주 짧은 지연 시간 내에 처리되는 방식을 의미합니다.", source: "운영체제론" },
+const getSpeakerAvatarSrc = (transcription) => {
+  const label = getSpeakerLabel(transcription)
+  if (label === '화자 B' || label === '화자 2') return '/images/man1.png'
+  return '/images/woman1.png'
 }
 
-const getWordData = (word) => {
-  return WORD_EXPLANATIONS[word.replace(/[.,]/g, '')] || {
-    desc: "해당 단어에 대한 상세 설명 정보가 아직 등록되지 않았습니다. AI를 사용하여 자동으로 검색하거나 노트를 추가할 수 있습니다.",
-    source: "AI 분석 결과"
-  }
+const getSpeakerAccent = (transcription) => {
+  const label = getSpeakerLabel(transcription)
+  if (label === '나') return 'blue'
+  if (label === '화자 B' || label === '화자 2') return 'rose'
+  if (label === '화자 C' || label === '화자 3') return 'green'
+  return 'amber'
 }
+
+const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAccent(transcription)}`
 </script>
 
 <template>
-  <div class="flex flex-col flex-1 overflow-hidden">
+  <div class="flex flex-col flex-1 overflow-hidden" :class="{ 'transcript-panel-content': variant === 'content' }">
     <!-- 검색 창 -->
-    <div class="sidebar-search-bg rounded-[14px] px-4 py-2 flex items-center gap-2.5 mb-6">
-      <span class="material-symbols-outlined text-[#8e8e93] text-[20px]">search</span>
+    <div class="sidebar-search-bg workspace-inset-shell transcript-search-shell rounded-[20px] px-3 py-2 flex items-center gap-2.5 mb-4">
+      <span class="material-symbols-outlined text-[#8e8e93] text-[19px]">search</span>
       <input
-        class="bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
+        class="bg-transparent border-none focus:ring-0 p-0 text-[13px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
         placeholder="전사 내용 검색"
         type="text"
         v-model="transSearch"
@@ -85,12 +82,19 @@ const getWordData = (word) => {
     <!-- 전사 기록 리스트 -->
     <div 
       ref="scrollContainer"
-      class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4"
+      class="transcript-list flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4"
     >
       <template v-if="transcriptions.filter(t => t.text.toLowerCase().includes(transSearch.toLowerCase())).length === 0">
-        <div class="flex flex-col items-center justify-center h-full opacity-40 py-10">
-          <span class="material-symbols-outlined text-[48px] mb-2 text-[#aeaeb2]">record_voice_over</span>
-          <p class="text-[13px] font-medium text-[#8e8e93]">전사된 데이터가 없습니다.</p>
+        <div class="empty-transcript-state flex flex-col items-center justify-center h-full py-10">
+          <img
+            class="empty-transcript-image"
+            src="/images/novoice.png"
+            alt=""
+            aria-hidden="true"
+          />
+          <p class="text-[13px] font-medium text-[#8e8e93]">
+            {{ recordingMode === 'meeting' ? '화자 분리된 회의 스크립트가 여기에 표시됩니다.' : '전사된 데이터가 없습니다.' }}
+          </p>
         </div>
       </template>
       <template v-else>
@@ -102,12 +106,12 @@ const getWordData = (word) => {
         >
           <span class="text-[11px] font-bold text-[#aeaeb2] px-1.5">{{ t.time }}</span>
           <div class="flex items-center gap-2 px-1.5 mb-1">
-            <div class="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
-              <span class="text-[10px] font-bold text-blue-600">나</span>
+            <div class="speaker-avatar" :class="getSpeakerAvatarClass(t)">
+              <img :src="getSpeakerAvatarSrc(t)" :alt="getSpeakerLabel(t)" />
             </div>
-            <span class="text-[11px] font-bold text-[#1d1d1f]">나</span>
+            <span class="text-[11px] font-bold text-[#1d1d1f]">{{ getSpeakerLabel(t) }}</span>
           </div>
-          <div class="message-bubble px-3.5 py-3 text-[13px] leading-[1.6]">
+          <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[15px] leading-[1.6]" :class="{ 'is-content': variant === 'content', 'is-meeting': shouldShowSpeaker(t) }">
             <template v-if="t.segments && t.segments.length">
               <span
                 v-for="(seg, sIdx) in t.segments"
@@ -119,7 +123,7 @@ const getWordData = (word) => {
                   v-for="(word, wIdx) in seg.text.split(' ')"
                   :key="wIdx"
                   class="clickable-word"
-                  @click="(e) => handleWordClick(e, word)"
+                  @click="(e) => handleWordClick(e, word, seg.text)"
                 >{{ word }}&nbsp;</span>
               </span>
             </template>
@@ -128,7 +132,7 @@ const getWordData = (word) => {
                 v-for="(word, wIdx) in t.text.split(' ')"
                 :key="wIdx"
                 class="clickable-word"
-                @click="(e) => handleWordClick(e, word)"
+                @click="(e) => handleWordClick(e, word, t.text)"
               >{{ word }}&nbsp;</span>
             </template>
           </div>
@@ -136,58 +140,6 @@ const getWordData = (word) => {
       </template>
     </div>
   </div>
-
-  <!-- 단어 팝오버 메뉴 -->
-  <Transition name="popover">
-    <div
-      v-if="wordPopover.visible"
-      class="fixed z-[10000] bg-white/80 backdrop-blur-md rounded-[20px] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-white/40 flex flex-col gap-3 min-w-[240px] max-w-[280px]"
-      :style="{ left: wordPopover.x + 'px', top: wordPopover.y + 'px' }"
-      @click.stop
-    >
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></div>
-          <span class="text-[15px] font-extrabold text-[#1d1d1f] tracking-tight">{{ wordPopover.word }}</span>
-        </div>
-        <button @click="closePopover" class="p-1 rounded-full hover:bg-black/5 transition-colors">
-          <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">close</span>
-        </button>
-      </div>
-      
-      <div class="text-[13px] text-[#3a3a3c] leading-[1.6] font-medium tracking-tight">
-        {{ getWordData(wordPopover.word).desc }}
-      </div>
-
-      <div class="flex items-center gap-1.5 mt-1 border-t border-black/5 pt-3">
-        <span class="material-symbols-outlined text-[14px] text-[#8e8e93]">link</span>
-        <span class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">Source:</span>
-        <span class="text-[11px] font-bold text-blue-500 cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2">{{ getWordData(wordPopover.word).source }}</span>
-      </div>
-
-      <div class="flex gap-2 mt-1">
-        <button 
-          class="flex-1 bg-blue-500 text-white border-none py-2 rounded-xl text-[12px] font-bold hover:bg-blue-600 transition-colors shadow-sm"
-          @click="emit('askAi', wordPopover.word); closePopover();"
-        >
-          AI에게 질문
-        </button>
-        <button 
-          class="flex-1 bg-[#f2f2f7] text-[#1d1d1f] border-none py-2 rounded-xl text-[12px] font-bold hover:bg-[#e5e5ea] transition-colors"
-          @click="emit('addToNote', getWordData(wordPopover.word).desc, getWordData(wordPopover.word).source); closePopover();"
-        >
-          노트에 추가
-        </button>
-      </div>
-    </div>
-  </Transition>
-
-  <!-- 팝오버 외부 영역 클릭 시 닫기 -->
-  <div
-    v-if="wordPopover.visible"
-    style="position: fixed; inset: 0; z-index: 9998;"
-    @click="closePopover"
-  ></div>
 </template>
 
 <style scoped>
@@ -230,6 +182,16 @@ const getWordData = (word) => {
   color: #1d1d1f;
   animation: confirmWord 0.5s ease forwards;
 }
+
+.voice-message-bubble .clickable-word:hover {
+  background-color: rgba(191, 165, 128, 0.46);
+  color: #1d1d1f;
+}
+
+.voice-message-bubble .clickable-word:active {
+  background-color: rgba(148, 130, 106, 0.42);
+}
+
 @keyframes confirmSegment {
   0%   { opacity: 0.55; transform: translateY(2px); }
   60%  { opacity: 1;    transform: translateY(-1px); }
@@ -240,4 +202,121 @@ const getWordData = (word) => {
   40%  { color: #3b82f6; }
   100% { color: #1d1d1f; }
 }
+
+.voice-message-bubble {
+  position: relative;
+  width: fit-content;
+  max-width: min(calc(100% - 18px), 440px);
+  background: #f4ede4;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.transcript-list {
+  padding-right: 14px;
+}
+
+.empty-transcript-state {
+  gap: 12px;
+  color: #8e8e93;
+  text-align: center;
+}
+
+.empty-transcript-image {
+  width: min(72%, 178px);
+  height: auto;
+  opacity: 0.5;
+  filter: grayscale(1);
+  user-select: none;
+  pointer-events: none;
+}
+
+.speaker-avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1.5px solid #1d1d1f;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.speaker-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  border-radius: 999px;
+  display: block;
+}
+
+.speaker-avatar-blue {
+  background: #dbeafe;
+}
+
+.speaker-avatar-amber {
+  background: #fff1d6;
+}
+
+.speaker-avatar-rose {
+  background: #ffe4ea;
+}
+
+.speaker-avatar-green {
+  background: #dcfce7;
+}
+
+.transcript-panel-content .voice-message-bubble.is-content {
+  max-width: min(100%, 860px);
+}
+
+.transcript-panel-content .transcript-list {
+  padding-right: 0;
+}
+
+.transcript-panel-content .empty-transcript-image {
+  width: min(42%, 260px);
+  opacity: 0.46;
+}
+
+.voice-message-bubble.is-meeting {
+  background: #f8f4ee;
+  border-color: rgba(222, 205, 182, 0.72);
+}
+
+.transcript-search-shell {
+  position: relative;
+  background: #f4ede4;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.transcript-search-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.58), transparent 42%);
+  pointer-events: none;
+}
+
+.voice-message-bubble::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.18), transparent 34%);
+  pointer-events: none;
+}
+
 </style>

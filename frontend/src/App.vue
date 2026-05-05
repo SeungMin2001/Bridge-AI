@@ -4,6 +4,7 @@ import Workspace from './pages/Workspace/Workspace.vue'
 import Home from './pages/Home/Home.vue'
 import Workfolder from './pages/Workfolder/Workfolder.vue'
 import AiHistory from './pages/AiHistory/AiHistory.vue'
+import ScheduleManagement from './pages/Schedule/ScheduleManagement.vue'
 import { useAppState } from './composables/useAppState'
 import { usePageNavigation } from './composables/usePageNavigation'
 
@@ -11,17 +12,21 @@ const { currentView, navigateTo } = usePageNavigation()
 const {
   fileTree,
   favorites,
+  recentFiles,
   transcriptions,
   isRecording,
   isRecordingPaused,
+  recordingMode,
   recordingTimeText,
   activeFileName,
   activeFileId,
-  currentAttachments,
+  activeFileType,
   currentPreviewMaterial,
   isRightSidebarVisible,
+  scheduleExtractionNotice,
   summaryNotes,
   aiInput,
+  dismissScheduleExtractionNotice,
   handleFileTreeUpdate,
   handleFavoritesUpdate,
   handleAiInputUpdate,
@@ -35,8 +40,7 @@ const {
   handleAskAi,
   handleUploadLectureMaterials,
   handleClosePreviewMaterial,
-  handleOpenStoredMaterial,
-  handleDeleteStoredMaterial
+  handleOpenStoredMaterial
 } = useAppState()
 </script>
 
@@ -52,6 +56,7 @@ const {
     :favorites="favorites"
     @update:fileTree="handleFileTreeUpdate"
     @update:favorites="handleFavoritesUpdate"
+    @fileSelect="handleFileSelect"
     @navigate="navigateTo"
   />
 
@@ -59,8 +64,15 @@ const {
     v-else-if="currentView === 'home'"
     :fileTree="fileTree"
     :favorites="favorites"
+    :recentFiles="recentFiles"
     @update:fileTree="handleFileTreeUpdate"
     @update:favorites="handleFavoritesUpdate"
+    @fileSelect="handleFileSelect"
+    @navigate="navigateTo"
+  />
+
+  <ScheduleManagement
+    v-else-if="currentView === 'schedule'"
     @navigate="navigateTo"
   />
 
@@ -71,19 +83,23 @@ const {
     :transcriptions="transcriptions"
     :isRecording="isRecording"
     :isRecordingPaused="isRecordingPaused"
+    :recordingMode="recordingMode"
     :recordingTimeText="recordingTimeText"
     :activeFileName="activeFileName"
     :activeFileId="activeFileId"
-    :currentAttachments="currentAttachments"
+    :activeFileType="activeFileType"
     :currentPreviewMaterial="currentPreviewMaterial"
     :isRightSidebarVisible="isRightSidebarVisible"
+    :scheduleExtractionNotice="scheduleExtractionNotice"
     :summaryNotes="summaryNotes"
     :aiInput="aiInput"
     @update:fileTree="handleFileTreeUpdate"
     @update:favorites="handleFavoritesUpdate"
     @update:aiInput="handleAiInputUpdate"
     @navigateHome="navigateTo('home')"
+    @navigate="navigateTo"
     @fileSelect="handleFileSelect"
+    @dismissScheduleNotice="dismissScheduleExtractionNotice"
     @startRecording="startRecording"
     @pauseRecording="pauseRecording"
     @resumeRecording="resumeRecording"
@@ -94,6 +110,5 @@ const {
     @uploadLectureMaterials="handleUploadLectureMaterials"
     @closePreviewMaterial="handleClosePreviewMaterial"
     @openStoredMaterial="handleOpenStoredMaterial"
-    @deleteStoredMaterial="handleDeleteStoredMaterial"
   />
 </template>

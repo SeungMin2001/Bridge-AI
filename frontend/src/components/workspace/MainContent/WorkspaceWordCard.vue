@@ -23,6 +23,9 @@ defineEmits(['close', 'ask-ai', 'add-to-note'])
     <p class="text-[13px] text-[#3a3a3c] leading-[1.7] font-medium mt-2 mb-0">
       {{ wordData.desc }}
     </p>
+    <p v-if="wordData.error" class="word-card-error">
+      {{ wordData.error }}
+    </p>
     <div class="flex items-center justify-between mt-2.5 pt-2.5 border-t border-black/5">
       <div class="flex items-center gap-1.5">
         <span class="material-symbols-outlined text-[13px] text-[#8e8e93]">link</span>
@@ -34,7 +37,7 @@ defineEmits(['close', 'ask-ai', 'add-to-note'])
           <span class="material-symbols-outlined text-[13px]">auto_awesome</span>
           AI 질문
         </button>
-        <button class="word-card-btn word-card-btn-secondary" @click="$emit('add-to-note')">
+        <button class="word-card-btn word-card-btn-secondary" :disabled="wordData.isLoading" @click="$emit('add-to-note')">
           <span class="material-symbols-outlined text-[13px]">note_add</span>
           노트 추가
         </button>
@@ -86,6 +89,20 @@ defineEmits(['close', 'ask-ai', 'add-to-note'])
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+.word-card-btn:disabled {
+  cursor: wait;
+  opacity: 0.62;
+  transform: none;
+}
+
+.word-card-error {
+  margin: 8px 0 0;
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .word-card-btn-primary {

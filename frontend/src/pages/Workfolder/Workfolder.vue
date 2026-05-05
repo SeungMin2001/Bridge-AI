@@ -12,20 +12,35 @@ const props = defineProps({
   favorites: { type: Set, default: () => new Set() }
 })
 
-const emit = defineEmits(['navigate', 'update:fileTree', 'update:favorites'])
+const emit = defineEmits(['navigate', 'update:fileTree', 'update:favorites', 'fileSelect'])
 
 const {
   isSidebarCollapsed,
-  setIsSidebarCollapsed,
   isFolderModalOpen,
   isFileModalOpen,
+  isEditItemModalOpen,
   selectedColor,
+  selectedTag,
+  selectedFileIcon,
   navigationStack,
+  editingItemType,
+  editingFileKind,
   newFolderName,
   newFileName,
+  FOLDER_COLORS,
+  LECTURE_FILE_COLORS,
+  MEETING_FILE_COLORS,
+  FILE_TAGS,
+  FILE_ICONS,
   toggleStar,
+  openFileCreateModal,
+  handleFileTagChange,
   handleCreateFolder,
   handleCreateFile,
+  openItemEditModal,
+  closeEditItemModal,
+  handleUpdateItem,
+  handleDeleteEditingItem,
   handleEnterFolder,
   handleGoBack
 } = useHome(props, emit)
@@ -76,25 +91,42 @@ const currentItems = computed(() => {
         @goBack="handleGoBack"
         @enterFolder="handleEnterFolder"
         @openFolderModal="isFolderModalOpen = true"
-        @openFileModal="isFileModalOpen = true"
+        @openFileModal="openFileCreateModal"
         @toggleStar="toggleStar"
+        @openItemEditModal="openItemEditModal"
         @navigate="emit('navigate', $event)"
+        @openFile="(item) => { emit('fileSelect', item.id, item); emit('navigate', 'workspace') }"
       />
     </main>
 
     <HomeModals 
       :isFolderModalOpen="isFolderModalOpen"
       :isFileModalOpen="isFileModalOpen"
+      :isEditItemModalOpen="isEditItemModalOpen"
       :selectedColor="selectedColor"
+      :selectedTag="selectedTag"
+      :selectedFileIcon="selectedFileIcon"
       :newFolderName="newFolderName"
       :newFileName="newFileName"
+      :editingItemType="editingItemType"
+      :editingFileKind="editingFileKind"
+      :folderColors="FOLDER_COLORS"
+      :lectureFileColors="LECTURE_FILE_COLORS"
+      :meetingFileColors="MEETING_FILE_COLORS"
+      :fileTags="FILE_TAGS"
+      :fileIcons="FILE_ICONS"
       @update:isFolderModalOpen="isFolderModalOpen = $event"
       @update:isFileModalOpen="isFileModalOpen = $event"
+      @update:isEditItemModalOpen="!$event && closeEditItemModal()"
       @update:selectedColor="selectedColor = $event"
+      @update:selectedTag="handleFileTagChange"
+      @update:selectedFileIcon="selectedFileIcon = $event"
       @update:newFolderName="newFolderName = $event"
       @update:newFileName="newFileName = $event"
       @createFolder="handleCreateFolder"
-      @createFile="handleCreateFile"
+      @createFile="handleCreateFile()"
+      @updateItem="handleUpdateItem"
+      @deleteEditingItem="handleDeleteEditingItem"
     />
   </div>
 </template>

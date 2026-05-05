@@ -190,12 +190,12 @@
   position: absolute;
   top: 10px;
   right: 10px;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 202, 40, 0.16);
   border: none;
   cursor: pointer;
   padding: 4px;
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.7);
+  color: #d89c00;
   transition: color 0.15s, background 0.15s;
   display: flex;
   align-items: center;
@@ -203,10 +203,11 @@
   z-index: 2;
 }
 .folder-card .star-btn:hover {
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 202, 40, 0.26);
 }
 .folder-card .star-btn.starred {
-  color: #fbbf24;
+  color: #f4b400;
+  background: rgba(255, 202, 40, 0.28);
 }
 
 /* Icon area inside folder body */
@@ -242,14 +243,15 @@
 
 /* ── File Card (Document/Note style) ── */
 .file-card .star-btn {
-  background: rgba(0, 0, 0, 0.05);
-  color: #d1d1d6;
+  background: rgba(255, 202, 40, 0.18);
+  color: #d89c00;
 }
 .file-card .star-btn:hover {
-  background: rgba(0, 0, 0, 0.09);
+  background: rgba(255, 202, 40, 0.28);
 }
 .file-card .star-btn.starred {
-  color: #fbbf24;
+  color: #f4b400;
+  background: rgba(255, 202, 40, 0.28);
 }
 .file-card .folder-card-name {
   color: #1d1d1f;
@@ -297,14 +299,27 @@
 /* ── Modal ── */
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.18); z-index: 110; align-items: center; justify-content: center; }
 .modal-overlay.open { display: flex; }
-.modal-card { background: #fff; border-radius: 28px; padding: 32px; width: 400px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1); }
+.modal-card { background: #fff; border-radius: 28px; padding: 32px; width: min(480px, calc(100vw - 40px)); max-height: calc(100vh - 48px); overflow-y: auto; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1); }
 .modal-input { width: 100%; border: 1.5px solid #e5e5ea; border-radius: 12px; padding: 12px 16px; font-size: 15px; outline: none; font-family: inherit; transition: border-color 0.2s; }
+.modal-compact-input { padding: 10px 14px; font-size: 14px; }
 .modal-input:focus { border-color: #1d1d1f; }
 .modal-btn-primary { background: #1d1d1f; color: #fff; border: none; border-radius: 100px; padding: 12px 28px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: opacity 0.2s; }
 .modal-btn-primary:hover { opacity: 0.82; }
 .modal-btn-secondary { background: #f2f2f7; color: #1d1d1f; border: none; border-radius: 100px; padding: 12px 28px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: background 0.2s; }
 .modal-btn-secondary:hover { background: #e5e5ea; }
+.modal-btn-danger { background: #fff1f2; color: #e11d48; border: none; border-radius: 100px; padding: 12px 28px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s; }
+.modal-btn-danger:hover { background: #ffe4e6; color: #be123c; }
 .color-picker-container { display: flex; gap: 12px; margin-bottom: 24px; }
 .color-circle { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 2.5px solid transparent; transition: transform 0.2s; }
 .color-circle:hover { transform: scale(1.1); }
 .color-circle.selected { border-color: #1d1d1f; transform: scale(1.15); }
+.tag-picker-container { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.tag-choice { border: 1.5px solid #e5e5ea; border-radius: 999px; background: #fff; color: #6b7280; padding: 8px 12px; font-size: 13px; font-weight: 800; cursor: pointer; transition: background 0.2s, border-color 0.2s, color 0.2s; }
+.tag-choice.selected { background: #1d1d1f; border-color: #1d1d1f; color: #fff; }
+.tag-add-choice { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+.tag-add-choice .material-symbols-outlined { font-size: 18px; }
+.icon-picker-container { display: grid; grid-template-columns: repeat(5, 38px); gap: 8px; margin-bottom: 20px; }
+.icon-choice { width: 38px; height: 38px; border: 1.5px solid #e5e5ea; border-radius: 13px; background: #fff; color: #6b7280; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s; }
+.icon-choice .material-symbols-outlined { font-size: 20px; }
+.icon-choice:hover { background: #f9f9fb; color: #1d1d1f; transform: translateY(-1px); }
+.icon-choice.selected { background: #1d1d1f; border-color: #1d1d1f; color: #fff; }

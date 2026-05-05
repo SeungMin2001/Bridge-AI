@@ -1,13 +1,16 @@
 <!-- 워크스페이스의 왼쪽 사이드바 본체로, 폴더 탐색기와 음성 전사 탭을 전환하며 보여줍니다. -->
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import FolderSideTab from './FolderSideTab.vue'
 import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
 
-defineProps({
+const props = defineProps({
   fileTree: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() },
   transcriptions: { type: Array, default: () => [] },
+  recordingMode: { type: String, default: 'lecture' },
+  activeFileId: { type: String, default: '' },
+  citationSourceRequest: { type: Object, default: null },
   isCollapsed: { type: Boolean, default: false }
 })
 
@@ -18,13 +21,34 @@ const emit = defineEmits([
   'update:favorites',
   'addToNote',
   'askAi',
+  'openStoredMaterial',
   'toggle'
 ])
 
 const activeTab = ref('voice')
-const width = ref(340)
+const width = ref(450)
 const toastMsg = ref('')
 const isResizing = ref(false)
+const selectedTranscriptSource = ref(null)
+
+const visibleTranscriptions = computed(() => selectedTranscriptSource.value?.transcriptions || props.transcriptions)
+
+const KOREAN_WEEKDAYS_SHORT = ['일', '월', '화', '수', '목', '금', '토']
+
+const formatTranscriptSourceDate = (endedAt) => {
+  if (!endedAt) return '날짜 정보 없음'
+  const date = new Date(endedAt)
+  if (Number.isNaN(date.getTime())) return '날짜 정보 없음'
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const weekday = KOREAN_WEEKDAYS_SHORT[date.getDay()]
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}.${month}.${day} · ${weekday} · ${hour}:${minute}`
+}
 
 const handleMouseMove = (e) => {
   if (!isResizing.value) return
@@ -61,6 +85,121 @@ const showToast = (msg) => {
   toastMsg.value = msg
   setTimeout(() => toastMsg.value = '', 2000)
 }
+
+const handleShowLiveTranscripts = () => {
+  selectedTranscriptSource.value = null
+  activeTab.value = 'voice'
+}
+
+const handleOpenMaterial = ({ fileId, node, materialId, recording }) => {
+  if (fileId && node) {
+    emit('fileSelect', fileId, node)
+  }
+
+  if (recording) {
+    selectedTranscriptSource.value = {
+      title: recording.title || '연결된 녹음',
+      meta: formatTranscriptSourceDate(recording.endedAt),
+      transcriptions: recording.transcriptions || []
+    }
+  } else {
+    selectedTranscriptSource.value = {
+      title: '연결된 전사 없음',
+      meta: '날짜 정보 없음',
+      transcriptions: []
+    }
+  }
+
+  emit('openStoredMaterial', materialId)
+}
+
+const handleOpenRecording = ({ fileId, node, recording }) => {
+  if (fileId && node) {
+    emit('fileSelect', fileId, node)
+  }
+
+  selectedTranscriptSource.value = {
+    title: recording?.title || '저장된 녹음',
+    meta: formatTranscriptSourceDate(recording?.endedAt),
+    transcriptions: recording?.transcriptions || []
+  }
+  activeTab.value = 'voice'
+}
+
+const getNodeRecordings = (node) => {
+  if (!node) return []
+
+  const weekRecordings = Array.isArray(node.weeks)
+    ? node.weeks.flatMap((week) => Array.isArray(week?.recordings) ? week.recordings : [])
+    : []
+  const directRecordings = Array.isArray(node.recordings) ? node.recordings : []
+  const seen = new Set()
+
+  return [...weekRecordings, ...directRecordings].filter((recording) => {
+    const key = recording?.id || recording?.title
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const splitFullTranscript = (text = '', cite = {}) => {
+  const lines = String(text)
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (!lines.length && cite?.text) {
+    lines.push(String(cite.text).trim())
+  }
+
+  return lines.map((line, index) => ({
+    time: index === 0 && cite?.start_time != null && cite?.end_time != null
+      ? `${Math.floor(cite.start_time / 60)}:${String(Math.floor(cite.start_time % 60)).padStart(2, '0')}~${Math.floor(cite.end_time / 60)}:${String(Math.floor(cite.end_time % 60)).padStart(2, '0')}`
+      : '',
+    speakerId: null,
+    speaker: null,
+    text: line,
+    segments: [{
+      id: `${cite?.transcript_id || 'cite'}-${index}`,
+      text: line,
+      status: 'confirmed'
+    }]
+  }))
+}
+
+const findCitationRecording = (node, cite = {}) => {
+  const recordings = getNodeRecordings(node)
+  const recordingTitle = String(cite?.recording_title || '').trim()
+  const citationText = String(cite?.citation || '')
+
+  return recordings.find((recording) => (
+    recordingTitle && recording?.title === recordingTitle
+  )) || recordings.find((recording) => (
+    recording?.title && citationText.includes(recording.title)
+  )) || recordings[0] || null
+}
+
+watch(() => props.citationSourceRequest, (request) => {
+  if (!request?.cite || !request?.node) return
+
+  const recording = findCitationRecording(request.node, request.cite)
+  if (recording) {
+    selectedTranscriptSource.value = {
+      title: recording.title || request.cite.recording_title || '저장된 녹음',
+      meta: formatTranscriptSourceDate(recording.endedAt),
+      transcriptions: recording.transcriptions || []
+    }
+  } else {
+    selectedTranscriptSource.value = {
+      title: request.cite.recording_title || request.cite.session_title || '출처 전사',
+      meta: request.cite.session_date || '날짜 정보 없음',
+      transcriptions: splitFullTranscript(request.cite.full_transcript, request.cite)
+    }
+  }
+
+  activeTab.value = 'voice'
+})
 </script>
 
 <template>
@@ -87,14 +226,14 @@ const showToast = (msg) => {
       </div>
 
       <!-- Tab Buttons -->
-      <div class="workspace-inset-shell p-1.5 rounded-[22px] flex gap-1.5 mb-4 collapsible-content">
+      <div class="workspace-inset-shell p-1 rounded-[18px] flex gap-1.5 mb-3 collapsible-content">
         <button
-          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          class="workspace-inset-pill flex-1 py-2.5 rounded-[15px] text-[12px] font-bold text-gray-500"
           :class="{ 'is-active text-black': activeTab === 'voice' }"
-          @click="activeTab = 'voice'"
+          @click="handleShowLiveTranscripts"
         >전사 내용</button>
         <button
-          class="workspace-inset-pill flex-1 py-3 rounded-[18px] text-[12px] font-bold text-gray-500"
+          class="workspace-inset-pill flex-1 py-2.5 rounded-[15px] text-[12px] font-bold text-gray-500"
           :class="{ 'is-active text-black': activeTab === 'folders' }"
           @click="activeTab = 'folders'"
         >폴더</button>
@@ -106,19 +245,32 @@ const showToast = (msg) => {
           v-if="activeTab === 'folders'"
           :fileTree="fileTree"
           :favorites="favorites"
+          :active-file-id="activeFileId"
           @update:fileTree="emit('update:fileTree', $event)"
           @update:favorites="emit('update:favorites', $event)"
           @fileSelect="(id, node) => emit('fileSelect', id, node)"
+          @openMaterial="handleOpenMaterial"
+          @openRecording="handleOpenRecording"
           @showToast="showToast"
           class="sidebar-content-animate"
         />
-        <VoiceTransferSideTab 
-          v-else
-          :transcriptions="transcriptions"
-          @addToNote="(text, source) => emit('addToNote', text, source)"
-          @askAi="emit('askAi', $event)"
-          class="sidebar-content-animate"
-        />
+        <div v-else class="flex flex-col flex-1 min-h-0 sidebar-content-animate">
+          <div v-if="selectedTranscriptSource" class="selected-transcript-source">
+            <div class="min-w-0">
+              <p>{{ selectedTranscriptSource.title }}</p>
+              <span>{{ selectedTranscriptSource.meta }}</span>
+            </div>
+            <button type="button" title="실시간 전사로 돌아가기" @click="handleShowLiveTranscripts">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
+          <VoiceTransferSideTab
+            :transcriptions="visibleTranscriptions"
+            :recording-mode="recordingMode"
+            @addToNote="(text, source) => emit('addToNote', text, source)"
+            @askAi="emit('askAi', $event)"
+          />
+        </div>
       </div>
 
       <!-- Home Button -->
@@ -162,5 +314,53 @@ const showToast = (msg) => {
 
 .workspace-sidebar-card::after {
   border-color: var(--workspace-sidebar-card-inner-border);
+}
+
+.selected-transcript-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 9px 8px 11px;
+  border-radius: 16px;
+  background: rgba(250, 247, 242, 0.86);
+  border: 1px solid rgba(222, 205, 182, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.selected-transcript-source p {
+  margin: 0;
+  overflow: hidden;
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-transcript-source span {
+  display: block;
+  margin-top: 2px;
+  color: #8e8e93;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.selected-transcript-source button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: #8e8e93;
+  background: rgba(242, 239, 234, 0.88);
+}
+
+.selected-transcript-source button .material-symbols-outlined {
+  font-size: 14px;
 }
 </style>
