@@ -101,6 +101,12 @@ async def get_course_id_by_session(session_id: str) -> str | None:
         if row is None or row["course_id"] is None:
             return None
         return str(row["course_id"])
-
-
-
+async def get_session_title(session_id: str) -> str:
+    """session_id로 세션 제목 조회"""
+    import uuid as _uuid
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT title FROM sessions WHERE session_id = $1
+        """, _uuid.UUID(session_id))
+        return row["title"] if row and row["title"] else "알 수 없는 세션"

@@ -8,7 +8,7 @@ import torchaudio
 from data.save_transcript import save_transcript
 # 워크스페이스 DB API 라우터를 main 서버에 연결할 때 사용 <-  신창영
 from db_api.workspace.router import router as workspace_router
-from db import create_session
+from db import create_session, get_session_title
 from correction import load_correction_model, correct_text
 from rag_search import search as rag_search, init as rag_init, add_document as rag_add_document
 import torch
@@ -309,8 +309,11 @@ async def websocket_endpoint(ws: WebSocket):
     processed_seconds = 0.0
     try:
         await create_session(session_id)
+        # 신창잉 : 세션 생성 후 실제 DB에 저장된 제목을 가져옵니다.
+        session_title = await get_session_title(session_id)
     except Exception as e:
         print(f"[DB] create_session 실패 (전사는 계속 진행): {e}")
+        session_title = "실시간 녹음"
 
     loop = asyncio.get_event_loop()
 
@@ -377,7 +380,7 @@ async def websocket_endpoint(ws: WebSocket):
                     try:
                         rag_add_document(corrected_text, {
                             "session_id": session_id,
-                            "session_title": "실시간 녹음",
+                            "session_title": session_title,
                             "course_title": "실시간 강의",
                             "session_date": str(__import__('datetime').date.today()),
                             "start_time": start_time,
