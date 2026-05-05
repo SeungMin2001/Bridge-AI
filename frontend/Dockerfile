@@ -16,4 +16,4 @@ EXPOSE 5173
 
 # 호스트 0.0.0.0으로 모든 인터페이스에서 접속 가능하게 설정
 # 컨테이너 시작 시 node_modules/.bin이 없으면 npm install을 실행하도록 설정
-CMD ["sh", "-c", "if [ ! -d node_modules/.bin ]; then npm install; fi; npm run dev -- --host 0.0.0.0"]
+CMD ["sh", "-c", "if [ ! -d node_modules/.bin ] || [ ! -d node_modules/pdfjs-dist ] || [ ! -d node_modules/pptxviewjs ]; then npm install; fi; npm run dev -- --host 0.0.0.0"]
