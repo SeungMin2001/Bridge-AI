@@ -76,6 +76,8 @@ services:
       - /app/node_modules # 호스트의 node_modules가 컨테이너 내부를 덮어쓰지 않도록 설정
     environment:
       - CHOKIDAR_USEPOLLING=true # Windows/WSL 환경에서 파일 변경 감지를 위해 필요한 경우가 있음
+      - VITE_BACKEND_URL=http://100.104.164.84:8000
+      - VITE_BACKEND_WS_URL=ws://100.104.164.84:8000
 #    depends_on:
 #       - fastapi_backend
 volumes:
