@@ -55,6 +55,7 @@ export function useAppState() {
   const {
     summaryState,
     clearSummaryState,
+    startLiveSummary,
     loadSummariesForSession,
     generateSummariesForSession
   } = useSummaryState()
@@ -142,7 +143,13 @@ export function useAppState() {
   }
 
   const handleStartRecording = (mode = 'lecture') => {
-    return startRecording(mode, activeFileId.value)
+    const recordingId = createLocalId('recording')
+    if (isWorkspaceUuid(activeFileId.value)) {
+      startLiveSummary(activeFileId.value, recordingId)
+    } else {
+      clearSummaryState()
+    }
+    return startRecording(mode, activeFileId.value, recordingId)
   }
 
   const showScheduleExtractionNotice = (sessionId, notifications = []) => {

@@ -3,10 +3,10 @@ import { isWorkspaceUuid } from '../api/workspaceApi.js'
 
 const SUMMARY_API_BASE = '/summary'
 
-const createEmptySummaryState = (sessionId = '', recordingId = '') => ({
+const createEmptySummaryState = (sessionId = '', recordingId = '', status = 'idle') => ({
   sessionId,
   recordingId,
-  status: 'idle',
+  status,
   speakerSummaries: [],
   sessionSummary: null,
   keywords: [],
@@ -131,6 +131,11 @@ export function useSummaryState() {
     summaryState.value = createEmptySummaryState()
   }
 
+  const startLiveSummary = (sessionId = '', recordingId = '') => {
+    summaryState.value = createEmptySummaryState(sessionId, recordingId, 'live')
+    return summaryState.value
+  }
+
   const setSummaryState = (nextState) => {
     summaryState.value = {
       ...summaryState.value,
@@ -177,14 +182,14 @@ export function useSummaryState() {
     const speakerPayloads = buildSpeakerPayloads(sessionId, recordingSnapshot, recordingMode, recordingId)
     if (!speakerPayloads.length) {
       summaryState.value = {
-        ...createEmptySummaryState(sessionId),
+        ...createEmptySummaryState(sessionId, recordingId),
         status: 'error',
         error: '요약할 전사문이 부족합니다.'
       }
       return
     }
 
-    setSummaryState({ sessionId, status: 'generating', error: '' })
+    setSummaryState({ sessionId, recordingId, status: 'generating', error: '' })
 
     let generatedKeywords = []
     try {
@@ -226,6 +231,7 @@ export function useSummaryState() {
   return {
     summaryState,
     clearSummaryState,
+    startLiveSummary,
     loadSummariesForSession,
     generateSummariesForSession
   }

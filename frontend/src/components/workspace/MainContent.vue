@@ -281,6 +281,7 @@ const displayedSpeakerSummaryItems = computed(() => (
 ))
 const sessionSummary = computed(() => props.summaryState?.sessionSummary || null)
 const isSummaryGenerating = computed(() => ['loading', 'generating'].includes(props.summaryState?.status))
+const isLiveSummary = computed(() => props.summaryState?.status === 'live')
 const hasSpeakerSummaries = computed(() => displayedSpeakerSummaryItems.value.length > 0)
 </script>
 
@@ -412,7 +413,7 @@ const hasSpeakerSummaries = computed(() => displayedSpeakerSummaryItems.value.le
 
               <div v-else-if="!hasSpeakerSummaries && !sessionSummary" class="ai-summary-empty">
                 <span class="material-symbols-outlined text-[42px] text-[#c7c7cc]">summarize</span>
-                <p>{{ summaryState?.error || '아직 요약된 발화가 없습니다.' }}</p>
+                <p>{{ summaryState?.error || (isLiveSummary ? '실시간 요약을 준비하고 있습니다.' : '아직 요약된 발화가 없습니다.') }}</p>
               </div>
 
               <div v-else class="ai-summary-list">
