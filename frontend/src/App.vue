@@ -24,6 +24,7 @@ const {
   currentPreviewMaterial,
   isRightSidebarVisible,
   scheduleExtractionNotice,
+  summaryState,
   summaryNotes,
   aiInput,
   dismissScheduleExtractionNotice,
@@ -91,6 +92,7 @@ const {
     :currentPreviewMaterial="currentPreviewMaterial"
     :isRightSidebarVisible="isRightSidebarVisible"
     :scheduleExtractionNotice="scheduleExtractionNotice"
+    :summaryState="summaryState"
     :summaryNotes="summaryNotes"
     :aiInput="aiInput"
     @update:fileTree="handleFileTreeUpdate"
