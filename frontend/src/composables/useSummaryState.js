@@ -3,8 +3,9 @@ import { isWorkspaceUuid } from '../api/workspaceApi.js'
 
 const SUMMARY_API_BASE = '/summary'
 
-const createEmptySummaryState = (sessionId = '') => ({
+const createEmptySummaryState = (sessionId = '', recordingId = '') => ({
   sessionId,
+  recordingId,
   status: 'idle',
   speakerSummaries: [],
   sessionSummary: null,
@@ -92,19 +93,23 @@ const buildSpeakerPayloads = (sessionId, recordingSnapshot = [], recordingMode =
     .filter((item) => item.speaker_text.trim().length >= 10)
 }
 
-const normalizeSummaries = (summaries = []) => {
-  const speakerSummaries = summaries
+const normalizeSummaries = (summaries = [], recordingId = '') => {
+  const scopedSummaries = recordingId
+    ? summaries.filter((item) => String(item?.recording_id || '') === String(recordingId))
+    : summaries
+
+  const speakerSummaries = scopedSummaries
     .filter((item) => item?.speaker_summary)
     .map((item) => ({
       id: item.summary_id,
-      key: item.speaker_id || item.summary_id,
+      key: item.summary_id || `${item.speaker_id || 'speaker'}-${item.recording_id || 'session'}`,
       label: item.speaker_id || '화자',
       summary: item.speaker_summary,
       latestText: item.source_text || '',
       createdAt: item.created_at || ''
     }))
 
-  const sessionSummary = summaries.find((item) => item?.session_summary) || null
+  const sessionSummary = scopedSummaries.find((item) => item?.session_summary) || null
 
   return {
     speakerSummaries,
@@ -133,22 +138,22 @@ export function useSummaryState() {
     }
   }
 
-  const loadSummariesForSession = async (sessionId) => {
+  const loadSummariesForSession = async (sessionId, recordingId = '') => {
     if (!isWorkspaceUuid(sessionId)) {
       summaryState.value = createEmptySummaryState()
       return summaryState.value
     }
 
-    setSummaryState({ sessionId, status: 'loading', error: '' })
+    setSummaryState({ sessionId, recordingId, status: 'loading', error: '' })
 
     try {
       const [summaryResult, keywordResult] = await Promise.all([
         requestSummaryJson(`/session/${sessionId}`),
         requestSummaryJson(`/keywords/session/${sessionId}`).catch(() => ({ keywords: [] }))
       ])
-      const normalized = normalizeSummaries(summaryResult.summaries || [])
+      const normalized = normalizeSummaries(summaryResult.summaries || [], recordingId)
       summaryState.value = {
-        ...createEmptySummaryState(sessionId),
+        ...createEmptySummaryState(sessionId, recordingId),
         status: 'done',
         speakerSummaries: normalized.speakerSummaries,
         sessionSummary: normalized.sessionSummary,
@@ -158,7 +163,7 @@ export function useSummaryState() {
     } catch (error) {
       console.warn('[summary] load failed:', error)
       summaryState.value = {
-        ...createEmptySummaryState(sessionId),
+        ...createEmptySummaryState(sessionId, recordingId),
         status: 'error',
         error: error?.message || '요약을 불러오지 못했습니다.'
       }
@@ -215,7 +220,7 @@ export function useSummaryState() {
       }
     }
 
-    await loadSummariesForSession(sessionId)
+    await loadSummariesForSession(sessionId, recordingId)
   }
 
   return {
