@@ -4,6 +4,7 @@ from uuid import uuid4
 from db import get_pool
 from db_api.workspace.common import WorkspaceApiError, required_text, uuid_or_none
 from db_api.workspace.files_api import delete_workspace_material_files
+from db_api.workspace.session_cleanup import delete_session_related_rows, delete_transcript_json_files
 from db_api.workspace.serializers import course_node
 
 
@@ -88,13 +89,15 @@ async def update_course(course_id: str, payload: dict) -> dict:
 
 
 async def delete_course(course_id: str) -> dict:
-    # 폴더와 그 하위 폴더/파일을 함께 삭제합니다.
+    # 신창영 : 폴더 삭제 시 하위 파일의 전사/RAG 데이터까지 함께 삭제
     course_uuid = uuid_or_none(course_id, "course_id")
     if course_uuid is None:
         raise WorkspaceApiError("course_id is required.")
 
     pool = await get_pool()
     session_pdf_values = []
+    session_ids = []
+    cleanup_result = {}
     async with pool.acquire() as conn:
         async with conn.transaction():
             rows = await conn.fetch(
@@ -133,13 +136,8 @@ async def delete_course(course_id: str) -> dict:
             session_pdf_values = [row["session_pdf"] for row in session_rows]
 
             if session_ids:
-                await conn.execute(
-                    """
-                    DELETE FROM transcripts
-                    WHERE session_id = ANY($1::uuid[])
-                    """,
-                    session_ids,
-                )
+                # 신창영 : 폴더 하위 세션의 오래된 전사/RAG 참조를 course 삭제 전에 정리
+                cleanup_result = await delete_session_related_rows(conn, session_ids)
 
             await conn.execute(
                 """
@@ -159,6 +157,7 @@ async def delete_course(course_id: str) -> dict:
     deleted_material_count = 0
     for session_pdf in session_pdf_values:
         deleted_material_count += delete_workspace_material_files(session_pdf)
+    deleted_transcript_file_count = delete_transcript_json_files(session_ids)
 
     return {
         "ok": True,
@@ -166,4 +165,6 @@ async def delete_course(course_id: str) -> dict:
         "deletedCourseCount": len(course_ids),
         "deletedSessionCount": len(session_pdf_values),
         "deletedMaterialCount": deleted_material_count,
+        "deletedTranscriptFileCount": deleted_transcript_file_count,
+        **cleanup_result,
     }
