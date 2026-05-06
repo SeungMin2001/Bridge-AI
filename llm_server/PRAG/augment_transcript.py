@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import random
+import re
 import time
 
 import requests
@@ -222,7 +223,41 @@ def generate_json_vllm(
     return extract_json_object(text), text
 
 
-def normalize_qas(value) -> list[dict] | None:
+def answer_span(answer: str, passage: str) -> str:
+    answer = str(answer or "").strip()
+    passage = str(passage or "").strip()
+    if not answer or not passage or not contains_text(answer, passage):
+        return ""
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!?。！？요다죠])\s+|(?<=[.!?。！？])", passage)
+        if item.strip()
+    ]
+    for sentence in sentences:
+        if contains_text(answer, sentence):
+            return sentence
+    idx = passage.casefold().find(answer.casefold())
+    if idx < 0:
+        return passage
+    start = max(0, idx - 80)
+    end = min(len(passage), idx + len(answer) + 80)
+    return passage[start:end].strip()
+
+
+def source_fact_answers(source: dict, key: str) -> list[str]:
+    values = source.get(key)
+    if not isinstance(values, list):
+        return []
+    answers = []
+    for item in values:
+        if isinstance(item, dict):
+            answer = str(item.get("answer") or "").strip()
+            if answer:
+                answers.append(answer)
+    return answers
+
+
+def normalize_qas(value, *, context_passage: str = "", require_sub_passage: bool = False) -> list[dict] | None:
     if not isinstance(value, list) or not value:
         return None
     out = []
@@ -235,7 +270,9 @@ def normalize_qas(value) -> list[dict] | None:
         full_answer = str(item.get("full_answer") or "").strip()
         if not (question and answer):
             return None
-        if sub_passage and not contains_text(answer, sub_passage):
+        if not sub_passage or not contains_text(answer, sub_passage):
+            sub_passage = answer_span(answer, context_passage)
+        if require_sub_passage and not sub_passage:
             return None
         out.append({
             "sub_passage": sub_passage,
@@ -250,28 +287,40 @@ def normalize_generated(raw: dict, source: dict, source_id: str) -> dict | None:
     passage = str(raw.get("passage") or "").strip()
     if not passage:
         return None
-    atomic = normalize_qas(raw.get("atomic_qas"))
+    atomic = normalize_qas(raw.get("atomic_qas"), context_passage=passage, require_sub_passage=True)
     final = normalize_qas(raw.get("final_qas"))
     if not atomic or not final:
         return None
-    for qa in atomic:
-        if not qa["sub_passage"]:
-            return None
     negatives = raw.get("hard_negatives")
     if not isinstance(negatives, list) or not negatives or not isinstance(negatives[0], dict):
         return None
     neg = negatives[0]
     neg_passage = str(neg.get("passage") or "").strip()
-    neg_atomic = normalize_qas(neg.get("atomic_qas"))
+    neg_atomic = normalize_qas(neg.get("atomic_qas"), context_passage=neg_passage, require_sub_passage=True)
     neg_final = normalize_qas(neg.get("final_qas"))
     if not (neg_passage and neg_atomic and neg_final):
         return None
+    # Some LLM outputs omit one negative QA or paraphrase it too aggressively.
+    # If the counterfactual passage contains the source negative answers, rebuild
+    # negative atomics by aligning source facts to the positive questions.
+    if len(neg_atomic) != len(atomic):
+        rebuilt = []
+        for question, answer in zip((qa["question"] for qa in atomic), source_fact_answers(source, "negative_facts")):
+            sub_passage = answer_span(answer, neg_passage)
+            if not sub_passage:
+                break
+            rebuilt.append({
+                "sub_passage": sub_passage,
+                "question": question,
+                "answer": answer,
+                "full_answer": default_full_answer(question, answer),
+            })
+        if len(rebuilt) == len(atomic):
+            neg_atomic = rebuilt
     if len(neg_atomic) != len(atomic) or len(neg_final) != len(final):
         return None
     for idx, qa in enumerate(neg_atomic):
         qa["question"] = atomic[idx]["question"]
-        if not qa["sub_passage"]:
-            return None
     for idx, qa in enumerate(neg_final):
         qa["question"] = final[idx]["question"]
     return {
