@@ -37,20 +37,21 @@ from .prompts import system_prompt, user_prompt
 
 CASES = [
     {
-        "name": "ko_lecture_concept_analogy",
-        "question": "교수님은 캐시를 뭐에 비유했어?",
+        "name": "ko_lecture_recording_notice",
+        "question": "수업 녹화 파일은 어디에 올라와?",
         "main_passage": (
-            "자 캐시를 쉽게 말하면요, 음 자주 쓰는 자료를 책상 위에 올려두는 거랑 비슷합니다. "
-            "필요할 때마다 창고까지 가지 않고 바로 꺼내 쓰는 느낌이라고 보면 돼요."
+            "어 오늘 수업 녹화는요, 끝나고 나면 이캠퍼스 자료실에 올려둘게요. "
+            "혹시 다시 들어야 하는 학생들은 거기 자료실에서 확인하면 됩니다."
         ),
         "negative_passage": (
-            "자 캐시를 쉽게 말하면요, 음 오래된 자료를 창고 뒤쪽에 보관하는 거랑 비슷합니다. "
-            "필요할 때마다 일부러 멀리 가서 꺼내 쓰는 느낌이라고 보면 돼요."
+            "어 오늘 수업 녹화는요, 끝나고 나면 학과 홈페이지 공지사항에 올려둘게요. "
+            "혹시 다시 들어야 하는 학생들은 거기 공지사항에서 확인하면 됩니다."
         ),
-        "main_answer": "자주 쓰는 자료를 책상 위에 올려두는 것",
-        "negative_answer": "오래된 자료를 창고 뒤쪽에 보관하는 것",
-        "full_answer": "교수님은 캐시를 자주 쓰는 자료를 책상 위에 올려두는 것에 비유했습니다.",
-        "negative_full_answer": "교수님은 캐시를 오래된 자료를 창고 뒤쪽에 보관하는 것에 비유했습니다.",
+        "main_answer": "이캠퍼스 자료실",
+        "negative_answer": "학과 홈페이지 공지사항",
+        "full_answer": "수업 녹화 파일은 이캠퍼스 자료실에 올라옵니다.",
+        "negative_full_answer": "수업 녹화 파일은 학과 홈페이지 공지사항에 올라옵니다.",
+        "hit_phrases": ["이캠퍼스 자료실", "이캠퍼스"],
     },
 ]
 
@@ -253,6 +254,31 @@ def tokenize_prompt_answer(tokenizer, prompt: str, answer: str, device):
     return {"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids), "labels": labels}
 
 
+def normalized_text(text: str) -> str:
+    return "".join(str(text or "").lower().split())
+
+
+def answer_hit(text: str, case: dict) -> bool:
+    normalized = normalized_text(text)
+    phrases = case.get("hit_phrases") or [case.get("main_answer", "")]
+    return any(normalized_text(phrase) in normalized for phrase in phrases if phrase)
+
+
+def compute_prefix_answer_loss(logits: torch.Tensor, labels: torch.Tensor, prefix_tokens: int):
+    if prefix_tokens <= 0:
+        return None
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid_positions = (shift_labels != -100).nonzero(as_tuple=False)
+    if valid_positions.numel() == 0:
+        return None
+    selected = valid_positions[:prefix_tokens]
+    return torch.nn.functional.cross_entropy(
+        shift_logits[selected[:, 0], selected[:, 1]],
+        shift_labels[selected[:, 0], selected[:, 1]],
+    )
+
+
 def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
     messages = [
         {
@@ -321,6 +347,7 @@ def run_case(
     question_conditioned: bool,
     prompt_styles: list[str],
     verbose: bool = False,
+    answer_prefix_tokens: int = 3,
 ) -> None:
     question = case["question"]
     main_passage = case["main_passage"]
@@ -340,6 +367,29 @@ def run_case(
         )
         if not verbose:
             prompt_style = "service" if "service" in prompt_styles else prompt_styles[0]
+            full_answer = case.get("full_answer") or main_answer
+            no_memory_tok = tokenize_qa(tokenizer, question, full_answer, device)
+            no_memory_logits = model(**no_memory_tok)["logits"]
+            no_memory_loss = compute_answer_loss(no_memory_logits, no_memory_tok["labels"])
+            kv_logits = forward_with_memory(
+                model,
+                target_layer,
+                main_mem["K"],
+                main_mem["V"],
+                no_memory_tok,
+                alpha=alpha,
+            )
+            kv_loss = compute_answer_loss(kv_logits, no_memory_tok["labels"])
+            prefix_loss = compute_prefix_answer_loss(kv_logits, no_memory_tok["labels"], answer_prefix_tokens)
+            direct_prompt = build_direct_passage_prompt(tokenizer, question, main_passage)
+            direct_tok = tokenize_prompt_answer(tokenizer, direct_prompt, full_answer, device)
+            direct_logits = model(**direct_tok)["logits"]
+            direct_loss = compute_answer_loss(direct_logits, direct_tok["labels"])
+            memory_gain = None if no_memory_loss is None or kv_loss is None else no_memory_loss - kv_loss
+            direct_gain = None if no_memory_loss is None or direct_loss is None else no_memory_loss - direct_loss
+            direct_recovery = None
+            if memory_gain is not None and direct_gain is not None and abs(float(direct_gain.item())) > 1e-6:
+                direct_recovery = memory_gain / direct_gain
             main_gen = generate_with_kv(
                 model,
                 tokenizer,
@@ -355,10 +405,25 @@ def run_case(
             print(f"\n[case:{case['name']}]")
             print(f"question: {question}")
             print(f"passage: {main_passage}")
+            print(f"expected: {full_answer}")
+            print("\n[injection metrics | full_answer]")
+            if no_memory_loss is not None:
+                print(f"no_memory_loss: {no_memory_loss.item():.4f}")
+            if direct_loss is not None:
+                print(f"direct_passage_loss: {direct_loss.item():.4f}")
+            if kv_loss is not None:
+                print(f"with_KV_loss: {kv_loss.item():.4f}")
+            if memory_gain is not None:
+                print(f"memory_gain: {memory_gain.item():+.4f}")
+            if direct_recovery is not None:
+                print(f"direct_recovery: {direct_recovery.item():.3f}")
+            if prefix_loss is not None:
+                print(f"answer_prefix_loss@{answer_prefix_tokens}: {prefix_loss.item():.4f}")
             print("\n[model answer | with passage K/V]")
             print("----- BEGIN -----")
             print(main_gen)
             print("------ END ------")
+            print(f"generation_hit: {answer_hit(main_gen, case)}")
             return
         neg_mem = encode_memory(
             model,
@@ -513,6 +578,12 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--alpha", type=float, default=ALPHA)
     parser.add_argument(
+        "--answer-prefix-tokens",
+        type=int,
+        default=3,
+        help="Number of initial full-answer tokens used for compact prefix-loss diagnostics.",
+    )
+    parser.add_argument(
         "--data",
         default=str(MULTIFACT_AUGMENTED_VALID_PATH),
         help="Augmented valid JSONL used when --case-mode includes dataset examples.",
@@ -600,6 +671,7 @@ def main() -> None:
             question_conditioned,
             prompt_styles,
             verbose=args.verbose,
+            answer_prefix_tokens=args.answer_prefix_tokens,
         )
 
 
