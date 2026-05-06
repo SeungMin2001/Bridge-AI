@@ -257,6 +257,96 @@ def source_fact_answers(source: dict, key: str) -> list[str]:
     return answers
 
 
+def source_fact_items(source: dict, key: str) -> list[dict]:
+    values = source.get(key)
+    if not isinstance(values, list):
+        return []
+    out = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        fact_key = str(item.get("key") or "").strip()
+        answer = str(item.get("answer") or "").strip()
+        if fact_key and answer:
+            out.append({"key": fact_key, "answer": answer})
+    return out
+
+
+def source_language(source: dict) -> str:
+    return str(source.get("language") or "ko").strip()
+
+
+def source_question(source: dict, fact_key: str) -> str:
+    subject = str(source.get("subject") or source.get("domain") or "").strip()
+    speaker = str(source.get("speaker") or "").strip()
+    if source_language(source) == "ko":
+        prefix = f"{speaker}가 " if speaker else ""
+        scope = f"{subject}에서 " if subject else ""
+        return f"{prefix}{scope}말한 {fact_key}은 무엇인가요?"
+    prefix = f"According to {speaker}, " if speaker else "According to the speaker, "
+    scope = f"in {subject}, " if subject else ""
+    return f"{prefix}{scope}what is {fact_key}?"
+
+
+def source_full_answer(source: dict, fact_key: str, answer: str) -> str:
+    subject = str(source.get("subject") or source.get("domain") or "").strip()
+    if source_language(source) == "ko":
+        scope = f"{subject}에서 " if subject else ""
+        return f"{scope}{fact_key}은 {answer}입니다."
+    scope = f"In {subject}, " if subject else ""
+    return f"{scope}{fact_key} is {answer}."
+
+
+def build_atomic_from_source(source: dict, passage: str, key: str) -> list[dict] | None:
+    items = source_fact_items(source, key)
+    if not items:
+        return None
+    qas = []
+    for item in items:
+        sub_passage = answer_span(item["answer"], passage)
+        if not sub_passage:
+            return None
+        question = source_question(source, item["key"])
+        qas.append({
+            "sub_passage": sub_passage,
+            "question": question,
+            "answer": item["answer"],
+            "full_answer": source_full_answer(source, item["key"], item["answer"]),
+        })
+    return qas
+
+
+def build_final_from_source(source: dict, key: str, *, question: str | None = None) -> list[dict] | None:
+    items = source_fact_items(source, key)
+    if not items:
+        return None
+    subject = str(source.get("subject") or source.get("domain") or "").strip()
+    answer = "; ".join(f"{item['key']}: {item['answer']}" for item in items)
+    if question is None:
+        if source_language(source) == "ko":
+            scope = f"{subject}에서 " if subject else ""
+            question = f"{scope}언급된 핵심 내용은 무엇인가요?"
+            full_answer = f"{scope}핵심 내용은 {answer}입니다."
+        else:
+            scope = f"in {subject} " if subject else ""
+            question = f"What are the key points mentioned {scope}?".replace("  ", " ").strip()
+            full_answer = f"The key points are {answer}."
+    else:
+        full_answer = default_full_answer(question, answer)
+    return [{"question": question, "answer": answer, "full_answer": full_answer}]
+
+
+def counterfactual_passage_from_source(source: dict, passage: str) -> str:
+    negative = str(source.get("hard_negatives", [{}])[0].get("passage") if isinstance(source.get("hard_negatives"), list) and source.get("hard_negatives") else "").strip()
+    rewritten = str(passage or "")
+    for pos, neg in zip(source_fact_items(source, "facts"), source_fact_items(source, "negative_facts")):
+        if pos["answer"] and neg["answer"] and pos["answer"] in rewritten:
+            rewritten = rewritten.replace(pos["answer"], neg["answer"], 1)
+    if rewritten != passage:
+        return rewritten
+    return negative
+
+
 def normalize_qas(value, *, context_passage: str = "", require_sub_passage: bool = False) -> list[dict] | None:
     if not isinstance(value, list) or not value:
         return None
@@ -289,15 +379,48 @@ def normalize_generated(raw: dict, source: dict, source_id: str) -> dict | None:
         return None
     atomic = normalize_qas(raw.get("atomic_qas"), context_passage=passage, require_sub_passage=True)
     final = normalize_qas(raw.get("final_qas"))
+    source_atomic = build_atomic_from_source(source, passage, "facts")
+    if source_atomic and (not atomic or len(atomic) != len(source_atomic)):
+        atomic = source_atomic
+    elif source_atomic:
+        # Keep the LLM's wording when valid, but force answer/sub-passage
+        # alignment to the source facts so training targets cannot drift.
+        fixed = []
+        for generated, source_qa in zip(atomic, source_atomic):
+            generated["answer"] = source_qa["answer"]
+            generated["sub_passage"] = source_qa["sub_passage"]
+            generated["full_answer"] = generated.get("full_answer") or source_qa["full_answer"]
+            fixed.append(generated)
+        atomic = fixed
+    if not final:
+        final = build_final_from_source(source, "facts")
     if not atomic or not final:
         return None
     negatives = raw.get("hard_negatives")
-    if not isinstance(negatives, list) or not negatives or not isinstance(negatives[0], dict):
-        return None
-    neg = negatives[0]
-    neg_passage = str(neg.get("passage") or "").strip()
+    neg = negatives[0] if isinstance(negatives, list) and negatives and isinstance(negatives[0], dict) else {}
+    neg_passage = str(neg.get("passage") or "").strip() or counterfactual_passage_from_source(source, passage)
     neg_atomic = normalize_qas(neg.get("atomic_qas"), context_passage=neg_passage, require_sub_passage=True)
     neg_final = normalize_qas(neg.get("final_qas"))
+    if not (neg_passage and neg_atomic and neg_final):
+        source_neg_atomic = build_atomic_from_source(source, neg_passage, "negative_facts")
+        if source_neg_atomic:
+            neg_atomic = source_neg_atomic
+            final_question = final[0]["question"] if final else None
+            neg_final = build_final_from_source(source, "negative_facts", question=final_question)
+    source_neg_atomic = build_atomic_from_source(source, neg_passage, "negative_facts")
+    if source_neg_atomic and (not neg_atomic or len(neg_atomic) != len(atomic)):
+        neg_atomic = source_neg_atomic
+    elif source_neg_atomic:
+        fixed = []
+        for generated, source_qa, positive_qa in zip(neg_atomic, source_neg_atomic, atomic):
+            generated["question"] = positive_qa["question"]
+            generated["answer"] = source_qa["answer"]
+            generated["sub_passage"] = source_qa["sub_passage"]
+            generated["full_answer"] = generated.get("full_answer") or source_qa["full_answer"]
+            fixed.append(generated)
+        neg_atomic = fixed
+    if not neg_final and final:
+        neg_final = build_final_from_source(source, "negative_facts", question=final[0]["question"])
     if not (neg_passage and neg_atomic and neg_final):
         return None
     # Some LLM outputs omit one negative QA or paraphrase it too aggressively.
