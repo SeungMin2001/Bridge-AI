@@ -174,13 +174,14 @@ async def generate_quiz(
     messages = _build_quiz_prompt(transcript_text, num_questions)
 
     try:
+        max_tokens = min(1024, 200 + (num_questions * 120))
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
             res = await client.post(
                 f"{LLM_URL}/v1/chat/completions",
                 json={
                     "model": LLM_MODEL,
                     "messages": messages,
-                    "max_tokens": 256,
+                    "max_tokens": max_tokens,
                     "temperature": 0.3,  # 정확한 JSON 생성을 위해 낮은 temperature
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
