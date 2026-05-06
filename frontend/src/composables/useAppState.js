@@ -11,6 +11,7 @@ import {
 import { useMaterialsState } from './appState/materialsState'
 import { useRecordingState } from './appState/recordingState'
 import { useScheduleState } from './useScheduleState'
+import { useSummaryState } from './useSummaryState'
 
 // 앱 전체에서 공유하는 상태 모듈들을 하나로 묶어 App.vue에 전달합니다.
 export function useAppState() {
@@ -29,7 +30,7 @@ export function useAppState() {
     currentRecordings,
     handleFileTreeUpdate,
     handleFavoritesUpdate,
-    handleFileSelect
+    handleFileSelect: originHandleFileSelect
   } = useFileTreeState()
 
   // 녹음 상태, 전사 목록, 녹음 제어 함수입니다.
@@ -39,6 +40,8 @@ export function useAppState() {
     isRecordingPaused,
     recordingMode,
     recordingTimeText,
+    activeRecordingId,
+    activeRecordingStartedAt,
     startRecording,
     pauseRecording,
     resumeRecording,
@@ -48,6 +51,13 @@ export function useAppState() {
   const {
     hydrateSchedules
   } = useScheduleState()
+
+  const {
+    summaryState,
+    clearSummaryState,
+    loadSummariesForSession,
+    generateSummariesForSession
+  } = useSummaryState()
 
   // AI 입력, 정리 노트, 우측 사이드바 상태입니다.
   const {
@@ -109,6 +119,19 @@ export function useAppState() {
     return `${activeFileName.value || '녹음'} ${period} ${hour}:${minute}`
   }
 
+  const handleFileSelect = (id, node) => {
+    // 신창영 : 파일을 새로 선택할 때마다 이전 실시간 전사 화면을 초기화
+    if (activeFileId.value !== id) {
+      transcriptions.value = []
+    }
+    originHandleFileSelect(id, node)
+    if (isWorkspaceUuid(id) && node?.type === 'file') {
+      loadSummariesForSession(id)
+    } else {
+      clearSummaryState()
+    }
+  }
+
   const cloneTranscriptions = () => {
     return JSON.parse(JSON.stringify(transcriptions.value || []))
   }
@@ -146,13 +169,16 @@ export function useAppState() {
     scheduleExtractionNotice.value = null
   }
 
-  const extractSchedulesForSession = async (sessionId) => {
+  const extractSchedulesForSession = async (sessionId, recordingId = '') => {
     if (!isWorkspaceUuid(sessionId)) return
 
     const response = await fetch('/schedule/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId })
+      body: JSON.stringify({
+        session_id: sessionId,
+        recording_id: recordingId || null
+      })
     })
 
     if (!response.ok) {
@@ -169,6 +195,8 @@ export function useAppState() {
     const recordingSnapshot = cloneTranscriptions()
     const durationText = recordingTimeText.value
     const mode = recordingMode.value
+    const recordingId = activeRecordingId.value || createLocalId('recording')
+    const startedAt = activeRecordingStartedAt.value || new Date().toISOString()
     const linkedMaterialId = currentPreviewMaterial.value?.id || null
     const linkedMaterialName = currentPreviewMaterial.value?.name || ''
 
@@ -180,8 +208,10 @@ export function useAppState() {
     if (!targetFileId) return
 
     const recording = {
-      id: createLocalId('recording'),
+      id: recordingId,
+      recordingId,
       title: formatRecordingTitle(currentPreviewMaterial.value),
+      startedAt,
       endedAt: new Date().toISOString(),
       durationText,
       recordingMode: mode,
@@ -206,9 +236,15 @@ export function useAppState() {
       }
 
       try {
-        await extractSchedulesForSession(targetFileId)
+        await extractSchedulesForSession(targetFileId, recordingId)
       } catch (error) {
         console.error('[schedule] extract after recording failed:', error)
+      }
+
+      try {
+        await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId)
+      } catch (error) {
+        console.error('[summary] generate after recording failed:', error)
       }
     }
   }
@@ -235,6 +271,7 @@ export function useAppState() {
     currentPreviewMaterial,
     isRightSidebarVisible,
     scheduleExtractionNotice,
+    summaryState,
     summaryNotes,
     aiInput,
     dismissScheduleExtractionNotice,
