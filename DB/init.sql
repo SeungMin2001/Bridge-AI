@@ -1,6 +1,17 @@
 -- pgvector 익스텐션 활성화
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
+CREATE TABLE course_memories
+(
+    memory_id     UUID PRIMARY KEY,
+    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
+    merged_k      BYTEA,
+    merged_v      BYTEA,
+    passage_count INT DEFAULT 0,
+    updated_at    TIMESTAMP NOT NULL
+);
+
 -- 테이블 생성
 CREATE TABLE SCHEDULES
 (
@@ -80,8 +91,6 @@ CREATE TABLE TRANSCRIPTS
     chunk_index    INT NULL,
     start_time     REAL NULL,
     end_time       REAL NULL,
-    speaker_id     TEXT NULL,
-    speaker_name   TEXT NULL,
     chunk_text     TEXT NULL,
     corrected_text TEXT NULL,
     embedding      VECTOR(1024) NULL,
@@ -103,26 +112,12 @@ CREATE TABLE QUIZZES
 
 CREATE TABLE COURSES
 (
-    course_id        UUID PRIMARY KEY,
-    user_id          UUID NULL,
-    parent_course_id UUID NULL,
-    title            VARCHAR(255) NULL,
-    type             VARCHAR(50) NULL,
-    description      TEXT NULL,
-    color            VARCHAR(50) NULL,
-    icon             VARCHAR(50) NULL,
-    created_at       TIMESTAMP NULL
-);
-
--- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
-CREATE TABLE course_memories
-(
-    memory_id     UUID PRIMARY KEY,
-    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
-    merged_k      BYTEA,
-    merged_v      BYTEA,
-    passage_count INT DEFAULT 0,
-    updated_at    TIMESTAMP NOT NULL
+    course_id   UUID PRIMARY KEY,
+    user_id     UUID NULL,
+    title       VARCHAR(255) NULL,
+    type        VARCHAR(50) NULL,
+    description TEXT NULL,
+    created_at  TIMESTAMP NULL
 );
 
 CREATE TABLE USERS
@@ -152,14 +147,7 @@ CREATE TABLE SESSIONS
     audio_path   TEXT NULL,
     duration_sec INT NULL,
     status       VARCHAR(50) NULL,
-    created_at   TIMESTAMP NULL,
-    file_kind    VARCHAR(50) NULL,   -- lecture, meeting
-    tag          VARCHAR(50) NULL,   -- 수업, 회의, 프로젝트
-    icon         VARCHAR(50) NULL,   -- article, groups_2
-    color        VARCHAR(50) NULL,   -- #3b82f6
-    session_pdf  JSONB NULL,         -- 강의자료 목록
-    session_voicefile  JSONB NULL,   -- 녹음본 목록
-    summary_notes JSONB NULL
+    created_at   TIMESTAMP NULL
 );
 
 -- ==========================================

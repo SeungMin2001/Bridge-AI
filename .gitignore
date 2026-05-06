@@ -61,7 +61,6 @@ models/
 *.safetensors
 *.onnx
 temp_audio/
-backend/uploads/
 backend/temp_audio/
 mergePRAG/train_log.json
 llm_server/mergePRAG/*.pt

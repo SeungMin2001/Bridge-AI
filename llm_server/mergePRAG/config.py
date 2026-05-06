@@ -1,70 +1,177 @@
 import json
 import os
+import re
 
 
-MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen3.5-4B")
-NUM_KV = int(os.getenv("MERGEPRAG_NUM_KV", "16"))
-DEFAULT_CRITICAL_LAYER = int(os.getenv("MERGEPRAG_DEFAULT_LAYER", "7"))
-ALPHA = float(os.getenv("MERGEPRAG_ALPHA", "1.0"))
-MAX_SEQ_LEN = 512
-ENABLE_FOCUS_WEIGHT = os.getenv("MERGEPRAG_ENABLE_FOCUS_WEIGHT", "1").strip().lower() not in {
-    "0", "false", "no", "off"
-}
-FOCUS_WEIGHT_COLOR = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_COLOR", "3.0"))
-FOCUS_WEIGHT_DAY = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_DAY", "3.0"))
-FOCUS_WEIGHT_NUMBER = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_NUMBER", "2.2"))
-FOCUS_WEIGHT_DATE = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_DATE", "2.4"))
-FOCUS_WEIGHT_QUESTION_OVERLAP = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_QUESTION_OVERLAP", "1.8"))
-FOCUS_WEIGHT_RARE = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_RARE", "1.3"))
-FOCUS_WEIGHT_MAX = float(os.getenv("MERGEPRAG_FOCUS_WEIGHT_MAX", "12.0"))
-SYSTEM_PROMPT = (
-    "You are a helpful lecture assistant. "
-    "Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. "
-    "불필요한 부연설명 하지 마."
+def _get_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _get_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return float(value)
+
+
+def _get_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return int(value)
+
+
+MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-3B-Instruct")
+# num_kv=1은 K가 softmax 선택 역할을 못 해서 V collapse에 취약했다.
+# 현재 기본은 V 분리와 slot 선택을 같이 보기 위해 4로 둔다.
+NUM_KV = _get_int("MERGEPRAG_NUM_KV", 4)
+# 논문: single_layer=9 (Llama-3.1). Qwen의 경우 find_critical_layers.py 결과 사용.
+DEFAULT_CRITICAL_LAYER = _get_int("MERGEPRAG_DEFAULT_LAYER", 9)
+# 현재 Qwen/lecture QA 조건에서는 alpha=1.0가 hidden을 과도하게 덮어쓰는 경우가 많아
+# 보수적으로 낮춘다. 필요시 환경변수로 다시 올릴 수 있다.
+ALPHA = _get_float("MERGEPRAG_ALPHA", 0.1)
+MAX_SEQ_LEN = _get_int("MERGEPRAG_MAX_SEQ_LEN", 512)
+# 논문은 token embedding only를 썼지만, 현재처럼 역할이 뒤바뀐 near-counterfactual passage에서는
+# 순서/구문 정보를 잃기 쉬워 contextual hidden이 더 안정적이다.
+USE_CONTEXTUAL_PASSAGE_ENCODER = _get_bool("MERGEPRAG_USE_CONTEXTUAL_ENCODER", True)
+# Contextual hidden states preserve syntax/role, but Qwen's final hidden can
+# smooth away one-token swaps such as Monday <-> Friday. Add raw token embeddings
+# back into the memory encoder input so V can carry exact entity/date identity.
+TOKEN_EMBED_SKIP_SCALE = _get_float("MERGEPRAG_TOKEN_EMBED_SKIP_SCALE", 1.0)
+USE_QUESTION_CONDITIONED_MEMORY = _get_bool("MERGEPRAG_USE_QUESTION_CONDITIONED_MEMORY", True)
+QUERY_POOL_SCALE = _get_float("MERGEPRAG_QUERY_POOL_SCALE", 4.0)
+# Single-vector attentive pooling was collapsing near-counterfactual passages that
+# contain the same answer candidates in swapped roles. Lexical focus is a
+# question-only boost around matched query terms in the passage; it does not use
+# the gold answer, so it is safe for inference.
+USE_QUERY_LEXICAL_FOCUS = _get_bool("MERGEPRAG_USE_QUERY_LEXICAL_FOCUS", True)
+QUERY_LEXICAL_FOCUS_SCALE = _get_float("MERGEPRAG_QUERY_LEXICAL_FOCUS_SCALE", 6.0)
+QUERY_LEXICAL_FOCUS_WINDOW = _get_int("MERGEPRAG_QUERY_LEXICAL_FOCUS_WINDOW", 6)
+# num_kv>1이어도 single pooled vector 하나를 projection하면 slots가 같은
+# evidence를 공유한다. Slot-wise pooling lets each memory slot attend to a
+# different passage region before K/V projection.
+USE_SLOTWISE_POOLING = _get_bool("MERGEPRAG_USE_SLOTWISE_POOLING", True)
+_HANGUL_RE = re.compile(r"[가-힣]")
+
+
+def contains_hangul(text: str) -> bool:
+    return bool(_HANGUL_RE.search(str(text or "")))
+
+
+MEMORY_ENCODER_INSTRUCTION_EN = os.getenv(
+    "MERGEPRAG_MEMORY_ENCODER_INSTRUCTION",
+    (
+        "Memory task: encode the passage for answering the question. "
+        "Preserve who did what to whom, comparison direction, numbers, dates, "
+        "negation, and the exact entity that answers the question."
+    ),
 )
+MEMORY_ENCODER_INSTRUCTION_KO = os.getenv(
+    "MERGEPRAG_MEMORY_ENCODER_INSTRUCTION_KO",
+    (
+        "메모리 작업: 질문에 답할 수 있도록 passage를 인코딩하세요. "
+        "누가 무엇을 누구에게 했는지, 비교 방향, 숫자, 날짜, 부정 표현, "
+        "정답이 되는 정확한 개체를 보존하세요."
+    ),
+)
+MEMORY_ENCODER_INSTRUCTION = MEMORY_ENCODER_INSTRUCTION_EN
+# Same-question swapped-role passages made V_skip collapse to identical vectors.
+# Keep K on the MLP path and let V combine learned nonlinear features with pooled
+# skip information unless an experiment overrides it.
+KV_PATH_MODE = os.getenv("MERGEPRAG_KV_PATH_MODE", "k_mlp_v_hybrid").strip().lower()
+USE_POOLED_KV_SKIP = _get_bool("MERGEPRAG_USE_POOLED_KV_SKIP", True)
+POOLED_KV_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_KV_SKIP_SCALE", 1.0)
+POOLED_K_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_K_SKIP_SCALE", POOLED_KV_SKIP_SCALE)
+POOLED_V_SKIP_SCALE = _get_float("MERGEPRAG_POOLED_V_SKIP_SCALE", 1.0)
+USE_V_RMS_CLAMP = _get_bool("MERGEPRAG_USE_V_RMS_CLAMP", True)
+V_RMS_CLAMP = _get_float("MERGEPRAG_V_RMS_CLAMP", 0.25)
+USE_K_RMS_CLAMP = _get_bool("MERGEPRAG_USE_K_RMS_CLAMP", True)
+K_RMS_CLAMP = _get_float("MERGEPRAG_K_RMS_CLAMP", 0.25)
+# plain: 논문/기존 실험 형식 "Question: ...\nAnswer:"
+# chat: 실제 서비스 API와 같은 chat template 형식. lecture-domain 재학습 때 권장.
+TRAIN_PROMPT_FORMAT = os.getenv("MERGEPRAG_TRAIN_PROMPT_FORMAT", "chat").strip().lower()
+
+# 학습 목적 함수 설정. SQuAD 같은 쉬운 global negative만으로는 passage flip을 못 배우므로
+# hard negative/contrastive 데이터에서는 아래 loss가 실제 grounding 방향을 잡아준다.
+NEGATIVE_MARGIN = _get_float("MERGEPRAG_NEGATIVE_MARGIN", 0.2)
+NEGATIVE_LOSS_WEIGHT = _get_float("MERGEPRAG_NEGATIVE_LOSS_WEIGHT", 0.25)
+ANSWER_RANK_MARGIN = _get_float("MERGEPRAG_ANSWER_RANK_MARGIN", 0.2)
+ANSWER_RANK_LOSS_WEIGHT = _get_float("MERGEPRAG_ANSWER_RANK_LOSS_WEIGHT", 1.0)
+REPULSION_LOSS_WEIGHT = _get_float("MERGEPRAG_REPULSION_LOSS_WEIGHT", 1.0)
+HIDDEN_SIM_TARGET = _get_float("MERGEPRAG_HIDDEN_SIM_TARGET", 0.97)
+K_SIM_TARGET = _get_float("MERGEPRAG_K_SIM_TARGET", 0.95)
+V_SIM_TARGET = _get_float("MERGEPRAG_V_SIM_TARGET", 0.65)
+V_REPULSION_MULTIPLIER = _get_float("MERGEPRAG_V_REPULSION_MULTIPLIER", 4.0)
+QUESTION_REPULSION_LOSS_WEIGHT = _get_float("MERGEPRAG_QUESTION_REPULSION_LOSS_WEIGHT", 1.25)
+QUESTION_NEGATIVE_LOSS_WEIGHT = _get_float("MERGEPRAG_QUESTION_NEGATIVE_LOSS_WEIGHT", 0.50)
+SLOT_DIVERSITY_LOSS_WEIGHT = _get_float("MERGEPRAG_SLOT_DIVERSITY_LOSS_WEIGHT", 0.1)
+SLOT_DIVERSITY_TARGET = _get_float("MERGEPRAG_SLOT_DIVERSITY_TARGET", 0.5)
+
+# 설정이 바뀐 채 예전 checkpoint를 자동 재개하면 collapse 원인 분석이 꼬인다.
+# 새 checkpoint에는 config snapshot을 저장하고, legacy checkpoint는 명시적으로 허용할 때만 재개한다.
+ALLOW_LEGACY_CHECKPOINT_RESUME = _get_bool("MERGEPRAG_ALLOW_LEGACY_CHECKPOINT_RESUME", False)
+ALLOW_CONFIG_MISMATCH_RESUME = _get_bool("MERGEPRAG_ALLOW_CONFIG_MISMATCH_RESUME", False)
+SYSTEM_PROMPT_EN = os.getenv(
+    "MERGEPRAG_SYSTEM_PROMPT",
+    (
+        "You are a helpful lecture assistant. "
+        "Answer in the same language as the user's question. "
+        "Use only the provided lecture content as the grounding source, "
+        "and keep the answer concise."
+    ),
+)
+SYSTEM_PROMPT_KO = os.getenv(
+    "MERGEPRAG_SYSTEM_PROMPT_KO",
+    (
+        "당신은 수업 내용을 근거로 답하는 유용한 조교입니다. "
+        "사용자의 질문과 같은 언어로 답하세요. "
+        "제공된 수업 내용만 근거로 사용하고, 답변은 간결하게 유지하세요."
+    ),
+)
+SYSTEM_PROMPT = SYSTEM_PROMPT_EN
 
 _BASE_DIR = os.path.dirname(__file__)
-
-
-def _resolve_optional_path(path_value: str, base_dir: str) -> str:
-    """환경변수 경로를 절대경로로 정규화한다.
-
-    - 절대경로면 그대로 사용
-    - 상대경로면 mergePRAG 디렉터리 기준으로 해석
-    """
-    if os.path.isabs(path_value):
-        return path_value
-    return os.path.abspath(os.path.join(base_dir, path_value))
-
-
+_PROJECT_DATA_DIR = os.path.abspath(os.path.join(_BASE_DIR, "..", "..", "..", "data"))
+_WINDOWS_DATA_DIR = r"C:\Users\user\Documents\last_project\data"
+DEFAULT_DATA_DIR = os.getenv(
+    "MERGEPRAG_DATA_DIR",
+    _PROJECT_DATA_DIR if os.path.isdir(_PROJECT_DATA_DIR) else _WINDOWS_DATA_DIR,
+)
 CRITICAL_LAYERS_PATH = os.path.join(_BASE_DIR, "critical_layers.json")
-WEIGHTS_PATH = _resolve_optional_path(
-    os.getenv("MERGEPRAG_WEIGHTS_PATH", "hypernet_weights.pt"),
-    _BASE_DIR,
-)
-CHECKPOINT_PATH = _resolve_optional_path(
-    os.getenv("MERGEPRAG_CHECKPOINT_PATH", "hypernet_checkpoint.pt"),
-    _BASE_DIR,
-)
+WEIGHTS_PATH = os.path.join(_BASE_DIR, "hypernet_weights.pt")
+CHECKPOINT_PATH = os.path.join(_BASE_DIR, "hypernet_checkpoint.pt")
 LOG_PATH = os.path.join(_BASE_DIR, "train_log.json")
 CHART_PATH = os.path.join(_BASE_DIR, "train_loss_curve.png")
 TRAIN_DATA_PATH = os.getenv(
     "MERGEPRAG_TRAIN_DATA_PATH",
-    r"C:\Users\user\Documents\last_project\data\HotPot_train_processed.jsonl",
+    os.path.join(DEFAULT_DATA_DIR, "ServiceHardPair_train.jsonl"),
 )
 VALID_DATA_PATH = os.getenv(
     "MERGEPRAG_VALID_DATA_PATH",
-    r"C:\Users\user\Documents\last_project\data\HotPot_valid_processed.jsonl",
+    os.path.join(DEFAULT_DATA_DIR, "ServiceHardPair_valid.jsonl"),
 )
 
 
 def load_critical_layer() -> int:
+    env_override = os.getenv("MERGEPRAG_CRITICAL_LAYER")
+    if env_override is not None:
+        return int(env_override)
+
     if not os.path.exists(CRITICAL_LAYERS_PATH):
         return DEFAULT_CRITICAL_LAYER
 
     try:
         with open(CRITICAL_LAYERS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
+        scanned_model = data.get("model")
+        if scanned_model and scanned_model != MODEL_NAME:
+            # A stale scan silently trains/injects at the wrong layer after a
+            # model swap. Prefer the explicit/default layer unless the caller
+            # reruns find_critical_layers.py for the current model.
+            return DEFAULT_CRITICAL_LAYER
         layers = data.get("critical_layers") or []
         if layers:
             return int(layers[0])
@@ -76,7 +183,7 @@ def load_critical_layer() -> int:
 
 def build_chat_text(tokenizer, question: str, answer: str = "", enable_thinking: bool = False) -> str:
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": select_system_prompt(question)},
         {"role": "user", "content": question},
     ]
     if answer:
@@ -90,25 +197,80 @@ def build_chat_text(tokenizer, question: str, answer: str = "", enable_thinking:
     )
 
 
+def select_system_prompt(question: str) -> str:
+    if os.getenv("MERGEPRAG_SYSTEM_PROMPT") is not None:
+        return SYSTEM_PROMPT_EN
+    return SYSTEM_PROMPT_KO if contains_hangul(question) else SYSTEM_PROMPT_EN
+
+
+def select_memory_encoder_instruction(question: str, passage: str = "") -> str:
+    if os.getenv("MERGEPRAG_MEMORY_ENCODER_INSTRUCTION") is not None:
+        return MEMORY_ENCODER_INSTRUCTION_EN
+    text = f"{question}\n{passage}"
+    return MEMORY_ENCODER_INSTRUCTION_KO if contains_hangul(text) else MEMORY_ENCODER_INSTRUCTION_EN
+
+
 def load_hypernet_state_dict(map_location=None):
-    """최종 weight 우선, 없으면 중간 checkpoint의 hypernet state_dict와 메타정보를 반환."""
-    if os.path.exists(WEIGHTS_PATH):
+    """기본은 validation best weights를 사용한다.
+
+    MERGEPRAG_LOAD_SOURCE:
+      - weights (default): validation best hypernet_weights.pt 우선
+      - checkpoint: hypernet_checkpoint.pt 우선
+      - latest: 수정 시각이 더 최신인 weights/checkpoint 사용
+    """
+    load_source = os.getenv("MERGEPRAG_LOAD_SOURCE", "weights").strip().lower()
+
+    weights_exists = os.path.exists(WEIGHTS_PATH)
+    checkpoint_exists = os.path.exists(CHECKPOINT_PATH)
+
+    def load_weights():
         state = torch_load(WEIGHTS_PATH, map_location=map_location)
+        if isinstance(state, dict) and "hypernet" in state:
+            return state["hypernet"], {
+                "source": WEIGHTS_PATH,
+                "kind": "weights",
+                "step": state.get("step"),
+                "config": state.get("config"),
+            }
         return state, {
             "source": WEIGHTS_PATH,
             "kind": "weights",
             "step": None,
+            "config": None,
         }
 
-    if os.path.exists(CHECKPOINT_PATH):
+    def load_checkpoint():
         ckpt = torch_load(CHECKPOINT_PATH, map_location=map_location)
         if isinstance(ckpt, dict) and "hypernet" in ckpt:
             return ckpt["hypernet"], {
                 "source": CHECKPOINT_PATH,
                 "kind": "checkpoint",
                 "step": ckpt.get("step"),
+                "config": ckpt.get("config"),
             }
         raise ValueError(f"Checkpoint format invalid: {CHECKPOINT_PATH}")
+
+    if load_source == "weights" and weights_exists:
+        return load_weights()
+    if load_source == "checkpoint" and checkpoint_exists:
+        return load_checkpoint()
+
+    if load_source == "latest":
+        candidates = []
+        if weights_exists:
+            candidates.append(("weights", os.path.getmtime(WEIGHTS_PATH)))
+        if checkpoint_exists:
+            candidates.append(("checkpoint", os.path.getmtime(CHECKPOINT_PATH)))
+        if candidates:
+            latest_kind = max(candidates, key=lambda x: x[1])[0]
+            if latest_kind == "checkpoint":
+                return load_checkpoint()
+            return load_weights()
+
+    if weights_exists:
+        return load_weights()
+    if checkpoint_exists:
+        return load_checkpoint()
 
     raise FileNotFoundError(
         f"Neither hypernet weights nor checkpoint found: {WEIGHTS_PATH}, {CHECKPOINT_PATH}"

@@ -4,6 +4,8 @@
 역할:
   1. kiwipiepy 형태소 분석으로 토큰화
   2. textrankr 기반 키워드 추출
+  3. textrankr 미설치 시 TextRank 알고리즘으로 키워드 추출
+
 """
 import logging
 import os

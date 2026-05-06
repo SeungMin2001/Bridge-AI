@@ -20,15 +20,13 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 # 신창영 : 현재 main 서버에서는 워크스페이스 기능 확인을 우선하여 quiz 라우터를 임시 제외
-# from quiz.quiz import router as quiz_router
+from quiz.quiz import router as quiz_router
 from summary.summary import router as summary_router
 from schedule.schedule import router as schedule_router
 
-# device = "cuda" if torch.cuda.is_available() else (
-#     "mps" if torch.backends.mps.is_available() else "cpu"
-# )
-
-device = "cpu"
+device = "cuda" if torch.cuda.is_available() else (
+    "mps" if torch.backends.mps.is_available() else "cpu"
+)
 
 # faster-whisper: CTranslate2 기반, 같은 정확도에 2~4배 빠름
 model = WhisperModel(
@@ -63,6 +61,8 @@ app.include_router(workspace_router)
 # 신창영 : quiz 라우터는 현재 테스트 범위에서 제외
 # app.include_router(quiz_router)
 # 신창영 : 녹음 종료 후 키워드/화자/세션 요약 API를 프론트에서 사용할 수 있도록 summary 라우터 등록
+# ── 라우터 등록 ──
+app.include_router(quiz_router)
 app.include_router(summary_router)
 app.include_router(schedule_router)
 
@@ -115,7 +115,7 @@ def remove_thinking(text: str) -> str:
     return text.strip()
 
 
-def _build_prompt_and_citations(question: str, session_id: str | None = None):
+def _build_prompt_and_citations(question: str):
     """RAG 검색 후 prompt와 citations 반환"""
     # 신창영 : 선택 파일 기준 검색을 위해 session_id를 RAG 검색 함수에 전달
     # rag_result = rag_search(question, top_k=5)
@@ -126,7 +126,7 @@ def _build_prompt_and_citations(question: str, session_id: str | None = None):
     if context:
         prompt = (
             f"다음은 강의 내용에서 검색된 참고자료입니다:\n\n{context}\n\n"
-            f"위 참고자료를 바탕으로 답변하세요. 답변 본문에는 출처, 참고자료, citation 정보를 직접 쓰지 마세요.\n\n"
+            f"위 참고자료를 바탕으로 답변하고, 답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
             f"질문: {question}"
         )
     else:
@@ -173,8 +173,7 @@ async def chat(req: ChatRequest):
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """SSE 스트리밍 엔드포인트"""
-    import time
-    t0 = time.perf_counter()
+    request_started_at = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
 
     # 신창영 : 스트리밍 채팅도 session_id를 전달하여 선택 파일 검색을 지원
@@ -191,9 +190,8 @@ async def chat_stream(req: ChatRequest):
     import json
 
     async def generate():
-        nonlocal t0
-        ttft_logged = False
-        token_count = 0
+        first_token_logged = False
+        first_token_elapsed = None
 
         # 먼저 citations 전송
         yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
@@ -223,10 +221,10 @@ async def chat_stream(req: ChatRequest):
                         delta = chunk["choices"][0].get("delta", {})
                         content = delta.get("content", "")
                         if content:
-                            if not ttft_logged:
-                                print(f"⏱️ [TTFT] 첫 토큰까지: {(time.perf_counter() - t0)*1000:.0f}ms")
-                                ttft_logged = True
-                            token_count += 1
+                            if not first_token_logged:
+                                first_token_logged = True
+                                first_token_elapsed = time.perf_counter() - request_started_at
+                                print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
                             yield f"data: {json.dumps({'type': 'token', 'token': content}, ensure_ascii=False)}\n\n"
         except Exception as e:
             print(f"[CHAT STREAM] 에러: {e}")
@@ -239,10 +237,6 @@ async def chat_stream(req: ChatRequest):
             total_elapsed = time.perf_counter() - t0
             first_token_text = "logged" if ttft_logged else "N/A"
             print(f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, total={total_elapsed:.3f}s")
-
-        total_ms = (time.perf_counter() - t0) * 1000
-        tps = token_count / (total_ms / 1000) if total_ms > 0 else 0
-        print(f"⏱️ [응답완료] 총: {total_ms:.0f}ms | 토큰: {token_count}개 | {tps:.1f} tok/s")
 
         yield "data: [DONE]\n\n"
 
@@ -313,11 +307,8 @@ async def websocket_endpoint(ws: WebSocket):
     processed_seconds = 0.0
     try:
         await create_session(session_id)
-        # 신창잉 : 세션 생성 후 실제 DB에 저장된 제목을 가져옵니다.
-        session_title = await get_session_title(session_id)
     except Exception as e:
         print(f"[DB] create_session 실패 (전사는 계속 진행): {e}")
-        session_title = "실시간 녹음"
 
     # 신창영 : RAG에 "실시간 녹음" 기본값이 저장되지 않도록 실제 세션/폴더 정보를 먼저 조회
     session_title = "실시간 녹음"

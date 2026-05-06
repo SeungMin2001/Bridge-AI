@@ -8,8 +8,15 @@ import torch
 import io
 import os
 from .cross_attention import cross_attention
-from .config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
-from .embedding import build_passage_focus_weight, encode_passage_states, tokenize_conditioned_memory
+from .config import (
+    ALPHA,
+    NUM_KV,
+    USE_CONTEXTUAL_PASSAGE_ENCODER,
+    USE_QUESTION_CONDITIONED_MEMORY,
+    load_critical_layer,
+    load_hypernet_state_dict,
+)
+from .embedding import encode_passage_states, tokenize_conditioned_memory
 from .hypernetwork import HyperNetwork
 from .orthogonal_merge import orthogonal_merging
 
@@ -59,7 +66,11 @@ class CourseMemoryManager:
         step = load_info["step"]
         kind = load_info["kind"]
         step_text = f", step={step}" if step is not None else ""
-        print(f"[MergePRAG] HyperNetwork 로드 완료 (d_model={d_model}, k={NUM_KV}, source={source}, kind={kind}{step_text})")
+        print(
+            f"[MergePRAG] HyperNetwork 로드 완료 "
+            f"(d_model={d_model}, k={NUM_KV}, question_conditioned={USE_QUESTION_CONDITIONED_MEMORY}, "
+            f"source={source}, kind={kind}{step_text})"
+        )
 
         # 과목별 메모리 캐시: {course_id: {"K": Tensor, "V": Tensor, "count": int}}
         self.memories = {}
@@ -67,7 +78,8 @@ class CourseMemoryManager:
     def encode_passage(self, passage: str, question: str | None = None):
         """Build K,V from a passage, optionally conditioned on the current question."""
         with torch.no_grad():
-            if question:
+            should_condition = bool(question) and USE_QUESTION_CONDITIONED_MEMORY
+            if should_condition:
                 encoded = tokenize_conditioned_memory(
                     self.tokenizer,
                     question,
@@ -79,7 +91,7 @@ class CourseMemoryManager:
                 attention_mask = encoded["attention_mask"]
                 question_mask = encoded["question_mask"]
                 passage_mask = encoded["passage_mask"]
-                focus_weight = encoded.get("focus_weight")
+                query_focus_mask = encoded.get("query_focus_mask")
             else:
                 encoded = self.tokenizer(
                     passage, return_tensors="pt", truncation=True, max_length=512
@@ -87,18 +99,14 @@ class CourseMemoryManager:
                 input_ids = encoded["input_ids"].to(self.device)
                 attention_mask = encoded["attention_mask"].to(self.device)
                 question_mask = None
-                passage_mask = attention_mask
-                focus_weight = build_passage_focus_weight(
-                    self.tokenizer,
-                    input_ids,
-                    attention_mask,
-                )
+                passage_mask = None
+                query_focus_mask = None
 
             c_emb = encode_passage_states(
                 self.model,
                 input_ids,
                 attention_mask=attention_mask,
-                use_contextual=True,
+                use_contextual=USE_CONTEXTUAL_PASSAGE_ENCODER,
             )
             query = masked_mean(c_emb, question_mask) if question_mask is not None else None
             K, V = self.hypernet(
@@ -106,7 +114,7 @@ class CourseMemoryManager:
                 attention_mask=attention_mask,
                 query=query,
                 focus_mask=passage_mask,
-                focus_weight=focus_weight,
+                query_focus_mask=query_focus_mask,
             )
         return K, V
 
@@ -144,7 +152,7 @@ class CourseMemoryManager:
         if mem is None:
             return None, None
         passages = mem.get("passages") or []
-        if question and passages:
+        if question and passages and USE_QUESTION_CONDITIONED_MEMORY:
             merged_k = None
             merged_v = None
             for passage in passages:
@@ -158,6 +166,10 @@ class CourseMemoryManager:
                     merged_k = orthogonal_merging(merged_k, cur_k)
                     merged_v = orthogonal_merging(merged_v, cur_v)
             return merged_k.unsqueeze(0), merged_v.unsqueeze(0)
+        if question and USE_QUESTION_CONDITIONED_MEMORY and not passages:
+            # Question-conditioned memory must be regenerated from original passages.
+            # Stored K/V alone is not enough because a different question changes K/V.
+            return None, None
         return mem["K"].unsqueeze(0), mem["V"].unsqueeze(0)  # [1, NUM_KV, d_model]
 
     def has_memory(self, course_id: str) -> bool:

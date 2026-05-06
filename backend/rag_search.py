@@ -436,7 +436,7 @@ def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -
         ORDER BY match_count DESC
         LIMIT %s
     """
-    cur.execute(sql, values + [top_k])
+    cur.execute(sql, score_values + like_values + [top_k])
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -518,8 +518,6 @@ def _vector_search(query: str, top_k: int = 5, session_id: str | None = None) ->
             "score": node.score,
             "source": "vector",
         })
-        if len(results) >= top_k:
-            break
     return results
 
 
@@ -584,19 +582,7 @@ def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, 
 def _format_citation(result: dict) -> str:
     """출처 문자열 생성"""
     time_range = f"{_format_time(result['start_time'])}~{_format_time(result['end_time'])}"
-    file_title = result.get("file_title") or result.get("session_title") or "전사 파일"
-    recording_title = result.get("recording_title") or _default_recording_title(file_title)
-    return f"{file_title} > {recording_title} > {time_range}"
-
-
-def _run_hybrid_search(queries: list[str], top_k: int, session_id: str | None = None) -> list[dict]:
-    all_vector = []
-    all_keyword = []
-    for q in queries:
-        all_vector.extend(_vector_search(q, top_k=3, session_id=session_id))
-        all_keyword.extend(_keyword_search(q, top_k=3, session_id=session_id))
-
-    return _merge_results(all_vector, all_keyword, top_k=top_k)
+    return f"{result['course_title']} > {result['session_title']} > {time_range}"
 
 
 # ══════════════════════════════════════
@@ -627,9 +613,8 @@ def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict
     results = _run_hybrid_search(queries, top_k=top_k, session_id=session_id)
     search_scope = "current_file" if session_id else "all_files"
 
-    if not results and session_id:
-        results = _run_hybrid_search(queries, top_k=top_k, session_id=None)
-        search_scope = "all_files_fallback"
+    # 3. 병합 & 중복 제거
+    results = _merge_results(all_vector, all_keyword, top_k=top_k)
 
     if not results:
         return {"context": "", "citations": []}
@@ -663,8 +648,6 @@ def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict
         citations.append({
             "text": r["text"],
             "citation": citation,
-            "file_title": r.get("file_title") or r["session_title"],
-            "recording_title": r.get("recording_title") or _default_recording_title(r["session_title"]),
             "course_title": r["course_title"],
             "session_title": r["session_title"],
             "session_date": r["session_date"],

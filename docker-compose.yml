@@ -54,15 +54,16 @@ services:
       #      - DIARIZE_URL=http://diart_server:8003/diart/raw
       #      - HF_TOKEN={HF_TOKEN}
       - QUIZ_MOCK_MODE=false
+      - SUMMARY_MOCK_MODE=false
       - LLM_URL=http://host.docker.internal:8001
-      - LLM_MODEL=QuantTrio/Qwen3.5-4B-AWQ
+      - LLM_MODEL=Qwen/Qwen3.5-4B
       - LLM_API_KEY=test-key
     depends_on:
       - db
     #      - denoise_server
     #      - diart_server
     volumes:
-      - .:/app  # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
+      - .:/app # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
 
   frontend:
     build:
@@ -76,7 +77,9 @@ services:
       - /app/node_modules # 호스트의 node_modules가 컨테이너 내부를 덮어쓰지 않도록 설정
     environment:
       - CHOKIDAR_USEPOLLING=true # Windows/WSL 환경에서 파일 변경 감지를 위해 필요한 경우가 있음
-    depends_on:
-      - fastapi_backend
+      - VITE_BACKEND_URL=http://100.104.164.84:8000
+      - VITE_BACKEND_WS_URL=ws://100.104.164.84:8000
+#    depends_on:
+#       - fastapi_backend
 volumes:
   pgdata:
