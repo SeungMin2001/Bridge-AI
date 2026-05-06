@@ -55,7 +55,7 @@ services:
 #      - HF_TOKEN={HF_TOKEN}
       - QUIZ_MOCK_MODE=false
       - LLM_URL=http://host.docker.internal:8001
-      - LLM_MODEL=QuantTrio/Qwen3.5-4B-AWQ
+      - LLM_MODEL=Qwen/Qwen3.5-4B
       - LLM_API_KEY=test-key
     depends_on:
       - db
