@@ -181,8 +181,9 @@ const emit = defineEmits([
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   flex: 1;
-  padding: 20px;
+  padding: 16px;
   border-radius: 24px;
   background: #f2eadf;
   border: 1px solid rgba(255, 255, 255, 0.86);

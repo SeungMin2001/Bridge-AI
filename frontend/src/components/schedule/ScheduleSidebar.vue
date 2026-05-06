@@ -61,11 +61,13 @@ const emit = defineEmits([
           </div>
         </article>
       </div>
-      <div v-else class="schedule-empty">
-        <span class="material-symbols-outlined">event_available</span>
-        <p>선택한 날짜에 등록된 일정이 없습니다.</p>
+      <div v-else class="schedule-empty-minimal">
+        <span class="material-symbols-outlined">event_busy</span>
+        <p>등록된 일정이 없습니다.</p>
       </div>
     </section>
+
+    <div class="schedule-divider"></div>
 
     <section class="schedule-side-section">
       <div class="schedule-side-heading compact">
@@ -83,15 +85,20 @@ const emit = defineEmits([
           class="schedule-compact-card"
           @click="emit('focus-schedule', item)"
         >
-          <div>
+          <div class="compact-info">
             <strong>{{ item.title }}</strong>
             <span>{{ formatDateLabel(item.dateKey) }} · {{ item.time }}</span>
           </div>
-          <em>{{ getConfidenceLabel(item.confidence) }}</em>
+          <em class="confidence-badge">{{ getConfidenceLabel(item.confidence) }}</em>
         </article>
       </div>
-      <div v-else class="schedule-small-empty">확인할 AI 후보가 없습니다.</div>
+      <div v-else class="schedule-small-empty-minimal">
+        <span class="material-symbols-outlined">done_all</span>
+        <p>모든 일정을 확인했습니다.</p>
+      </div>
     </section>
+
+    <div class="schedule-divider"></div>
 
     <section class="schedule-side-section">
       <div class="schedule-side-heading compact">
@@ -108,10 +115,11 @@ const emit = defineEmits([
           class="schedule-compact-card"
           @click="emit('focus-schedule', item)"
         >
-          <div>
+          <div class="compact-info">
             <strong>{{ item.title }}</strong>
             <span>{{ formatDateLabel(item.dateKey) }} · {{ getTypeLabel(item.type) }}</span>
           </div>
+          <span class="material-symbols-outlined arrow-icon">chevron_right</span>
         </article>
       </div>
     </section>
@@ -122,22 +130,28 @@ const emit = defineEmits([
 .schedule-side-card {
   min-height: 0;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 24px 48px rgba(148, 163, 184, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 22px;
+  gap: 20px;
+  padding: 24px 12px;
   overflow-y: auto;
+}
+
+.schedule-divider {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(200, 200, 200, 0) 0%, rgba(200, 200, 200, 0.3) 50%, rgba(200, 200, 200, 0) 100%);
+  margin: 0 10px;
 }
 
 .schedule-side-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .schedule-side-heading {
@@ -150,27 +164,32 @@ const emit = defineEmits([
 .schedule-side-heading span {
   display: block;
   font-size: 12px;
-  font-weight: 900;
-  color: #8e8e93;
-  margin-bottom: 4px;
+  font-weight: 800;
+  color: #a1a1aa;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .schedule-side-heading h2 {
-  font-size: 21px;
-  font-weight: 950;
+  font-size: 20px;
+  font-weight: 900;
+  color: #18181b;
+  letter-spacing: -0.3px;
 }
 
 .schedule-side-heading strong {
-  min-width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: #1d1d1f;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: #3b82f6;
   color: white;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  font-weight: 950;
+  font-weight: 900;
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
 }
 
 .schedule-list,
@@ -180,21 +199,30 @@ const emit = defineEmits([
   gap: 10px;
 }
 
-.schedule-list-card,
-.schedule-compact-card,
-.schedule-empty,
-.schedule-small-empty {
-  border-radius: 18px;
+.schedule-list-card {
+  border-radius: 16px;
   background: #f4ede4;
-  border: 1px solid rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(220, 210, 200, 0.8);
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  transition: all 0.2s ease;
 }
 
-.schedule-list-card {
-  padding: 14px;
+.schedule-list-card:hover {
+  transform: translateY(-2px);
+  background: #e6dfd6;
+  border-color: #cbbfaa;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 .schedule-list-card.pending {
-  border-color: rgba(245, 158, 11, 0.26);
+  background: #fdf5e6;
+  border-color: #fcd34d;
+}
+
+.schedule-list-card.pending:hover {
+  background: #faedce;
+  border-color: #fbbf24;
 }
 
 .schedule-list-top,
@@ -207,19 +235,19 @@ const emit = defineEmits([
 .schedule-list-top {
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .schedule-type-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  border-radius: 999px;
+  gap: 4px;
+  border-radius: 6px;
   padding: 4px 8px;
-  background: rgba(37, 99, 235, 0.1);
+  background: rgba(255, 255, 255, 0.7);
   color: #2563eb;
   font-size: 11px;
-  font-weight: 950;
+  font-weight: 800;
 }
 
 .schedule-type-chip .material-symbols-outlined {
@@ -228,67 +256,83 @@ const emit = defineEmits([
 
 .schedule-status {
   font-size: 11px;
-  font-weight: 900;
-  color: #8e8e93;
+  font-weight: 800;
+  color: #a1a1aa;
 }
 
 .schedule-list-card h3 {
   font-size: 16px;
-  font-weight: 950;
-  margin-bottom: 7px;
+  font-weight: 900;
+  color: #27272a;
+  margin-bottom: 6px;
+  line-height: 1.4;
 }
 
 .schedule-list-meta {
-  gap: 5px;
-  color: #6b7280;
+  gap: 4px;
+  color: #71717a;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .schedule-list-meta .material-symbols-outlined {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .schedule-list-card p {
   margin-top: 8px;
-  color: #6b7280;
+  color: #71717a;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .schedule-list-card blockquote {
   margin-top: 10px;
-  padding: 10px 11px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.58);
-  color: #6b7280;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.4);
+  color: #52525b;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.5;
+  border-left: 3px solid #d4d4d8;
 }
 
 .schedule-card-actions {
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .schedule-primary-btn,
 .schedule-secondary-btn {
   border: none;
-  border-radius: 999px;
-  padding: 9px 13px;
+  border-radius: 10px;
+  padding: 8px 14px;
   font-size: 12px;
-  font-weight: 950;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .schedule-primary-btn {
   color: white;
-  background: #2f64ed;
+  background: #3b82f6;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+.schedule-primary-btn:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
 }
 
 .schedule-secondary-btn {
-  color: #6b7280;
-  background: rgba(255, 255, 255, 0.72);
+  color: #52525b;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.schedule-secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .schedule-compact-card {
@@ -296,37 +340,81 @@ const emit = defineEmits([
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #f4ede4;
+  border: 1px solid rgba(220, 210, 200, 0.8);
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.schedule-compact-card strong {
-  display: block;
+.schedule-compact-card:hover {
+  background: #e6dfd6;
+  border-color: #cbbfaa;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transform: translateX(2px);
+}
+
+.compact-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.compact-info strong {
   font-size: 13px;
-  font-weight: 950;
-  margin-bottom: 4px;
+  font-weight: 800;
+  color: #27272a;
 }
 
-.schedule-compact-card span,
-.schedule-compact-card em {
-  color: #6b7280;
+.compact-info span {
+  color: #a1a1aa;
   font-size: 11px;
+  font-weight: 600;
+}
+
+.confidence-badge {
+  font-size: 10px;
   font-weight: 800;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #d97706;
   font-style: normal;
 }
 
-.schedule-empty,
-.schedule-small-empty {
-  padding: 18px;
-  color: #8e8e93;
-  font-size: 13px;
-  font-weight: 800;
-  text-align: center;
+.arrow-icon {
+  color: #d4d4d8;
+  font-size: 18px;
+  transition: color 0.2s ease;
 }
 
-.schedule-empty .material-symbols-outlined {
-  font-size: 28px;
-  margin-bottom: 8px;
+.schedule-compact-card:hover .arrow-icon {
+  color: #a1a1aa;
+}
+
+.schedule-empty-minimal,
+.schedule-small-empty-minimal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(244, 244, 245, 0.6);
+  border: 1px dashed rgba(212, 212, 216, 0.8);
+  color: #a1a1aa;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.schedule-empty-minimal .material-symbols-outlined,
+.schedule-small-empty-minimal .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.schedule-empty-minimal p,
+.schedule-small-empty-minimal p {
+  margin: 0;
 }
 
 @media (max-width: 1100px) {
@@ -342,3 +430,4 @@ const emit = defineEmits([
   }
 }
 </style>
+
