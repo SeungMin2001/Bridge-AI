@@ -50,19 +50,20 @@ services:
       - DB_NAME=rag
       # 호스트 머신(현재 내 노트북/컴퓨터)에서 실행 중인 Qwen에 접근하기 위해 host.docker.internal 사용
       - LLM_API_URL=http://host.docker.internal:11434/api/generate
-#      - DENOISE_URL=http://denoise_server:8002/denoise/raw
-#      - DIARIZE_URL=http://diart_server:8003/diart/raw
-#      - HF_TOKEN={HF_TOKEN}
+      #      - DENOISE_URL=http://denoise_server:8002/denoise/raw
+      #      - DIARIZE_URL=http://diart_server:8003/diart/raw
+      #      - HF_TOKEN={HF_TOKEN}
       - QUIZ_MOCK_MODE=false
+      - SUMMARY_MOCK_MODE=false
       - LLM_URL=http://host.docker.internal:8001
       - LLM_MODEL=Qwen/Qwen3.5-4B
       - LLM_API_KEY=test-key
     depends_on:
       - db
-#      - denoise_server
-#      - diart_server
+    #      - denoise_server
+    #      - diart_server
     volumes:
-      - .:/app  # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
+      - .:/app # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
 
   frontend:
     build:
