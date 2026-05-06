@@ -34,6 +34,7 @@ async def ensure_summary_schema(conn) -> None:
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS recording_id TEXT NULL;
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS course_id UUID NULL;
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS transcript_id UUID NULL;
+        ALTER TABLE summaries ADD COLUMN IF NOT EXISTS summary_text TEXT NULL;
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS speak_id TEXT NULL;
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS speaker_id TEXT NULL;
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS speaker_summary TEXT NULL;
@@ -43,6 +44,7 @@ async def ensure_summary_schema(conn) -> None:
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS source_end_time REAL NULL;
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS source_text TEXT NULL;
         ALTER TABLE summaries ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW();
+        ALTER TABLE summaries ALTER COLUMN summary_text DROP NOT NULL;
         ALTER TABLE summaries ALTER COLUMN speak_id DROP NOT NULL;
 
         ALTER TABLE key_sentences ADD COLUMN IF NOT EXISTS key_id UUID;
