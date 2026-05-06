@@ -410,11 +410,6 @@ async def websocket_endpoint(ws: WebSocket):
                     try:
                         rag_add_document(corrected_text, {
                             "session_id": session_id,
-<<<<<<< HEAD
-                            "session_title": session_title,
-                            "course_title": "실시간 강의",
-                            "session_date": str(__import__('datetime').date.today()),
-=======
                             "recording_id": recording_id,
                             "session_title": session_title,
                             "course_title": course_title,
@@ -422,7 +417,6 @@ async def websocket_endpoint(ws: WebSocket):
                             "transcript_id": saved_transcript.get("transcript_id", ""),
                             "chunk_index": saved_transcript.get("chunk_index"),
                             "created_at": saved_transcript.get("created_at", ""),
->>>>>>> toyo-2
                             "start_time": start_time,
                             "end_time": end_time,
                         })
