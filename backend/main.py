@@ -24,23 +24,30 @@ from quiz.quiz import router as quiz_router
 from summary.summary import router as summary_router
 from schedule.schedule import router as schedule_router
 
-device = "cuda" if torch.cuda.is_available() else (
-    "mps" if torch.backends.mps.is_available() else "cpu"
-)
+requested_stt_device = os.getenv("STT_DEVICE", "").strip().lower()
+if requested_stt_device in {"cuda", "cpu"}:
+    stt_device = requested_stt_device
+elif requested_stt_device == "mps":
+    print("[STT] faster-whisper는 mps를 지원하지 않아 cpu로 실행합니다.")
+    stt_device = "cpu"
+else:
+    stt_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+audio_device = "cuda" if stt_device == "cuda" else "cpu"
 
 # faster-whisper: CTranslate2 기반, 같은 정확도에 2~4배 빠름
 model = WhisperModel(
     "large-v3-turbo",
-    device=device,
-    compute_type="float16" if device == "cuda" else "float32",
+    device=stt_device,
+    compute_type="float16" if stt_device == "cuda" else "float32",
 )
 correction_enabled = load_correction_model()
 
 transcribe_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
 correction_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="correction")
 
-# GPU resampler (48kHz → 16kHz)
-resampler = torchaudio.transforms.Resample(orig_freq=48000, new_freq=16000).to(device)
+# 48kHz → 16kHz. faster-whisper가 mps를 지원하지 않으므로 CPU/CUDA 기준으로 맞춥니다.
+resampler = torchaudio.transforms.Resample(orig_freq=48000, new_freq=16000).to(audio_device)
 
 app = FastAPI()
 
@@ -115,7 +122,7 @@ def remove_thinking(text: str) -> str:
     return text.strip()
 
 
-def _build_prompt_and_citations(question: str):
+def _build_prompt_and_citations(question: str, session_id: str | None = None):
     """RAG 검색 후 prompt와 citations 반환"""
     # 신창영 : 선택 파일 기준 검색을 위해 session_id를 RAG 검색 함수에 전달
     # rag_result = rag_search(question, top_k=5)
@@ -180,7 +187,7 @@ async def chat_stream(req: ChatRequest):
     # prompt, citations = _build_prompt_and_citations(req.question)
     prompt, citations = _build_prompt_and_citations(req.question, req.session_id)
     t_rag = time.perf_counter()
-    print(f"⏱️ [RAG 검색] {(t_rag - t0)*1000:.0f}ms")
+    print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
 
     messages = [
         {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."},
@@ -354,7 +361,7 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 # GPU resampling
-                audio_tensor = torch.from_numpy(audio_float).to(device)
+                audio_tensor = torch.from_numpy(audio_float).to(audio_device)
                 audio_16k = resampler(audio_tensor).cpu().numpy()
 
                 # 전사
