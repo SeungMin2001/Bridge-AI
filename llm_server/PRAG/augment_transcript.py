@@ -87,11 +87,14 @@ def build_messages(source: dict) -> list[dict]:
 2. passage는 실제 전사문처럼 자연스럽게 써라. 예: "자", "음", "이 부분 중요해요", "다시 말하면" 같은 발화체를 적절히 포함하라.
 3. passage는 너무 정리문처럼 쓰지 말고, 수업/회의에서 말하는 흐름을 가져라.
 4. atomic_qas는 위 실제 정보 각각에 대응해야 한다.
-5. 각 atomic answer는 해당 sub_passage 안에 글자 그대로 포함되어야 한다.
-6. full_answer는 사용자가 보는 AI 선생님 답변처럼 자연스럽게 쓰되, passage 밖 정보를 넣지 마라.
-7. final_qas는 전체 passage의 핵심을 묻는 질문 1개를 만들고, answer에는 핵심 정보를 세미콜론으로 요약하라.
-8. hard_negatives도 같은 질문을 사용하되, 답과 passage는 반대 정보로만 바꿔라.
-9. JSON 이외의 설명, markdown, 코드블록은 절대 쓰지 마라.
+5. 매우 중요: [반드시 포함해야 하는 실제 정보]의 answer 문자열을 passage 안에 글자 하나 바꾸지 말고 그대로 넣어라.
+   예를 들어 answer가 "벡터 표현"이면 passage에도 반드시 "벡터 표현"이라는 연속 문자열이 있어야 한다. "벡터로 표현"처럼 의역하면 실패다.
+6. 각 atomic answer는 해당 sub_passage 안에도 글자 그대로 포함되어야 한다. sub_passage는 반드시 passage에서 그대로 복사한 일부 문장이어야 한다.
+7. atomic_qas 개수는 실제 정보 개수와 정확히 같아야 한다.
+8. full_answer는 사용자가 보는 AI 선생님 답변처럼 자연스럽게 쓰되, passage 밖 정보를 넣지 마라.
+9. final_qas는 전체 passage의 핵심을 묻는 질문 1개를 만들고, answer에는 핵심 정보를 세미콜론으로 요약하라.
+10. hard_negatives도 같은 질문을 사용하되, 반대 answer 문자열도 negative passage와 negative sub_passage 안에 그대로 넣어라.
+11. JSON 이외의 설명, markdown, 코드블록은 절대 쓰지 마라.
 
 [출력 JSON 스키마]
 {{
@@ -139,11 +142,13 @@ Create a realistic lecture/meeting transcript passage and QA supervision grounde
 2. Write passage in a realistic spoken transcript style, with light filler such as "okay", "so", or "let me put it this way".
 3. Do not make passage look like a clean table.
 4. Create one atomic QA per positive fact.
-5. Each atomic answer must appear verbatim inside its sub_passage.
-6. full_answer must be a natural service answer grounded only in the passage.
-7. Create one final QA summarizing all key facts.
-8. hard_negatives must use the same questions but counterfactual answers/passages.
-9. Output raw JSON only. No markdown, no code fences.
+5. Critical: every answer string from [Positive facts that must appear] must appear verbatim in passage. Do not paraphrase it.
+6. Each atomic answer must also appear verbatim inside its sub_passage, and sub_passage must be copied from passage.
+7. The number of atomic_qas must exactly match the number of positive facts.
+8. full_answer must be a natural service answer grounded only in the passage.
+9. Create one final QA summarizing all key facts.
+10. hard_negatives must use the same questions but counterfactual answers/passages, and counterfactual answer strings must appear verbatim.
+11. Output raw JSON only. No markdown, no code fences.
 
 [JSON schema]
 {{
@@ -297,6 +302,29 @@ def source_full_answer(source: dict, fact_key: str, answer: str) -> str:
     return f"{scope}{fact_key} is {answer}."
 
 
+def ensure_answers_in_passage(source: dict, passage: str, key: str) -> str:
+    """Guarantee source answers appear verbatim in transcript text.
+
+    The augmentation model often produces good transcript prose but paraphrases
+    compact answers (for example "벡터 표현" -> "벡터로 표현"). Exact spans are
+    required for stable K/V supervision, so append a short spoken-style sentence
+    for any missing source answer instead of discarding the whole row.
+    """
+    passage = str(passage or "").strip()
+    additions = []
+    is_ko = source_language(source) == "ko"
+    for item in source_fact_items(source, key):
+        if contains_text(item["answer"], passage):
+            continue
+        if is_ko:
+            additions.append(f"그리고 {item['key']}은 {item['answer']}라고 보면 됩니다.")
+        else:
+            additions.append(f"And {item['key']} is {item['answer']}.")
+    if additions:
+        passage = f"{passage} {' '.join(additions)}".strip()
+    return passage
+
+
 def build_atomic_from_source(source: dict, passage: str, key: str) -> list[dict] | None:
     items = source_fact_items(source, key)
     if not items:
@@ -343,8 +371,8 @@ def counterfactual_passage_from_source(source: dict, passage: str) -> str:
         if pos["answer"] and neg["answer"] and pos["answer"] in rewritten:
             rewritten = rewritten.replace(pos["answer"], neg["answer"], 1)
     if rewritten != passage:
-        return rewritten
-    return negative
+        return ensure_answers_in_passage(source, rewritten, "negative_facts")
+    return ensure_answers_in_passage(source, negative, "negative_facts")
 
 
 def normalize_qas(value, *, context_passage: str = "", require_sub_passage: bool = False) -> list[dict] | None:
@@ -374,7 +402,7 @@ def normalize_qas(value, *, context_passage: str = "", require_sub_passage: bool
 
 
 def normalize_generated(raw: dict, source: dict, source_id: str) -> dict | None:
-    passage = str(raw.get("passage") or "").strip()
+    passage = ensure_answers_in_passage(source, str(raw.get("passage") or "").strip(), "facts")
     if not passage:
         return None
     atomic = normalize_qas(raw.get("atomic_qas"), context_passage=passage, require_sub_passage=True)

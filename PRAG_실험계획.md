@@ -66,8 +66,9 @@ question + passage
 1. multi-fact 데이터셋 구축
 2. multifact 기준 4 epoch 학습
 3. 자유생성 답변 개선용 추가 학습
-4. KorQuAD 추가학습
-5. 기존 하이퍼네트워크 vs 질문+passage 하이퍼네트워크 비교
+4. 실제 전사문 스타일 transcript 데이터셋 추가학습
+5. KorQuAD 추가학습
+6. 기존 하이퍼네트워크 vs 질문+passage 하이퍼네트워크 비교
 ```
 
 ## 5. Multi-fact 기본 학습
@@ -152,7 +153,139 @@ python -m llm_server.PRAG.test_single_ko --weights llm_server/PRAG/prag_multifac
 
 좋은 상태는 `no_memory`와 `zero_kv`는 낮고, `main_kv_generation_hits`와 `neg_kv_generation_hits`가 올라가는 것이다.
 
-## 8. KorQuAD 추가학습 계획
+## 8. 실제 전사문 스타일 transcript 추가학습
+
+최근 진단에서 중요한 차이가 확인됐다.
+
+```text
+학습 데이터와 비슷한 구조:
+  passage: '긴급 문의 응답 시간'은 '3일 이내'가 아니라 '30분 이내'
+  expected: 긴급 문의 응답 시간은 30분 이내이다.
+  with_KV_loss: 0.0364
+  direct_recovery: 1.250
+  generation_hit: True
+
+실제 수업 전사문에 가까운 구조:
+  passage: 어 오늘 수업 녹화는요, 끝나고 나면 이캠퍼스 자료실에 올려둘게요...
+  expected: 수업 녹화 파일은 이캠퍼스 자료실에 올라옵니다.
+  with_KV_loss: 2.0312
+  direct_recovery: 0.009
+  generation_hit: False
+```
+
+해석은 명확하다. 현재 multifact 학습은 구조화된 데이터셋 분포에서는 K/V 주입이 잘 되지만, 실제 강의/회의 전사문처럼 filler, 반복, 구어체 설명, 자연스러운 문맥이 섞인 passage에는 일반화가 약하다. 따라서 우리 서비스 목표에는 transcript-style 한국어 데이터셋이 별도로 필요하다.
+
+### 8-1. transcript source 데이터셋
+
+새 transcript 데이터셋은 기존 `PRAG_multifact_*` 파일을 덮어쓰지 않고 완전히 분리한다.
+
+```text
+source: C:\Users\user\Documents\last_project\data\PRAG_transcript_sources.jsonl
+train:  C:\Users\user\Documents\last_project\data\PRAG_transcript_augmented_train.jsonl
+valid:  C:\Users\user\Documents\last_project\data\PRAG_transcript_augmented_valid.jsonl
+```
+
+source 생성은 한국어 전용으로 진행한다. 서비스가 한국어 수업/회의 전사문을 대상으로 하므로, 현재 단계에서는 영어를 섞지 않는다.
+
+```bash
+python -m llm_server.PRAG.build_transcript_sources --rows-per-domain 80 --facts-per-passage 3 --languages ko --seed 42
+```
+
+현재 설정 기준 source row 목표는 약 `3280`개다. 각 row는 하나의 강의/회의 장면이며, 내부에 3개 fact를 가진다.
+
+### 8-2. LLM 증강 방식
+
+source row는 바로 학습하지 않고, 더 좋은 LLM인 `Qwen/Qwen3.5-4B`가 실제 전사문 스타일로 다시 쓴다.
+
+증강 결과 row 구조:
+
+```text
+passage:
+  실제 수업/회의 발화처럼 filler, 설명, 반복, 비유가 포함된 전사문
+
+atomic_qas:
+  passage 안의 개별 fact마다 question / answer / full_answer / sub_passage 생성
+
+final_qas:
+  한 passage 안의 여러 fact를 묶어 설명하는 최종 질문/답변 생성
+
+hard_negatives:
+  가능하면 counterfactual passage를 생성하지만, 품질이 깨지면 positive-only 학습을 우선한다.
+```
+
+증강 명령어:
+
+```bash
+python -m llm_server.PRAG.augment_transcript --backend vllm --vllm-url http://localhost:8001/v1/chat/completions --model Qwen/Qwen3.5-4B --max-new-tokens 2048 --no-resume
+```
+
+중간에 끊긴 뒤 이어서 증강:
+
+```bash
+python -m llm_server.PRAG.augment_transcript --backend vllm --vllm-url http://localhost:8001/v1/chat/completions --model Qwen/Qwen3.5-4B --max-new-tokens 2048
+```
+
+소량 샘플 디버그:
+
+```bash
+python -m llm_server.PRAG.augment_transcript --backend vllm --vllm-url http://localhost:8001/v1/chat/completions --model Qwen/Qwen3.5-4B --max-new-tokens 2048 --max-samples 10 --no-resume --debug-invalid-raw
+```
+
+증강 샘플 확인:
+
+```bash
+python -m llm_server.PRAG.preview_data --transcript --split train --samples 3 --max-qas 4
+```
+
+검증:
+
+```bash
+python -m llm_server.PRAG.validate --transcript --show 5
+```
+
+### 8-3. transcript 추가학습
+
+transcript 학습은 기존 multifact 가중치를 초기값으로 사용하되, 결과 파일은 별도 저장한다.
+
+```text
+weights:    llm_server/PRAG/prag_transcript_memory_weights.pt
+checkpoint: llm_server/PRAG/prag_transcript_memory_checkpoint.pt
+log:        llm_server/PRAG/prag_transcript_train_log.json
+```
+
+추천 시작 명령어:
+
+```bash
+python -m llm_server.PRAG.train --transcript --epochs 1 --no-resume --init-weights llm_server/PRAG/prag_multifact_memory_weights.pt --lr 2e-5 --positive-only --short-answer-weight 1.0 --answer-prefix-weight 2.0 --answer-prefix-tokens 3 --eval-generation-samples 20 --eval-generation-every 250 --eval-generation-max-new-tokens 64
+```
+
+현재 transcript 증강에서는 negative 품질이 불안정할 수 있으므로 `--positive-only`를 우선 사용한다. 목표는 negative flip보다 실제 전사문 passage의 핵심 내용을 K/V 주입만으로 자연스럽게 답변하는 능력이다.
+
+### 8-4. transcript 진단 기준
+
+통계 진단:
+
+```bash
+python -m llm_server.PRAG.test --transcript --max-samples 300 --show 20 --alpha 1.0 --answer-target auto --max-new-tokens 64
+```
+
+한국어 단일 샘플 진단:
+
+```bash
+python -m llm_server.PRAG.test_single_ko --transcript --max-new-tokens 64 --alpha 1.0
+```
+
+transcript 단계에서 가장 중요한 지표:
+
+- `with_KV_loss`: K/V 주입 후 gold 답변 loss
+- `memory_gain`: no-memory 대비 K/V가 답변 loss를 얼마나 낮췄는지
+- `direct_recovery`: direct passage prompt 성능을 K/V가 얼마나 회복했는지
+- `answer_prefix_loss@3`: 답변 초반이 정답 구절로 시작하도록 학습되는지
+- `generation_hit`: 자유생성 답변에 기대 핵심 구절이 들어갔는지
+
+이 단계에서는 `candidate_flip_ok`보다 `generation_hit`, `direct_recovery`, `gen-val main_kv`를 더 중요하게 본다.
+
+## 9. KorQuAD 추가학습 계획
 
 자유생성 개선용 multifact 학습이 끝난 뒤 KorQuAD를 추가학습한다.
 
@@ -190,7 +323,7 @@ python -m llm_server.PRAG.test --korquad --max-samples 300 --show 20 --alpha 1.0
 
 KorQuAD는 서비스 데이터와 분포가 다르므로, 기존 multifact grounding을 망치지 않도록 낮은 learning rate와 낮은 final weight로 시작한다.
 
-## 9. 나중에 비교 실험에 사용할 학습 레시피
+## 10. 나중에 비교 실험에 사용할 학습 레시피
 
 자유생성 답변이 안정되면 아래 레시피를 기준으로 두 구조를 비교한다.
 
@@ -200,6 +333,7 @@ KorQuAD는 서비스 데이터와 분포가 다르므로, 기존 multifact groun
 dataset: PRAG_multifact_augmented_train/valid
 base training: multifact 4 epoch
 generation finetune: short_answer_weight=1.0, answer_prefix_weight=2.0, answer_prefix_tokens=3
+transcript finetune: Korean transcript-style positive-only 추가학습
 optional extra finetune: KorQuAD low-lr 추가학습
 evaluation: same alpha, same max_new_tokens, same valid split
 ```
@@ -228,7 +362,7 @@ test_single_ko 자유생성 결과
 추론 시간
 ```
 
-## 10. 문서 업데이트 규칙
+## 11. 문서 업데이트 규칙
 
 앞으로 다음 상황이 생기면 이 문서를 업데이트한다.
 
@@ -237,6 +371,7 @@ test_single_ko 자유생성 결과
 - checkpoint/weights 경로가 바뀐 경우
 - 중요한 진단 결과가 나온 경우
 - 비교 실험 조건이 확정된 경우
+- transcript-style 데이터셋/학습 결과가 나온 경우
 - KorQuAD 또는 외부 QA 추가학습 결과가 나온 경우
 
 이 문서는 논문 작성과 실험 재현을 위한 기준 문서로 사용한다.
