@@ -35,8 +35,6 @@ KORQUAD_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_KORQUAD_AUGMENTED_TRAIN_PATH
 KORQUAD_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_KORQUAD_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_korquad_augmented_valid.jsonl")))
 EXTERNAL_QA_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_external_qa_augmented_train.jsonl")))
 EXTERNAL_QA_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_external_qa_augmented_valid.jsonl")))
-KO_CONTENT_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_KO_CONTENT_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_ko_content_augmented_train.jsonl")))
-KO_CONTENT_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_KO_CONTENT_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_ko_content_augmented_valid.jsonl")))
 
 CHECKPOINT_PATH = Path(os.getenv("PRAG_CHECKPOINT_PATH", str(BASE_DIR / "prag_memory_checkpoint.pt")))
 WEIGHTS_PATH = Path(os.getenv("PRAG_WEIGHTS_PATH", str(BASE_DIR / "prag_memory_weights.pt")))
@@ -56,9 +54,6 @@ KORQUAD_LOG_PATH = Path(os.getenv("PRAG_KORQUAD_LOG_PATH", str(BASE_DIR / "prag_
 EXTERNAL_QA_CHECKPOINT_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_CHECKPOINT_PATH", str(BASE_DIR / "prag_external_qa_memory_checkpoint.pt")))
 EXTERNAL_QA_WEIGHTS_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_WEIGHTS_PATH", str(BASE_DIR / "prag_external_qa_memory_weights.pt")))
 EXTERNAL_QA_LOG_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_LOG_PATH", str(BASE_DIR / "prag_external_qa_train_log.json")))
-KO_CONTENT_CHECKPOINT_PATH = Path(os.getenv("PRAG_KO_CONTENT_CHECKPOINT_PATH", str(BASE_DIR / "prag_ko_content_memory_checkpoint.pt")))
-KO_CONTENT_WEIGHTS_PATH = Path(os.getenv("PRAG_KO_CONTENT_WEIGHTS_PATH", str(BASE_DIR / "prag_ko_content_memory_weights.pt")))
-KO_CONTENT_LOG_PATH = Path(os.getenv("PRAG_KO_CONTENT_LOG_PATH", str(BASE_DIR / "prag_ko_content_train_log.json")))
 CRITICAL_LAYERS_PATH = Path(os.getenv("PRAG_CRITICAL_LAYERS_PATH", str(BASE_DIR / "critical_layers.json")))
 
 DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "19"))

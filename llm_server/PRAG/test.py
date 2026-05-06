@@ -15,8 +15,6 @@ from .config import (
     AUGMENTED_VALID_PATH,
     EXTERNAL_QA_AUGMENTED_VALID_PATH,
     EXTERNAL_QA_WEIGHTS_PATH,
-    KO_CONTENT_AUGMENTED_VALID_PATH,
-    KO_CONTENT_WEIGHTS_PATH,
     KORQUAD_AUGMENTED_VALID_PATH,
     KORQUAD_WEIGHTS_PATH,
     LECTURE_AUGMENTED_VALID_PATH,
@@ -201,11 +199,6 @@ def main() -> None:
         help="Use external HotpotQA/KorQuAD-style augmented valid file and external-QA fine-tuned weights.",
     )
     parser.add_argument(
-        "--ko-content",
-        action="store_true",
-        help="Use Korean content-inspired augmented valid file and Korean-content fine-tuned weights.",
-    )
-    parser.add_argument(
         "--lecture",
         action="store_true",
         help="Use augmented local lecture transcript valid file and lecture fine-tuned weights.",
@@ -240,9 +233,6 @@ def main() -> None:
     elif args.external_qa:
         args.data = str(EXTERNAL_QA_AUGMENTED_VALID_PATH)
         args.weights = str(EXTERNAL_QA_WEIGHTS_PATH)
-    elif args.ko_content:
-        args.data = str(KO_CONTENT_AUGMENTED_VALID_PATH)
-        args.weights = str(KO_CONTENT_WEIGHTS_PATH)
     elif args.lecture:
         args.data = str(LECTURE_AUGMENTED_VALID_PATH)
         args.weights = str(LECTURE_WEIGHTS_PATH)

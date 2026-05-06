@@ -9,8 +9,8 @@ import textwrap
 from .config import (
     AUGMENTED_TRAIN_PATH,
     AUGMENTED_VALID_PATH,
-    KO_CONTENT_AUGMENTED_TRAIN_PATH,
-    KO_CONTENT_AUGMENTED_VALID_PATH,
+    EXTERNAL_QA_AUGMENTED_TRAIN_PATH,
+    EXTERNAL_QA_AUGMENTED_VALID_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
 )
@@ -49,9 +49,9 @@ def main() -> None:
         help="Preview the default multi-fact augmented train or valid dataset.",
     )
     parser.add_argument(
-        "--ko-content",
+        "--external-qa",
         action="store_true",
-        help="Preview the Korean content-inspired augmented train or valid dataset.",
+        help="Preview the HotpotQA/KorQuAD external-QA augmented train or valid dataset.",
     )
     parser.add_argument(
         "--index",
@@ -71,14 +71,14 @@ def main() -> None:
     if args.multifact:
         train_default = MULTIFACT_AUGMENTED_TRAIN_PATH
         valid_default = MULTIFACT_AUGMENTED_VALID_PATH
-    if args.ko_content:
-        train_default = KO_CONTENT_AUGMENTED_TRAIN_PATH
-        valid_default = KO_CONTENT_AUGMENTED_VALID_PATH
+    if args.external_qa:
+        train_default = EXTERNAL_QA_AUGMENTED_TRAIN_PATH
+        valid_default = EXTERNAL_QA_AUGMENTED_VALID_PATH
     if args.split == "train":
         path = str(train_default)
     elif args.split == "valid":
         path = str(valid_default)
-    elif args.multifact or args.ko_content:
+    elif args.multifact or args.external_qa:
         path = str(train_default)
 
     rows = list(iter_json_records(path))

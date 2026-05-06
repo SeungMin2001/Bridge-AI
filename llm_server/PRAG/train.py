@@ -34,11 +34,6 @@ from .config import (
     EXTERNAL_QA_LOG_PATH,
     EXTERNAL_QA_WEIGHTS_PATH,
     HIDDEN_DIM,
-    KO_CONTENT_AUGMENTED_TRAIN_PATH,
-    KO_CONTENT_AUGMENTED_VALID_PATH,
-    KO_CONTENT_CHECKPOINT_PATH,
-    KO_CONTENT_LOG_PATH,
-    KO_CONTENT_WEIGHTS_PATH,
     LOG_EVERY,
     LOG_PATH,
     LR,
@@ -674,12 +669,55 @@ def save_checkpoint(path, hypernet, optimizer, scheduler, step, best_val, run_co
     )
 
 
+def normalize_resume_config(config: dict) -> dict:
+    """Normalize config keys that should not block a safe resume.
+
+    Older checkpoints may not contain newly added dataset flags when those flags
+    default to False. Treating a missing False as different would unnecessarily
+    restart long runs even though the actual model/training structure is the
+    same. Path separators are also normalized so Windows-style paths remain
+    stable after minor code or shell changes.
+    """
+    normalized = dict(config or {})
+    for key in (
+        "multifact",
+        "korquad",
+        "external_qa",
+        "ko_content",
+        "lecture",
+        "aihub_lecture",
+        "positive_only",
+    ):
+        normalized[key] = bool(normalized.get(key, False))
+    for key in ("train_path", "valid_path"):
+        if key in normalized:
+            normalized[key] = str(normalized[key]).replace("\\", "/")
+    return normalized
+
+
+def resume_config_matches(saved_config: dict, run_config: dict) -> bool:
+    return normalize_resume_config(saved_config) == normalize_resume_config(run_config)
+
+
+def resume_config_diff(saved_config: dict, run_config: dict, max_items: int = 12) -> list[str]:
+    saved = normalize_resume_config(saved_config)
+    current = normalize_resume_config(run_config)
+    keys = sorted(set(saved) | set(current))
+    lines = []
+    for key in keys:
+        if saved.get(key) != current.get(key):
+            lines.append(f"{key}: checkpoint={saved.get(key)!r} current={current.get(key)!r}")
+            if len(lines) >= max_items:
+                break
+    return lines
+
+
 def init_training_log(path, run_config, resumed_step: int):
     now = datetime.now().isoformat()
     if resumed_step > 0 and path.exists():
         try:
             log = json.loads(path.read_text(encoding="utf-8"))
-            if log.get("config") == run_config:
+            if resume_config_matches(log.get("config"), run_config):
                 log.setdefault("schema_version", 2)
                 log.setdefault("step_losses", [])
                 log.setdefault("val_evals", [])
@@ -723,11 +761,6 @@ def main() -> None:
         "--external-qa",
         action="store_true",
         help="Use external HotpotQA/KorQuAD-style augmented train/valid files and separate output weights.",
-    )
-    parser.add_argument(
-        "--ko-content",
-        action="store_true",
-        help="Use Korean content-inspired synthetic augmented train/valid files and separate output weights.",
     )
     parser.add_argument(
         "--lecture",
@@ -873,12 +906,6 @@ def main() -> None:
         checkpoint_path = EXTERNAL_QA_CHECKPOINT_PATH
         weights_path = EXTERNAL_QA_WEIGHTS_PATH
         log_path = EXTERNAL_QA_LOG_PATH
-    if args.ko_content:
-        args.train = str(KO_CONTENT_AUGMENTED_TRAIN_PATH)
-        args.valid = str(KO_CONTENT_AUGMENTED_VALID_PATH)
-        checkpoint_path = KO_CONTENT_CHECKPOINT_PATH
-        weights_path = KO_CONTENT_WEIGHTS_PATH
-        log_path = KO_CONTENT_LOG_PATH
     if args.lecture:
         args.train = str(LECTURE_AUGMENTED_TRAIN_PATH)
         args.valid = str(LECTURE_AUGMENTED_VALID_PATH)
@@ -961,7 +988,6 @@ def main() -> None:
         "multifact": args.multifact,
         "korquad": args.korquad,
         "external_qa": args.external_qa,
-        "ko_content": args.ko_content,
         "lecture": args.lecture,
         "aihub_lecture": args.aihub_lecture,
         "rank_weight": args.rank_weight,
@@ -999,7 +1025,7 @@ def main() -> None:
     loaded_checkpoint = False
     if args.resume and checkpoint_path.exists():
         ckpt = torch.load(checkpoint_path, map_location=device)
-        if ckpt.get("config") == run_config:
+        if resume_config_matches(ckpt.get("config"), run_config):
             hypernet.load_state_dict(ckpt["hypernet"])
             optimizer.load_state_dict(ckpt["optimizer"])
             scheduler.load_state_dict(ckpt["scheduler"])
@@ -1009,6 +1035,8 @@ def main() -> None:
             print(f"[PRAG:train] resumed step={step} best_val={best_val:.4f}")
         else:
             print("[PRAG:train] checkpoint config mismatch; starting fresh.")
+            for line in resume_config_diff(ckpt.get("config"), run_config):
+                print(f"  [PRAG:train:config-diff] {line}")
     if not loaded_checkpoint and args.init_weights:
         loaded_keys, skipped_keys = load_compatible_hypernet_weights(hypernet, args.init_weights, device)
         print(
