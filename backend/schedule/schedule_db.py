@@ -20,10 +20,16 @@ SAMPLE_SESSION_IDS = (
 )
 
 
+async def ensure_schedule_schema(conn) -> None:
+    # 신창영 : 기존 DB를 유지한 채 녹음본 단위 연결 컬럼만 추가
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
+
+
 async def save_schedule(
     schedule_id: str,
     session_id: str | None,
     title: str,
+    recording_id: str | None = None,
     description: str | None = None,
     event_type: str | None = None,
     due_date: datetime | None = None,
@@ -35,17 +41,19 @@ async def save_schedule(
     """추출된 일정을 SCHEDULES 테이블에 저장한다. 초기 status는 'pending'."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_schedule_schema(conn)
         await conn.execute("""
             INSERT INTO schedules
-                (schedule_id, session_id, transcript_id,
+                (schedule_id, session_id, recording_id, transcript_id,
                  title, description, event_type, due_date,
                  status, calendar_flag,
                  source_start_time, source_end_time, source_text,
                  created_at, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             """,
             _uuid.UUID(schedule_id),
             _uuid.UUID(session_id) if session_id else None,
+            recording_id or None,
             _uuid.UUID(transcript_id) if transcript_id else None,
             title,
             description,
@@ -66,8 +74,9 @@ async def get_all_schedules() -> list[dict]:
     """전체 일정을 반환한다. 프론트의 일정 관리 화면 초기 로딩용."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_schedule_schema(conn)
         rows = await conn.fetch("""
-            SELECT s.schedule_id, s.session_id, s.transcript_id,
+            SELECT s.schedule_id, s.session_id, s.recording_id, s.transcript_id,
                    s.title, s.description, s.event_type, s.due_date,
                    s.status, s.calendar_flag,
                    s.source_start_time, s.source_end_time, s.source_text,
@@ -87,8 +96,9 @@ async def get_schedule(schedule_id: str) -> dict | None:
     """schedule_id로 일정 단건 조회. 전사문 출처 정보도 함께 반환한다."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_schedule_schema(conn)
         row = await conn.fetchrow("""
-            SELECT schedule_id, session_id, transcript_id,
+            SELECT schedule_id, session_id, recording_id, transcript_id,
                    title, description, event_type, due_date,
                    status, calendar_flag,
                    source_start_time, source_end_time, source_text,
@@ -107,8 +117,9 @@ async def get_schedules_by_session(session_id: str) -> list[dict]:
     """세션에서 추출된 모든 일정을 최신순으로 반환한다."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_schedule_schema(conn)
         rows = await conn.fetch("""
-            SELECT schedule_id, session_id, transcript_id,
+            SELECT schedule_id, session_id, recording_id, transcript_id,
                    title, description, event_type, due_date,
                    status, calendar_flag,
                    source_start_time, source_end_time, source_text,
@@ -124,8 +135,9 @@ async def get_confirmed_schedules() -> list[dict]:
     """확정(confirmed)된 일정만 반환한다. 프론트의 달력 표시용."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_schedule_schema(conn)
         rows = await conn.fetch("""
-            SELECT schedule_id, session_id, transcript_id,
+            SELECT schedule_id, session_id, recording_id, transcript_id,
                    title, description, event_type, due_date,
                    status, calendar_flag,
                    source_start_time, source_end_time, source_text,
@@ -142,6 +154,7 @@ async def get_ignored_schedules_metadata() -> list[dict]:
     """시멘틱 중복 필터링용 ignored 일정의 제목과 날짜를 반환한다."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_schedule_schema(conn)
         rows = await conn.fetch("""
             SELECT title, due_date
             FROM schedules
@@ -206,8 +219,9 @@ async def get_schedule_with_transcript(schedule_id: str) -> dict | None:
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_schedule_schema(conn)
         row = await conn.fetchrow("""
-            SELECT s.schedule_id, s.session_id, s.transcript_id,
+            SELECT s.schedule_id, s.session_id, s.recording_id, s.transcript_id,
                    s.title, s.description, s.event_type, s.due_date,
                    s.status, s.calendar_flag,
                    s.source_start_time, s.source_end_time, s.source_text,
@@ -237,6 +251,7 @@ def _row_to_dict(row) -> dict:
     return {
         "schedule_id": str(row["schedule_id"]),
         "session_id": str(row["session_id"]) if row["session_id"] else None,
+        "recording_id": row["recording_id"] if "recording_id" in keys else None,
         "transcript_id": str(row["transcript_id"]) if row["transcript_id"] else None,
         "title": row["title"],
         "description": row["description"],
