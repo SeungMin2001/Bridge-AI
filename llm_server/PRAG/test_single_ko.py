@@ -37,16 +37,14 @@ from .prompts import system_prompt, user_prompt
 
 CASES = [
     {
-        "name": "ko_memory_injection_check",
-        "question": "김하늘 교수님이 말한 미르노트 제출 장소는 어디야?",
-        "main_passage": (
-            "김하늘 교수님은 오늘 수업에서 미르노트 제출 장소는 3층 파란함이라고 말했다."
-        ),
-        "negative_passage": (
-            "김하늘 교수님은 오늘 수업에서 미르노트 제출 장소는 1층 초록함이라고 말했다."
-        ),
-        "main_answer": "3층 파란함",
-        "negative_answer": "1층 초록함",
+        "name": "ko_student_school_injection",
+        "question": "철수는 어느 학교 학생이야?",
+        "main_passage": "철수는 선문대학교 학생이다.",
+        "negative_passage": "철수는 가람대학교 학생이다.",
+        "main_answer": "선문대학교",
+        "negative_answer": "가람대학교",
+        "full_answer": "철수는 선문대학교 학생입니다.",
+        "negative_full_answer": "철수는 가람대학교 학생입니다.",
     },
 ]
 
@@ -493,10 +491,10 @@ def main() -> None:
     parser.add_argument(
         "--case-mode",
         choices=("dataset", "synthetic", "both"),
-        default="dataset",
+        default="synthetic",
         help=(
             "dataset: use an actual Korean multi-fact valid example to check learned-distribution injection; "
-            "synthetic: use the fixed out-of-distribution sanity case; both: run both."
+            "synthetic: use the fixed simple passage-injection sanity case; both: run both."
         ),
     )
     parser.add_argument(
