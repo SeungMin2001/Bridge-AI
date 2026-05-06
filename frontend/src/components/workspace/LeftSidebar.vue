@@ -22,6 +22,7 @@ const emit = defineEmits([
   'addToNote',
   'askAi',
   'openStoredMaterial',
+  'openRecording',
   'toggle'
 ])
 
@@ -123,6 +124,11 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
     meta: formatTranscriptSourceDate(recording?.endedAt),
     transcriptions: recording?.transcriptions || []
   }
+  emit('openRecording', {
+    sessionId: fileId,
+    recordingId: recording?.id || recording?.recordingId || '',
+    recording
+  })
   activeTab.value = 'voice'
 }
 
