@@ -47,6 +47,7 @@ router = APIRouter(prefix="/schedule", tags=["schedule"])
 class ScheduleExtractRequest(BaseModel):
     """세션 기반 일정 추출 요청 (녹음 종료 시 프론트에서 호출)"""
     session_id: str
+    recording_id: str | None = None
 
 
 class ScheduleExtractTextRequest(BaseModel):
@@ -63,6 +64,7 @@ class ScheduleManualRequest(BaseModel):
     due_date: str | None = None
     status: str = "confirmed"
     session_id: str | None = None
+    recording_id: str | None = None
     transcript_id: str | None = None
     source_start_time: float | None = None
     source_end_time: float | None = None
@@ -85,7 +87,7 @@ async def schedule_extract(req: ScheduleExtractRequest):
     logger.info(f"[SCHEDULE] 일정 추출 요청: session_id={req.session_id}")
 
     # 1. 세션 전사문 조회
-    transcripts = await get_transcripts_by_session(req.session_id)
+    transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
     if not transcripts:
         raise HTTPException(
             status_code=404,
@@ -138,6 +140,7 @@ async def schedule_extract(req: ScheduleExtractRequest):
         await save_schedule(
             schedule_id=schedule_id,
             session_id=req.session_id,
+            recording_id=req.recording_id,
             title=s["title"],
             description=s.get("description"),
             event_type=s.get("event_type"),
@@ -166,6 +169,7 @@ async def schedule_extract(req: ScheduleExtractRequest):
         await save_schedule(
             schedule_id=schedule_id,
             session_id=req.session_id,
+            recording_id=req.recording_id,
             title=s["title"],
             description=s.get("description"),
             event_type=s.get("event_type"),
@@ -254,6 +258,7 @@ async def schedule_create_manual(req: ScheduleManualRequest):
     await save_schedule(
         schedule_id=schedule_id,
         session_id=req.session_id,
+        recording_id=req.recording_id,
         title=req.title,
         description=req.description,
         event_type=req.event_type,

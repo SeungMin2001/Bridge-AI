@@ -21,6 +21,7 @@ const props = defineProps({
   currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
   scheduleExtractionNotice: { type: Object, default: null },
+  summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] },
   aiInput: { type: String, default: '' }
 })
@@ -247,6 +248,7 @@ const highlightedTranscript = computed(() => {
       :activeFileType="activeFileType"
       :transcriptions="transcriptions"
       :currentPreviewMaterial="currentPreviewMaterial"
+      :summaryState="summaryState"
       :summaryNotes="summaryNotes"
       @startRecording="emit('startRecording')"
       @pauseRecording="emit('pauseRecording')"

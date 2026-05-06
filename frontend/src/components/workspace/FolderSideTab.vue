@@ -1,7 +1,13 @@
 <!-- 워크스페이스 왼쪽에서 파일 구조를 탐색하고 파일을 선택할 수 있게 돕는 폴더 탐색기 탭입니다. -->
 <script setup>
 import { ref, computed } from 'vue'
-import { isWorkspaceUuid, saveSessionResources } from '../../api/workspaceApi.js'
+import {
+  deleteWorkspaceFile,
+  deleteWorkspaceFolder,
+  deleteWorkspaceRecordingData,
+  isWorkspaceUuid,
+  saveSessionResources
+} from '../../api/workspaceApi.js'
 
 const props = defineProps({
   fileTree: { type: Array, default: () => [] },
@@ -175,6 +181,14 @@ const handleMaterialAction = async (action) => {
       node.recordings = Array.isArray(node.recordings)
         ? node.recordings.filter((item) => item.id !== recordingId)
         : node.recordings
+      if (isWorkspaceUuid(fileId)) {
+        try {
+          await deleteWorkspaceRecordingData(fileId, recordingId)
+        } catch (error) {
+          console.error('[workspace] recording related data cleanup failed:', error)
+          emit('showToast', '녹음본 관련 데이터 정리 실패')
+        }
+      }
       emit('showToast', `녹음본 삭제됨`)
     }
   }
@@ -214,7 +228,7 @@ const handleCloseContextMenu = () => {
   ctxMenu.value = { visible: false, x: 0, y: 0, targetId: null }
 }
 
-const handleContextAction = (action) => {
+const handleContextAction = async (action) => {
   const targetId = ctxMenu.value.targetId
   handleCloseContextMenu()
 
@@ -267,6 +281,20 @@ const handleContextAction = (action) => {
       return // favorite은 fileTree 변경 불필요
     }
     case 'delete':
+      // 신창영 : 워크스페이스 UI에서 삭제할 때도 백엔드 삭제 API를 호출하여 DB/RAG 찌꺼기 생성을 방지
+      if (isWorkspaceUuid(targetId)) {
+        try {
+          if (node.type === 'folder') {
+            await deleteWorkspaceFolder(targetId)
+          } else {
+            await deleteWorkspaceFile(targetId)
+          }
+        } catch (error) {
+          console.error('[workspace] node delete failed:', error)
+          emit('showToast', 'DB 삭제 실패')
+          return
+        }
+      }
       deleteNode(targetId, copy)
       emit('showToast', `"${node.name}" 삭제됨`)
       break

@@ -118,3 +118,11 @@ export const saveSessionResources = async (sessionId, weeks = []) => {
   )
   return result.node
 }
+
+export const deleteWorkspaceRecordingData = async (sessionId, recordingId) => {
+  return requestWorkspaceJson(
+    `sessions/${sessionId}/recordings/${encodeURIComponent(recordingId)}`,
+    { method: 'DELETE' },
+    '녹음본 관련 데이터 삭제에 실패했습니다.'
+  )
+}

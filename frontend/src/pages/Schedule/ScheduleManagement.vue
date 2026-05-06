@@ -160,8 +160,9 @@ onMounted(async () => {
 <style scoped>
 .schedule-page {
   position: relative;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
   overflow: hidden;
   color: #1d1d1f;
 }
@@ -170,18 +171,20 @@ onMounted(async () => {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 14px;
-  width: 100%;
-  height: 100%;
-  padding: 14px;
+  grid-template-columns: minmax(0, 1fr) clamp(480px, 24vw, 540px);
+  gap: 10px;
+  width: 100vw;
+  height: 100vh;
+  padding: 10px 0 10px 10px;
+  box-sizing: border-box;
 }
 
 .schedule-main-card {
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: 18px;
   overflow: hidden;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.82);

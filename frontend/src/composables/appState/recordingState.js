@@ -4,10 +4,20 @@ import { computed, ref } from 'vue'
 const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_RECORDING === 'true'
 const isWorkspaceUuid = (value = '') => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 
-const getRecordingWebSocketUrl = (sessionId = '') => {
+const createRecordingId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `recording-${crypto.randomUUID()}`
+  }
+  return `recording-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+const getRecordingWebSocketUrl = (sessionId = '', recordingId = '') => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const query = isWorkspaceUuid(sessionId) ? `?session_id=${encodeURIComponent(sessionId)}` : ''
-  return `${protocol}//${window.location.host}/ws${query}`
+  const params = new URLSearchParams()
+  if (isWorkspaceUuid(sessionId)) params.set('session_id', sessionId)
+  if (recordingId) params.set('recording_id', recordingId)
+  const query = params.toString()
+  return `${protocol}//${window.location.host}/ws${query ? `?${query}` : ''}`
 }
 const mockTranscriptPlanByMode = {
   lecture: [
@@ -33,6 +43,8 @@ export function useRecordingState() {
   const recordingSeconds = ref(0)
   const transcriptions = ref([])
   const recordingMode = ref('lecture')
+  const activeRecordingId = ref('')
+  const activeRecordingStartedAt = ref('')
   const recordingTimeText = computed(() => {
     const hours = Math.floor(recordingSeconds.value / 3600)
     const minutes = Math.floor(recordingSeconds.value / 60)
@@ -77,6 +89,7 @@ export function useRecordingState() {
   const addTranscriptionBubble = (text, isMock = false, speaker = null, speakerId = null) => {
     const now = new Date()
     transcriptions.value.push({
+      recordingId: activeRecordingId.value,
       time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
       speakerId,
       speaker,
@@ -110,6 +123,7 @@ export function useRecordingState() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 session_id: currentSessionId,
+                recording_id: activeRecordingId.value,
                 text: item.text,
                 speakerId: item.speakerId,
                 speaker: item.speaker
@@ -159,10 +173,13 @@ export function useRecordingState() {
     if (audioContext) { audioContext.close(); audioContext = null }
     if (stream) { stream.getTracks().forEach((track) => track.stop()); stream = null }
     if (ws) { ws.close(); ws = null }
+    transcriptions.value = [] // 신창잉: 녹음이 끝나면 실시간 전사 목록을 비웁니다.
+    activeRecordingId.value = ''
+    activeRecordingStartedAt.value = ''
   }
 
   // 녹음을 시작하고, 목업 모드가 아니면 마이크 음성을 WebSocket으로 전송합니다.
-  const startRecording = async (mode = 'lecture', sessionId = '') => {
+  const startRecording = async (mode = 'lecture', sessionId = '', recordingId = '') => {
     recordingMode.value = mode
     isRecording.value = true
     isRecordingPaused.value = false
@@ -170,6 +187,8 @@ export function useRecordingState() {
     transcriptions.value = []
     lastBubbleTime = 0
     currentSessionId = sessionId
+    activeRecordingId.value = recordingId || createRecordingId()
+    activeRecordingStartedAt.value = new Date().toISOString()
 
     syncRecordingTimer()
 
@@ -179,7 +198,7 @@ export function useRecordingState() {
       return
     }
 
-    ws = new WebSocket(getRecordingWebSocketUrl(sessionId))
+    ws = new WebSocket(getRecordingWebSocketUrl(sessionId, activeRecordingId.value))
 
     let segIdCounter = 0
     const pendingSegmentMap = new Map()
@@ -245,6 +264,7 @@ export function useRecordingState() {
         const segId = ++segIdCounter
         const speakerId = data.speaker_id || data.speakerId || null
         const speaker = data.speaker || null
+        const recordingId = data.recording_id || data.recordingId || activeRecordingId.value
         const lastTranscript = transcriptions.value[transcriptions.value.length - 1]
         const shouldCreateBubble = (
           !lastTranscript ||
@@ -256,6 +276,7 @@ export function useRecordingState() {
 
         if (shouldCreateBubble) {
           transcriptions.value.push({
+            recordingId,
             time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
             speakerId,
             speaker,
@@ -355,6 +376,8 @@ export function useRecordingState() {
     isRecordingPaused,
     recordingMode,
     recordingTimeText,
+    activeRecordingId,
+    activeRecordingStartedAt,
     startRecording,
     pauseRecording,
     resumeRecording,

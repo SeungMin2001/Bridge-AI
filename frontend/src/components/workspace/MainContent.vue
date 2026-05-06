@@ -26,6 +26,7 @@ const props = defineProps({
   activeFileType: { type: String, default: 'lecture' },
   transcriptions: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
+  summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] }
 })
 
@@ -196,6 +197,13 @@ const buildMockSpeakerSummary = (utterances) => {
   return texts.slice(-2).join(' ')
 }
 
+const formatSummaryTime = (value = '') => {
+  if (!value) return ''
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
+  return parsed.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+}
+
 const speakerSummaryItems = computed(() => {
   const speakerMap = new Map()
 
@@ -241,7 +249,39 @@ const speakerSummaryItems = computed(() => {
   })
 })
 
-const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
+const backendSpeakerSummaryItems = computed(() => {
+  const items = Array.isArray(props.summaryState?.speakerSummaries)
+    ? props.summaryState.speakerSummaries
+    : []
+
+  return items.map((item, index) => {
+    const label = item.label || '화자'
+    const accent = getSpeakerAccent(label)
+    return {
+      key: item.key || item.id || `backend-speaker-${index}`,
+      label,
+      firstIndex: index,
+      accent: {
+        avatar: `speaker-summary-avatar-${accent}`,
+        dot: `speaker-summary-dot-${accent}`
+      },
+      avatarSrc: getSpeakerAvatarSrc(label),
+      utteranceCount: null,
+      summary: item.summary || '',
+      latestText: item.latestText || '',
+      lastUpdatedAt: formatSummaryTime(item.createdAt)
+    }
+  })
+})
+
+const displayedSpeakerSummaryItems = computed(() => (
+  backendSpeakerSummaryItems.value.length
+    ? backendSpeakerSummaryItems.value
+    : speakerSummaryItems.value
+))
+const sessionSummary = computed(() => props.summaryState?.sessionSummary || null)
+const isSummaryGenerating = computed(() => ['loading', 'generating'].includes(props.summaryState?.status))
+const hasSpeakerSummaries = computed(() => displayedSpeakerSummaryItems.value.length > 0)
 </script>
 
 <template>
@@ -365,14 +405,43 @@ const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
               />
             </div>
             <div v-show="activeSummaryTab === 'ai-summary'" class="summary-subcontent ai-summary-panel flex-1 min-h-0">
-              <div v-if="!hasSpeakerSummaries" class="ai-summary-empty">
+              <div v-if="isSummaryGenerating" class="ai-summary-empty">
+                <span class="material-symbols-outlined text-[42px] text-[#c7c7cc]">hourglass_top</span>
+                <p>{{ summaryState?.status === 'generating' ? 'AI 요약을 생성하고 있습니다.' : '저장된 요약을 불러오고 있습니다.' }}</p>
+              </div>
+
+              <div v-else-if="!hasSpeakerSummaries && !sessionSummary" class="ai-summary-empty">
                 <span class="material-symbols-outlined text-[42px] text-[#c7c7cc]">summarize</span>
-                <p>아직 요약된 발화가 없습니다.</p>
+                <p>{{ summaryState?.error || '아직 요약된 발화가 없습니다.' }}</p>
               </div>
 
               <div v-else class="ai-summary-list">
                 <article
-                  v-for="speaker in speakerSummaryItems"
+                  v-if="sessionSummary"
+                  class="speaker-summary-card session-summary-card transcription-item-enter"
+                >
+                  <div class="speaker-summary-top">
+                    <div class="speaker-summary-identity">
+                      <div class="speaker-summary-avatar speaker-summary-avatar-blue">
+                        <span class="material-symbols-outlined">summarize</span>
+                      </div>
+                      <div class="min-w-0">
+                        <h3>세션 요약</h3>
+                        <p>{{ formatSummaryTime(sessionSummary.createdAt) || '저장된 요약' }}</p>
+                      </div>
+                    </div>
+
+                    <div class="speaker-summary-status">
+                      <span class="speaker-summary-dot speaker-summary-dot-blue"></span>
+                      <span>전체</span>
+                    </div>
+                  </div>
+
+                  <p class="speaker-summary-text">{{ sessionSummary.summary }}</p>
+                </article>
+
+                <article
+                  v-for="speaker in displayedSpeakerSummaryItems"
                   :key="speaker.key"
                   class="speaker-summary-card transcription-item-enter"
                   :style="{ animationDelay: `${speaker.firstIndex * 0.05}s` }"
@@ -385,7 +454,8 @@ const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
                       <div class="min-w-0">
                         <h3>{{ speaker.label }}</h3>
                         <p>
-                          발화 {{ speaker.utteranceCount }}개
+                          <span v-if="speaker.utteranceCount">발화 {{ speaker.utteranceCount }}개</span>
+                          <span v-else>저장된 요약</span>
                           <span v-if="speaker.lastUpdatedAt">· {{ speaker.lastUpdatedAt }}</span>
                         </p>
                       </div>
@@ -399,7 +469,7 @@ const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
 
                   <p class="speaker-summary-text">{{ speaker.summary }}</p>
 
-                  <div class="speaker-summary-latest">
+                  <div v-if="speaker.latestText" class="speaker-summary-latest">
                     <span class="material-symbols-outlined">graphic_eq</span>
                     <span>{{ speaker.latestText }}</span>
                   </div>
@@ -527,6 +597,11 @@ const hasSpeakerSummaries = computed(() => speakerSummaryItems.value.length > 0)
   object-position: center bottom;
   border-radius: 999px;
   display: block;
+}
+
+.speaker-summary-avatar .material-symbols-outlined {
+  color: #1d4ed8;
+  font-size: 22px;
 }
 
 .speaker-summary-avatar-blue {

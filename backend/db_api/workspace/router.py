@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from db_api.workspace.common import WorkspaceApiError
 from db_api.workspace.courses_api import create_course, delete_course, update_course
 from db_api.workspace.files_api import get_workspace_material_file, save_workspace_material
-from db_api.workspace.sessions_api import create_session_file, delete_session_file, update_session_resources
+from db_api.workspace.sessions_api import create_session_file, delete_session_file, delete_session_recording, update_session_resources
 from db_api.workspace.tree_api import get_workspace_tree
 
 
@@ -111,6 +111,15 @@ async def workspace_update_session_resources(session_id: str, req: UpdateSession
     # 현재 파일 내부 강의자료/녹음본 구조를 SESSIONS 테이블에 저장
     try:
         return await update_session_resources(session_id, req.model_dump())
+    except Exception as error:
+        _raise_http_error(error)
+
+
+@router.delete("/sessions/{session_id}/recordings/{recording_id}")
+async def workspace_delete_session_recording(session_id: str, recording_id: str):
+    # 녹음본 하나를 삭제할 때 session_voicefile JSON과 연결된 전사/RAG/일정/요약을 함께 정리
+    try:
+        return await delete_session_recording(session_id, recording_id)
     except Exception as error:
         _raise_http_error(error)
 

@@ -54,6 +54,7 @@ router = APIRouter(prefix="/summary", tags=["summary"])
 class KeywordGenerateRequest(BaseModel):
     """세션 전사문 기반 키워드 추출 요청"""
     session_id: str
+    recording_id: str | None = None
     top_k: int = Field(default=20, ge=1, le=100, description="전사문별 추출 키워드 수")
     window_size: int = Field(default=4, ge=2, le=10, description="키워드 그래프 윈도우")
 
@@ -61,6 +62,7 @@ class KeywordGenerateRequest(BaseModel):
 class SpeakerSummaryGenerateRequest(BaseModel):
     """화자 텍스트 기반 요약 요청"""
     session_id: str
+    recording_id: str | None = None
     speaker_id: str | None = None
     speaker_text: str = Field(..., min_length=10, description="화자별 전사 텍스트")
     summary_sentences: int = Field(default=3, ge=1, le=10)
@@ -71,6 +73,7 @@ class SpeakerSummaryGenerateRequest(BaseModel):
 
 class SessionSummaryGenerateRequest(BaseModel):
     session_id: str
+    recording_id: str | None = None
     summary_sentences: int = Field(default=3, ge=1, le=10)
     course_id: str | None = None
     keyword_limit: int | None = Field(default=None, ge=1, le=200)
@@ -92,7 +95,7 @@ async def generate_keywords(req: KeywordGenerateRequest):
     )
 
     # 전사문은 speaker 구분 없이 세션 기준으로만 저장됩니다.
-    transcripts = await get_transcripts_by_session(req.session_id)
+    transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
 
     if not transcripts:
         raise HTTPException(
@@ -133,7 +136,20 @@ async def keywords_by_session(session_id: str):
 @router.post("/speaker/generate")
 async def generate_speaker_summaries(req: SpeakerSummaryGenerateRequest):
     """화자 텍스트 기반 요약을 생성합니다."""
-    course_id = req.course_id or await get_course_id_by_session(req.session_id)
+    try:
+        uuid.UUID(req.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"session_id 형식이 올바르지 않습니다: {req.session_id}") from exc
+
+    course_id = req.course_id
+    try:
+        if course_id is None:
+            course_id = await get_course_id_by_session(req.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"session_id 형식이 올바르지 않습니다: {req.session_id}") from exc
+    except Exception as exc:
+        logger.warning("[SUMMARY] 세션 코스 조회 실패, course_id 없이 요약 저장 진행: %s", exc)
+
     speaker_id = req.speaker_id or "UNKNOWN"
 
     try:
@@ -145,19 +161,27 @@ async def generate_speaker_summaries(req: SpeakerSummaryGenerateRequest):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except RuntimeError as exc:
+        logger.exception("[SUMMARY] 화자 요약 생성 실패")
         raise HTTPException(status_code=503, detail=str(exc))
 
     summary_id = str(uuid.uuid4())
-    await save_summary(
-        summary_id=summary_id,
-        session_id=req.session_id,
-        course_id=course_id,
-        speaker_id=speaker_id,
-        speaker_summary=summary_text,
-        source_start_time=req.source_start_time,
-        source_end_time=req.source_end_time,
-        source_text=req.speaker_text,
-    )
+    try:
+        await save_summary(
+            summary_id=summary_id,
+            session_id=req.session_id,
+            recording_id=req.recording_id,
+            course_id=course_id,
+            speaker_id=speaker_id,
+            speaker_summary=summary_text,
+            source_start_time=req.source_start_time,
+            source_end_time=req.source_end_time,
+            source_text=req.speaker_text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"요약 저장 ID 형식이 올바르지 않습니다: {exc}") from exc
+    except Exception as exc:
+        logger.exception("[SUMMARY] 화자 요약 저장 실패")
+        raise HTTPException(status_code=503, detail=f"화자 요약 저장 실패: {exc}") from exc
 
     return {
         "summary_id": summary_id,
@@ -173,11 +197,11 @@ async def generate_session_summary_api(req: SessionSummaryGenerateRequest):
     """키워드 + 화자 요약을 참고해 세션 요약을 생성합니다."""
     course_id = req.course_id or await get_course_id_by_session(req.session_id)
 
-    keywords = await get_keywords_by_session(req.session_id, limit=req.keyword_limit)
+    keywords = await get_keywords_by_session(req.session_id, limit=req.keyword_limit, recording_id=req.recording_id)
     if not keywords:
         raise HTTPException(status_code=404, detail="세션 키워드가 없습니다.")
 
-    speaker_summaries = await get_latest_speaker_summaries_by_session(req.session_id)
+    speaker_summaries = await get_latest_speaker_summaries_by_session(req.session_id, req.recording_id)
     if not speaker_summaries:
         raise HTTPException(status_code=404, detail="화자 요약이 없습니다.")
 
@@ -201,6 +225,7 @@ async def generate_session_summary_api(req: SessionSummaryGenerateRequest):
     await save_summary(
         summary_id=summary_id,
         session_id=req.session_id,
+        recording_id=req.recording_id,
         course_id=course_id,
         session_summary=summary_text,
         source_text=source_text,

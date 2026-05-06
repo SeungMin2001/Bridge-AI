@@ -6,7 +6,7 @@ from faster_whisper import WhisperModel
 from starlette.websockets import WebSocketDisconnect
 import torchaudio
 from data.save_transcript import save_transcript
-# 워크스페이스 DB API 라우터를 main 서버에 연결할 때 사용 <-  신창영
+# 신창영 : 워크스페이스 DB API 라우터를 main 서버에 연결
 from db_api.workspace.router import router as workspace_router
 from db import create_session, get_session_title
 from correction import load_correction_model, correct_text
@@ -16,11 +16,12 @@ import uuid
 import httpx
 import asyncio
 import time
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
-# 신창잉 : 현재 main 서버에서는 워크스페이스 기능만 확인 중이라 quiz/summary/schedule 라우터를 임시 주석 처리했습니다.
+# 신창영 : 현재 main 서버에서는 워크스페이스 기능 확인을 우선하여 quiz 라우터를 임시 제외
 # from quiz.quiz import router as quiz_router
-# from summary.summary import router as summary_router
+from summary.summary import router as summary_router
 from schedule.schedule import router as schedule_router
 
 # device = "cuda" if torch.cuda.is_available() else (
@@ -56,12 +57,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 워크스페이스 DB API 엔드포인트를 main 앱에 등록 <- 신창영
+# 신창영 : 워크스페이스 DB API 엔드포인트를 main 앱에 등록
 app.include_router(workspace_router)
 # ── 라우터 등록 ──
-# 신창잉 : quiz/summary 라우터는 현재 테스트 범위에서 제외되어 임시 주석 처리했습니다.
+# 신창영 : quiz 라우터는 현재 테스트 범위에서 제외
 # app.include_router(quiz_router)
-# app.include_router(summary_router)
+# 신창영 : 녹음 종료 후 키워드/화자/세션 요약 API를 프론트에서 사용할 수 있도록 summary 라우터 등록
+app.include_router(summary_router)
 app.include_router(schedule_router)
 
 #python -c "from huggingface_hub import login; login(token='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')"
@@ -73,21 +75,21 @@ app.include_router(schedule_router)
 # 윈도우 모델
 #llm_server_url = "http://localhost:8001"
 
-# 신창잉 : 기존 도커+vllm 서버 설정입니다. 현재는 로컬 Ollama 설정을 사용하기 위해 주석 처리했습니다.
+# 신창영 : 기존 도커+vllm 설정 기록, 현재 실행 환경은 아래 환경변수 기반 LLM 설정을 사용
 # 도커+vllm (OpenAI 호환 API)
 # llm_server_url = "http://localhost:8001"
 # llm_model_name="Qwen/Qwen2.5-1.5B"
 
-# Ollama OpenAI 호환 API
-llm_server_url = "http://localhost:11434"
-llm_model_name="qwen2.5:1.5b"
-llm_api_key = "test-key"
+# 신창영 : LLM 설정을 하드코딩하지 않고 LLM_URL, LLM_MODEL, LLM_API_KEY 환경변수로 주입
+llm_server_url = os.getenv("LLM_URL", "http://localhost:11434")
+llm_model_name = os.getenv("LLM_MODEL", "qwen2.5:1.5b")
+llm_api_key = os.getenv("LLM_API_KEY", "test-key")
 
 class ChatRequest(BaseModel):
     question: str
     is_thinking: bool = True
-    # 신창잉 : 현재 선택한 전사 파일만 검색하기 위해 session_id를 추가했습니다.
-    # 기존 코드: session_id 없이 question, is_thinking만 받아 전체 전사문에서 검색했습니다.
+    # 신창영 : 선택 파일 기준 RAG 검색을 위해 session_id를 추가
+    # 신창영 : 기존 구조는 session_id 없이 전체 전사문을 검색
     session_id: str | None = None
 
 
@@ -115,7 +117,7 @@ def remove_thinking(text: str) -> str:
 
 def _build_prompt_and_citations(question: str, session_id: str | None = None):
     """RAG 검색 후 prompt와 citations 반환"""
-    # 신창잉 : 기존 전체 검색 코드입니다. 현재는 선택 파일 기준 검색을 위해 session_id를 같이 넘깁니다.
+    # 신창영 : 선택 파일 기준 검색을 위해 session_id를 RAG 검색 함수에 전달
     # rag_result = rag_search(question, top_k=5)
     rag_result = rag_search(question, top_k=5, session_id=session_id)
     context = rag_result["context"]
@@ -138,7 +140,7 @@ async def chat(req: ChatRequest):
     """기존 비스트리밍 엔드포인트 (호환용)"""
     print(f"[CHAT] 요청 수신: {req.question}")
     try:
-        # 신창잉 : 기존에는 req.session_id 없이 전체 전사문을 대상으로 RAG 검색했습니다.
+        # 신창영 : 기존에는 req.session_id 없이 전체 전사문을 대상으로 RAG 검색
         # prompt, citations = _build_prompt_and_citations(req.question)
         prompt, citations = _build_prompt_and_citations(req.question, req.session_id)
         messages = [
@@ -175,7 +177,7 @@ async def chat_stream(req: ChatRequest):
     t0 = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
 
-    # 신창잉 : 기존에는 스트리밍 채팅도 전체 전사문에서 검색했습니다.
+    # 신창영 : 스트리밍 채팅도 session_id를 전달하여 선택 파일 검색을 지원
     # prompt, citations = _build_prompt_and_citations(req.question)
     prompt, citations = _build_prompt_and_citations(req.question, req.session_id)
     t_rag = time.perf_counter()
@@ -230,7 +232,7 @@ async def chat_stream(req: ChatRequest):
             print(f"[CHAT STREAM] 에러: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
         finally:
-            # 신창잉 : 기존 request_started_at 기반 로그 코드는 정의되지 않은 변수 오류가 나서 주석 처리했습니다.
+            # 신창영 : 기존 request_started_at 기반 로그 코드는 정의되지 않은 변수 오류가 있어 제외
             #  total_elapsed = time.perf_counter() - request_started_at
             #  first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
             
@@ -302,10 +304,12 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     audio_buffer = bytearray()
     requested_session_id = ws.query_params.get("session_id")
+    requested_recording_id = (ws.query_params.get("recording_id") or "").strip()
     try:
         session_id = str(uuid.UUID(requested_session_id)) if requested_session_id else str(uuid.uuid4())
     except (TypeError, ValueError):
         session_id = str(uuid.uuid4())
+    recording_id = requested_recording_id or f"recording-{uuid.uuid4()}"
     processed_seconds = 0.0
     try:
         await create_session(session_id)
@@ -314,6 +318,27 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         print(f"[DB] create_session 실패 (전사는 계속 진행): {e}")
         session_title = "실시간 녹음"
+
+    # 신창영 : RAG에 "실시간 녹음" 기본값이 저장되지 않도록 실제 세션/폴더 정보를 먼저 조회
+    session_title = "실시간 녹음"
+    course_title = "실시간 강의"
+    session_date = str(__import__('datetime').date.today())
+    
+    try:
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT title, course_id, session_date FROM sessions WHERE session_id = $1::uuid", session_id)
+            if row:
+                session_title = row["title"] or "실시간 녹음"
+                if row["session_date"]:
+                    session_date = str(row["session_date"])
+                if row["course_id"]:
+                    course_row = await conn.fetchrow("SELECT title FROM courses WHERE course_id = $1::uuid", row["course_id"])
+                    if course_row:
+                        course_title = course_row["title"] or "실시간 강의"
+    except Exception as e:
+        print(f"[WS] DB 정보 조회 실패 (기본값 사용): {e}")
 
     loop = asyncio.get_event_loop()
 
@@ -347,6 +372,7 @@ async def websocket_endpoint(ws: WebSocket):
                 # 1단계: raw_text 즉시 전송 (빠른 체감)
                 await ws.send_json({
                     "type": "raw",
+                    "recording_id": recording_id,
                     "raw_text": raw_text,
                     "text": raw_text,
                 })
@@ -357,6 +383,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if corrected_text != raw_text:
                         await ws.send_json({
                             "type": "corrected",
+                            "recording_id": recording_id,
                             "raw_text": raw_text,
                             "text": corrected_text,
                         })
@@ -365,24 +392,37 @@ async def websocket_endpoint(ws: WebSocket):
 
                 transcript_data = {
                     "session_id": session_id,
+                    "recording_id": recording_id,
                     "start_time": start_time,
                     "end_time": end_time,
                     "raw_text": raw_text,
                     "text": corrected_text,
                 }
+                # 신창영 : RAG citation이 DB transcript row와 연결되도록 저장 결과의 transcript_id/chunk_index를 확보
+                saved_transcript = {}
                 try:
-                    await save_transcript(transcript_data)
+                    saved_transcript = await save_transcript(transcript_data) or {}
                 except Exception as e:
                     print(f"[DB] save_transcript 실패: {e}")
 
-                # RAG vector store에 임베딩 추가
+                # 신창영 : RAG 메타데이터에 실제 파일명과 transcript 식별자를 함께 저장하여 잘못된 참조명을 방지
                 if corrected_text:
                     try:
                         rag_add_document(corrected_text, {
                             "session_id": session_id,
+<<<<<<< HEAD
                             "session_title": session_title,
                             "course_title": "실시간 강의",
                             "session_date": str(__import__('datetime').date.today()),
+=======
+                            "recording_id": recording_id,
+                            "session_title": session_title,
+                            "course_title": course_title,
+                            "session_date": session_date,
+                            "transcript_id": saved_transcript.get("transcript_id", ""),
+                            "chunk_index": saved_transcript.get("chunk_index"),
+                            "created_at": saved_transcript.get("created_at", ""),
+>>>>>>> toyo-2
                             "start_time": start_time,
                             "end_time": end_time,
                         })
