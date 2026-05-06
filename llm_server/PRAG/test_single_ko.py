@@ -320,6 +320,7 @@ def run_case(
     alpha: float,
     question_conditioned: bool,
     prompt_styles: list[str],
+    verbose: bool = False,
 ) -> None:
     question = case["question"]
     main_passage = case["main_passage"]
@@ -337,6 +338,28 @@ def run_case(
             question=question,
             question_conditioned=question_conditioned,
         )
+        if not verbose:
+            prompt_style = "service" if "service" in prompt_styles else prompt_styles[0]
+            main_gen = generate_with_kv(
+                model,
+                tokenizer,
+                target_layer,
+                question,
+                main_mem["K"],
+                main_mem["V"],
+                device,
+                max_new_tokens,
+                alpha,
+                prompt_style,
+            )
+            print(f"\n[case:{case['name']}]")
+            print(f"question: {question}")
+            print(f"passage: {main_passage}")
+            print("\n[model answer | with passage K/V]")
+            print("----- BEGIN -----")
+            print(main_gen)
+            print("------ END ------")
+            return
         neg_mem = encode_memory(
             model,
             tokenizer,
@@ -518,8 +541,13 @@ def main() -> None:
     parser.add_argument(
         "--prompt-style",
         choices=("service", "short-chat", "memory-cued", "paper", "all"),
-        default="all",
+        default="service",
         help="Prompt used for K/V free generation. 'all' compares service, short-chat, memory-cued, and paper prompts.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print the full diagnostic report, including negatives, candidate losses, and prompt comparisons.",
     )
     args = parser.parse_args()
 
@@ -571,6 +599,7 @@ def main() -> None:
             args.alpha,
             question_conditioned,
             prompt_styles,
+            verbose=args.verbose,
         )
 
 
