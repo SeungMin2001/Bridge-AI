@@ -10,6 +10,8 @@ from .config import (
     AIHUB_LECTURE_AUGMENTED_VALID_PATH,
     AUGMENTED_TRAIN_PATH,
     AUGMENTED_VALID_PATH,
+    KO_CONTENT_AUGMENTED_TRAIN_PATH,
+    KO_CONTENT_AUGMENTED_VALID_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
 )
@@ -46,12 +48,19 @@ def main() -> None:
         action="store_true",
         help="Validate the AIHub university lecture augmented train/valid files.",
     )
+    parser.add_argument(
+        "--ko-content",
+        action="store_true",
+        help="Validate the Korean content-inspired augmented train/valid files.",
+    )
     parser.add_argument("--show", type=int, default=3)
     args = parser.parse_args()
     if args.multifact:
         args.paths = [str(MULTIFACT_AUGMENTED_TRAIN_PATH), str(MULTIFACT_AUGMENTED_VALID_PATH)]
     if args.aihub_lecture:
         args.paths = [str(AIHUB_LECTURE_AUGMENTED_TRAIN_PATH), str(AIHUB_LECTURE_AUGMENTED_VALID_PATH)]
+    if args.ko_content:
+        args.paths = [str(KO_CONTENT_AUGMENTED_TRAIN_PATH), str(KO_CONTENT_AUGMENTED_VALID_PATH)]
 
     for path in args.paths:
         rows = list(iter_json_records(path))

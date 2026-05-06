@@ -6,7 +6,14 @@ import argparse
 import random
 import textwrap
 
-from .config import AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH, MULTIFACT_AUGMENTED_TRAIN_PATH, MULTIFACT_AUGMENTED_VALID_PATH
+from .config import (
+    AUGMENTED_TRAIN_PATH,
+    AUGMENTED_VALID_PATH,
+    KO_CONTENT_AUGMENTED_TRAIN_PATH,
+    KO_CONTENT_AUGMENTED_VALID_PATH,
+    MULTIFACT_AUGMENTED_TRAIN_PATH,
+    MULTIFACT_AUGMENTED_VALID_PATH,
+)
 from .data import get_passage, iter_json_records, normalize_qas
 
 
@@ -42,6 +49,11 @@ def main() -> None:
         help="Preview the default multi-fact augmented train or valid dataset.",
     )
     parser.add_argument(
+        "--ko-content",
+        action="store_true",
+        help="Preview the Korean content-inspired augmented train or valid dataset.",
+    )
+    parser.add_argument(
         "--index",
         type=int,
         default=0,
@@ -54,12 +66,20 @@ def main() -> None:
     args = parser.parse_args()
 
     path = args.path
+    train_default = AUGMENTED_TRAIN_PATH
+    valid_default = AUGMENTED_VALID_PATH
+    if args.multifact:
+        train_default = MULTIFACT_AUGMENTED_TRAIN_PATH
+        valid_default = MULTIFACT_AUGMENTED_VALID_PATH
+    if args.ko_content:
+        train_default = KO_CONTENT_AUGMENTED_TRAIN_PATH
+        valid_default = KO_CONTENT_AUGMENTED_VALID_PATH
     if args.split == "train":
-        path = str(MULTIFACT_AUGMENTED_TRAIN_PATH if args.multifact else AUGMENTED_TRAIN_PATH)
+        path = str(train_default)
     elif args.split == "valid":
-        path = str(MULTIFACT_AUGMENTED_VALID_PATH if args.multifact else AUGMENTED_VALID_PATH)
-    elif args.multifact:
-        path = str(MULTIFACT_AUGMENTED_TRAIN_PATH)
+        path = str(valid_default)
+    elif args.multifact or args.ko_content:
+        path = str(train_default)
 
     rows = list(iter_json_records(path))
     print(f"[PRAG:preview] path={path} rows={len(rows)}")
