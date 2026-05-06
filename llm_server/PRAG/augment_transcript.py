@@ -396,56 +396,43 @@ def normalize_generated(raw: dict, source: dict, source_id: str) -> dict | None:
         final = build_final_from_source(source, "facts")
     if not atomic or not final:
         return None
+    hard_negatives = []
     negatives = raw.get("hard_negatives")
     neg = negatives[0] if isinstance(negatives, list) and negatives and isinstance(negatives[0], dict) else {}
     neg_passage = str(neg.get("passage") or "").strip() or counterfactual_passage_from_source(source, passage)
-    neg_atomic = normalize_qas(neg.get("atomic_qas"), context_passage=neg_passage, require_sub_passage=True)
-    neg_final = normalize_qas(neg.get("final_qas"))
-    if not (neg_passage and neg_atomic and neg_final):
+    if neg_passage:
+        neg_atomic = normalize_qas(neg.get("atomic_qas"), context_passage=neg_passage, require_sub_passage=True)
+        neg_final = normalize_qas(neg.get("final_qas"))
+        if not (neg_atomic and neg_final):
+            source_neg_atomic = build_atomic_from_source(source, neg_passage, "negative_facts")
+            if source_neg_atomic:
+                neg_atomic = source_neg_atomic
+                final_question = final[0]["question"] if final else None
+                neg_final = build_final_from_source(source, "negative_facts", question=final_question)
         source_neg_atomic = build_atomic_from_source(source, neg_passage, "negative_facts")
-        if source_neg_atomic:
+        if source_neg_atomic and (not neg_atomic or len(neg_atomic) != len(atomic)):
             neg_atomic = source_neg_atomic
-            final_question = final[0]["question"] if final else None
-            neg_final = build_final_from_source(source, "negative_facts", question=final_question)
-    source_neg_atomic = build_atomic_from_source(source, neg_passage, "negative_facts")
-    if source_neg_atomic and (not neg_atomic or len(neg_atomic) != len(atomic)):
-        neg_atomic = source_neg_atomic
-    elif source_neg_atomic:
-        fixed = []
-        for generated, source_qa, positive_qa in zip(neg_atomic, source_neg_atomic, atomic):
-            generated["question"] = positive_qa["question"]
-            generated["answer"] = source_qa["answer"]
-            generated["sub_passage"] = source_qa["sub_passage"]
-            generated["full_answer"] = generated.get("full_answer") or source_qa["full_answer"]
-            fixed.append(generated)
-        neg_atomic = fixed
-    if not neg_final and final:
-        neg_final = build_final_from_source(source, "negative_facts", question=final[0]["question"])
-    if not (neg_passage and neg_atomic and neg_final):
-        return None
-    # Some LLM outputs omit one negative QA or paraphrase it too aggressively.
-    # If the counterfactual passage contains the source negative answers, rebuild
-    # negative atomics by aligning source facts to the positive questions.
-    if len(neg_atomic) != len(atomic):
-        rebuilt = []
-        for question, answer in zip((qa["question"] for qa in atomic), source_fact_answers(source, "negative_facts")):
-            sub_passage = answer_span(answer, neg_passage)
-            if not sub_passage:
-                break
-            rebuilt.append({
-                "sub_passage": sub_passage,
-                "question": question,
-                "answer": answer,
-                "full_answer": default_full_answer(question, answer),
-            })
-        if len(rebuilt) == len(atomic):
-            neg_atomic = rebuilt
-    if len(neg_atomic) != len(atomic) or len(neg_final) != len(final):
-        return None
-    for idx, qa in enumerate(neg_atomic):
-        qa["question"] = atomic[idx]["question"]
-    for idx, qa in enumerate(neg_final):
-        qa["question"] = final[idx]["question"]
+        elif source_neg_atomic and neg_atomic:
+            fixed = []
+            for generated, source_qa, positive_qa in zip(neg_atomic, source_neg_atomic, atomic):
+                generated["question"] = positive_qa["question"]
+                generated["answer"] = source_qa["answer"]
+                generated["sub_passage"] = source_qa["sub_passage"]
+                generated["full_answer"] = generated.get("full_answer") or source_qa["full_answer"]
+                fixed.append(generated)
+            neg_atomic = fixed
+        if not neg_final and final:
+            neg_final = build_final_from_source(source, "negative_facts", question=final[0]["question"])
+        if neg_atomic and neg_final and len(neg_atomic) == len(atomic) and len(neg_final) == len(final):
+            for idx, qa in enumerate(neg_atomic):
+                qa["question"] = atomic[idx]["question"]
+            for idx, qa in enumerate(neg_final):
+                qa["question"] = final[idx]["question"]
+            hard_negatives = [{
+                "passage": neg_passage,
+                "atomic_qas": neg_atomic,
+                "final_qas": neg_final,
+            }]
     return {
         "source_id": source_id,
         "speaker": source.get("speaker", ""),
@@ -457,11 +444,7 @@ def normalize_generated(raw: dict, source: dict, source_id: str) -> dict | None:
         "rewrite": str(raw.get("rewrite") or "").strip(),
         "atomic_qas": atomic,
         "final_qas": final,
-        "hard_negatives": [{
-            "passage": neg_passage,
-            "atomic_qas": neg_atomic,
-            "final_qas": neg_final,
-        }],
+        "hard_negatives": hard_negatives,
     }
 
 
