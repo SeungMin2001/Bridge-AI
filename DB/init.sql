@@ -6,6 +6,7 @@ CREATE TABLE SCHEDULES
 (
     schedule_id       UUID PRIMARY KEY,
     session_id        UUID NULL,
+    recording_id      TEXT NULL,
     transcript_id     UUID NULL,
     title             VARCHAR(255) NOT NULL, -- 제목
     description       TEXT NULL, -- 설명
@@ -35,6 +36,7 @@ CREATE TABLE SUMMARIES
 (
     summary_id        UUID PRIMARY KEY,
     session_id        UUID NULL,
+    recording_id      TEXT NULL,
     course_id         UUID NULL,
     transcript_id     UUID NULL,
     speaker_id        TEXT NULL,
@@ -74,6 +76,7 @@ CREATE TABLE TRANSCRIPTS
 (
     transcript_id  UUID PRIMARY KEY,
     session_id     UUID NULL,
+    recording_id   TEXT NULL,
     chunk_index    INT NULL,
     start_time     REAL NULL,
     end_time       REAL NULL,
