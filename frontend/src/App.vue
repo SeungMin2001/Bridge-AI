@@ -41,7 +41,8 @@ const {
   handleAskAi,
   handleUploadLectureMaterials,
   handleClosePreviewMaterial,
-  handleOpenStoredMaterial
+  handleOpenStoredMaterial,
+  handleOpenRecording
 } = useAppState()
 </script>
 
@@ -112,5 +113,6 @@ const {
     @uploadLectureMaterials="handleUploadLectureMaterials"
     @closePreviewMaterial="handleClosePreviewMaterial"
     @openStoredMaterial="handleOpenStoredMaterial"
+    @openRecording="handleOpenRecording"
   />
 </template>

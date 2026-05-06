@@ -132,6 +132,11 @@ export function useAppState() {
     }
   }
 
+  const handleOpenRecording = ({ sessionId = '', recordingId = '' } = {}) => {
+    if (!isWorkspaceUuid(sessionId)) return
+    loadSummariesForSession(sessionId, recordingId)
+  }
+
   const cloneTranscriptions = () => {
     return JSON.parse(JSON.stringify(transcriptions.value || []))
   }
@@ -288,6 +293,7 @@ export function useAppState() {
     handleAskAi,
     handleUploadLectureMaterials,
     handleClosePreviewMaterial,
-    handleOpenStoredMaterial
+    handleOpenStoredMaterial,
+    handleOpenRecording
   }
 }

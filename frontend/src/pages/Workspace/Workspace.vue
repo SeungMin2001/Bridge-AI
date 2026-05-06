@@ -43,7 +43,8 @@ const emit = defineEmits([
   'askAi',
   'uploadLectureMaterials',
   'closePreviewMaterial',
-  'openStoredMaterial'
+  'openStoredMaterial',
+  'openRecording'
 ])
 
 const isLeftSidebarCollapsed = ref(false)
@@ -235,6 +236,7 @@ const highlightedTranscript = computed(() => {
       @addToNote="(text, source) => emit('addToNote', text, source)"
       @askAi="(word) => emit('askAi', word)"
       @openStoredMaterial="emit('openStoredMaterial', $event)"
+      @openRecording="emit('openRecording', $event)"
     />
     
     <MainContent
