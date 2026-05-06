@@ -376,8 +376,6 @@ def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -
     # )
     conn = psycopg2.connect(**_db_config())
     cur = conn.cursor()
-    cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
-    conn.commit()
 
     # 형태소 분석으로 명사/동사/형용사 키워드 추출
     words = extract_keywords(query)
@@ -436,7 +434,7 @@ def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -
         ORDER BY match_count DESC
         LIMIT %s
     """
-    cur.execute(sql, score_values + like_values + [top_k])
+    cur.execute(sql, values + [top_k])
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -578,6 +576,18 @@ def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, 
     return [item["data"] for item in ranked[:top_k]]
 
 
+def _run_hybrid_search(queries: list[str], top_k: int = 5, session_id: str | None = None) -> list[dict]:
+    """여러 검색어에 대해 벡터 검색과 키워드 검색을 실행한 뒤 RRF로 병합."""
+    all_vector = []
+    all_keyword = []
+
+    for query in queries:
+        all_vector.extend(_vector_search(query, top_k=top_k, session_id=session_id))
+        all_keyword.extend(_keyword_search(query, top_k=top_k, session_id=session_id))
+
+    return _merge_results(all_vector, all_keyword, top_k=top_k)
+
+
 # ── Citation 포맷 ──
 def _format_citation(result: dict) -> str:
     """출처 문자열 생성"""
@@ -612,9 +622,9 @@ def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict
     # all_keyword.extend(_keyword_search(q, top_k=3))
     results = _run_hybrid_search(queries, top_k=top_k, session_id=session_id)
     search_scope = "current_file" if session_id else "all_files"
-
-    # 3. 병합 & 중복 제거
-    results = _merge_results(all_vector, all_keyword, top_k=top_k)
+    if session_id and not results:
+        results = _run_hybrid_search(queries, top_k=top_k, session_id=None)
+        search_scope = "all_files_fallback"
 
     if not results:
         return {"context": "", "citations": []}
