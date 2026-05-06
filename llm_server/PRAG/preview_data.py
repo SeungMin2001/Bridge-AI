@@ -13,6 +13,8 @@ from .config import (
     EXTERNAL_QA_AUGMENTED_VALID_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
+    TRANSCRIPT_AUGMENTED_TRAIN_PATH,
+    TRANSCRIPT_AUGMENTED_VALID_PATH,
 )
 from .data import get_passage, iter_json_records, normalize_qas
 
@@ -54,6 +56,11 @@ def main() -> None:
         help="Preview the HotpotQA/KorQuAD external-QA augmented train or valid dataset.",
     )
     parser.add_argument(
+        "--transcript",
+        action="store_true",
+        help="Preview the transcript-style augmented train or valid dataset.",
+    )
+    parser.add_argument(
         "--index",
         type=int,
         default=0,
@@ -74,11 +81,14 @@ def main() -> None:
     if args.external_qa:
         train_default = EXTERNAL_QA_AUGMENTED_TRAIN_PATH
         valid_default = EXTERNAL_QA_AUGMENTED_VALID_PATH
+    if args.transcript:
+        train_default = TRANSCRIPT_AUGMENTED_TRAIN_PATH
+        valid_default = TRANSCRIPT_AUGMENTED_VALID_PATH
     if args.split == "train":
         path = str(train_default)
     elif args.split == "valid":
         path = str(valid_default)
-    elif args.multifact or args.external_qa:
+    elif args.multifact or args.external_qa or args.transcript:
         path = str(train_default)
 
     rows = list(iter_json_records(path))

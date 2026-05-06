@@ -16,6 +16,7 @@ from .config import (
     MODEL_NAME,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_WEIGHTS_PATH,
+    TRANSCRIPT_WEIGHTS_PATH,
     WEIGHTS_PATH,
     contains_hangul,
     load_critical_layer,
@@ -575,6 +576,11 @@ def main() -> None:
         action="store_true",
         help="Use the legacy single-fact trained weights.",
     )
+    parser.add_argument(
+        "--transcript",
+        action="store_true",
+        help="Use the transcript-style trained weights.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--alpha", type=float, default=ALPHA)
     parser.add_argument(
@@ -624,6 +630,8 @@ def main() -> None:
 
     if args.singlefact:
         args.weights = str(WEIGHTS_PATH)
+    elif args.transcript:
+        args.weights = str(TRANSCRIPT_WEIGHTS_PATH)
     elif args.multifact:
         args.weights = str(MULTIFACT_WEIGHTS_PATH)
 

@@ -14,6 +14,8 @@ from .config import (
     EXTERNAL_QA_AUGMENTED_VALID_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
+    TRANSCRIPT_AUGMENTED_TRAIN_PATH,
+    TRANSCRIPT_AUGMENTED_VALID_PATH,
 )
 from .data import contains_hangul, get_passage, iter_json_records, normalize_qas
 
@@ -53,6 +55,11 @@ def main() -> None:
         action="store_true",
         help="Validate the HotpotQA/KorQuAD external-QA augmented train/valid files.",
     )
+    parser.add_argument(
+        "--transcript",
+        action="store_true",
+        help="Validate the transcript-style augmented train/valid files.",
+    )
     parser.add_argument("--show", type=int, default=3)
     args = parser.parse_args()
     if args.multifact:
@@ -61,6 +68,8 @@ def main() -> None:
         args.paths = [str(AIHUB_LECTURE_AUGMENTED_TRAIN_PATH), str(AIHUB_LECTURE_AUGMENTED_VALID_PATH)]
     if args.external_qa:
         args.paths = [str(EXTERNAL_QA_AUGMENTED_TRAIN_PATH), str(EXTERNAL_QA_AUGMENTED_VALID_PATH)]
+    if args.transcript:
+        args.paths = [str(TRANSCRIPT_AUGMENTED_TRAIN_PATH), str(TRANSCRIPT_AUGMENTED_VALID_PATH)]
 
     for path in args.paths:
         rows = list(iter_json_records(path))

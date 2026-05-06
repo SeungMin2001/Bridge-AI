@@ -22,6 +22,8 @@ from .config import (
     MODEL_NAME,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_WEIGHTS_PATH,
+    TRANSCRIPT_AUGMENTED_VALID_PATH,
+    TRANSCRIPT_WEIGHTS_PATH,
     WEIGHTS_PATH,
     load_critical_layer,
 )
@@ -199,6 +201,11 @@ def main() -> None:
         help="Use external HotpotQA/KorQuAD-style augmented valid file and external-QA fine-tuned weights.",
     )
     parser.add_argument(
+        "--transcript",
+        action="store_true",
+        help="Use transcript-style augmented valid file and transcript fine-tuned weights.",
+    )
+    parser.add_argument(
         "--lecture",
         action="store_true",
         help="Use augmented local lecture transcript valid file and lecture fine-tuned weights.",
@@ -233,6 +240,9 @@ def main() -> None:
     elif args.external_qa:
         args.data = str(EXTERNAL_QA_AUGMENTED_VALID_PATH)
         args.weights = str(EXTERNAL_QA_WEIGHTS_PATH)
+    elif args.transcript:
+        args.data = str(TRANSCRIPT_AUGMENTED_VALID_PATH)
+        args.weights = str(TRANSCRIPT_WEIGHTS_PATH)
     elif args.lecture:
         args.data = str(LECTURE_AUGMENTED_VALID_PATH)
         args.weights = str(LECTURE_WEIGHTS_PATH)

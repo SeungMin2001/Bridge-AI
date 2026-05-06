@@ -59,6 +59,11 @@ from .config import (
     RANK_MARGIN,
     RANK_WEIGHT,
     SAVE_EVERY,
+    TRANSCRIPT_AUGMENTED_TRAIN_PATH,
+    TRANSCRIPT_AUGMENTED_VALID_PATH,
+    TRANSCRIPT_CHECKPOINT_PATH,
+    TRANSCRIPT_LOG_PATH,
+    TRANSCRIPT_WEIGHTS_PATH,
     USE_CONTEXTUAL_MEMORY,
     WEIGHTS_PATH,
     load_critical_layer,
@@ -683,6 +688,7 @@ def normalize_resume_config(config: dict) -> dict:
         "multifact",
         "korquad",
         "external_qa",
+        "transcript",
         "ko_content",
         "lecture",
         "aihub_lecture",
@@ -761,6 +767,11 @@ def main() -> None:
         "--external-qa",
         action="store_true",
         help="Use external HotpotQA/KorQuAD-style augmented train/valid files and separate output weights.",
+    )
+    parser.add_argument(
+        "--transcript",
+        action="store_true",
+        help="Use transcript-style augmented train/valid files and separate transcript output weights.",
     )
     parser.add_argument(
         "--lecture",
@@ -906,6 +917,12 @@ def main() -> None:
         checkpoint_path = EXTERNAL_QA_CHECKPOINT_PATH
         weights_path = EXTERNAL_QA_WEIGHTS_PATH
         log_path = EXTERNAL_QA_LOG_PATH
+    if args.transcript:
+        args.train = str(TRANSCRIPT_AUGMENTED_TRAIN_PATH)
+        args.valid = str(TRANSCRIPT_AUGMENTED_VALID_PATH)
+        checkpoint_path = TRANSCRIPT_CHECKPOINT_PATH
+        weights_path = TRANSCRIPT_WEIGHTS_PATH
+        log_path = TRANSCRIPT_LOG_PATH
     if args.lecture:
         args.train = str(LECTURE_AUGMENTED_TRAIN_PATH)
         args.valid = str(LECTURE_AUGMENTED_VALID_PATH)
@@ -988,6 +1005,7 @@ def main() -> None:
         "multifact": args.multifact,
         "korquad": args.korquad,
         "external_qa": args.external_qa,
+        "transcript": args.transcript,
         "lecture": args.lecture,
         "aihub_lecture": args.aihub_lecture,
         "rank_weight": args.rank_weight,
