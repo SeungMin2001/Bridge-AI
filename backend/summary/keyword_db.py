@@ -6,7 +6,6 @@ import uuid as _uuid
 from datetime import datetime
 
 from db import get_pool
-from summary.schema import ensure_summary_schema
 
 
 async def delete_keywords_by_transcript_ids(transcript_ids: list[str]) -> int:
@@ -16,7 +15,6 @@ async def delete_keywords_by_transcript_ids(transcript_ids: list[str]) -> int:
     uuid_list = [_uuid.UUID(tid) for tid in transcript_ids]
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await ensure_summary_schema(conn)
         result = await conn.execute(
             """
             DELETE FROM key_sentences
@@ -48,7 +46,6 @@ async def save_keywords(keywords: list[dict]) -> int:
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await ensure_summary_schema(conn)
         await conn.executemany(
             """
             INSERT INTO key_sentences
@@ -65,7 +62,6 @@ async def get_keywords_by_session(session_id: str, limit: int | None = None, rec
     """세션 기준 키워드 목록을 조회합니다."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await ensure_summary_schema(conn)
         params = [_uuid.UUID(session_id)]
         recording_filter = ""
         if recording_id:
@@ -103,7 +99,6 @@ async def get_keywords_by_course(course_id: str, limit: int | None = None) -> li
     """코스 기준 키워드 목록을 조회합니다."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await ensure_summary_schema(conn)
         base_query = """
             SELECT ks.key_id, ks.transcript_id, ks.sentence_text,
                    ks.score, ks.rank_order, ks.created_at
