@@ -37,14 +37,22 @@ from .prompts import system_prompt, user_prompt
 
 CASES = [
     {
-        "name": "ko_student_school_injection",
-        "question": "철수는 어느 학교 학생이야?",
-        "main_passage": "철수는 선문대학교 학생이다.",
-        "negative_passage": "철수는 가람대학교 학생이다.",
-        "main_answer": "선문대학교",
-        "negative_answer": "가람대학교",
-        "full_answer": "철수는 선문대학교 학생입니다.",
-        "negative_full_answer": "철수는 가람대학교 학생입니다.",
+        "name": "ko_lecture_transcript_injection",
+        "question": "교수님은 데이터베이스 강의에서 인덱스를 어떤 비유로 설명했어?",
+        "main_passage": (
+            "자 오늘은 데이터베이스에서 인덱스라는 걸 볼 건데요. "
+            "교수님은 인덱스를 책 맨 뒤의 찾아보기처럼 원하는 행을 빨리 찾게 해 주는 장치라고 설명했다. "
+            "그래서 표 전체를 처음부터 다 훑지 않아도 된다고 덧붙였다."
+        ),
+        "negative_passage": (
+            "자 오늘은 데이터베이스에서 인덱스라는 걸 볼 건데요. "
+            "교수님은 인덱스를 책 표지를 예쁘게 꾸며서 자료를 보기 좋게 만드는 장치라고 설명했다. "
+            "그래서 검색 속도보다는 겉모양 정리에 가깝다고 덧붙였다."
+        ),
+        "main_answer": "책 맨 뒤의 찾아보기",
+        "negative_answer": "책 표지",
+        "full_answer": "교수님은 인덱스를 책 맨 뒤의 찾아보기처럼 원하는 행을 빨리 찾게 해 주는 장치라고 설명했습니다.",
+        "negative_full_answer": "교수님은 인덱스를 책 표지처럼 자료를 보기 좋게 만드는 장치라고 설명했습니다.",
     },
 ]
 
