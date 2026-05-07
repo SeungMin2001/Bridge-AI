@@ -285,6 +285,31 @@ transcript 단계에서 가장 중요한 지표:
 
 이 단계에서는 `candidate_flip_ok`보다 `generation_hit`, `direct_recovery`, `gen-val main_kv`를 더 중요하게 본다.
 
+### 8-5. 주입 연산 방식 ablation
+
+기존 PRAG 경로는 target layer에서 `hidden + alpha * cross_attention(hidden, K, V)` 방식으로 K/V memory를 읽는다. 그러나 실제 전사문 스타일 진단에서 자유생성 답변이 여전히 passage 핵심 구절을 놓치는 경우가 있어, 데이터셋과 모델은 그대로 두고 주입 연산만 바꿔 비교할 수 있도록 `--injection-mode`를 추가했다.
+
+지원 모드:
+
+- `attention`: 기존 PRAG-style cross-attention 주입
+- `add_all`: `V` 평균 벡터를 모든 토큰 hidden state에 직접 더하는 additive-only ablation
+- `add_last`: 마지막 토큰 hidden state에만 `V` 평균 벡터를 더하는 ablation
+- `hybrid`: attention 주입 후 additive bias를 추가하는 혼합 방식
+
+중요한 점은 inference에서만 덧셈을 적용하면 공정한 비교가 아니라는 것이다. `add_all`의 가능성을 보려면 학습부터 진단까지 같은 `--injection-mode add_all`을 사용해야 한다.
+
+additive-only transcript 실험 예시:
+
+```bash
+python -m llm_server.PRAG.train --transcript --epochs 1 --no-resume --init-weights llm_server/PRAG/prag_multifact_memory_weights.pt --lr 2e-5 --positive-only --short-answer-weight 2.0 --answer-prefix-weight 10.0 --answer-prefix-tokens 10 --eval-generation-samples 30 --eval-generation-every 250 --eval-generation-max-new-tokens 128 --injection-mode add_all
+```
+
+진단 예시:
+
+```bash
+python -m llm_server.PRAG.test_single_ko --weights llm_server/PRAG/prag_transcript_memory_checkpoint.pt --synthetic-case process_restaurant --injection-mode add_all --max-new-tokens 64 --alpha 1.0
+```
+
 ## 9. KorQuAD 추가학습 계획
 
 자유생성 개선용 multifact 학습이 끝난 뒤 KorQuAD를 추가학습한다.

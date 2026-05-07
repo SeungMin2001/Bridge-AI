@@ -156,12 +156,21 @@ def example_loss(
     short_answer_weight: float = 0.0,
     answer_prefix_weight: float = 0.0,
     answer_prefix_tokens: int = 3,
+    injection_mode: str = "attention",
 ):
     main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
     gold_answer = example.target_answer(answer_target)
     negative_answer = example.target_negative_answer(answer_target)
     gold_tok = tokenize_qa(tokenizer, example.question, gold_answer, device)
-    main_gold_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], gold_tok, alpha=ALPHA)
+    main_gold_logits = forward_with_memory(
+        model,
+        target_layer,
+        main_mem["K"],
+        main_mem["V"],
+        gold_tok,
+        alpha=ALPHA,
+        injection_mode=injection_mode,
+    )
     main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
     if main_gold is None:
         return None
@@ -175,7 +184,15 @@ def example_loss(
     main_short = zero
     if short_answer_weight > 0 and example.answer and example.answer != gold_answer:
         short_tok = tokenize_qa(tokenizer, example.question, example.answer, device)
-        main_short_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], short_tok, alpha=ALPHA)
+        main_short_logits = forward_with_memory(
+            model,
+            target_layer,
+            main_mem["K"],
+            main_mem["V"],
+            short_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
         main_short_loss = compute_answer_loss(main_short_logits, short_tok["labels"])
         if main_short_loss is not None:
             main_short = main_short_loss
@@ -199,9 +216,33 @@ def example_loss(
 
     neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device, question=example.question)
     neg_tok = tokenize_qa(tokenizer, example.question, negative_answer, device)
-    main_neg_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=ALPHA)
-    neg_gold_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], gold_tok, alpha=ALPHA)
-    neg_neg_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=ALPHA)
+    main_neg_logits = forward_with_memory(
+        model,
+        target_layer,
+        main_mem["K"],
+        main_mem["V"],
+        neg_tok,
+        alpha=ALPHA,
+        injection_mode=injection_mode,
+    )
+    neg_gold_logits = forward_with_memory(
+        model,
+        target_layer,
+        neg_mem["K"],
+        neg_mem["V"],
+        gold_tok,
+        alpha=ALPHA,
+        injection_mode=injection_mode,
+    )
+    neg_neg_logits = forward_with_memory(
+        model,
+        target_layer,
+        neg_mem["K"],
+        neg_mem["V"],
+        neg_tok,
+        alpha=ALPHA,
+        injection_mode=injection_mode,
+    )
     main_neg = compute_answer_loss(main_neg_logits, neg_tok["labels"])
     neg_gold = compute_answer_loss(neg_gold_logits, gold_tok["labels"])
     neg_neg = compute_answer_loss(neg_neg_logits, neg_tok["labels"])
@@ -216,7 +257,15 @@ def example_loss(
     neg_short = zero
     if short_answer_weight > 0 and example.negative_answer and example.negative_answer != negative_answer:
         neg_short_tok = tokenize_qa(tokenizer, example.question, example.negative_answer, device)
-        neg_short_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_short_tok, alpha=ALPHA)
+        neg_short_logits = forward_with_memory(
+            model,
+            target_layer,
+            neg_mem["K"],
+            neg_mem["V"],
+            neg_short_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
         neg_short_loss = compute_answer_loss(neg_short_logits, neg_short_tok["labels"])
         if neg_short_loss is not None:
             neg_short = neg_short_loss
@@ -254,6 +303,7 @@ def group_loss(
     short_answer_weight: float = 0.0,
     answer_prefix_weight: float = 0.0,
     answer_prefix_tokens: int = 3,
+    injection_mode: str = "attention",
 ):
     losses = []
     loss_weights = []
@@ -269,7 +319,15 @@ def group_loss(
         gold_answer = qa.target_answer(answer_target)
         negative_answer = qa.target_negative_answer(answer_target)
         gold_tok = tokenize_qa(tokenizer, qa.question, gold_answer, device)
-        main_gold_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], gold_tok, alpha=ALPHA)
+        main_gold_logits = forward_with_memory(
+            model,
+            target_layer,
+            main_mem["K"],
+            main_mem["V"],
+            gold_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
         main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
         if main_gold is None:
             continue
@@ -280,7 +338,15 @@ def group_loss(
             gold_unit = gold_unit + answer_prefix_weight * main_gold_prefix
         if short_answer_weight > 0 and qa.answer and qa.answer != gold_answer:
             short_tok = tokenize_qa(tokenizer, qa.question, qa.answer, device)
-            short_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], short_tok, alpha=ALPHA)
+            short_logits = forward_with_memory(
+                model,
+                target_layer,
+                main_mem["K"],
+                main_mem["V"],
+                short_tok,
+                alpha=ALPHA,
+                injection_mode=injection_mode,
+            )
             short_loss = compute_answer_loss(short_logits, short_tok["labels"])
             if short_loss is not None:
                 gold_unit = gold_unit + short_answer_weight * short_loss
@@ -294,9 +360,33 @@ def group_loss(
             continue
 
         neg_tok = tokenize_qa(tokenizer, qa.question, negative_answer, device)
-        main_neg_logits = forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=ALPHA)
-        neg_gold_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], gold_tok, alpha=ALPHA)
-        neg_neg_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=ALPHA)
+        main_neg_logits = forward_with_memory(
+            model,
+            target_layer,
+            main_mem["K"],
+            main_mem["V"],
+            neg_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
+        neg_gold_logits = forward_with_memory(
+            model,
+            target_layer,
+            neg_mem["K"],
+            neg_mem["V"],
+            gold_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
+        neg_neg_logits = forward_with_memory(
+            model,
+            target_layer,
+            neg_mem["K"],
+            neg_mem["V"],
+            neg_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
         main_neg = compute_answer_loss(main_neg_logits, neg_tok["labels"])
         neg_gold = compute_answer_loss(neg_gold_logits, gold_tok["labels"])
         neg_neg = compute_answer_loss(neg_neg_logits, neg_tok["labels"])
@@ -309,7 +399,15 @@ def group_loss(
             unit_loss = unit_loss + answer_prefix_weight * neg_neg_prefix
         if short_answer_weight > 0 and qa.negative_answer and qa.negative_answer != negative_answer:
             neg_short_tok = tokenize_qa(tokenizer, qa.question, qa.negative_answer, device)
-            neg_short_logits = forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_short_tok, alpha=ALPHA)
+            neg_short_logits = forward_with_memory(
+                model,
+                target_layer,
+                neg_mem["K"],
+                neg_mem["V"],
+                neg_short_tok,
+                alpha=ALPHA,
+                injection_mode=injection_mode,
+            )
             neg_short_loss = compute_answer_loss(neg_short_logits, neg_short_tok["labels"])
             if neg_short_loss is not None:
                 unit_loss = unit_loss + short_answer_weight * neg_short_loss
@@ -353,6 +451,7 @@ def evaluate(
     short_answer_weight: float = 0.0,
     answer_prefix_weight: float = 0.0,
     answer_prefix_tokens: int = 3,
+    injection_mode: str = "attention",
 ):
     hypernet.eval()
     total = 0
@@ -370,6 +469,7 @@ def evaluate(
             short_answer_weight=short_answer_weight,
             answer_prefix_weight=answer_prefix_weight,
             answer_prefix_tokens=answer_prefix_tokens,
+            injection_mode=injection_mode,
         )
         if out is None:
             continue
@@ -407,6 +507,7 @@ def evaluate_groups(
     short_answer_weight: float = 0.0,
     answer_prefix_weight: float = 0.0,
     answer_prefix_tokens: int = 3,
+    injection_mode: str = "attention",
 ):
     hypernet.eval()
     total = 0
@@ -427,6 +528,7 @@ def evaluate_groups(
             short_answer_weight,
             answer_prefix_weight,
             answer_prefix_tokens,
+            injection_mode,
         )
         if out is None:
             continue
@@ -480,10 +582,23 @@ def generate_text(model, tokenizer, prompt: str, device, max_new_tokens: int) ->
 
 
 @torch.no_grad()
-def generate_with_kv(model, tokenizer, target_layer, question: str, K, V, device, max_new_tokens: int, alpha: float):
+def generate_with_kv(
+    model,
+    tokenizer,
+    target_layer,
+    question: str,
+    K,
+    V,
+    device,
+    max_new_tokens: int,
+    alpha: float,
+    injection_mode: str = "attention",
+):
     prompt = build_chat_prompt(tokenizer, question)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=alpha))
+    hook = target_layer.register_forward_hook(
+        make_memory_hook(K, V, model_num_heads(model), alpha=alpha, injection_mode=injection_mode)
+    )
     try:
         generated = model.generate(
             **inputs,
@@ -542,6 +657,7 @@ def evaluate_generation(
     *,
     max_new_tokens: int,
     alpha: float,
+    injection_mode: str = "attention",
 ):
     """Small fixed free-generation probe for plotting service behavior.
 
@@ -558,10 +674,28 @@ def evaluate_generation(
         main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
         neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device, question=example.question)
         main_gen = generate_with_kv(
-            model, tokenizer, target_layer, example.question, main_mem["K"], main_mem["V"], device, max_new_tokens, alpha
+            model,
+            tokenizer,
+            target_layer,
+            example.question,
+            main_mem["K"],
+            main_mem["V"],
+            device,
+            max_new_tokens,
+            alpha,
+            injection_mode,
         )
         neg_gen = generate_with_kv(
-            model, tokenizer, target_layer, example.question, neg_mem["K"], neg_mem["V"], device, max_new_tokens, alpha
+            model,
+            tokenizer,
+            target_layer,
+            example.question,
+            neg_mem["K"],
+            neg_mem["V"],
+            device,
+            max_new_tokens,
+            alpha,
+            injection_mode,
         )
         zero_gen = generate_with_kv(
             model,
@@ -573,6 +707,7 @@ def evaluate_generation(
             device,
             max_new_tokens,
             alpha,
+            injection_mode,
         )
         no_mem_gen = generate_text(model, tokenizer, build_chat_prompt(tokenizer, example.question), device, max_new_tokens)
         direct_gen = generate_text(
@@ -698,6 +833,7 @@ def normalize_resume_config(config: dict) -> dict:
     for key in ("train_path", "valid_path"):
         if key in normalized:
             normalized[key] = str(normalized[key]).replace("\\", "/")
+    normalized["injection_mode"] = normalized.get("injection_mode", "attention")
     return normalized
 
 
@@ -878,6 +1014,15 @@ def main() -> None:
         help="Maximum generated tokens for the optional free-generation validation probe.",
     )
     parser.add_argument(
+        "--injection-mode",
+        choices=("attention", "add_all", "add_last", "hybrid"),
+        default="attention",
+        help=(
+            "Memory injection operation used during training and evaluation. "
+            "'attention' is the original PRAG-style hook; additive modes are ablations."
+        ),
+    )
+    parser.add_argument(
         "--overfit-samples",
         type=int,
         default=0,
@@ -1000,6 +1145,7 @@ def main() -> None:
         "feature_dim": model.config.hidden_size * (2 if USE_CONTEXTUAL_MEMORY else 1),
         "use_contextual_memory": USE_CONTEXTUAL_MEMORY,
         "question_conditioned_memory": QUESTION_CONDITIONED_MEMORY,
+        "injection_mode": args.injection_mode,
         "alpha": ALPHA,
         "objective": "atomic_final_ce_plus_negative_flip",
         "multifact": args.multifact,
@@ -1069,6 +1215,7 @@ def main() -> None:
         "every": args.eval_generation_every,
         "max_new_tokens": args.eval_generation_max_new_tokens,
         "alpha": ALPHA,
+        "injection_mode": args.injection_mode,
         "note": "Free-generation probe is intentionally outside checkpoint config so resume compatibility is stable.",
     }
     previous_runtime_sec = round(
@@ -1103,6 +1250,7 @@ def main() -> None:
                     short_answer_weight=args.short_answer_weight,
                     answer_prefix_weight=args.answer_prefix_weight,
                     answer_prefix_tokens=args.answer_prefix_tokens,
+                    injection_mode=args.injection_mode,
                 )
                 if out is not None:
                     out["objective"] = out["objective"] * args.group_weight
@@ -1120,6 +1268,7 @@ def main() -> None:
                     short_answer_weight=args.short_answer_weight,
                     answer_prefix_weight=args.answer_prefix_weight,
                     answer_prefix_tokens=args.answer_prefix_tokens,
+                    injection_mode=args.injection_mode,
                 )
                 if out is not None and getattr(item, "qa_type", "") == "final":
                     out["objective"] = out["objective"] * args.final_weight
@@ -1195,6 +1344,7 @@ def main() -> None:
                     args.short_answer_weight,
                     args.answer_prefix_weight,
                     args.answer_prefix_tokens,
+                    args.injection_mode,
                 )
                 group_metrics = evaluate_groups(
                     model,
@@ -1211,6 +1361,7 @@ def main() -> None:
                     args.short_answer_weight,
                     args.answer_prefix_weight,
                     args.answer_prefix_tokens,
+                    args.injection_mode,
                 ) if valid_eval_groups and args.group_weight > 0 else None
                 selection_objective = metrics["objective"]
                 if group_metrics is not None:
@@ -1240,6 +1391,7 @@ def main() -> None:
                         device,
                         max_new_tokens=args.eval_generation_max_new_tokens,
                         alpha=ALPHA,
+                        injection_mode=args.injection_mode,
                     )
                     print(
                         f"  -- [PRAG:gen-val @ {step}] count={generation_metrics['count']} | "
@@ -1292,6 +1444,7 @@ def main() -> None:
         args.short_answer_weight,
         args.answer_prefix_weight,
         args.answer_prefix_tokens,
+        args.injection_mode,
     )
     group_metrics = evaluate_groups(
         model,
@@ -1308,6 +1461,7 @@ def main() -> None:
         args.short_answer_weight,
         args.answer_prefix_weight,
         args.answer_prefix_tokens,
+        args.injection_mode,
     ) if valid_eval_groups and args.group_weight > 0 else None
     selection_objective = metrics["objective"]
     if group_metrics is not None:
@@ -1323,6 +1477,7 @@ def main() -> None:
             device,
             max_new_tokens=args.eval_generation_max_new_tokens,
             alpha=ALPHA,
+            injection_mode=args.injection_mode,
         )
         print(
             f"[PRAG:gen-final] count={final_generation_metrics['count']} | "
