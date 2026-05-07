@@ -37,6 +37,23 @@ from .prompts import system_prompt, user_prompt
 
 
 SYNTHETIC_CASES = {
+    "deeplearning": {
+        "name": "ko_lecture_deeplearning_definition",
+        "question": "교수님은 딥러닝이 뭐라고 설명했어?",
+        "main_passage": (
+            "자 오늘 수업은 딥러닝에 대해서 공부할거에요. "
+            "딥러닝은 머신러닝에 한 종류에요."
+        ),
+        "negative_passage": (
+            "자 오늘 수업은 딥러닝에 대해서 공부할거에요. "
+            "딥러닝은 규칙 기반 프로그램에 한 종류에요."
+        ),
+        "main_answer": "머신러닝의 한 종류",
+        "negative_answer": "규칙 기반 프로그램의 한 종류",
+        "full_answer": "교수님은 딥러닝이 머신러닝의 한 종류라고 설명했습니다.",
+        "negative_full_answer": "교수님은 딥러닝이 규칙 기반 프로그램의 한 종류라고 설명했습니다.",
+        "hit_phrases": ["머신러닝", "머신러닝의 한 종류", "머신러닝에 한 종류"],
+    },
     "deadline": {
         "name": "ko_lecture_assignment_deadline",
         "question": "과제는 언제까지야?",
@@ -640,10 +657,11 @@ def main() -> None:
     parser.add_argument(
         "--synthetic-case",
         choices=tuple(SYNTHETIC_CASES.keys()) + ("all",),
-        default="deadline",
+        default="deeplearning",
         help=(
-            "Synthetic transcript-style case to run: deadline checks date/deadline recall, "
-            "location checks upload/location recall, analogy checks concept analogy recall."
+            "Synthetic transcript-style case to run: deeplearning checks short concept definition recall, "
+            "deadline checks date/deadline recall, location checks upload/location recall, "
+            "analogy checks concept analogy recall."
         ),
     )
     parser.add_argument(
