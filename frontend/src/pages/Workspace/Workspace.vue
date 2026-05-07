@@ -1,6 +1,6 @@
 <!-- 음성 녹음, 실시간 전사, AI 분석 및 교차 참조가 이루어지는 작업실 페이지 컴포넌트입니다. -->
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
@@ -50,6 +50,11 @@ const emit = defineEmits([
 const isLeftSidebarCollapsed = ref(false)
 const { showCitePopover, currentCite, citePopoverPos, closeCitePopover, clearHistory } = useChat()
 const citationSourceRequest = ref(null)
+const selectedQuizSource = ref(null)
+
+watch(() => props.activeFileId, () => {
+  selectedQuizSource.value = null
+})
 
 const scheduleNoticeItems = computed(() => props.scheduleExtractionNotice?.items || [])
 const visibleScheduleNoticeItems = computed(() => scheduleNoticeItems.value.slice(0, 3))
@@ -131,6 +136,10 @@ function openCitationSource(cite) {
   clearHistory()
   emit('update:aiInput', '')
   closeCitePopover()
+}
+
+function handleQuizSourceSelect(source) {
+  selectedQuizSource.value = source
 }
 
 function escapeHtml(value = '') {
@@ -237,6 +246,7 @@ const highlightedTranscript = computed(() => {
       @askAi="(word) => emit('askAi', word)"
       @openStoredMaterial="emit('openStoredMaterial', $event)"
       @openRecording="emit('openRecording', $event)"
+      @quizSourceSelect="handleQuizSourceSelect"
     />
     
     <MainContent
@@ -252,6 +262,7 @@ const highlightedTranscript = computed(() => {
       :currentPreviewMaterial="currentPreviewMaterial"
       :summaryState="summaryState"
       :summaryNotes="summaryNotes"
+      :quizSource="selectedQuizSource"
       @startRecording="emit('startRecording')"
       @pauseRecording="emit('pauseRecording')"
       @resumeRecording="emit('resumeRecording')"
