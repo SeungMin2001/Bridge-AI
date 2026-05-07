@@ -273,10 +273,11 @@ def _correct_chunk(text: str) -> str:
 
 
 CHUNK_SIZE = 240000  # ~2.5초 (체감 응답 빠르게)
-DIARIZE_BUFFER_SIZE = CHUNK_SIZE * 4  # ~10초 분량 모아서 화자분리 (정확도 향상)
+DIARIZE_BUFFER_SIZE = CHUNK_SIZE * 2  # ~5초 분량 모아서 화자분리
 
 
-async def _call_diarize(audio_float32: np.ndarray, sample_rate: int = 16000) -> list:
+async def _call_diarize(audio_float32: np.ndarray, sample_rate: int = 16000,
+                        min_speakers: int = 2) -> list:
     """diart 서버에 오디오를 보내 화자 세그먼트를 받아옵니다."""
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
@@ -284,11 +285,20 @@ async def _call_diarize(audio_float32: np.ndarray, sample_rate: int = 16000) -> 
                 DIARIZE_URL,
                 content=audio_float32.astype(np.float32).tobytes(),
                 headers={"Content-Type": "application/octet-stream"},
-                params={"sample_rate": sample_rate},
+                params={"sample_rate": sample_rate, "min_speakers": min_speakers},
             )
             resp.raise_for_status()
             data = resp.json()
-            return data.get("segments", [])
+            segments = data.get("segments", [])
+
+            # 상세 로깅
+            speakers = set(s["speaker"] for s in segments)
+            logger.info(f"[DIARIZE] 응답: {len(segments)} segments, 화자: {speakers}, "
+                        f"num_speakers: {data.get('num_speakers')}")
+            for seg in segments:
+                logger.info(f"  → {seg['speaker']}: {seg['start']:.1f}s ~ {seg['end']:.1f}s")
+
+            return segments
     except Exception as e:
         logger.warning(f"[DIARIZE] 화자분리 호출 실패: {e}")
         return []
@@ -456,3 +466,16 @@ async def websocket_endpoint(ws: WebSocket):
 
     except (WebSocketDisconnect, ConnectionResetError):
         print(f"[WS] 클라이언트 연결 종료: session_id={session_id}")
+
+        # 남은 diarize_buffer가 있으면 마지막 화자분리 실행
+        if DIARIZE_ENABLED and len(diarize_buffer) > 0:
+            try:
+                diarize_audio = np.frombuffer(bytes(diarize_buffer), dtype=np.float32)
+                final_segments = await _call_diarize(diarize_audio, 16000)
+                if final_segments:
+                    logger.info(f"[DIARIZE] 세션 종료 시 마지막 화자분리: {len(final_segments)} segments, "
+                                f"speakers: {set(s['speaker'] for s in final_segments)}")
+                else:
+                    logger.info("[DIARIZE] 세션 종료 시 남은 버퍼 화자분리 결과 없음")
+            except Exception as e:
+                logger.error(f"[DIARIZE] 세션 종료 시 화자분리 실패: {e}")

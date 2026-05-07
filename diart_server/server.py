@@ -99,7 +99,8 @@ async def health():
     }
 
 
-def run_diarization(audio_np: np.ndarray, sample_rate: int) -> list:
+def run_diarization(audio_np: np.ndarray, sample_rate: int,
+                    min_speakers: int = None, max_speakers: int = None) -> list:
     """
     오디오 numpy 배열에 대해 화자 분리를 수행합니다.
 
@@ -113,11 +114,19 @@ def run_diarization(audio_np: np.ndarray, sample_rate: int) -> list:
         sample_rate = PIPELINE_SAMPLE_RATE
 
     # pyannote 형식: {"waveform": [1, T] tensor, "sample_rate": int}
-    waveform = torch.from_numpy(audio_np).unsqueeze(0)
+    audio_np_copy = audio_np.copy()  # writable 복사 (PyTorch 경고 방지)
+    waveform = torch.from_numpy(audio_np_copy).unsqueeze(0)
     audio_input = {"waveform": waveform, "sample_rate": sample_rate}
 
-    # 화자 분리 실행
-    diarization = pipeline(audio_input)
+    # 화자 분리 실행 (min/max speakers 힌트 전달)
+    kwargs = {}
+    if min_speakers is not None:
+        kwargs["min_speakers"] = min_speakers
+    if max_speakers is not None:
+        kwargs["max_speakers"] = max_speakers
+
+    logger.info(f"[diarize] pipeline 호출 (kwargs={kwargs})")
+    diarization = pipeline(audio_input, **kwargs)
 
     # 결과 변환
     segments = []
@@ -129,11 +138,21 @@ def run_diarization(audio_np: np.ndarray, sample_rate: int) -> list:
             "duration": round(turn.end - turn.start, 3)
         })
 
+    # 상세 로깅
+    unique_speakers = set(s["speaker"] for s in segments)
+    logger.info(f"[diarize] 결과: {len(segments)} segments, 화자: {unique_speakers}")
+    for seg in segments:
+        logger.info(f"  → {seg['speaker']}: {seg['start']:.1f}s ~ {seg['end']:.1f}s ({seg['duration']:.1f}s)")
+
     return segments
 
 
 @app.post("/diart")
-async def diarize_wav(file: UploadFile = File(...)):
+async def diarize_wav(
+    file: UploadFile = File(...),
+    min_speakers: int = Query(default=None, description="최소 화자 수"),
+    max_speakers: int = Query(default=None, description="최대 화자 수"),
+):
     """WAV 파일 → 화자 분리 JSON"""
     if pipeline is None:
         return JSONResponse(content={"error": "Pipeline not loaded"}, status_code=503)
@@ -146,7 +165,7 @@ async def diarize_wav(file: UploadFile = File(...)):
     if audio_np.ndim == 2:
         audio_np = audio_np.mean(axis=1)
 
-    segments = run_diarization(audio_np, int(original_sr))
+    segments = run_diarization(audio_np, int(original_sr), min_speakers, max_speakers)
     unique_speakers = set(s["speaker"] for s in segments)
 
     return JSONResponse(content={
@@ -160,6 +179,8 @@ async def diarize_wav(file: UploadFile = File(...)):
 async def diarize_raw(
     request: Request,
     sample_rate: int = Query(default=16000, description="입력 오디오 sample rate"),
+    min_speakers: int = Query(default=None, description="최소 화자 수"),
+    max_speakers: int = Query(default=None, description="최대 화자 수"),
 ):
     """float32 PCM raw bytes → 화자 분리 JSON"""
     if pipeline is None:
@@ -174,7 +195,7 @@ async def diarize_raw(
     logger.info(f"[diart/raw] sr={sample_rate}Hz, samples={len(audio_np)}, "
                 f"duration={len(audio_np)/sample_rate:.2f}s")
 
-    segments = run_diarization(audio_np, sample_rate)
+    segments = run_diarization(audio_np, sample_rate, min_speakers, max_speakers)
     unique_speakers = set(s["speaker"] for s in segments)
 
     return JSONResponse(content={
