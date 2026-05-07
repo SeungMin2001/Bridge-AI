@@ -237,12 +237,8 @@ async def chat_stream(req: ChatRequest):
             print(f"[CHAT STREAM] 에러: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
         finally:
-            # 신창영 : 기존 request_started_at 기반 로그 코드는 정의되지 않은 변수 오류가 있어 제외
-            #  total_elapsed = time.perf_counter() - request_started_at
-            #  first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
-            
-            total_elapsed = time.perf_counter() - t0
-            first_token_text = "logged" if ttft_logged else "N/A"
+            total_elapsed = time.perf_counter() - request_started_at
+            first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
             print(f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, total={total_elapsed:.3f}s")
 
         yield "data: [DONE]\n\n"
@@ -402,6 +398,18 @@ async def websocket_endpoint(ws: WebSocket):
                     saved_transcript = await save_transcript(transcript_data) or {}
                 except Exception as e:
                     print(f"[DB] save_transcript 실패: {e}")
+
+                if saved_transcript.get("transcript_id"):
+                    await ws.send_json({
+                        "type": "saved",
+                        "recording_id": recording_id,
+                        "raw_text": raw_text,
+                        "text": corrected_text,
+                        "transcript_id": saved_transcript.get("transcript_id"),
+                        "chunk_index": saved_transcript.get("chunk_index"),
+                        "start_time": start_time,
+                        "end_time": end_time,
+                    })
 
                 # 신창영 : RAG 메타데이터에 실제 파일명과 transcript 식별자를 함께 저장하여 잘못된 참조명을 방지
                 if corrected_text:
