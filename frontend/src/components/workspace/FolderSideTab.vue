@@ -21,6 +21,7 @@ const emit = defineEmits([
   'fileSelect',
   'openMaterial',
   'openRecording',
+  'quizSourceChange',
   'showToast'
 ])
 
@@ -362,6 +363,7 @@ const handleContextAction = async (action) => {
               @showMaterialMenu="handleShowMaterialMenu"
               @openMaterial="handleOpenMaterial"
               @openRecording="handleOpenRecording"
+              @quizSourceChange="emit('quizSourceChange', $event)"
             />
           </template>
         </div>
@@ -441,6 +443,31 @@ const getRelatedRecordings = (recordings, materialId) => {
   return recordings.filter((recording) => Array.isArray(recording.materialIds) && recording.materialIds.includes(materialId))
 }
 
+const collectTranscriptIds = (recordings = []) => {
+  const ids = new Set()
+  recordings.forEach((recording) => {
+    const transcriptions = recording?.transcriptions || []
+    transcriptions.forEach((transcription) => {
+      const segments = transcription?.segments || []
+      segments.forEach((segment) => {
+        const id = segment?.transcript_id || segment?.transcriptId
+        if (id) ids.add(String(id))
+      })
+    })
+  })
+  return Array.from(ids)
+}
+
+const uniqueRecordings = (recordings = []) => {
+  const seen = new Set()
+  return recordings.filter((recording) => {
+    const key = recording?.id || recording?.recordingId || recording?.title
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 const getWeekMaterials = (week) => Array.isArray(week?.materials) ? week.materials : []
 
 const getWeekRecordings = (week) => Array.isArray(week?.recordings) ? week.recordings : []
@@ -509,7 +536,7 @@ const TreeItemComponent = defineComponent({
     depth: { type: Number, required: true },
     activeFileId: { type: String, default: null }
   },
-  emits: ['selectFile', 'toggleFolder', 'showContextMenu', 'showMaterialMenu', 'openMaterial', 'openRecording'],
+  emits: ['selectFile', 'toggleFolder', 'showContextMenu', 'showMaterialMenu', 'openMaterial', 'openRecording', 'quizSourceChange'],
   setup(props, { emit }) {
     const isFile = computed(() => props.node.type === 'file')
     const isSelected = computed(() => props.node.id === props.activeFileId)
@@ -569,12 +596,15 @@ const TreeItemComponent = defineComponent({
 
     const handleMaterialClick = (e, material, weekRecordings = []) => {
       e.stopPropagation()
+      const relatedRecordings = getRelatedRecordings(weekRecordings, material.id)
       emit('selectFile', props.node.id)
       emit('openMaterial', {
         fileId: props.node.id,
         node: props.node,
         materialId: material.id,
-        recording: getRelatedRecordings(weekRecordings, material.id)[0]
+        material,
+        recordings: relatedRecordings,
+        recording: relatedRecordings[0]
       })
     }
 
@@ -586,6 +616,73 @@ const TreeItemComponent = defineComponent({
         node: props.node,
         recording
       })
+    }
+
+    const emitSelectedQuizSource = () => {
+      const selectedIds = selectedResources.value
+      const sourceItems = []
+      const sourceRecordings = []
+
+      weeks.value.forEach((week) => {
+        const weekRecordings = getWeekRecordings(week)
+
+        getWeekMaterials(week).forEach((material) => {
+          if (!selectedIds.has(material.id)) return
+
+          const relatedRecordings = getRelatedRecordings(weekRecordings, material.id)
+          const transcriptIds = collectTranscriptIds(relatedRecordings)
+          sourceRecordings.push(...relatedRecordings)
+          sourceItems.push({
+            id: material.id,
+            type: 'material',
+            title: material.name || '강의자료',
+            transcriptIds,
+            recordingCount: relatedRecordings.length
+          })
+        })
+
+        weekRecordings.forEach((recording, recordingIndex) => {
+          const recordingId = recording.id || recording.recordingId
+          if (!selectedIds.has(recordingId)) return
+
+          const transcriptIds = collectTranscriptIds([recording])
+          sourceRecordings.push(recording)
+          sourceItems.push({
+            id: recordingId,
+            type: 'recording',
+            title: recording.title || `녹음본 ${recordingIndex + 1}`,
+            transcriptIds,
+            recordingCount: 1
+          })
+        })
+      })
+
+      if (!sourceItems.length) {
+        emit('quizSourceChange', null)
+        return
+      }
+
+      const transcriptIds = Array.from(new Set(sourceItems.flatMap((item) => item.transcriptIds || [])))
+      const recordings = uniqueRecordings(sourceRecordings)
+      const title = sourceItems.length === 1
+        ? sourceItems[0].title
+        : `${sourceItems[0].title} 외 ${sourceItems.length - 1}개`
+
+      emit('quizSourceChange', {
+        type: sourceItems.every((item) => item.type === 'recording') ? 'recording' : 'mixed',
+        title,
+        sessionId: props.node.id,
+        sourceCount: sourceItems.length,
+        sources: sourceItems,
+        recordings,
+        transcriptIds
+      })
+    }
+
+    const toggleSelectedResource = (id) => {
+      if (!id) return
+      toggleSet(selectedResources, id)
+      emitSelectedQuizSource()
     }
 
     const renderResourceSection = () => {
@@ -651,7 +748,7 @@ const TreeItemComponent = defineComponent({
               class: `material-symbols-outlined week-tree-checkbox ${isSelected ? 'checked' : ''}`,
               onClick: (e) => {
                 e.stopPropagation()
-                toggleSet(selectedResources, id)
+                toggleSelectedResource(id)
               }
             }, isSelected ? 'check_box' : 'check_box_outline_blank')
           ] : []),
@@ -706,6 +803,7 @@ const TreeItemComponent = defineComponent({
               allIds.forEach(id => selectedResources.value.add(id))
             }
             selectedResources.value = new Set(selectedResources.value)
+            emitSelectedQuizSource()
           }
         }, allSelected ? 'check_box' : 'check_box_outline_blank')
       ]) : null
@@ -886,7 +984,8 @@ const TreeItemComponent = defineComponent({
           onShowContextMenu: (id, x, y) => emit('showContextMenu', id, x, y),
           onShowMaterialMenu: (payload, x, y) => emit('showMaterialMenu', payload, x, y),
           onOpenMaterial: (payload) => emit('openMaterial', payload),
-          onOpenRecording: (payload) => emit('openRecording', payload)
+          onOpenRecording: (payload) => emit('openRecording', payload),
+          onQuizSourceChange: (payload) => emit('quizSourceChange', payload)
         }))))
       }
 
