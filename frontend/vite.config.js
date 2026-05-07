@@ -66,6 +66,10 @@ export default defineConfig(async () => {
           target: backendUrl,
           changeOrigin: true,
         },
+        '/quiz': {
+          target: backendUrl,
+          changeOrigin: true,
+        },
         '/ws': {
           target: backendWsUrl,
           ws: true,
