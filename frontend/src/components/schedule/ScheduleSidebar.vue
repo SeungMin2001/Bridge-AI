@@ -128,7 +128,12 @@ const emit = defineEmits([
 
 <style scoped>
 .schedule-side-card {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
   min-height: 0;
+  align-self: stretch;
+  justify-self: stretch;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.95);
@@ -430,4 +435,3 @@ const emit = defineEmits([
   }
 }
 </style>
-
