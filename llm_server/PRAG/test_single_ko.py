@@ -37,22 +37,20 @@ from .prompts import system_prompt, user_prompt
 
 
 SYNTHETIC_CASES = {
-    "deeplearning": {
-        "name": "ko_lecture_deeplearning_definition",
-        "question": "교수님은 딥러닝이 뭐라고 설명했어?",
+    "process_restaurant": {
+        "name": "ko_lecture_process_restaurant_analogy",
+        "question": "교수님이 컴퓨터 프로세스를 뭐라고 비유하셨어?",
         "main_passage": (
-            "자 오늘 수업은 딥러닝에 대해서 공부할거에요. "
-            "딥러닝은 머신러닝에 한 종류에요."
+            "컴퓨터 프로세스는 비유를 하자면 식당과 같습니다."
         ),
         "negative_passage": (
-            "자 오늘 수업은 딥러닝에 대해서 공부할거에요. "
-            "딥러닝은 규칙 기반 프로그램에 한 종류에요."
+            "컴퓨터 프로세스는 비유를 하자면 도서관과 같습니다."
         ),
-        "main_answer": "머신러닝의 한 종류",
-        "negative_answer": "규칙 기반 프로그램의 한 종류",
-        "full_answer": "교수님은 딥러닝이 머신러닝의 한 종류라고 설명했습니다.",
-        "negative_full_answer": "교수님은 딥러닝이 규칙 기반 프로그램의 한 종류라고 설명했습니다.",
-        "hit_phrases": ["머신러닝", "머신러닝의 한 종류", "머신러닝에 한 종류"],
+        "main_answer": "식당",
+        "negative_answer": "도서관",
+        "full_answer": "교수님은 컴퓨터 프로세스를 식당에 비유했습니다.",
+        "negative_full_answer": "교수님은 컴퓨터 프로세스를 도서관에 비유했습니다.",
+        "hit_phrases": ["식당"],
     },
     "deadline": {
         "name": "ko_lecture_assignment_deadline",
@@ -657,9 +655,9 @@ def main() -> None:
     parser.add_argument(
         "--synthetic-case",
         choices=tuple(SYNTHETIC_CASES.keys()) + ("all",),
-        default="deeplearning",
+        default="process_restaurant",
         help=(
-            "Synthetic transcript-style case to run: deeplearning checks short concept definition recall, "
+            "Synthetic transcript-style case to run: process_restaurant checks short analogy recall, "
             "deadline checks date/deadline recall, location checks upload/location recall, "
             "analogy checks concept analogy recall."
         ),
