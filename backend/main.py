@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from quiz.quiz import router as quiz_router
 from summary.summary import router as summary_router
 from schedule.schedule import router as schedule_router
+from db_api.workspace.router import router as workspace_router
 import os
 import logging
 
@@ -59,6 +60,7 @@ app.add_middleware(
 app.include_router(quiz_router)
 app.include_router(summary_router)
 app.include_router(schedule_router)
+app.include_router(workspace_router)
 
 #python -c "from huggingface_hub import login; login(token='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')"
 
@@ -71,7 +73,7 @@ app.include_router(schedule_router)
 
 # 도커+vllm (OpenAI 호환 API)
 llm_server_url = "http://localhost:8001"
-llm_model_name = "QuantTrio/Qwen3.5-4B-AWQ"
+llm_model_name = "Qwen3.5-4B"#"QuantTrio/Qwen3.5-4B-AWQ"
 llm_api_key = "test-key"
 
 # 화자분리 서버

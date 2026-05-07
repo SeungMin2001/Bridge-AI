@@ -25,12 +25,20 @@ const checkLocalBackend = () => {
 // 2. defineConfig를 비동기(async)로 변경하여 시작 시 검사
 export default defineConfig(async () => {
   // 로컬 백엔드 상태 확인
-  const isLocalAlive = await checkLocalBackend();
+  const checkRemote = () => new Promise(res => {
+    const s = new net.Socket();
+    s.setTimeout(500).on('connect', () => { s.destroy(); res(true); })
+      .on('error', () => res(false)).on('timeout', () => res(false)).connect(8000, '100.104.164.84');
+  });
 
-  // 127.0.0.1이 켜져있으면 우선 사용, 안 되면 환경변수(Docker) 사용
+  // 1순위(로컬) -> 2순위(환경변수) -> 3순위(원격IP) -> 4순위(다시 로컬) 순서로 적용
   const backendUrl = isLocalAlive
     ? 'http://127.0.0.1:8000'
-    : (process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000');
+    : process.env.VITE_BACKEND_URL
+      ? process.env.VITE_BACKEND_URL
+      : (await checkRemote())
+        ? 'http://100.104.164.84:8000'
+        : 'http://127.0.0.1:8000';
 
   const backendWsUrl = backendUrl.replace(/^http/, 'ws');
 
