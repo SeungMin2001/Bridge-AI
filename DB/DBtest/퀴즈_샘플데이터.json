@@ -1,0 +1,167 @@
+{
+  "courseTitle": "퀴즈 데모 과목",
+  "sessionTitlePrefix": "퀴즈 데모 파일",
+  "recordingMode": "lecture",
+  "materials": [
+    {
+      "id": "quiz-material-sample1",
+      "name": "퀴즈파일_샘플1_데이터베이스.pdf",
+      "type": "application/pdf",
+      "recordingKeys": ["sample1"]
+    },
+    {
+      "id": "quiz-material-sample2",
+      "name": "퀴즈파일_샘플2_자료구조.pdf",
+      "type": "application/pdf",
+      "recordingKeys": ["sample2"]
+    }
+  ],
+  "recordings": [
+    {
+      "key": "sample1",
+      "title": "샘플1 데이터베이스 녹음본",
+      "durationText": "00:01:28",
+      "materialIds": ["quiz-material-sample1"],
+      "materialNames": ["퀴즈파일_샘플1_데이터베이스.pdf"],
+      "quiz": {
+        "numQuestions": 5,
+        "typeCounts": {
+          "MULTIPLE_CHOICE": 3,
+          "OX": 1,
+          "SHORT_ANSWER": 1
+        },
+        "submitAnswers": {
+          "1": "1. 데이터 중복 제거",
+          "2": "2. SELECT",
+          "3": "2. 검색 속도 향상",
+          "4": "X",
+          "5": "제1정규형"
+        }
+      },
+      "transcriptions": [
+        {
+          "speakerId": "teacher",
+          "speaker": "선생님",
+          "segments": [
+            {
+              "start": 0,
+              "end": 12,
+              "text": "오늘 데이터베이스 수업에서는 정규화의 목적과 기본 키의 조건을 정리했습니다."
+            },
+            {
+              "start": 12,
+              "end": 29,
+              "text": "정규화는 데이터 중복을 줄이고 삽입, 삭제, 갱신 이상 현상을 방지하기 위한 설계 과정입니다."
+            },
+            {
+              "start": 29,
+              "end": 45,
+              "text": "제1정규형은 모든 속성 값이 더 이상 나눌 수 없는 원자값을 가져야 한다는 조건입니다."
+            },
+            {
+              "start": 45,
+              "end": 61,
+              "text": "SQL에서 데이터를 조회할 때는 SELECT 문을 사용하고, 조건을 줄 때는 WHERE 절을 함께 사용합니다."
+            }
+          ]
+        },
+        {
+          "speakerId": "student",
+          "speaker": "학생",
+          "segments": [
+            {
+              "start": 61,
+              "end": 74,
+              "text": "기본 키는 각 행을 유일하게 식별해야 하고 최소성도 만족해야 하는 것이 맞나요?"
+            },
+            {
+              "start": 74,
+              "end": 88,
+              "text": "인덱스는 검색 속도를 높이기 위한 자료구조이지만 쓰기 작업이 많을 때는 비용이 생길 수 있다고 이해했습니다."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "sample2",
+      "title": "샘플2 자료구조 녹음본",
+      "durationText": "00:01:20",
+      "materialIds": ["quiz-material-sample2"],
+      "materialNames": ["퀴즈파일_샘플2_자료구조.pdf"],
+      "quiz": {
+        "numQuestions": 5,
+        "typeCounts": {
+          "MULTIPLE_CHOICE": 3,
+          "OX": 1,
+          "SHORT_ANSWER": 1
+        },
+        "submitAnswers": {
+          "1": "1. 데이터 중복 제거",
+          "2": "2. SELECT",
+          "3": "2. 검색 속도 향상",
+          "4": "X",
+          "5": "제1정규형"
+        }
+      },
+      "transcriptions": [
+        {
+          "speakerId": "teacher",
+          "speaker": "선생님",
+          "segments": [
+            {
+              "start": 0,
+              "end": 13,
+              "text": "오늘 자료구조 수업에서는 스택과 큐의 차이, 그리고 그래프 탐색 방법을 다뤘습니다."
+            },
+            {
+              "start": 13,
+              "end": 27,
+              "text": "스택은 마지막에 들어간 데이터가 먼저 나오는 LIFO 구조이고, 큐는 먼저 들어간 데이터가 먼저 나오는 FIFO 구조입니다."
+            },
+            {
+              "start": 27,
+              "end": 43,
+              "text": "깊이 우선 탐색 DFS는 한 경로를 끝까지 내려간 뒤 되돌아오며, 보통 스택이나 재귀 호출로 구현합니다."
+            },
+            {
+              "start": 43,
+              "end": 59,
+              "text": "너비 우선 탐색 BFS는 시작 정점에서 가까운 정점부터 방문하며, 보통 큐를 사용해 구현합니다."
+            }
+          ]
+        },
+        {
+          "speakerId": "student",
+          "speaker": "학생",
+          "segments": [
+            {
+              "start": 59,
+              "end": 70,
+              "text": "최단 경로 문제에서는 가중치가 없을 때 BFS를 사용할 수 있다는 점을 다시 확인했습니다."
+            },
+            {
+              "start": 70,
+              "end": 80,
+              "text": "다음 실습에서는 인접 리스트로 그래프를 표현하고 DFS와 BFS 방문 순서를 비교하겠습니다."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "quizFiles": [
+    {
+      "id": "sample1",
+      "title": "퀴즈파일/샘플1",
+      "recordingKey": "sample1",
+      "description": "데이터베이스 녹음본의 transcript_id 묶음으로 퀴즈 생성 검증"
+    },
+    {
+      "id": "sample2",
+      "title": "퀴즈파일/샘플2",
+      "recordingKey": "sample2",
+      "description": "자료구조 녹음본의 transcript_id 묶음으로 퀴즈 생성 검증"
+    }
+  ]
+}
