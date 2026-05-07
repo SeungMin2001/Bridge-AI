@@ -334,7 +334,7 @@ async def websocket_endpoint(ws: WebSocket):
     session_id = str(uuid.uuid4())
     processed_seconds = 0.0
     diarize_segments: list = []  # 최근 화자분리 결과 캐시
-    diarize_processed_seconds = 0.0  # 화자분리 처리된 시간
+    diarize_buffer_start_time = 0.0  # 현재 버퍼의 시작 절대시간
 
     try:
         await create_session(session_id)
@@ -375,6 +375,8 @@ async def websocket_endpoint(ws: WebSocket):
                 audio_16k = resampler(audio_tensor).cpu().numpy()
 
                 # 화자분리 버퍼에 16kHz 오디오 추가
+                if len(diarize_buffer) == 0:
+                    diarize_buffer_start_time = start_time  # 버퍼 시작 시간 기록
                 diarize_buffer.extend(audio_16k.astype(np.float32).tobytes())
 
                 # ── 화자분리: 버퍼가 충분히 쌓이면 실행 ──
@@ -385,10 +387,10 @@ async def websocket_endpoint(ws: WebSocket):
                     # 비동기로 화자분리 실행
                     new_segments = await _call_diarize(diarize_audio, 16000)
                     if new_segments:
-                        # 시간 오프셋 적용
+                        # 시간 오프셋: 버퍼 시작 절대시간을 더해서 절대시간으로 변환
                         for seg in new_segments:
-                            seg["start"] += diarize_processed_seconds
-                            seg["end"] += diarize_processed_seconds
+                            seg["start"] += diarize_buffer_start_time
+                            seg["end"] += diarize_buffer_start_time
                         diarize_segments = new_segments
 
                         # 화자분리 결과를 프론트에 전송
@@ -399,14 +401,17 @@ async def websocket_endpoint(ws: WebSocket):
                         })
                         logger.info(f"[DIARIZE] {len(new_segments)} segments, "
                                     f"speakers: {set(s['speaker'] for s in new_segments)}")
-
-                    diarize_processed_seconds = end_time
+                    else:
+                        logger.info("[DIARIZE] 화자분리 결과 없음")
 
                 # ── STT 전사 ──
                 raw_text = await loop.run_in_executor(transcribe_pool, _transcribe_chunk, audio_16k)
 
                 # 현재 청크의 지배적 화자 판별
                 speaker_id = _dominant_speaker(diarize_segments, start_time, end_time)
+                logger.info(f"[SPEAKER] {start_time:.1f}~{end_time:.1f}s → {speaker_id} "
+                            f"(segments: {len(diarize_segments)}개, "
+                            f"buffer_start: {diarize_buffer_start_time:.1f}s)")
 
                 # 1단계: raw_text + speaker_id 즉시 전송
                 await ws.send_json({
