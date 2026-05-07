@@ -24,6 +24,8 @@ const checkLocalBackend = () => {
 
 // 2. defineConfig를 비동기(async)로 변경하여 시작 시 검사
 export default defineConfig(async () => {
+
+  const isLocalAlive = await checkLocalBackend();
   // 로컬 백엔드 상태 확인
   const checkRemote = () => new Promise(res => {
     const s = new net.Socket();
