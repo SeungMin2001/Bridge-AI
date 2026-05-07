@@ -171,11 +171,11 @@ onMounted(async () => {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(480px, 24vw, 540px);
-  gap: 10px;
+  grid-template-columns: minmax(0, 8fr) minmax(320px, 2fr);
+  gap: 12px;
   width: 100vw;
   height: 100vh;
-  padding: 10px 0 10px 10px;
+  padding: 10px 12px 10px 10px;
   box-sizing: border-box;
 }
 
