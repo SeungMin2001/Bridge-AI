@@ -23,6 +23,7 @@ const emit = defineEmits([
   'askAi',
   'openStoredMaterial',
   'openRecording',
+  'quizSourceSelect',
   'toggle'
 ])
 
@@ -49,6 +50,31 @@ const formatTranscriptSourceDate = (endedAt) => {
   const minute = String(date.getMinutes()).padStart(2, '0')
 
   return `${year}.${month}.${day} · ${weekday} · ${hour}:${minute}`
+}
+
+const collectTranscriptIds = (recordings = []) => {
+  const ids = new Set()
+  recordings.forEach((recording) => {
+    const transcriptions = recording?.transcriptions || []
+    transcriptions.forEach((transcription) => {
+      const segments = transcription?.segments || []
+      segments.forEach((segment) => {
+        const id = segment?.transcript_id || segment?.transcriptId
+        if (id) ids.add(String(id))
+      })
+    })
+  })
+  return Array.from(ids)
+}
+
+const emitQuizSource = ({ title, type, recordings = [], materialId = '', recordingId = '' }) => {
+  emit('quizSourceSelect', {
+    type,
+    title,
+    materialId,
+    recordingId,
+    transcriptIds: collectTranscriptIds(recordings)
+  })
 }
 
 const handleMouseMove = (e) => {
@@ -92,16 +118,18 @@ const handleShowLiveTranscripts = () => {
   activeTab.value = 'voice'
 }
 
-const handleOpenMaterial = ({ fileId, node, materialId, recording }) => {
+const handleOpenMaterial = ({ fileId, node, materialId, material, recording, recordings = [] }) => {
   if (fileId && node) {
     emit('fileSelect', fileId, node)
   }
 
-  if (recording) {
+  const relatedRecordings = recordings.length ? recordings : (recording ? [recording] : [])
+
+  if (relatedRecordings[0]) {
     selectedTranscriptSource.value = {
-      title: recording.title || '연결된 녹음',
-      meta: formatTranscriptSourceDate(recording.endedAt),
-      transcriptions: recording.transcriptions || []
+      title: relatedRecordings[0].title || '연결된 녹음',
+      meta: formatTranscriptSourceDate(relatedRecordings[0].endedAt),
+      transcriptions: relatedRecordings[0].transcriptions || []
     }
   } else {
     selectedTranscriptSource.value = {
@@ -111,6 +139,12 @@ const handleOpenMaterial = ({ fileId, node, materialId, recording }) => {
     }
   }
 
+  emitQuizSource({
+    type: 'material',
+    title: material?.name || selectedTranscriptSource.value?.title || '강의자료',
+    materialId,
+    recordings: relatedRecordings
+  })
   emit('openStoredMaterial', materialId)
 }
 
@@ -124,12 +158,22 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
     meta: formatTranscriptSourceDate(recording?.endedAt),
     transcriptions: recording?.transcriptions || []
   }
+  emitQuizSource({
+    type: 'recording',
+    title: recording?.title || '저장된 녹음',
+    recordingId: recording?.id || recording?.recordingId || '',
+    recordings: recording ? [recording] : []
+  })
   emit('openRecording', {
     sessionId: fileId,
     recordingId: recording?.id || recording?.recordingId || '',
     recording
   })
   activeTab.value = 'voice'
+}
+
+const handleQuizSourceChange = (source) => {
+  emit('quizSourceSelect', source)
 }
 
 const getNodeRecordings = (node) => {
@@ -257,6 +301,7 @@ watch(() => props.citationSourceRequest, (request) => {
           @fileSelect="(id, node) => emit('fileSelect', id, node)"
           @openMaterial="handleOpenMaterial"
           @openRecording="handleOpenRecording"
+          @quizSourceChange="handleQuizSourceChange"
           @showToast="showToast"
           class="sidebar-content-animate"
         />
