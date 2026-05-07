@@ -19,6 +19,10 @@ from pydantic import BaseModel
 from quiz.quiz import router as quiz_router
 from summary.summary import router as summary_router
 from schedule.schedule import router as schedule_router
+import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 device = "cuda" if torch.cuda.is_available() else (
     "mps" if torch.backends.mps.is_available() else "cpu"
@@ -69,6 +73,12 @@ app.include_router(schedule_router)
 llm_server_url = "http://localhost:8001"
 llm_model_name = "QuantTrio/Qwen3.5-4B-AWQ"
 llm_api_key = "test-key"
+
+# 화자분리 서버
+DIARIZE_URL = os.getenv("DIARIZE_URL", "http://localhost:8003/diart/raw")
+DIARIZE_ENABLED = os.getenv("DIARIZE_ENABLED", "true").lower() == "true"
+
+
 
 class ChatRequest(BaseModel):
     question: str
@@ -261,17 +271,69 @@ def _correct_chunk(text: str) -> str:
 
 
 CHUNK_SIZE = 240000  # ~2.5초 (체감 응답 빠르게)
+DIARIZE_BUFFER_SIZE = CHUNK_SIZE * 4  # ~10초 분량 모아서 화자분리 (정확도 향상)
+
+
+async def _call_diarize(audio_float32: np.ndarray, sample_rate: int = 16000) -> list:
+    """diart 서버에 오디오를 보내 화자 세그먼트를 받아옵니다."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            resp = await client.post(
+                DIARIZE_URL,
+                content=audio_float32.astype(np.float32).tobytes(),
+                headers={"Content-Type": "application/octet-stream"},
+                params={"sample_rate": sample_rate},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("segments", [])
+    except Exception as e:
+        logger.warning(f"[DIARIZE] 화자분리 호출 실패: {e}")
+        return []
+
+
+def _dominant_speaker(segments: list, start: float, end: float) -> str | None:
+    """주어진 시간 구간에서 가장 많이 말한 화자를 반환합니다."""
+    if not segments:
+        return None
+    speaker_durations: dict[str, float] = {}
+    for seg in segments:
+        # 구간 겹침 계산
+        overlap_start = max(seg["start"], start)
+        overlap_end = min(seg["end"], end)
+        if overlap_end > overlap_start:
+            spk = seg["speaker"]
+            speaker_durations[spk] = speaker_durations.get(spk, 0) + (overlap_end - overlap_start)
+    if not speaker_durations:
+        # 전체 세그먼트에서 가장 긴 화자
+        for seg in segments:
+            spk = seg["speaker"]
+            speaker_durations[spk] = speaker_durations.get(spk, 0) + seg["duration"]
+    if not speaker_durations:
+        return None
+    return max(speaker_durations, key=speaker_durations.get)
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     audio_buffer = bytearray()
+    diarize_buffer = bytearray()  # 화자분리용 (더 긴 오디오 수집)
     session_id = str(uuid.uuid4())
     processed_seconds = 0.0
+    diarize_segments: list = []  # 최근 화자분리 결과 캐시
+    diarize_processed_seconds = 0.0  # 화자분리 처리된 시간
+
     try:
         await create_session(session_id)
     except Exception as e:
         print(f"[DB] create_session 실패 (전사는 계속 진행): {e}")
+
+    # 세션 시작 알림
+    await ws.send_json({
+        "type": "session_start",
+        "session_id": session_id,
+    })
 
     loop = asyncio.get_event_loop()
 
@@ -284,7 +346,7 @@ async def websocket_endpoint(ws: WebSocket):
                 pcm_chunk = bytes(audio_buffer[:CHUNK_SIZE])
                 del audio_buffer[:CHUNK_SIZE]
 
-                chunk_duration = (len(pcm_chunk) / 2) / CHUNK_SIZE
+                chunk_duration = (len(pcm_chunk) / 2) / 48000  # int16 = 2 bytes, 48kHz
                 start_time = processed_seconds
                 end_time = processed_seconds + chunk_duration
 
@@ -293,20 +355,55 @@ async def websocket_endpoint(ws: WebSocket):
 
                 rms = np.sqrt(np.mean(audio_float ** 2))
                 if rms < 0.01:
+                    processed_seconds = end_time
                     continue
 
                 # GPU resampling
                 audio_tensor = torch.from_numpy(audio_float).to(device)
                 audio_16k = resampler(audio_tensor).cpu().numpy()
 
-                # 전사
+                # 화자분리 버퍼에 16kHz 오디오 추가
+                diarize_buffer.extend(audio_16k.astype(np.float32).tobytes())
+
+                # ── 화자분리: 버퍼가 충분히 쌓이면 실행 ──
+                if DIARIZE_ENABLED and len(diarize_buffer) >= DIARIZE_BUFFER_SIZE:
+                    diarize_audio = np.frombuffer(bytes(diarize_buffer), dtype=np.float32)
+                    diarize_buffer.clear()
+
+                    # 비동기로 화자분리 실행
+                    new_segments = await _call_diarize(diarize_audio, 16000)
+                    if new_segments:
+                        # 시간 오프셋 적용
+                        for seg in new_segments:
+                            seg["start"] += diarize_processed_seconds
+                            seg["end"] += diarize_processed_seconds
+                        diarize_segments = new_segments
+
+                        # 화자분리 결과를 프론트에 전송
+                        await ws.send_json({
+                            "type": "diarization",
+                            "segments": new_segments,
+                            "num_speakers": len(set(s["speaker"] for s in new_segments)),
+                        })
+                        logger.info(f"[DIARIZE] {len(new_segments)} segments, "
+                                    f"speakers: {set(s['speaker'] for s in new_segments)}")
+
+                    diarize_processed_seconds = end_time
+
+                # ── STT 전사 ──
                 raw_text = await loop.run_in_executor(transcribe_pool, _transcribe_chunk, audio_16k)
 
-                # 1단계: raw_text 즉시 전송 (빠른 체감)
+                # 현재 청크의 지배적 화자 판별
+                speaker_id = _dominant_speaker(diarize_segments, start_time, end_time)
+
+                # 1단계: raw_text + speaker_id 즉시 전송
                 await ws.send_json({
                     "type": "raw",
                     "raw_text": raw_text,
                     "text": raw_text,
+                    "speaker_id": speaker_id,
+                    "start_time": round(start_time, 3),
+                    "end_time": round(end_time, 3),
                 })
 
                 # 2단계: 교정 후 업데이트 전송
@@ -317,16 +414,21 @@ async def websocket_endpoint(ws: WebSocket):
                             "type": "corrected",
                             "raw_text": raw_text,
                             "text": corrected_text,
+                            "speaker_id": speaker_id,
+                            "start_time": round(start_time, 3),
+                            "end_time": round(end_time, 3),
                         })
                 else:
                     corrected_text = raw_text
 
+                # DB 저장 (speaker_id 포함)
                 transcript_data = {
                     "session_id": session_id,
                     "start_time": start_time,
                     "end_time": end_time,
                     "raw_text": raw_text,
                     "text": corrected_text,
+                    "speaker_id": speaker_id,
                 }
                 try:
                     await save_transcript(transcript_data)
@@ -343,6 +445,7 @@ async def websocket_endpoint(ws: WebSocket):
                             "session_date": str(__import__('datetime').date.today()),
                             "start_time": start_time,
                             "end_time": end_time,
+                            "speaker_id": speaker_id or "UNKNOWN",
                         })
                     except Exception as e:
                         print(f"[RAG] 임베딩 추가 실패 (전사는 정상): {e}")

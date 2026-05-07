@@ -81,17 +81,21 @@ CREATE TABLE KEY_SENTENCES
     created_at    TIMESTAMP NOT NULL
 );
 
+-- 테이블명 : 전사 청크 테이블. 녹음 중 생성된 실시간 전사 결과를 시간 구간별로 나누어 저장한다.
 CREATE TABLE TRANSCRIPTS
 (
-    transcript_id  UUID PRIMARY KEY,
-    session_id     UUID NULL,
-    chunk_index    INT NULL,
-    start_time     REAL NULL,
-    end_time       REAL NULL,
-    chunk_text     TEXT NULL,
-    corrected_text TEXT NULL,
-    embedding      VECTOR(1024) NULL,
-    created_at     TIMESTAMP NULL
+    transcript_id  UUID PRIMARY KEY,      -- transcript_id : 전사 청크의 고유 ID. RAG 참조, 일정 추출, 키워드 추출의 기준 ID로 사용된다.
+    session_id     UUID NULL,             -- session_id : 전사가 속한 세션/파일 ID. sessions.session_id와 연결되어 파일별 전사문을 조회한다.
+    recording_id   TEXT NULL,             -- recording_id : 전사 청크가 속한 개별 녹음본 ID. session_voicefile[].id와 같은 값으로 녹음본 단위 삭제/참조에 사용한다.
+    chunk_index    INT NULL,              -- chunk_index : 같은 세션 안에서 전사 청크의 순서. 전사문을 시간순으로 재구성할 때 사용한다.
+    start_time     REAL NULL,             -- start_time : 해당 전사 청크의 시작 시간(초). 녹음본 참조 링크와 하이라이트에 사용한다.
+    end_time       REAL NULL,             -- end_time : 해당 전사 청크의 종료 시간(초). 녹음본 구간 참조 범위를 만들 때 사용한다.
+    speaker_id     TEXT NULL,             -- speaker_id : 전사 청크의 화자 ID. 화자 분리 기능이 연결될 경우 사용하며, 현재는 NULL일 수 있다.
+    speaker_name   TEXT NULL,             -- speaker_name : 전사 청크의 화자 표시 이름. UI에서 사람 이름으로 보여줄 때 사용한다.
+    chunk_text     TEXT NULL,             -- chunk_text : STT가 만든 원본 전사 텍스트. 보정 전 원문을 보존한다.
+    corrected_text TEXT NULL,             -- corrected_text : 맞춤법/문맥 보정 후 전사 텍스트. RAG 검색과 화면 표시에서 우선 사용될 수 있다.
+    embedding      VECTOR(1024) NULL,     -- embedding : 전사 청크의 벡터 임베딩. 의미 기반 검색과 RAG 유사도 검색에 사용한다.
+    created_at     TIMESTAMP NULL         -- created_at : 전사 청크가 DB에 저장된 시각. 녹음본 JSON과 RAG 참조를 맞추는 데 사용할 수 있다.
 );
 
 CREATE TABLE QUIZZES
