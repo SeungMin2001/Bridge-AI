@@ -202,6 +202,7 @@ export function useRecordingState() {
 
     let segIdCounter = 0
     const pendingSegmentMap = new Map()
+    const savedSegmentMap = new Map()
     const autoConfirmTimers = new Map()
 
     // 백엔드에서 교정된 텍스트가 오면 기존 pending segment를 confirmed로 바꿉니다.
@@ -235,11 +236,40 @@ export function useRecordingState() {
       }
     }
 
+    const applySavedTranscript = (segId, savedData) => {
+      for (const trans of transcriptions.value) {
+        const segIdx = trans.segments.findIndex((segment) => segment.id === segId)
+        if (segIdx !== -1) {
+          trans.segments.splice(segIdx, 1, {
+            ...trans.segments[segIdx],
+            transcript_id: savedData.transcript_id || savedData.transcriptId || '',
+            transcriptId: savedData.transcript_id || savedData.transcriptId || '',
+            chunk_index: savedData.chunk_index,
+            start: savedData.start_time ?? trans.segments[segIdx].start,
+            end: savedData.end_time ?? trans.segments[segIdx].end,
+            status: 'confirmed'
+          })
+          trans.text = trans.segments.map((segment) => segment.text).join(' ')
+          break
+        }
+      }
+    }
+
     // 백엔드 WebSocket에서 raw/corrected 전사 메시지를 받아 UI 상태에 반영합니다.
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
         if (!data.text || data.text.trim() === '') return
+
+        if (data.type === 'saved') {
+          const segId = savedSegmentMap.get(data.raw_text) || savedSegmentMap.get(data.text)
+          if (segId !== undefined) {
+            applySavedTranscript(segId, data)
+            savedSegmentMap.delete(data.raw_text)
+            savedSegmentMap.delete(data.text)
+          }
+          return
+        }
 
         if (data.type === 'corrected') {
           const rawText = data.raw_text
@@ -292,6 +322,7 @@ export function useRecordingState() {
         lastBubbleTime = now.getTime()
 
         pendingSegmentMap.set(rawText, segId)
+        savedSegmentMap.set(rawText, segId)
 
         const confirmTimer = setTimeout(() => {
           autoConfirmTimers.delete(segId)
