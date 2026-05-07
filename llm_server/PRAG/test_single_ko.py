@@ -36,8 +36,25 @@ from .memory import (
 from .prompts import system_prompt, user_prompt
 
 
-CASES = [
-    {
+SYNTHETIC_CASES = {
+    "deadline": {
+        "name": "ko_lecture_assignment_deadline",
+        "question": "과제는 언제까지 제출해야 해?",
+        "main_passage": (
+            "자 과제 얘기 잠깐 할게요. 이번 과제는 음, 다음 주 월요일까지 올려주시면 됩니다. "
+            "월요일 밤까지 제출하면 되고, 늦으면 감점이 있어요."
+        ),
+        "negative_passage": (
+            "자 과제 얘기 잠깐 할게요. 이번 과제는 음, 다음 주 금요일까지 올려주시면 됩니다. "
+            "금요일 밤까지 제출하면 되고, 늦으면 감점이 있어요."
+        ),
+        "main_answer": "다음 주 월요일",
+        "negative_answer": "다음 주 금요일",
+        "full_answer": "과제는 다음 주 월요일까지 제출해야 합니다.",
+        "negative_full_answer": "과제는 다음 주 금요일까지 제출해야 합니다.",
+        "hit_phrases": ["다음 주 월요일", "월요일"],
+    },
+    "location": {
         "name": "ko_lecture_recording_notice",
         "question": "수업 녹화 파일은 어디에 올라와?",
         "main_passage": (
@@ -54,7 +71,30 @@ CASES = [
         "negative_full_answer": "수업 녹화 파일은 학과 홈페이지 공지사항에 올라옵니다.",
         "hit_phrases": ["이캠퍼스 자료실", "이캠퍼스"],
     },
-]
+    "analogy": {
+        "name": "ko_lecture_cache_analogy",
+        "question": "교수님은 캐시를 뭐에 비유했어?",
+        "main_passage": (
+            "자 캐시를 쉽게 말하면요, 음 자주 쓰는 자료를 책상 위에 올려두는 거랑 비슷합니다. "
+            "필요할 때마다 창고까지 가지 않고 바로 꺼내 쓰는 느낌이라고 보면 돼요."
+        ),
+        "negative_passage": (
+            "자 캐시를 쉽게 말하면요, 음 오래 보관할 자료를 냉장고 깊숙한 칸에 넣어두는 거랑 비슷합니다. "
+            "당장 쓰기보다는 나중에 천천히 꺼내 보는 느낌이라고 보면 돼요."
+        ),
+        "main_answer": "자주 쓰는 자료를 책상 위에 올려두는 것",
+        "negative_answer": "오래 보관할 자료를 냉장고 깊숙한 칸에 넣어두는 것",
+        "full_answer": "교수님은 캐시를 자주 쓰는 자료를 책상 위에 올려두는 것에 비유했습니다.",
+        "negative_full_answer": "교수님은 캐시를 오래 보관할 자료를 냉장고 깊숙한 칸에 넣어두는 것에 비유했습니다.",
+        "hit_phrases": ["책상 위", "책상", "창고"],
+    },
+}
+
+
+def select_synthetic_cases(case_name: str) -> list[dict]:
+    if case_name == "all":
+        return list(SYNTHETIC_CASES.values())
+    return [SYNTHETIC_CASES[case_name]]
 
 
 BAD_QUESTION_PREFIXES = (
@@ -604,6 +644,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--synthetic-case",
+        choices=tuple(SYNTHETIC_CASES.keys()) + ("all",),
+        default="deadline",
+        help=(
+            "Synthetic transcript-style case to run: deadline checks date/deadline recall, "
+            "location checks upload/location recall, analogy checks concept analogy recall."
+        ),
+    )
+    parser.add_argument(
         "--case-index",
         type=int,
         default=0,
@@ -657,14 +706,17 @@ def main() -> None:
     if args.case_mode == "dataset":
         cases = load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases)
     elif args.case_mode == "synthetic":
-        cases = CASES
+        cases = select_synthetic_cases(args.synthetic_case)
     else:
-        cases = load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases) + CASES
+        cases = (
+            load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases)
+            + select_synthetic_cases(args.synthetic_case)
+        )
 
     print("[PRAG:single-ko]")
     print(
         f"case_mode={args.case_mode} | weights={args.weights} | data={args.data} | "
-        f"question_conditioned={question_conditioned}"
+        f"synthetic_case={args.synthetic_case} | question_conditioned={question_conditioned}"
     )
     for case in cases:
         run_case(
