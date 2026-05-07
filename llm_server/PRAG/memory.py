@@ -226,12 +226,46 @@ def model_num_heads(model) -> int:
     return int(getattr(model.config, "num_attention_heads"))
 
 
-def make_memory_hook(K: torch.Tensor, V: torch.Tensor, num_heads: int, alpha: float = ALPHA):
+def additive_memory(hidden: torch.Tensor, V: torch.Tensor, alpha: float, *, last_token_only: bool = False) -> torch.Tensor:
+    """Inject a direct memory bias without requiring the model to attend to K/V.
+
+    This is intended for diagnostics/ablations. The trained path remains the
+    MergePRAG-style cross-attention hook, but additive injection helps determine
+    whether failures come from weak attention-to-memory reads or from the memory
+    vector itself not carrying the answer.
+    """
+    if V.dim() == 2:
+        V = V.unsqueeze(0)
+    memory = V.mean(dim=1).to(device=hidden.device, dtype=hidden.dtype).unsqueeze(1)
+    if not last_token_only:
+        return hidden + alpha * memory
+    new_hidden = hidden.clone()
+    new_hidden[:, -1:, :] = new_hidden[:, -1:, :] + alpha * memory
+    return new_hidden
+
+
+def make_memory_hook(
+    K: torch.Tensor,
+    V: torch.Tensor,
+    num_heads: int,
+    alpha: float = ALPHA,
+    injection_mode: str = "attention",
+):
     def hook_fn(_module, _input, output):
         hidden = output[0] if isinstance(output, tuple) else output
         K_local = K.to(device=hidden.device, dtype=hidden.dtype)
         V_local = V.to(device=hidden.device, dtype=hidden.dtype)
-        new_hidden = hidden + alpha * cross_attention(hidden, K_local, V_local, num_heads)
+        if injection_mode == "attention":
+            new_hidden = hidden + alpha * cross_attention(hidden, K_local, V_local, num_heads)
+        elif injection_mode == "add_all":
+            new_hidden = additive_memory(hidden, V_local, alpha, last_token_only=False)
+        elif injection_mode == "add_last":
+            new_hidden = additive_memory(hidden, V_local, alpha, last_token_only=True)
+        elif injection_mode == "hybrid":
+            attended = hidden + alpha * cross_attention(hidden, K_local, V_local, num_heads)
+            new_hidden = additive_memory(attended, V_local, alpha, last_token_only=False)
+        else:
+            raise ValueError(f"Unsupported injection_mode: {injection_mode}")
         if isinstance(output, tuple):
             return (new_hidden,) + output[1:]
         return new_hidden
@@ -279,8 +313,18 @@ def compute_answer_loss(logits: torch.Tensor, labels: torch.Tensor):
     return F.cross_entropy(shift_logits[valid], shift_labels[valid])
 
 
-def forward_with_memory(model, target_layer, K: torch.Tensor, V: torch.Tensor, tok, alpha: float = ALPHA):
-    hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=alpha))
+def forward_with_memory(
+    model,
+    target_layer,
+    K: torch.Tensor,
+    V: torch.Tensor,
+    tok,
+    alpha: float = ALPHA,
+    injection_mode: str = "attention",
+):
+    hook = target_layer.register_forward_hook(
+        make_memory_hook(K, V, model_num_heads(model), alpha=alpha, injection_mode=injection_mode)
+    )
     try:
         logits = model(**tok)["logits"]
     finally:

@@ -371,10 +371,13 @@ def generate_with_kv(
     max_new_tokens,
     alpha: float,
     prompt_style: str,
+    injection_mode: str,
 ):
     prompt = build_generation_prompt(tokenizer, question, prompt_style)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    hook = target_layer.register_forward_hook(make_memory_hook(K, V, model_num_heads(model), alpha=alpha))
+    hook = target_layer.register_forward_hook(
+        make_memory_hook(K, V, model_num_heads(model), alpha=alpha, injection_mode=injection_mode)
+    )
     try:
         generated = model.generate(
             **inputs,
@@ -396,6 +399,7 @@ def run_case(
     alpha: float,
     question_conditioned: bool,
     prompt_styles: list[str],
+    injection_mode: str,
     verbose: bool = False,
     answer_prefix_tokens: int = 3,
 ) -> None:
@@ -428,6 +432,7 @@ def run_case(
                 main_mem["V"],
                 no_memory_tok,
                 alpha=alpha,
+                injection_mode=injection_mode,
             )
             kv_loss = compute_answer_loss(kv_logits, no_memory_tok["labels"])
             prefix_loss = compute_prefix_answer_loss(kv_logits, no_memory_tok["labels"], answer_prefix_tokens)
@@ -451,8 +456,10 @@ def run_case(
                 max_new_tokens,
                 alpha,
                 prompt_style,
+                injection_mode,
             )
             print(f"\n[case:{case['name']}]")
+            print(f"injection_mode: {injection_mode}")
             print(f"question: {question}")
             print(f"passage: {main_passage}")
             print(f"expected: {full_answer}")
@@ -487,19 +494,51 @@ def run_case(
         main_tok = tokenize_qa(tokenizer, question, main_answer, device)
         neg_tok = tokenize_qa(tokenizer, question, negative_answer, device)
         main_gold = compute_answer_loss(
-            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], main_tok, alpha=alpha),
+            forward_with_memory(
+                model,
+                target_layer,
+                main_mem["K"],
+                main_mem["V"],
+                main_tok,
+                alpha=alpha,
+                injection_mode=injection_mode,
+            ),
             main_tok["labels"],
         ).item()
         main_neg = compute_answer_loss(
-            forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], neg_tok, alpha=alpha),
+            forward_with_memory(
+                model,
+                target_layer,
+                main_mem["K"],
+                main_mem["V"],
+                neg_tok,
+                alpha=alpha,
+                injection_mode=injection_mode,
+            ),
             neg_tok["labels"],
         ).item()
         neg_gold = compute_answer_loss(
-            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], main_tok, alpha=alpha),
+            forward_with_memory(
+                model,
+                target_layer,
+                neg_mem["K"],
+                neg_mem["V"],
+                main_tok,
+                alpha=alpha,
+                injection_mode=injection_mode,
+            ),
             main_tok["labels"],
         ).item()
         neg_neg = compute_answer_loss(
-            forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], neg_tok, alpha=alpha),
+            forward_with_memory(
+                model,
+                target_layer,
+                neg_mem["K"],
+                neg_mem["V"],
+                neg_tok,
+                alpha=alpha,
+                injection_mode=injection_mode,
+            ),
             neg_tok["labels"],
         ).item()
         no_passage = generate_plain(model, tokenizer, question, device, max_new_tokens)
@@ -512,19 +551,51 @@ def run_case(
             style_main_tok = tokenize_prompt_answer(tokenizer, prompt, main_answer, device)
             style_neg_tok = tokenize_prompt_answer(tokenizer, prompt, negative_answer, device)
             style_main_gold = compute_answer_loss(
-                forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], style_main_tok, alpha=alpha),
+                forward_with_memory(
+                    model,
+                    target_layer,
+                    main_mem["K"],
+                    main_mem["V"],
+                    style_main_tok,
+                    alpha=alpha,
+                    injection_mode=injection_mode,
+                ),
                 style_main_tok["labels"],
             ).item()
             style_main_neg = compute_answer_loss(
-                forward_with_memory(model, target_layer, main_mem["K"], main_mem["V"], style_neg_tok, alpha=alpha),
+                forward_with_memory(
+                    model,
+                    target_layer,
+                    main_mem["K"],
+                    main_mem["V"],
+                    style_neg_tok,
+                    alpha=alpha,
+                    injection_mode=injection_mode,
+                ),
                 style_neg_tok["labels"],
             ).item()
             style_neg_gold = compute_answer_loss(
-                forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], style_main_tok, alpha=alpha),
+                forward_with_memory(
+                    model,
+                    target_layer,
+                    neg_mem["K"],
+                    neg_mem["V"],
+                    style_main_tok,
+                    alpha=alpha,
+                    injection_mode=injection_mode,
+                ),
                 style_main_tok["labels"],
             ).item()
             style_neg_neg = compute_answer_loss(
-                forward_with_memory(model, target_layer, neg_mem["K"], neg_mem["V"], style_neg_tok, alpha=alpha),
+                forward_with_memory(
+                    model,
+                    target_layer,
+                    neg_mem["K"],
+                    neg_mem["V"],
+                    style_neg_tok,
+                    alpha=alpha,
+                    injection_mode=injection_mode,
+                ),
                 style_neg_tok["labels"],
             ).item()
             prompt_losses[prompt_style] = (style_main_gold, style_main_neg, style_neg_gold, style_neg_neg)
@@ -539,6 +610,7 @@ def run_case(
                 max_new_tokens,
                 alpha,
                 prompt_style,
+                injection_mode,
             )
             neg_gen = generate_with_kv(
                 model,
@@ -551,10 +623,12 @@ def run_case(
                 max_new_tokens,
                 alpha,
                 prompt_style,
+                injection_mode,
             )
             generations[prompt_style] = (main_gen, neg_gen)
 
     print(f"\n[case:{case['name']}]")
+    print(f"injection_mode: {injection_mode}")
     if case.get("source_id"):
         print(f"source_id: {case['source_id']}")
     if case.get("qa_type"):
@@ -681,6 +755,15 @@ def main() -> None:
         help="Prompt used for K/V free generation. 'all' compares service, short-chat, memory-cued, and paper prompts.",
     )
     parser.add_argument(
+        "--injection-mode",
+        choices=("attention", "add_all", "add_last", "hybrid", "all"),
+        default="attention",
+        help=(
+            "How to inject memory at the target layer. attention is the trained MergePRAG-style path; "
+            "add_all/add_last/hybrid are diagnostic ablations to test direct additive memory bias."
+        ),
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Print the full diagnostic report, including negatives, candidate losses, and prompt comparisons.",
@@ -713,6 +796,11 @@ def main() -> None:
     hypernet.load_state_dict(state["hypernet"])
     hypernet.eval()
     prompt_styles = ["service", "short-chat", "memory-cued", "paper"] if args.prompt_style == "all" else [args.prompt_style]
+    injection_modes = (
+        ["attention", "add_all", "add_last", "hybrid"]
+        if args.injection_mode == "all"
+        else [args.injection_mode]
+    )
     if args.case_mode == "dataset":
         cases = load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases)
     elif args.case_mode == "synthetic":
@@ -726,23 +814,26 @@ def main() -> None:
     print("[PRAG:single-ko]")
     print(
         f"case_mode={args.case_mode} | weights={args.weights} | data={args.data} | "
-        f"synthetic_case={args.synthetic_case} | question_conditioned={question_conditioned}"
+        f"synthetic_case={args.synthetic_case} | injection_mode={args.injection_mode} | "
+        f"question_conditioned={question_conditioned}"
     )
-    for case in cases:
-        run_case(
-            model,
-            tokenizer,
-            hypernet,
-            target_layer,
-            device,
-            case,
-            args.max_new_tokens,
-            args.alpha,
-            question_conditioned,
-            prompt_styles,
-            verbose=args.verbose,
-            answer_prefix_tokens=args.answer_prefix_tokens,
-        )
+    for injection_mode in injection_modes:
+        for case in cases:
+            run_case(
+                model,
+                tokenizer,
+                hypernet,
+                target_layer,
+                device,
+                case,
+                args.max_new_tokens,
+                args.alpha,
+                question_conditioned,
+                prompt_styles,
+                injection_mode,
+                verbose=args.verbose,
+                answer_prefix_tokens=args.answer_prefix_tokens,
+            )
 
 
 if __name__ == "__main__":
