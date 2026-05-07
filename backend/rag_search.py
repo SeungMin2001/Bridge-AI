@@ -592,7 +592,7 @@ def _run_hybrid_search(queries: list[str], top_k: int = 5, session_id: str | Non
 def _format_citation(result: dict) -> str:
     """출처 문자열 생성"""
     time_range = f"{_format_time(result['start_time'])}~{_format_time(result['end_time'])}"
-    return f"{result['course_title']} > {result['session_title']} > {time_range}"
+    return f"{result['session_title']} > {time_range}"
 
 
 # ══════════════════════════════════════
@@ -608,7 +608,7 @@ def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict
         {
             "context": "검색된 내용을 정리한 문자열 (LLM 프롬프트용)",
             "citations": [
-                {"text": "chunk 내용", "citation": "컴퓨터공학개론 > 2주차 > 3:00~6:00"},
+                {"text": "chunk 내용", "citation": "2주차 > 3:00~6:00"},
                 ...
             ]
         }
