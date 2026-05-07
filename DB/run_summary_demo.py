@@ -1,5 +1,5 @@
 """
-DB/요약_샘플데이터.json을 사용해 요약 저장 흐름을 확인하는 테스트 스크립트.
+DB/DBtest/요약_샘플데이터.json을 사용해 요약 저장 흐름을 확인하는 테스트 스크립트.
 
 기존 서비스 코드는 수정하지 않는다. 이 스크립트는 데모 파일과 전사 청크를
 DB에 넣고, 현재 백엔드의 /summary API를 호출해 summaries 테이블 저장까지 검증한다.
@@ -21,7 +21,7 @@ from pathlib import Path
 import asyncpg
 
 
-SAMPLE_PATH = Path(__file__).with_name("요약_샘플데이터.json")
+SAMPLE_PATH = Path(__file__).parent / "DBtest" / "요약_샘플데이터.json"
 
 
 def db_config() -> dict:
