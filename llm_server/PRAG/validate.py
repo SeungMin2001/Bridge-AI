@@ -37,6 +37,25 @@ def add_raw_qa_stats(stats: Counter, prefix: str, qas: list[dict]) -> None:
         )
 
 
+def contains_answer(answer: str, text: str) -> bool:
+    answer = str(answer or "").strip().casefold()
+    text = str(text or "").strip().casefold()
+    return bool(answer and text and answer in text)
+
+
+def starts_with_answer(answer: str, text: str) -> bool:
+    answer = str(answer or "").strip().casefold()
+    text = str(text or "").strip().casefold()
+    return bool(answer and text and text.startswith(answer))
+
+
+def add_normalized_qa_stats(stats: Counter, prefix: str, qa: dict) -> None:
+    answer = qa.get("answer", "")
+    full_answer = qa.get("full_answer", "")
+    stats[f"{prefix}_answer_in_full_answer"] += int(contains_answer(answer, full_answer))
+    stats[f"{prefix}_full_answer_starts_answer"] += int(starts_with_answer(answer, full_answer))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("paths", nargs="*", default=[str(AUGMENTED_TRAIN_PATH), str(AUGMENTED_VALID_PATH)])
@@ -93,11 +112,13 @@ def main() -> None:
             add_raw_qa_stats(stats, "final", raw_final)
             for qa in atomic:
                 stats["atomic_qas"] += 1
+                add_normalized_qa_stats(stats, "atomic", qa)
                 stats["atomic_normalized_missing_sub_passage"] += int(not qa.get("sub_passage"))
                 if qa.get("answer") and qa.get("sub_passage"):
                     stats["atomic_answer_in_sub_passage"] += int(qa["answer"].lower() in qa["sub_passage"].lower())
             for qa in final:
                 stats["final_qas"] += 1
+                add_normalized_qa_stats(stats, "final", qa)
             row_neg_mismatch = False
             row_question_mismatch = False
             for neg in negatives:
@@ -119,12 +140,14 @@ def main() -> None:
                 stats["negative_atomic_count_mismatch"] += int(atomic_count_mismatch)
                 stats["negative_final_count_mismatch"] += int(final_count_mismatch)
                 for idx, qa in enumerate(neg_atomic[:len(atomic)]):
+                    add_normalized_qa_stats(stats, "negative_atomic", qa)
                     question_mismatch = qa.get("question") != atomic[idx].get("question")
                     row_question_mismatch = row_question_mismatch or question_mismatch
                     stats["negative_atomic_question_mismatch"] += int(question_mismatch)
                     if qa.get("answer") and qa.get("sub_passage"):
                         stats["negative_atomic_answer_in_sub_passage"] += int(qa["answer"].lower() in qa["sub_passage"].lower())
                 for idx, qa in enumerate(neg_final[:len(final)]):
+                    add_normalized_qa_stats(stats, "negative_final", qa)
                     question_mismatch = qa.get("question") != final[idx].get("question")
                     row_question_mismatch = row_question_mismatch or question_mismatch
                     stats["negative_final_question_mismatch"] += int(question_mismatch)
@@ -157,6 +180,12 @@ def main() -> None:
             print(f"  missing_negative_ratio: {missing_negative_ratio:.3f}")
             print(f"  raw_full_answer_missing_ratio: {raw_full_missing / max(raw_qa_total, 1):.3f}")
             print(f"  negative_raw_full_answer_missing_ratio: {neg_raw_full_missing / max(neg_raw_qa_total, 1):.3f}")
+            answer_in_full = stats["atomic_answer_in_full_answer"] + stats["final_answer_in_full_answer"]
+            normalized_qa_total = stats["atomic_qas"] + stats["final_qas"]
+            neg_answer_in_full = stats["negative_atomic_answer_in_full_answer"] + stats["negative_final_answer_in_full_answer"]
+            neg_normalized_qa_total = stats["negative_atomic_qas"] + stats["negative_final_qas"]
+            print(f"  answer_in_full_answer_ratio: {answer_in_full / max(normalized_qa_total, 1):.3f}")
+            print(f"  negative_answer_in_full_answer_ratio: {neg_answer_in_full / max(neg_normalized_qa_total, 1):.3f}")
             print(f"  ko_row_ratio: {stats['ko_rows'] / stats['rows']:.3f}")
 
 

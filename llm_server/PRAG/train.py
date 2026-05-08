@@ -66,6 +66,7 @@ from .config import (
     TRANSCRIPT_WEIGHTS_PATH,
     USE_CONTEXTUAL_MEMORY,
     WEIGHTS_PATH,
+    contains_hangul,
     load_critical_layer,
 )
 from .data import MemoryExample, MemoryGroup, jsonl_snapshot, load_augmented_examples, load_augmented_groups
@@ -109,6 +110,32 @@ def make_hypernet(model, device):
     ).to(device).float()
 
 
+def example_has_hangul(example: MemoryExample) -> bool:
+    fields = [
+        example.passage,
+        example.question,
+        example.answer,
+        example.full_answer,
+        example.negative_passage or "",
+        example.negative_answer or "",
+        example.negative_full_answer or "",
+    ]
+    return contains_hangul("\n".join(fields))
+
+
+def group_has_hangul(group: MemoryGroup) -> bool:
+    fields = [group.passage, group.negative_passage or ""]
+    for qa in group.qas:
+        fields.extend([
+            qa.question,
+            qa.answer,
+            qa.full_answer,
+            qa.negative_answer or "",
+            qa.negative_full_answer or "",
+        ])
+    return contains_hangul("\n".join(fields))
+
+
 def load_compatible_hypernet_weights(hypernet, weights_path: str, device) -> tuple[int, int]:
     """Load only same-shape tensors when architecture changed.
 
@@ -143,6 +170,83 @@ def compute_prefix_answer_loss(logits: torch.Tensor, labels: torch.Tensor, prefi
     return F.cross_entropy(selected_logits, selected_labels)
 
 
+def find_subsequence(haystack: list[int], needle: list[int]) -> int:
+    if not needle or len(needle) > len(haystack):
+        return -1
+    last = len(haystack) - len(needle) + 1
+    for start in range(last):
+        if haystack[start:start + len(needle)] == needle:
+            return start
+    return -1
+
+
+def answer_phrase_token_span(tokenizer, answer_text: str, answer_phrase: str) -> tuple[int, int] | None:
+    text = str(answer_text or "")
+    phrase = str(answer_phrase or "")
+    if not text or not phrase:
+        return None
+    char_start = text.find(phrase)
+    if char_start < 0:
+        return None
+    char_end = char_start + len(phrase)
+    try:
+        encoded = tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)
+    except (NotImplementedError, TypeError, ValueError):
+        return None
+    offsets = encoded.get("offset_mapping")
+    if not offsets:
+        return None
+    token_indices = [
+        idx
+        for idx, (start, end) in enumerate(offsets)
+        if end > char_start and start < char_end
+    ]
+    if not token_indices:
+        return None
+    return token_indices[0], token_indices[-1] + 1
+
+
+def compute_answer_phrase_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    tokenizer,
+    full_answer: str,
+    answer_phrase: str,
+):
+    """CE on the compact answer phrase inside the generated full answer.
+
+    Prefix loss helps generation start well, but service answers often put the
+    key fact after boilerplate like "과제는 다음 주 ...". This loss targets the
+    actual answer span, e.g. "금요일", wherever it appears in the full answer.
+    """
+    if not answer_phrase:
+        return None
+
+    answer_labels = labels[labels != -100]
+    span = answer_phrase_token_span(tokenizer, full_answer, answer_phrase)
+    if span is None:
+        target_ids = tokenizer(str(answer_phrase), return_tensors="pt", add_special_tokens=False)["input_ids"][0]
+        target_ids = target_ids.to(device=labels.device)
+        if target_ids.numel() == 0:
+            return None
+        start = find_subsequence(answer_labels.tolist(), target_ids.tolist())
+        if start < 0:
+            return None
+        end = start + target_ids.numel()
+    else:
+        start, end = span
+
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid_positions = (shift_labels != -100).nonzero(as_tuple=False)
+    selected = valid_positions[start:end]
+    if selected.size(0) != end - start:
+        return None
+    selected_logits = shift_logits[selected[:, 0], selected[:, 1]]
+    selected_labels = shift_labels[selected[:, 0], selected[:, 1]]
+    return F.cross_entropy(selected_logits, selected_labels)
+
+
 def example_loss(
     model,
     tokenizer,
@@ -156,6 +260,7 @@ def example_loss(
     short_answer_weight: float = 0.0,
     answer_prefix_weight: float = 0.0,
     answer_prefix_tokens: int = 3,
+    answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
 ):
     main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
@@ -175,11 +280,18 @@ def example_loss(
     if main_gold is None:
         return None
     main_gold_prefix = compute_prefix_answer_loss(main_gold_logits, gold_tok["labels"], answer_prefix_tokens)
+    main_gold_phrase = (
+        compute_answer_phrase_loss(main_gold_logits, gold_tok["labels"], tokenizer, gold_answer, example.answer)
+        if answer_phrase_weight > 0
+        else None
+    )
 
     zero = main_gold.detach().new_tensor(0.0)
     objective = main_gold
     if answer_prefix_weight > 0 and main_gold_prefix is not None:
         objective = objective + answer_prefix_weight * main_gold_prefix
+    if answer_phrase_weight > 0 and main_gold_phrase is not None:
+        objective = objective + answer_phrase_weight * main_gold_phrase
 
     main_short = zero
     if short_answer_weight > 0 and example.answer and example.answer != gold_answer:
@@ -208,6 +320,7 @@ def example_loss(
         "main_short": main_short,
         "neg_short": zero,
         "prefix": main_gold_prefix if main_gold_prefix is not None else zero,
+        "phrase": main_gold_phrase if main_gold_phrase is not None else zero,
         "main_ok": True,
         "neg_ok": False,
     }
@@ -249,10 +362,17 @@ def example_loss(
     if any(loss is None for loss in (main_neg, neg_gold, neg_neg)):
         return None
     neg_neg_prefix = compute_prefix_answer_loss(neg_neg_logits, neg_tok["labels"], answer_prefix_tokens)
+    neg_neg_phrase = (
+        compute_answer_phrase_loss(neg_neg_logits, neg_tok["labels"], tokenizer, negative_answer, example.negative_answer)
+        if answer_phrase_weight > 0
+        else None
+    )
     rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
     objective = objective + neg_neg + rank_weight * rank
     if answer_prefix_weight > 0 and neg_neg_prefix is not None:
         objective = objective + answer_prefix_weight * neg_neg_prefix
+    if answer_phrase_weight > 0 and neg_neg_phrase is not None:
+        objective = objective + answer_phrase_weight * neg_neg_phrase
 
     neg_short = zero
     if short_answer_weight > 0 and example.negative_answer and example.negative_answer != negative_answer:
@@ -282,6 +402,10 @@ def example_loss(
             (main_gold_prefix if main_gold_prefix is not None else zero)
             + (neg_neg_prefix if neg_neg_prefix is not None else zero)
         ),
+        "phrase": (
+            (main_gold_phrase if main_gold_phrase is not None else zero)
+            + (neg_neg_phrase if neg_neg_phrase is not None else zero)
+        ),
         "main_ok": main_gold.item() < main_neg.item(),
         "neg_ok": neg_neg.item() < neg_gold.item(),
     })
@@ -303,6 +427,7 @@ def group_loss(
     short_answer_weight: float = 0.0,
     answer_prefix_weight: float = 0.0,
     answer_prefix_tokens: int = 3,
+    answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
 ):
     losses = []
@@ -332,10 +457,17 @@ def group_loss(
         if main_gold is None:
             continue
         main_gold_prefix = compute_prefix_answer_loss(main_gold_logits, gold_tok["labels"], answer_prefix_tokens)
+        main_gold_phrase = (
+            compute_answer_phrase_loss(main_gold_logits, gold_tok["labels"], tokenizer, gold_answer, qa.answer)
+            if answer_phrase_weight > 0
+            else None
+        )
         zero = main_gold.detach().new_tensor(0.0)
         gold_unit = main_gold
         if answer_prefix_weight > 0 and main_gold_prefix is not None:
             gold_unit = gold_unit + answer_prefix_weight * main_gold_prefix
+        if answer_phrase_weight > 0 and main_gold_phrase is not None:
+            gold_unit = gold_unit + answer_phrase_weight * main_gold_phrase
         if short_answer_weight > 0 and qa.answer and qa.answer != gold_answer:
             short_tok = tokenize_qa(tokenizer, qa.question, qa.answer, device)
             short_logits = forward_with_memory(
@@ -393,10 +525,17 @@ def group_loss(
         if any(loss is None for loss in (main_neg, neg_gold, neg_neg)):
             continue
         neg_neg_prefix = compute_prefix_answer_loss(neg_neg_logits, neg_tok["labels"], answer_prefix_tokens)
+        neg_neg_phrase = (
+            compute_answer_phrase_loss(neg_neg_logits, neg_tok["labels"], tokenizer, negative_answer, qa.negative_answer)
+            if answer_phrase_weight > 0
+            else None
+        )
         rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
         unit_loss = gold_unit + neg_neg + rank_weight * rank
         if answer_prefix_weight > 0 and neg_neg_prefix is not None:
             unit_loss = unit_loss + answer_prefix_weight * neg_neg_prefix
+        if answer_phrase_weight > 0 and neg_neg_phrase is not None:
+            unit_loss = unit_loss + answer_phrase_weight * neg_neg_phrase
         if short_answer_weight > 0 and qa.negative_answer and qa.negative_answer != negative_answer:
             neg_short_tok = tokenize_qa(tokenizer, qa.question, qa.negative_answer, device)
             neg_short_logits = forward_with_memory(
@@ -451,6 +590,7 @@ def evaluate(
     short_answer_weight: float = 0.0,
     answer_prefix_weight: float = 0.0,
     answer_prefix_tokens: int = 3,
+    answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
 ):
     hypernet.eval()
@@ -469,6 +609,7 @@ def evaluate(
             short_answer_weight=short_answer_weight,
             answer_prefix_weight=answer_prefix_weight,
             answer_prefix_tokens=answer_prefix_tokens,
+            answer_phrase_weight=answer_phrase_weight,
             injection_mode=injection_mode,
         )
         if out is None:
@@ -507,6 +648,7 @@ def evaluate_groups(
     short_answer_weight: float = 0.0,
     answer_prefix_weight: float = 0.0,
     answer_prefix_tokens: int = 3,
+    answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
 ):
     hypernet.eval()
@@ -528,6 +670,7 @@ def evaluate_groups(
             short_answer_weight,
             answer_prefix_weight,
             answer_prefix_tokens,
+            answer_phrase_weight,
             injection_mode,
         )
         if out is None:
@@ -824,6 +967,7 @@ def normalize_resume_config(config: dict) -> dict:
         "korquad",
         "external_qa",
         "transcript",
+        "ko_only",
         "ko_content",
         "lecture",
         "aihub_lecture",
@@ -919,6 +1063,11 @@ def main() -> None:
         action="store_true",
         help="Use augmented AI Hub university lecture train/valid JSONL files and separate output weights.",
     )
+    parser.add_argument(
+        "--ko-only",
+        action="store_true",
+        help="Train/evaluate only Korean examples from the selected augmented dataset.",
+    )
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--max-val-samples", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
@@ -967,6 +1116,15 @@ def main() -> None:
         type=int,
         default=3,
         help="Number of initial answer tokens used by --answer-prefix-weight.",
+    )
+    parser.add_argument(
+        "--answer-phrase-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Extra CE weight on the compact answer phrase inside the full answer. "
+            "This targets key facts such as dates/names even when they are not in the first answer tokens."
+        ),
     )
     parser.add_argument(
         "--group-weight",
@@ -1101,6 +1259,18 @@ def main() -> None:
     valid_examples = load_augmented_examples(args.valid, max_samples=args.max_val_samples or None)
     train_groups = load_augmented_groups(args.train, max_samples=args.max_samples or None)
     valid_groups = load_augmented_groups(args.valid, max_samples=args.max_val_samples or None)
+    if args.ko_only:
+        before = (len(train_examples), len(valid_examples), len(train_groups), len(valid_groups))
+        train_examples = [item for item in train_examples if example_has_hangul(item)]
+        valid_examples = [item for item in valid_examples if example_has_hangul(item)]
+        train_groups = [item for item in train_groups if group_has_hangul(item)]
+        valid_groups = [item for item in valid_groups if group_has_hangul(item)]
+        after = (len(train_examples), len(valid_examples), len(train_groups), len(valid_groups))
+        print(
+            "[PRAG:train] ko-only filter: "
+            f"examples train={before[0]}->{after[0]} valid={before[1]}->{after[1]} | "
+            f"groups train={before[2]}->{after[2]} valid={before[3]}->{after[3]}"
+        )
     if args.overfit_samples > 0:
         selected = train_examples[: args.overfit_samples]
         selected_groups = train_groups[: args.overfit_samples]
@@ -1152,6 +1322,7 @@ def main() -> None:
         "korquad": args.korquad,
         "external_qa": args.external_qa,
         "transcript": args.transcript,
+        "ko_only": args.ko_only,
         "lecture": args.lecture,
         "aihub_lecture": args.aihub_lecture,
         "rank_weight": args.rank_weight,
@@ -1172,6 +1343,8 @@ def main() -> None:
     if args.answer_prefix_weight > 0:
         run_config["answer_prefix_weight"] = args.answer_prefix_weight
         run_config["answer_prefix_tokens"] = args.answer_prefix_tokens
+    if args.answer_phrase_weight > 0:
+        run_config["answer_phrase_weight"] = args.answer_phrase_weight
     print(f"[PRAG:train] config: {run_config}")
     print(
         f"[PRAG:train] expanded_examples train={len(train_examples)} valid={len(valid_examples)} "
@@ -1250,6 +1423,7 @@ def main() -> None:
                     short_answer_weight=args.short_answer_weight,
                     answer_prefix_weight=args.answer_prefix_weight,
                     answer_prefix_tokens=args.answer_prefix_tokens,
+                    answer_phrase_weight=args.answer_phrase_weight,
                     injection_mode=args.injection_mode,
                 )
                 if out is not None:
@@ -1268,6 +1442,7 @@ def main() -> None:
                     short_answer_weight=args.short_answer_weight,
                     answer_prefix_weight=args.answer_prefix_weight,
                     answer_prefix_tokens=args.answer_prefix_tokens,
+                    answer_phrase_weight=args.answer_phrase_weight,
                     injection_mode=args.injection_mode,
                 )
                 if out is not None and getattr(item, "qa_type", "") == "final":
@@ -1295,6 +1470,7 @@ def main() -> None:
                 "neg_neg": round(float(out["neg_neg"].detach().item()), 6),
                 "rank": round(float(out["rank"].detach().item()), 6),
                 "prefix": round(float(out.get("prefix", out["rank"]).detach().item()), 6),
+                "phrase": round(float(out.get("phrase", out["rank"]).detach().item()), 6),
                 "main_short": round(float(out.get("main_short", out["rank"]).detach().item()), 6),
                 "neg_short": round(float(out.get("neg_short", out["rank"]).detach().item()), 6),
                 "main_ok": bool(out.get("main_ok", False)),
@@ -1344,6 +1520,7 @@ def main() -> None:
                     args.short_answer_weight,
                     args.answer_prefix_weight,
                     args.answer_prefix_tokens,
+                    args.answer_phrase_weight,
                     args.injection_mode,
                 )
                 group_metrics = evaluate_groups(
@@ -1361,6 +1538,7 @@ def main() -> None:
                     args.short_answer_weight,
                     args.answer_prefix_weight,
                     args.answer_prefix_tokens,
+                    args.answer_phrase_weight,
                     args.injection_mode,
                 ) if valid_eval_groups and args.group_weight > 0 else None
                 selection_objective = metrics["objective"]
@@ -1444,6 +1622,7 @@ def main() -> None:
         args.short_answer_weight,
         args.answer_prefix_weight,
         args.answer_prefix_tokens,
+        args.answer_phrase_weight,
         args.injection_mode,
     )
     group_metrics = evaluate_groups(
@@ -1461,6 +1640,7 @@ def main() -> None:
         args.short_answer_weight,
         args.answer_prefix_weight,
         args.answer_prefix_tokens,
+        args.answer_phrase_weight,
         args.injection_mode,
     ) if valid_eval_groups and args.group_weight > 0 else None
     selection_objective = metrics["objective"]

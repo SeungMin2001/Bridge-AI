@@ -281,9 +281,12 @@ transcript 단계에서 가장 중요한 지표:
 - `memory_gain`: no-memory 대비 K/V가 답변 loss를 얼마나 낮췄는지
 - `direct_recovery`: direct passage prompt 성능을 K/V가 얼마나 회복했는지
 - `answer_prefix_loss@3`: 답변 초반이 정답 구절로 시작하도록 학습되는지
+- `answer_phrase_weight`: full answer 안에 들어있는 실제 핵심 정답 구절 자체에 추가 CE를 주는 학습 옵션
 - `generation_hit`: 자유생성 답변에 기대 핵심 구절이 들어갔는지
 
 이 단계에서는 `candidate_flip_ok`보다 `generation_hit`, `direct_recovery`, `gen-val main_kv`를 더 중요하게 본다.
+
+중요한 관찰: `answer_prefix_weight`는 답변 앞부분만 강하게 맞춘다. 하지만 `과제는 다음 주 금요일까지 제출해야 합니다` 같은 답변에서는 핵심 정보가 앞 3개 토큰이 아니라 `금요일` 같은 중간 구절일 수 있다. 그래서 `--answer-phrase-weight`를 추가했고, 이 옵션은 `full_answer` 안에서 `answer` 구절을 찾아 해당 토큰 loss를 직접 줄인다.
 
 ### 8-5. 주입 연산 방식 ablation
 
@@ -308,6 +311,46 @@ python -m llm_server.PRAG.train --transcript --epochs 1 --no-resume --init-weigh
 
 ```bash
 python -m llm_server.PRAG.test_single_ko --weights llm_server/PRAG/prag_transcript_memory_checkpoint.pt --synthetic-case process_restaurant --injection-mode add_all --max-new-tokens 64 --alpha 1.0
+```
+
+### 8-6. 깨끗한 새 시작 레시피
+
+현재까지의 실험상 단순 `add_all` 주입은 attention 방식보다 안정적이라는 증거가 약하다. 따라서 새로 다시 시작하는 기준 실험은 다음처럼 둔다.
+
+- 기존 가중치에서 이어받지 않고 랜덤 HyperNetwork로 시작한다.
+- 주입 방식은 우선 `attention`으로 둔다.
+- 기존 파일을 덮어쓰지 않도록 별도 weights/checkpoint/log 경로를 지정한다.
+- `answer-prefix-weight`는 답변 시작 안정화를 위해 약하게 둔다.
+- `answer-phrase-weight`는 `금요일`, `식당`, `이캠퍼스 자료실` 같은 핵심 정답 구절을 직접 학습시키기 위해 사용한다.
+- 한국어 서비스 기준 실험은 `--ko-only`로 한국어 샘플만 사용한다.
+- base multifact 학습에서는 hard negative를 포함해 passage 구분 능력을 같이 학습한다.
+
+Windows CMD 기준 새 출력 경로:
+
+```bat
+set PRAG_MULTIFACT_WEIGHTS_PATH=llm_server\PRAG\prag_multifact_attention_phrase_fresh_weights.pt
+set PRAG_MULTIFACT_CHECKPOINT_PATH=llm_server\PRAG\prag_multifact_attention_phrase_fresh_checkpoint.pt
+set PRAG_MULTIFACT_LOG_PATH=llm_server\PRAG\prag_multifact_attention_phrase_fresh_train_log.json
+```
+
+학습 전 데이터 검증:
+
+```bat
+python -m llm_server.PRAG.validate --multifact --show 5
+python -m llm_server.PRAG.preview_data --multifact --split train --samples 3 --max-qas 4
+```
+
+깨끗한 새 multifact attention 학습:
+
+```bat
+python -m llm_server.PRAG.train --multifact --ko-only --epochs 3 --no-resume --lr 5e-5 --answer-target full_answer --short-answer-weight 1.0 --answer-prefix-weight 2.0 --answer-prefix-tokens 3 --answer-phrase-weight 5.0 --eval-generation-samples 30 --eval-generation-every 250 --eval-generation-max-new-tokens 64 --injection-mode attention
+```
+
+중간/최종 진단:
+
+```bat
+python -m llm_server.PRAG.test --multifact --weights llm_server\PRAG\prag_multifact_attention_phrase_fresh_checkpoint.pt --max-samples 300 --show 20 --alpha 1.0 --answer-target auto --max-new-tokens 64 --injection-mode attention
+python -m llm_server.PRAG.test_single_ko --weights llm_server\PRAG\prag_multifact_attention_phrase_fresh_checkpoint.pt --synthetic-case deadline --injection-mode attention --max-new-tokens 64 --alpha 1.0
 ```
 
 ## 9. KorQuAD 추가학습 계획
