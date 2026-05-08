@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("SUMMARY_MOCK_MODE", "true").lower() == "true"
-SUMMARY_FALLBACK_ON_ERROR = os.getenv("SUMMARY_FALLBACK_ON_ERROR", "true").lower() == "true"
 LLM_URL = os.getenv("SUMMARY_LLM_URL", os.getenv("LLM_URL", "http://localhost:8001"))
 LLM_MODEL = os.getenv("SUMMARY_LLM_MODEL", os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ"))
 LLM_API_KEY = os.getenv("SUMMARY_LLM_API_KEY", os.getenv("LLM_API_KEY", "test-key"))
@@ -166,14 +165,6 @@ def _mock_summary(text: str, summary_sentences: int) -> str:
     return " ".join(sentences[:summary_sentences]).strip()
 
 
-def _fallback_summary(text: str, summary_sentences: int, reason: Exception) -> str:
-    """LLM 실패 시 저장 가능한 요약을 생성합니다."""
-    if not SUMMARY_FALLBACK_ON_ERROR:
-        raise reason
-    logger.warning("[SUMMARY] LLM 요약 실패, 로컬 요약으로 대체: %s", reason)
-    return _mock_summary(text, summary_sentences)
-
-
 def _build_messages(user_prompt: str) -> list[dict]:
     """OpenAI 호환 LLM messages 형식을 구성합니다."""
     return [
@@ -184,35 +175,22 @@ def _build_messages(user_prompt: str) -> list[dict]:
 
 async def _call_llm(messages: list[dict], max_tokens: int = 256) -> str:
     """LLM 호출 후 요약 문자열을 반환합니다."""
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
-            res = await client.post(
-                f"{LLM_URL}/v1/chat/completions",
-                json={
-                    "model": LLM_MODEL,
-                    "messages": messages,
-                    "max_tokens": max_tokens,
-                    "temperature": 0.3,
-                    "chat_template_kwargs": {"enable_thinking": False},
-                },
-                headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-            )
-            res.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        body = exc.response.text[:500] if exc.response is not None else ""
-        logger.error("[SUMMARY] LLM HTTP 오류: status=%s body=%s", exc.response.status_code, body)
-        raise RuntimeError(f"요약 LLM 호출 실패: HTTP {exc.response.status_code} {body}") from exc
-    except httpx.RequestError as exc:
-        logger.error("[SUMMARY] LLM 연결 오류: %s", exc)
-        raise RuntimeError(f"요약 LLM 서버에 연결할 수 없습니다: {exc}") from exc
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
+        res = await client.post(
+            f"{LLM_URL}/v1/chat/completions",
+            json={
+                "model": LLM_MODEL,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.3,
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
+            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+        )
+        res.raise_for_status()
 
-    try:
-        data = res.json()
-        raw_answer = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-        logger.error("[SUMMARY] LLM 응답 형식 오류: %s", exc)
-        raise RuntimeError(f"요약 LLM 응답 형식이 올바르지 않습니다: {exc}") from exc
-
+    data = res.json()
+    raw_answer = data["choices"][0]["message"]["content"]
     logger.info("[SUMMARY] LLM 응답 수신: %d chars", len(raw_answer))
     return _parse_summary_json(raw_answer)
 
@@ -239,10 +217,7 @@ async def generate_speaker_summary(
         summary_sentences=summary_sentences,
     )
 
-    try:
-        return await _call_llm(_build_messages(user_prompt))
-    except (RuntimeError, ValueError) as exc:
-        return _fallback_summary(transcript_text, summary_sentences, exc)
+    return await _call_llm(_build_messages(user_prompt))
 
 
 async def generate_session_summary(
@@ -272,10 +247,7 @@ async def generate_session_summary(
         summary_sentences=summary_sentences,
     )
 
-    try:
-        return await _call_llm(_build_messages(user_prompt))
-    except (RuntimeError, ValueError) as exc:
-        return _fallback_summary(payload_text, summary_sentences, exc)
+    return await _call_llm(_build_messages(user_prompt))
 
 
 async def generate_course_summary(
@@ -308,7 +280,4 @@ async def generate_course_summary(
         summary_sentences=summary_sentences,
     )
 
-    try:
-        return await _call_llm(_build_messages(user_prompt))
-    except (RuntimeError, ValueError) as exc:
-        return _fallback_summary(payload_text, summary_sentences, exc)
+    return await _call_llm(_build_messages(user_prompt))

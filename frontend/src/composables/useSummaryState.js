@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { isWorkspaceUuid } from '../api/workspaceApi.js'
 
 const SUMMARY_API_BASE = '/summary'
+const MATERIAL_SUMMARY_ENDPOINT = '/test/material/textrank'
 
 const createEmptySummaryState = (sessionId = '', recordingId = '', status = 'idle') => ({
   sessionId,
@@ -9,6 +10,9 @@ const createEmptySummaryState = (sessionId = '', recordingId = '', status = 'idl
   status,
   speakerSummaries: [],
   sessionSummary: null,
+  materialSummaries: [],
+  materialStatus: 'idle',
+  materialError: '',
   keywords: [],
   error: ''
 })
@@ -93,13 +97,45 @@ const buildSpeakerPayloads = (sessionId, recordingSnapshot = [], recordingMode =
     .filter((item) => item.speaker_text.trim().length >= 10)
 }
 
+const isMaterialSummaryRow = (item = {}) => (
+  item?.speaker_id === 'MATERIAL' || String(item?.recording_id || '').startsWith('material:')
+)
+
+const parseMaterialSource = (sourceText = '') => {
+  if (!sourceText) return {}
+  try {
+    return JSON.parse(sourceText)
+  } catch {
+    return {}
+  }
+}
+
+const normalizeMaterialSummary = (item = {}) => {
+  const source = parseMaterialSource(item.source_text || '')
+  const sourceMaterials = Array.isArray(source.materials) ? source.materials : []
+  const firstMaterial = sourceMaterials[0] || {}
+
+  return {
+    id: item.summary_id,
+    key: item.summary_id || item.recording_id || firstMaterial.storedName || firstMaterial.name,
+    summary: item.session_summary || item.material_summary || '',
+    createdAt: item.created_at || '',
+    sourceText: item.source_text || '',
+    sourceMaterials,
+    summaryLevel: source.summaryLevel || item.summary_level || 'standard',
+    title: sourceMaterials.length > 1
+      ? `${firstMaterial.name || 'PDF 강의자료'} 외 ${sourceMaterials.length - 1}개`
+      : (firstMaterial.name || 'PDF 강의자료')
+  }
+}
+
 const normalizeSummaries = (summaries = [], recordingId = '') => {
   const scopedSummaries = recordingId
     ? summaries.filter((item) => String(item?.recording_id || '') === String(recordingId))
     : summaries
 
   const speakerSummaries = scopedSummaries
-    .filter((item) => item?.speaker_summary)
+    .filter((item) => item?.speaker_summary && !isMaterialSummaryRow(item))
     .map((item) => ({
       id: item.summary_id,
       key: item.summary_id || `${item.speaker_id || 'speaker'}-${item.recording_id || 'session'}`,
@@ -109,20 +145,33 @@ const normalizeSummaries = (summaries = [], recordingId = '') => {
       createdAt: item.created_at || ''
     }))
 
-  const sessionSummary = scopedSummaries.find((item) => item?.session_summary) || null
+  const sessionSummary = scopedSummaries.find((item) => item?.session_summary && !isMaterialSummaryRow(item)) || null
+  const materialSummaries = summaries
+    .filter((item) => item?.session_summary && isMaterialSummaryRow(item))
+    .map(normalizeMaterialSummary)
 
   return {
     speakerSummaries,
     sessionSummary: sessionSummary
       ? {
           id: sessionSummary.summary_id,
+          recordingId: sessionSummary.recording_id || '',
           summary: sessionSummary.session_summary,
           createdAt: sessionSummary.created_at || '',
           sourceText: sessionSummary.source_text || ''
         }
-      : null
+      : null,
+    materialSummaries
   }
 }
+
+const normalizeMaterialForRequest = (material = {}) => ({
+  id: material.id || '',
+  name: material.name || material.title || 'PDF 강의자료',
+  storedName: material.storedName || '',
+  url: material.url || '',
+  type: material.type || material.fileType || material.mimeType || ''
+})
 
 export function useSummaryState() {
   const summaryState = ref(createEmptySummaryState())
@@ -162,6 +211,7 @@ export function useSummaryState() {
         status: 'done',
         speakerSummaries: normalized.speakerSummaries,
         sessionSummary: normalized.sessionSummary,
+        materialSummaries: normalized.materialSummaries,
         keywords: keywordResult.keywords || []
       }
       return summaryState.value
@@ -228,11 +278,111 @@ export function useSummaryState() {
     await loadSummariesForSession(sessionId, recordingId)
   }
 
+  const generateMaterialSummaryForSource = async ({
+    sessionId,
+    materials = [],
+    summarySentences = 8,
+    summaryLevel = 'standard'
+  } = {}) => {
+    if (!isWorkspaceUuid(sessionId)) return
+
+    const normalizedMaterials = materials
+      .map(normalizeMaterialForRequest)
+      .filter((material) => material.id || material.storedName || material.name || material.url)
+
+    if (!normalizedMaterials.length) {
+      setSummaryState({
+        materialStatus: 'error',
+        materialError: '요약할 PDF 강의자료를 선택하세요.'
+      })
+      return
+    }
+
+    setSummaryState({
+      sessionId,
+      materialStatus: 'generating',
+      materialError: ''
+    })
+
+    try {
+      const result = await postSummaryJson(MATERIAL_SUMMARY_ENDPOINT, {
+        session_id: sessionId,
+        material_ids: normalizedMaterials.map((material) => material.id).filter(Boolean),
+        stored_names: normalizedMaterials.map((material) => material.storedName).filter(Boolean),
+        summary_sentences: summarySentences,
+        summary_level: summaryLevel,
+        top_k: summarySentences
+      })
+
+      const sourceMaterials = Array.isArray(result.source_materials)
+        ? result.source_materials
+        : normalizedMaterials
+      const firstMaterial = sourceMaterials[0] || {}
+      const materialSummary = {
+        id: result.summary_id,
+        key: result.summary_id || result.recording_id || firstMaterial.storedName || firstMaterial.name,
+        title: sourceMaterials.length > 1
+          ? `${firstMaterial.name || 'PDF 강의자료'} 외 ${sourceMaterials.length - 1}개`
+          : (firstMaterial.name || 'PDF 강의자료'),
+        summary: result.material_summary || result.session_summary || '',
+        createdAt: new Date().toISOString(),
+        sourceMaterials,
+        summaryLevel: result.summary_level || summaryLevel,
+        sourceText: ''
+      }
+
+      setSummaryState({
+        materialStatus: 'done',
+        materialError: '',
+        materialSummaries: [
+          materialSummary,
+          ...(summaryState.value.materialSummaries || []).filter((item) => item.id !== materialSummary.id)
+        ]
+      })
+    } catch (error) {
+      console.warn('[summary] material generation failed:', error)
+      setSummaryState({
+        materialStatus: 'error',
+        materialError: error?.message || '파일 요약 생성에 실패했습니다.'
+      })
+    }
+  }
+
+  const deleteSummary = async (summaryId) => {
+    const targetId = String(summaryId || '').trim()
+    if (!targetId) return
+
+    try {
+      await requestSummaryJson(`/${encodeURIComponent(targetId)}`, {
+        method: 'DELETE'
+      })
+
+      const currentState = summaryState.value
+      setSummaryState({
+        error: '',
+        materialError: '',
+        sessionSummary: currentState.sessionSummary?.id === targetId
+          ? null
+          : currentState.sessionSummary,
+        speakerSummaries: (currentState.speakerSummaries || []).filter((item) => item.id !== targetId),
+        materialSummaries: (currentState.materialSummaries || []).filter((item) => item.id !== targetId)
+      })
+    } catch (error) {
+      console.warn('[summary] delete failed:', error)
+      setSummaryState({
+        error: error?.message || '요약 삭제에 실패했습니다.',
+        materialError: error?.message || '요약 삭제에 실패했습니다.'
+      })
+    }
+  }
+
   return {
     summaryState,
     clearSummaryState,
     startLiveSummary,
     loadSummariesForSession,
-    generateSummariesForSession
+    generateSummariesForSession,
+    generateMaterialSummaryForSource,
+    deleteSummary
   }
 }

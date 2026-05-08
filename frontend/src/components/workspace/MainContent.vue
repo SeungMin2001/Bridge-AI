@@ -26,6 +26,7 @@ const props = defineProps({
   activeFileName: String,
   activeFileId: String,
   activeFileType: { type: String, default: 'lecture' },
+  currentRecordings: { type: Array, default: () => [] },
   transcriptions: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   summaryState: { type: Object, default: () => ({}) },
@@ -38,6 +39,8 @@ const emit = defineEmits([
   'pauseRecording',
   'resumeRecording',
   'stopRecording',
+  'generateMaterialSummary',
+  'deleteSummary',
   'mainSidebarToggle',
   'rightSidebarToggle',
   'askAi',
@@ -47,7 +50,7 @@ const emit = defineEmits([
 ])
 
 const activeTab = ref('note')
-const activeSummaryTab = ref('ai-summary')
+const activeSummaryTab = ref('summary')
 const noteContent = ref('')
 const isNoteFocused = ref(false)
 const tabAnim = ref('tab-slide-right')
@@ -252,6 +255,12 @@ const handleStartRecording = () => {
           :recording-mode="recordingMode"
           :transcriptions="transcriptions"
           :summary-state="summaryState"
+          :current-recordings="currentRecordings"
+          :active-file-id="activeFileId"
+          :current-preview-material="currentPreviewMaterial"
+          :quiz-source="quizSource"
+          @generateMaterialSummary="emit('generateMaterialSummary', $event)"
+          @deleteSummary="emit('deleteSummary', $event)"
           @askAi="emit('askAi', $event)"
           @addToNote="(text, source) => emit('addToNote', text, source)"
         />
@@ -262,6 +271,7 @@ const handleStartRecording = () => {
           :tab-anim="tabAnim"
           :active-file-name="activeFileName"
           :active-file-id="activeFileId"
+          :current-preview-material="currentPreviewMaterial"
           :quiz-source="quizSource"
         />
 

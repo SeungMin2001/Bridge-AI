@@ -57,7 +57,9 @@ export function useAppState() {
     clearSummaryState,
     startLiveSummary,
     loadSummariesForSession,
-    generateSummariesForSession
+    generateSummariesForSession,
+    generateMaterialSummaryForSource,
+    deleteSummary
   } = useSummaryState()
 
   // AI 입력, 정리 노트, 우측 사이드바 상태입니다.
@@ -295,6 +297,8 @@ export function useAppState() {
     pauseRecording,
     resumeRecording,
     stopRecording: handleStopRecording,
+    generateMaterialSummaryForSource,
+    deleteSummary,
     handleRightSidebarToggle,
     handleAddToNote,
     handleAskAi,

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { isWorkspaceUuid } from '../../../api/workspaceApi.js'
+import { isPdfMaterial } from '../../../utils/pdfMaterial.js'
 
 const QUIZ_API_BASE = '/quiz'
 
@@ -8,6 +9,7 @@ const props = defineProps({
   tabAnim: { type: String, default: 'tab-slide-right' },
   activeFileName: { type: String, default: '' },
   activeFileId: { type: String, default: '' },
+  currentPreviewMaterial: { type: Object, default: null },
   quizSource: { type: Object, default: null }
 })
 
@@ -96,6 +98,23 @@ const postQuizJson = (endpoint, payload) => requestQuizJson(endpoint, {
 
 const quizSessionId = computed(() => props.quizSource?.sessionId || props.activeFileId)
 const canUseQuiz = computed(() => isWorkspaceUuid(props.activeFileId))
+const previewPdfMaterial = computed(() => (
+  isPdfMaterial(props.currentPreviewMaterial) ? props.currentPreviewMaterial : null
+))
+const materialFromSource = (source = {}) => (
+  source?.material || (
+    source?.type === 'material'
+      ? {
+          id: source.id,
+          name: source.title,
+          title: source.title,
+          type: source.fileType || source.mimeType || source.contentType || '',
+          url: source.url || '',
+          storedName: source.storedName || ''
+        }
+      : null
+  )
+)
 const sourceTranscriptIds = computed(() => {
   if (!Array.isArray(props.quizSource?.transcriptIds)) return []
   const ids = new Set()
@@ -105,17 +124,54 @@ const sourceTranscriptIds = computed(() => {
   })
   return Array.from(ids)
 })
-const hasSelectedQuizSource = computed(() => !!props.quizSource?.title)
+const hasSelectedQuizSource = computed(() => !!props.quizSource?.title || !!previewPdfMaterial.value)
 const hasTranscriptScope = computed(() => sourceTranscriptIds.value.length > 0)
+const selectedPdfMaterials = computed(() => {
+  const materials = []
+  const seen = new Set()
+
+  const addMaterial = (material) => {
+    if (!material || !isPdfMaterial(material)) return
+    const key = material.id || material.url || material.storedName || material.name
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    materials.push(material)
+  }
+
+  if (Array.isArray(props.quizSource?.sources)) {
+    props.quizSource.sources.forEach((source) => addMaterial(materialFromSource(source)))
+  }
+
+  addMaterial(props.quizSource?.material)
+
+  if (
+    props.quizSource?.type !== 'recording' &&
+    previewPdfMaterial.value &&
+    (!props.quizSource?.materialId || previewPdfMaterial.value.id === props.quizSource.materialId)
+  ) {
+    addMaterial(previewPdfMaterial.value)
+  }
+
+  return materials
+})
+const hasPdfScope = computed(() => selectedPdfMaterials.value.length > 0)
+const hasGeneratableScope = computed(() => hasTranscriptScope.value || hasPdfScope.value)
 const selectedSourceItems = computed(() => (
   Array.isArray(props.quizSource?.sources)
     ? props.quizSource.sources
-    : (hasSelectedQuizSource.value ? [{
+    : (props.quizSource?.title ? [{
         id: props.quizSource?.materialId || props.quizSource?.recordingId || props.quizSource?.title,
         type: props.quizSource?.type || 'source',
         title: props.quizSource?.title,
+        material: props.quizSource?.material || null,
         transcriptIds: sourceTranscriptIds.value
-      }] : [])
+      }] : (previewPdfMaterial.value ? [{
+        id: previewPdfMaterial.value.id || previewPdfMaterial.value.url || previewPdfMaterial.value.name,
+        type: 'material',
+        title: previewPdfMaterial.value.name || 'PDF 강의자료',
+        material: previewPdfMaterial.value,
+        transcriptIds: []
+      }] : []))
 ))
 const quizQuestionCount = computed(() => Object.values(quizTypeCounts.value).reduce((sum, count) => sum + Number(count || 0), 0))
 const hasActiveQuiz = computed(() => Array.isArray(activeQuiz.value?.quiz_data) && activeQuiz.value.quiz_data.length > 0)
@@ -123,27 +179,41 @@ const isQuizBusy = computed(() => ['loading', 'generating', 'submitting'].includ
 const canGenerateQuiz = computed(() => (
   isWorkspaceUuid(quizSessionId.value) &&
   hasSelectedQuizSource.value &&
-  hasTranscriptScope.value &&
+  hasGeneratableScope.value &&
   quizQuestionCount.value >= 1 &&
   quizQuestionCount.value <= 20 &&
   !isQuizBusy.value
 ))
 const selectedSourceMeta = computed(() => {
   if (!hasSelectedQuizSource.value) return '좌측 사이드바에서 강의자료 또는 녹음본을 선택하세요.'
-  if (!hasTranscriptScope.value) return '선택한 소스에 연결된 transcript_id가 없습니다.'
+  if (!hasGeneratableScope.value) return '선택한 소스에 연결된 전사 또는 PDF 텍스트가 없습니다.'
   const sourceCount = props.quizSource?.sourceCount || selectedSourceItems.value.length || 1
-  return `선택 ${sourceCount}개 · 전사 ${sourceTranscriptIds.value.length}개 연결됨`
+  const scopeParts = []
+  if (hasPdfScope.value) scopeParts.push(`PDF ${selectedPdfMaterials.value.length}개`)
+  if (hasTranscriptScope.value) scopeParts.push(`전사 ${sourceTranscriptIds.value.length}개`)
+  return `선택 ${sourceCount}개 · ${scopeParts.join(' · ')} 연결됨`
 })
 const quizScopeText = computed(() => {
-  if (hasSelectedQuizSource.value) return `${props.quizSource.title} 기준`
+  if (props.quizSource?.title) return `${props.quizSource.title} 기준`
+  if (previewPdfMaterial.value) return `${previewPdfMaterial.value.name || 'PDF 강의자료'} 기준`
   return props.activeFileName ? `${props.activeFileName}에서 소스를 선택하세요.` : '파일을 선택하면 퀴즈를 만들 수 있습니다.'
 })
 const quizProgressText = computed(() => {
   if (quizStatus.value === 'loading') return '퀴즈를 불러오고 있습니다.'
-  if (quizStatus.value === 'generating') return '선택한 파일의 전사문으로 퀴즈를 만들고 있습니다.'
+  if (quizStatus.value === 'generating') {
+    return hasPdfScope.value
+      ? '선택한 PDF 텍스트로 퀴즈를 만들고 있습니다.'
+      : '선택한 파일의 전사문으로 퀴즈를 만들고 있습니다.'
+  }
   if (quizStatus.value === 'submitting') return '답안을 채점하고 있습니다.'
   return ''
 })
+
+const getSourceIcon = (source = {}) => {
+  if (source.type === 'recording') return 'graphic_eq'
+  if (isPdfMaterial(materialFromSource(source))) return 'picture_as_pdf'
+  return 'draft'
+}
 
 const getQuizQuestions = (quiz = activeQuiz.value) => (
   Array.isArray(quiz?.quiz_data) ? quiz.quiz_data : []
@@ -283,12 +353,20 @@ const generateQuizForSource = async () => {
   quizError.value = ''
   quizResult.value = null
   try {
-    const quiz = await postQuizJson('/generate/transcripts', {
-      session_id: quizSessionId.value,
-      transcript_ids: sourceTranscriptIds.value,
-      num_questions: quizQuestionCount.value,
-      type_counts: quizTypeCounts.value
-    })
+    const quiz = hasPdfScope.value
+      ? await postQuizJson('/generate/materials', {
+          session_id: quizSessionId.value,
+          material_ids: selectedPdfMaterials.value.map((material) => material.id).filter(Boolean),
+          stored_names: selectedPdfMaterials.value.map((material) => material.storedName).filter(Boolean),
+          num_questions: quizQuestionCount.value,
+          type_counts: quizTypeCounts.value
+        })
+      : await postQuizJson('/generate/transcripts', {
+          session_id: quizSessionId.value,
+          transcript_ids: sourceTranscriptIds.value,
+          num_questions: quizQuestionCount.value,
+          type_counts: quizTypeCounts.value
+        })
     setActiveQuiz({ ...quiz, session_id: quizSessionId.value, correct_count: null })
     quizList.value = [
       buildQuizListItem({ ...quiz, session_id: quizSessionId.value, correct_count: null }),
@@ -403,7 +481,7 @@ watch(
       </div>
 
       <div v-else-if="quizMode === 'create'" class="quiz-create-view">
-        <section :class="['quiz-source-card', { empty: !hasSelectedQuizSource, blocked: hasSelectedQuizSource && !hasTranscriptScope }]">
+        <section :class="['quiz-source-card', { empty: !hasSelectedQuizSource, blocked: hasSelectedQuizSource && !hasGeneratableScope }]">
           <div class="quiz-source-icon">
             <span class="material-symbols-outlined">{{ hasSelectedQuizSource ? 'draft' : 'touch_app' }}</span>
           </div>
@@ -417,7 +495,7 @@ watch(
                 :key="source.id || source.title"
                 class="quiz-source-chip"
               >
-                <span class="material-symbols-outlined">{{ source.type === 'recording' ? 'graphic_eq' : 'draft' }}</span>
+                <span class="material-symbols-outlined">{{ getSourceIcon(source) }}</span>
                 {{ source.title }}
               </span>
               <span v-if="selectedSourceItems.length > 4" class="quiz-source-more">

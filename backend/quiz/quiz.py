@@ -4,6 +4,7 @@
 엔드포인트:
   POST /quiz/generate          - 세션 전사문 기반 퀴즈 생성
   POST /quiz/generate/transcripts - 선택한 transcript_id 묶음 기반 퀴즈 생성
+  POST /quiz/generate/materials - 선택한 PDF 강의자료 기반 퀴즈 생성
   POST /quiz/generate/text     - 직접 텍스트로 퀴즈 생성 (테스트용)
   GET  /quiz/{quiz_id}         - 퀴즈 조회
   POST /quiz/{quiz_id}/submit  - 퀴즈 채점 (사용자 답안 제출)
@@ -26,6 +27,7 @@ from quiz.quiz_db import (
     update_quiz_result,
 )
 from quiz.quiz_service import count_quiz_types, generate_quiz, grade_quiz
+from quiz.material_service import MaterialQuizError, build_material_quiz_text
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,17 @@ class QuizGenerateTranscriptsRequest(BaseModel):
     """특정 전사 chunk 묶음 기반 퀴즈 생성 요청"""
     session_id: str
     transcript_ids: list[str] = Field(..., description="퀴즈 생성 대상 transcript_id 목록")
+    num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
+    type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
+    user_id: str | None = None
+    course_id: str | None = None
+
+
+class QuizGenerateMaterialsRequest(BaseModel):
+    """세션에 업로드된 PDF 강의자료 기반 퀴즈 생성 요청"""
+    session_id: str
+    material_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 material id 목록")
+    stored_names: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 저장 파일명 목록")
     num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
     user_id: str | None = None
@@ -124,7 +137,7 @@ async def create_and_save_quiz(
     if len(transcript_text.strip()) < 20:
         raise HTTPException(
             status_code=400,
-            detail="전사문 텍스트가 너무 짧아 퀴즈를 생성할 수 없습니다."
+            detail="퀴즈 생성 대상 텍스트가 너무 짧아 퀴즈를 생성할 수 없습니다."
         )
 
     try:
@@ -233,6 +246,53 @@ async def quiz_generate_from_transcripts(req: QuizGenerateTranscriptsRequest):
         "source_transcript_ids": [item["transcript_id"] for item in transcripts],
         "missing_transcript_ids": missing_ids,
     }
+
+
+#  PDF 강의자료 → 퀴즈 생성
+@router.post("/generate/materials")
+async def quiz_generate_from_materials(req: QuizGenerateMaterialsRequest):
+    """
+    세션에 업로드된 PDF 강의자료 파일을 백엔드에서 읽어 퀴즈를 생성하고 DB에 저장합니다.
+    material_ids 또는 stored_names가 비어 있으면 세션의 모든 PDF 강의자료를 대상으로 합니다.
+    """
+    logger.info(
+        "[QUIZ] PDF 강의자료 기반 퀴즈 생성 요청: session_id=%s, material_ids=%s, stored_names=%s, num=%s",
+        req.session_id,
+        len(req.material_ids),
+        len(req.stored_names),
+        req.num_questions,
+    )
+
+    try:
+        material_text, materials = await build_material_quiz_text(
+            session_id=req.session_id,
+            material_ids=req.material_ids,
+            stored_names=req.stored_names,
+        )
+    except MaterialQuizError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    result = await create_and_save_quiz(
+        session_id=req.session_id,
+        transcript_text=material_text,
+        num_questions=req.num_questions,
+        type_counts=req.type_counts,
+        user_id=req.user_id,
+        course_id=req.course_id,
+    )
+
+    return {
+        **result,
+        "source_materials": [
+            {
+                "id": material.get("id"),
+                "name": material.get("name"),
+                "storedName": material.get("storedName"),
+            }
+            for material in materials
+        ],
+    }
+
 
 #  직접 텍스트 → 퀴즈 생성
 @router.post("/generate/text")

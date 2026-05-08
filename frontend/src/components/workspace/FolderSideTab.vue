@@ -22,6 +22,7 @@ const emit = defineEmits([
   'openMaterial',
   'openRecording',
   'quizSourceChange',
+  'deleteResource',
   'showToast'
 ])
 
@@ -206,6 +207,62 @@ const handleMaterialAction = async (action) => {
   }
 }
 
+const getMaterialDeleteKey = (material = {}) => (
+  material.id || material.storedName || material.url || material.name || ''
+)
+
+const getRecordingDeleteKey = (recording = {}) => (
+  recording.id || recording.recordingId || recording.title || ''
+)
+
+const handleDeleteResource = async ({ fileId, weekId, materialId, recordingId, title } = {}) => {
+  if (!fileId || !weekId) return
+  if (!materialId && !recordingId) return
+
+  const copy = JSON.parse(JSON.stringify(props.fileTree))
+  const node = findNode(fileId, copy)
+  const week = Array.isArray(node?.weeks) ? node.weeks.find((item) => item.id === weekId) : null
+  if (!node || !week) return
+
+  if (materialId && Array.isArray(week.materials)) {
+    const targetMaterial = week.materials.find((item) => getMaterialDeleteKey(item) === materialId)
+    week.materials = week.materials.filter((item) => getMaterialDeleteKey(item) !== materialId)
+    node.attachments = Array.isArray(node.attachments)
+      ? node.attachments.filter((item) => getMaterialDeleteKey(item) !== materialId)
+      : node.attachments
+    emit('showToast', `"${targetMaterial?.name || title || '강의자료'}" 삭제됨`)
+  } else if (recordingId && Array.isArray(week.recordings)) {
+    const targetRecording = week.recordings.find((item) => getRecordingDeleteKey(item) === recordingId)
+    week.recordings = week.recordings.filter((item) => getRecordingDeleteKey(item) !== recordingId)
+    node.recordings = Array.isArray(node.recordings)
+      ? node.recordings.filter((item) => getRecordingDeleteKey(item) !== recordingId)
+      : node.recordings
+
+    const storedRecordingId = targetRecording?.id || targetRecording?.recordingId || recordingId
+    if (isWorkspaceUuid(fileId) && storedRecordingId) {
+      try {
+        await deleteWorkspaceRecordingData(fileId, storedRecordingId)
+      } catch (error) {
+        console.error('[workspace] recording related data cleanup failed:', error)
+        emit('showToast', '녹음본 관련 데이터 정리 실패')
+      }
+    }
+
+    emit('showToast', `"${targetRecording?.title || title || '녹음본'}" 삭제됨`)
+  }
+
+  emit('update:fileTree', copy)
+
+  if (isWorkspaceUuid(fileId) && Array.isArray(node.weeks)) {
+    try {
+      await saveSessionResources(fileId, node.weeks)
+    } catch (error) {
+      console.error('[workspace] session resources save failed:', error)
+      emit('showToast', 'DB 저장 실패')
+    }
+  }
+}
+
 const handleOpenRecording = (payload) => {
   emit('openRecording', payload)
 }
@@ -363,6 +420,7 @@ const handleContextAction = async (action) => {
               @showMaterialMenu="handleShowMaterialMenu"
               @openMaterial="handleOpenMaterial"
               @openRecording="handleOpenRecording"
+              @deleteResource="handleDeleteResource"
               @quizSourceChange="emit('quizSourceChange', $event)"
             />
           </template>
@@ -529,6 +587,14 @@ const buildWeekList = (node) => {
   ]
 }
 
+const getMaterialResourceId = (material = {}) => (
+  material.id || material.storedName || material.url || material.name || ''
+)
+
+const getRecordingResourceId = (recording = {}) => (
+  recording.id || recording.recordingId || recording.title || ''
+)
+
 const TreeItemComponent = defineComponent({
   name: 'TreeItemComponent',
   props: {
@@ -536,7 +602,7 @@ const TreeItemComponent = defineComponent({
     depth: { type: Number, required: true },
     activeFileId: { type: String, default: null }
   },
-  emits: ['selectFile', 'toggleFolder', 'showContextMenu', 'showMaterialMenu', 'openMaterial', 'openRecording', 'quizSourceChange'],
+  emits: ['selectFile', 'toggleFolder', 'showContextMenu', 'showMaterialMenu', 'openMaterial', 'openRecording', 'deleteResource', 'quizSourceChange'],
   setup(props, { emit }) {
     const isFile = computed(() => props.node.type === 'file')
     const isSelected = computed(() => props.node.id === props.activeFileId)
@@ -606,6 +672,7 @@ const TreeItemComponent = defineComponent({
         recordings: relatedRecordings,
         recording: relatedRecordings[0]
       })
+      toggleSelectedResource(getMaterialResourceId(material))
     }
 
     const handleRecordingClick = (e, recording) => {
@@ -616,6 +683,7 @@ const TreeItemComponent = defineComponent({
         node: props.node,
         recording
       })
+      toggleSelectedResource(getRecordingResourceId(recording))
     }
 
     const emitSelectedQuizSource = () => {
@@ -627,22 +695,24 @@ const TreeItemComponent = defineComponent({
         const weekRecordings = getWeekRecordings(week)
 
         getWeekMaterials(week).forEach((material) => {
-          if (!selectedIds.has(material.id)) return
+          const materialId = getMaterialResourceId(material)
+          if (!selectedIds.has(materialId)) return
 
           const relatedRecordings = getRelatedRecordings(weekRecordings, material.id)
           const transcriptIds = collectTranscriptIds(relatedRecordings)
           sourceRecordings.push(...relatedRecordings)
           sourceItems.push({
-            id: material.id,
+            id: materialId,
             type: 'material',
             title: material.name || '강의자료',
+            material,
             transcriptIds,
             recordingCount: relatedRecordings.length
           })
         })
 
         weekRecordings.forEach((recording, recordingIndex) => {
-          const recordingId = recording.id || recording.recordingId
+          const recordingId = getRecordingResourceId(recording)
           if (!selectedIds.has(recordingId)) return
 
           const transcriptIds = collectTranscriptIds([recording])
@@ -685,15 +755,37 @@ const TreeItemComponent = defineComponent({
       emitSelectedQuizSource()
     }
 
+    const handleDeleteResourceClick = (e, payload, resourceId) => {
+      e.stopPropagation()
+      if (!payload?.fileId || !payload?.weekId) return
+      const title = payload.title || '선택한 파일'
+      if (!confirm(`"${title}"을(를) 삭제할까요?`)) return
+
+      if (resourceId && selectedResources.value.has(resourceId)) {
+        const nextSet = new Set(selectedResources.value)
+        nextSet.delete(resourceId)
+        selectedResources.value = nextSet
+        emitSelectedQuizSource()
+      }
+
+      emit('deleteResource', payload)
+    }
+
     const renderResourceSection = () => {
       if (!shouldShowResources.value) return null
 
       const allIds = []
       weeks.value.forEach(w => {
-        getWeekMaterials(w).forEach(m => allIds.push(m.id))
-        getWeekRecordings(w).forEach(r => allIds.push(r.id))
+        getWeekMaterials(w).forEach((material) => {
+          const id = getMaterialResourceId(material)
+          if (id) allIds.push(id)
+        })
+        getWeekRecordings(w).forEach((recording) => {
+          const id = getRecordingResourceId(recording)
+          if (id) allIds.push(id)
+        })
       })
-      const allSelected = allIds.length > 0 && selectedResources.value.size === allIds.length
+      const allSelected = allIds.length > 0 && allIds.every((id) => selectedResources.value.has(id))
 
       const renderTreeRow = ({
         key,
@@ -709,7 +801,8 @@ const TreeItemComponent = defineComponent({
         hasChevron = false,
         selectable = false,
         onClick,
-        onActionClick
+        onActionClick,
+        onDeleteClick
       }) => {
         const isSelected = id && selectedResources.value.has(id)
 
@@ -744,6 +837,15 @@ const TreeItemComponent = defineComponent({
             ...(meta ? [h('span', { class: 'week-tree-meta' }, meta)] : [])
           ]),
           ...(selectable ? [
+            h('span', {
+              class: 'week-tree-delete-btn',
+              title: `${title} 삭제`,
+              onClick: onDeleteClick
+            }, [
+              h('span', {
+                class: 'material-symbols-outlined'
+              }, 'delete')
+            ]),
             h('span', {
               class: `material-symbols-outlined week-tree-checkbox ${isSelected ? 'checked' : ''}`,
               onClick: (e) => {
@@ -846,27 +948,36 @@ const TreeItemComponent = defineComponent({
                   items: materials,
                   isOpen: materialFolderOpen,
                   onToggle: (e) => handleMaterialFolderToggle(e, week.id),
-                  renderRows: () => materials.map((material) => renderTreeRow({
-                    key: `material-${material.id}`,
-                    id: material.id,
-                    type: 'material file',
-                    icon: getAttachmentIcon(material.name),
-                    title: material.name,
-                    meta: getRelatedRecordings(weekRecordings, material.id).length ? '연결된 녹음 있음' : '',
-                    depth: 2,
-                    selectable: true,
-                    hoverIcon: 'more_vert',
-                    onClick: (e) => handleMaterialClick(e, material, weekRecordings),
-                    onActionClick: (e) => {
-                      e.stopPropagation()
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      emit('showMaterialMenu', {
+                  renderRows: () => materials.map((material, materialIndex) => {
+                    const materialId = getMaterialResourceId(material)
+                    return renderTreeRow({
+                      key: `material-${materialId || materialIndex}`,
+                      id: materialId,
+                      type: 'material file',
+                      icon: getAttachmentIcon(material.name),
+                      title: material.name,
+                      meta: getRelatedRecordings(weekRecordings, material.id).length ? '연결된 녹음 있음' : '',
+                      depth: 2,
+                      selectable: !!materialId,
+                      hoverIcon: 'more_vert',
+                      onClick: (e) => handleMaterialClick(e, material, weekRecordings),
+                      onDeleteClick: (e) => handleDeleteResourceClick(e, {
                         fileId: props.node.id,
                         weekId: week.id,
-                        materialId: material.id
-                      }, rect.right + 4, rect.top)
-                    }
-                  }))
+                        materialId,
+                        title: material.name || '강의자료'
+                      }, materialId),
+                      onActionClick: (e) => {
+                        e.stopPropagation()
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        emit('showMaterialMenu', {
+                          fileId: props.node.id,
+                          weekId: week.id,
+                          materialId: material.id
+                        }, rect.right + 4, rect.top)
+                      }
+                    })
+                  })
                 }),
                 renderFolder({
                   week,
@@ -876,27 +987,36 @@ const TreeItemComponent = defineComponent({
                   items: weekRecordings,
                   isOpen: recordingFolderOpen,
                   onToggle: (e) => handleRecordingFolderToggle(e, week.id),
-                  renderRows: () => weekRecordings.map((recording, recordingIndex) => renderTreeRow({
-                    key: `recording-${recording.id}`,
-                    id: recording.id,
-                    type: 'recording file',
-                    icon: 'graphic_eq',
-                    title: recording.title || `녹음본 ${recordingIndex + 1}`,
-                    meta: getRecordingMeta(recording),
-                    depth: 2,
-                    selectable: true,
-                    hoverIcon: 'more_vert',
-                    onClick: (e) => handleRecordingClick(e, recording),
-                    onActionClick: (e) => {
-                      e.stopPropagation()
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      emit('showMaterialMenu', {
+                  renderRows: () => weekRecordings.map((recording, recordingIndex) => {
+                    const recordingId = getRecordingResourceId(recording)
+                    return renderTreeRow({
+                      key: `recording-${recordingId || recordingIndex}`,
+                      id: recordingId,
+                      type: 'recording file',
+                      icon: 'graphic_eq',
+                      title: recording.title || `녹음본 ${recordingIndex + 1}`,
+                      meta: getRecordingMeta(recording),
+                      depth: 2,
+                      selectable: !!recordingId,
+                      hoverIcon: 'more_vert',
+                      onClick: (e) => handleRecordingClick(e, recording),
+                      onDeleteClick: (e) => handleDeleteResourceClick(e, {
                         fileId: props.node.id,
                         weekId: week.id,
-                        recordingId: recording.id
-                      }, rect.right + 4, rect.top)
-                    }
-                  }))
+                        recordingId,
+                        title: recording.title || `녹음본 ${recordingIndex + 1}`
+                      }, recordingId),
+                      onActionClick: (e) => {
+                        e.stopPropagation()
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        emit('showMaterialMenu', {
+                          fileId: props.node.id,
+                          weekId: week.id,
+                          recordingId: recording.id || recording.recordingId
+                        }, rect.right + 4, rect.top)
+                      }
+                    })
+                  })
                 })
               ])
             : null
@@ -985,6 +1105,7 @@ const TreeItemComponent = defineComponent({
           onShowMaterialMenu: (payload, x, y) => emit('showMaterialMenu', payload, x, y),
           onOpenMaterial: (payload) => emit('openMaterial', payload),
           onOpenRecording: (payload) => emit('openRecording', payload),
+          onDeleteResource: (payload) => emit('deleteResource', payload),
           onQuizSourceChange: (payload) => emit('quizSourceChange', payload)
         }))))
       }
@@ -1337,6 +1458,31 @@ export default {
   cursor: pointer;
   transition: color 0.18s ease;
 }
+
+.week-tree-delete-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 7px;
+  color: #c7c7cc;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.week-tree-delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.week-tree-delete-btn .material-symbols-outlined {
+  font-size: 17px;
+}
+
 .week-tree-checkbox:hover {
   color: #8e8e93;
 }

@@ -10,11 +10,9 @@ from db import get_pool
 
 def _row_to_summary(row: dict) -> dict:
     """DB row를 API 응답용 dict로 변환합니다."""
-    keys = set(row.keys())
     return {
         "summary_id": str(row["summary_id"]),
         "session_id": str(row["session_id"]) if row["session_id"] else None,
-        "recording_id": row["recording_id"] if "recording_id" in keys else None,
         "course_id": str(row["course_id"]) if row["course_id"] else None,
         "transcript_id": str(row["transcript_id"]) if row["transcript_id"] else None,
         "speaker_id": row["speaker_id"],
@@ -31,7 +29,6 @@ def _row_to_summary(row: dict) -> dict:
 async def save_summary(
     summary_id: str,
     session_id: str | None,
-    recording_id: str | None = None,
     course_id: str | None = None,
     transcript_id: str | None = None,
     speaker_id: str | None = None,
@@ -48,14 +45,13 @@ async def save_summary(
         await conn.execute(
             """
             INSERT INTO summaries
-                (summary_id, session_id, recording_id, course_id, transcript_id, speaker_id,
+                (summary_id, session_id, course_id, transcript_id, speaker_id,
                  speaker_summary, session_summary, course_summary,
                  source_start_time, source_end_time, source_text, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             """,
             _uuid.UUID(summary_id),
             _uuid.UUID(session_id) if session_id else None,
-            recording_id or None,
             _uuid.UUID(course_id) if course_id else None,
             _uuid.UUID(transcript_id) if transcript_id else None,
             speaker_id,
@@ -77,7 +73,7 @@ async def get_summary(summary_id: str) -> dict | None:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT summary_id, session_id, recording_id, course_id, transcript_id, speaker_id,
+            SELECT summary_id, session_id, course_id, transcript_id, speaker_id,
                    speaker_summary, session_summary, course_summary,
                    source_start_time, source_end_time, source_text, created_at
             FROM summaries
@@ -98,7 +94,7 @@ async def get_summaries_by_session(session_id: str) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT summary_id, session_id, recording_id, course_id, transcript_id, speaker_id,
+            SELECT summary_id, session_id, course_id, transcript_id, speaker_id,
                    speaker_summary, session_summary, course_summary,
                    source_start_time, source_end_time, source_text, created_at
             FROM summaries
@@ -111,26 +107,21 @@ async def get_summaries_by_session(session_id: str) -> list[dict]:
         return [_row_to_summary(r) for r in rows]
 
 
-async def get_latest_speaker_summaries_by_session(session_id: str, recording_id: str | None = None) -> list[dict]:
+async def get_latest_speaker_summaries_by_session(session_id: str) -> list[dict]:
     """세션에서 최신 화자 요약을 speaker_id별로 조회합니다."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        recording_filter = "AND recording_id = $2" if recording_id else ""
-        params = [_uuid.UUID(session_id)]
-        if recording_id:
-            params.append(recording_id)
         rows = await conn.fetch(
             """
             SELECT DISTINCT ON (speaker_id)
-                   summary_id, session_id, recording_id, course_id, transcript_id, speaker_id,
+                   summary_id, session_id, course_id, transcript_id, speaker_id,
                    speaker_summary, session_summary, course_summary,
                    source_start_time, source_end_time, source_text, created_at
             FROM summaries
             WHERE session_id = $1 AND speaker_summary IS NOT NULL
-            """ + recording_filter + """
             ORDER BY speaker_id, created_at DESC
             """,
-            *params,
+            _uuid.UUID(session_id),
         )
 
         return [_row_to_summary(r) for r in rows]
@@ -142,7 +133,7 @@ async def get_latest_session_summary(session_id: str) -> dict | None:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT summary_id, session_id, recording_id, course_id, transcript_id, speaker_id,
+            SELECT summary_id, session_id, course_id, transcript_id, speaker_id,
                    speaker_summary, session_summary, course_summary,
                    source_start_time, source_end_time, source_text, created_at
             FROM summaries
@@ -166,7 +157,7 @@ async def get_latest_speaker_summaries_by_course(course_id: str) -> list[dict]:
         rows = await conn.fetch(
             """
             SELECT DISTINCT ON (speaker_id)
-                   summary_id, session_id, recording_id, course_id, transcript_id, speaker_id,
+                   summary_id, session_id, course_id, transcript_id, speaker_id,
                    speaker_summary, session_summary, course_summary,
                    source_start_time, source_end_time, source_text, created_at
             FROM summaries
@@ -186,7 +177,7 @@ async def get_latest_session_summaries_by_course(course_id: str) -> list[dict]:
         rows = await conn.fetch(
             """
             SELECT DISTINCT ON (session_id)
-                   summary_id, session_id, recording_id, course_id, transcript_id, speaker_id,
+                   summary_id, session_id, course_id, transcript_id, speaker_id,
                    speaker_summary, session_summary, course_summary,
                    source_start_time, source_end_time, source_text, created_at
             FROM summaries
@@ -205,7 +196,7 @@ async def get_latest_course_summary(course_id: str) -> dict | None:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT summary_id, session_id, recording_id, course_id, transcript_id, speaker_id,
+            SELECT summary_id, session_id, course_id, transcript_id, speaker_id,
                    speaker_summary, session_summary, course_summary,
                    source_start_time, source_end_time, source_text, created_at
             FROM summaries

@@ -22,6 +22,7 @@ from pydantic import BaseModel
 # 신창영 : 현재 main 서버에서는 워크스페이스 기능 확인을 우선하여 quiz 라우터를 임시 제외
 from quiz.quiz import router as quiz_router
 from summary.summary import router as summary_router
+from summary.test import router as summary_test_router
 from schedule.schedule import router as schedule_router
 
 requested_stt_device = os.getenv("STT_DEVICE", "").strip().lower()
@@ -71,6 +72,7 @@ app.include_router(workspace_router)
 # ── 라우터 등록 ──
 app.include_router(quiz_router)
 app.include_router(summary_router)
+app.include_router(summary_test_router)
 app.include_router(schedule_router)
 
 #python -c "from huggingface_hub import login; login(token='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')"

@@ -18,6 +18,7 @@ const props = defineProps({
   activeFileName: { type: String, default: '' },
   activeFileId: { type: String, default: '' },
   activeFileType: { type: String, default: 'lecture' },
+  currentRecordings: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
   scheduleExtractionNotice: { type: Object, default: null },
@@ -38,6 +39,8 @@ const emit = defineEmits([
   'pauseRecording',
   'resumeRecording',
   'stopRecording',
+  'generateMaterialSummary',
+  'deleteSummary',
   'rightSidebarToggle',
   'addToNote',
   'askAi',
@@ -258,6 +261,7 @@ const highlightedTranscript = computed(() => {
       :activeFileName="activeFileName"
       :activeFileId="activeFileId"
       :activeFileType="activeFileType"
+      :currentRecordings="currentRecordings"
       :transcriptions="transcriptions"
       :currentPreviewMaterial="currentPreviewMaterial"
       :summaryState="summaryState"
@@ -267,6 +271,8 @@ const highlightedTranscript = computed(() => {
       @pauseRecording="emit('pauseRecording')"
       @resumeRecording="emit('resumeRecording')"
       @stopRecording="emit('stopRecording')"
+      @generateMaterialSummary="emit('generateMaterialSummary', $event)"
+      @deleteSummary="emit('deleteSummary', $event)"
       @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @rightSidebarToggle="emit('rightSidebarToggle')"
       @askAi="(word) => emit('askAi', word)"

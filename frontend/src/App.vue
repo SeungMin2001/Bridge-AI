@@ -21,6 +21,7 @@ const {
   activeFileName,
   activeFileId,
   activeFileType,
+  currentRecordings,
   currentPreviewMaterial,
   isRightSidebarVisible,
   scheduleExtractionNotice,
@@ -36,6 +37,8 @@ const {
   pauseRecording,
   resumeRecording,
   stopRecording,
+  generateMaterialSummaryForSource,
+  deleteSummary,
   handleRightSidebarToggle,
   handleAddToNote,
   handleAskAi,
@@ -90,6 +93,7 @@ const {
     :activeFileName="activeFileName"
     :activeFileId="activeFileId"
     :activeFileType="activeFileType"
+    :currentRecordings="currentRecordings"
     :currentPreviewMaterial="currentPreviewMaterial"
     :isRightSidebarVisible="isRightSidebarVisible"
     :scheduleExtractionNotice="scheduleExtractionNotice"
@@ -107,6 +111,8 @@ const {
     @pauseRecording="pauseRecording"
     @resumeRecording="resumeRecording"
     @stopRecording="stopRecording"
+    @generateMaterialSummary="generateMaterialSummaryForSource"
+    @deleteSummary="deleteSummary"
     @rightSidebarToggle="handleRightSidebarToggle"
     @addToNote="handleAddToNote"
     @askAi="handleAskAi"

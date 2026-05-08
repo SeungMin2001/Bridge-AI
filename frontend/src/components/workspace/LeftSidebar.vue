@@ -67,12 +67,13 @@ const collectTranscriptIds = (recordings = []) => {
   return Array.from(ids)
 }
 
-const emitQuizSource = ({ title, type, recordings = [], materialId = '', recordingId = '' }) => {
+const emitQuizSource = ({ title, type, recordings = [], materialId = '', recordingId = '', material = null }) => {
   emit('quizSourceSelect', {
     type,
     title,
     materialId,
     recordingId,
+    material,
     transcriptIds: collectTranscriptIds(recordings)
   })
 }
@@ -143,6 +144,7 @@ const handleOpenMaterial = ({ fileId, node, materialId, material, recording, rec
     type: 'material',
     title: material?.name || selectedTranscriptSource.value?.title || '강의자료',
     materialId,
+    material,
     recordings: relatedRecordings
   })
   emit('openStoredMaterial', materialId)
