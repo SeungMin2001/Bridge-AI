@@ -42,9 +42,18 @@ TRANSCRIPT_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_TRANSCRIPT_AUGMENTED_VALI
 CHECKPOINT_PATH = Path(os.getenv("PRAG_CHECKPOINT_PATH", str(BASE_DIR / "prag_memory_checkpoint.pt")))
 WEIGHTS_PATH = Path(os.getenv("PRAG_WEIGHTS_PATH", str(BASE_DIR / "prag_memory_weights.pt")))
 LOG_PATH = Path(os.getenv("PRAG_LOG_PATH", str(BASE_DIR / "prag_train_log.json")))
-MULTIFACT_CHECKPOINT_PATH = Path(os.getenv("PRAG_MULTIFACT_CHECKPOINT_PATH", str(BASE_DIR / "prag_multifact_memory_checkpoint.pt")))
-MULTIFACT_WEIGHTS_PATH = Path(os.getenv("PRAG_MULTIFACT_WEIGHTS_PATH", str(BASE_DIR / "prag_multifact_memory_weights.pt")))
-MULTIFACT_LOG_PATH = Path(os.getenv("PRAG_MULTIFACT_LOG_PATH", str(BASE_DIR / "prag_multifact_train_log.json")))
+MULTIFACT_CHECKPOINT_PATH = Path(os.getenv(
+    "PRAG_MULTIFACT_CHECKPOINT_PATH",
+    str(BASE_DIR / "prag_multifact_paper_ce_phrase_clean_ko_checkpoint.pt"),
+))
+MULTIFACT_WEIGHTS_PATH = Path(os.getenv(
+    "PRAG_MULTIFACT_WEIGHTS_PATH",
+    str(BASE_DIR / "prag_multifact_paper_ce_phrase_clean_ko_weights.pt"),
+))
+MULTIFACT_LOG_PATH = Path(os.getenv(
+    "PRAG_MULTIFACT_LOG_PATH",
+    str(BASE_DIR / "prag_multifact_paper_ce_phrase_clean_ko_train_log.json"),
+))
 LECTURE_CHECKPOINT_PATH = Path(os.getenv("PRAG_LECTURE_CHECKPOINT_PATH", str(BASE_DIR / "prag_lecture_memory_checkpoint.pt")))
 LECTURE_WEIGHTS_PATH = Path(os.getenv("PRAG_LECTURE_WEIGHTS_PATH", str(BASE_DIR / "prag_lecture_memory_weights.pt")))
 LECTURE_LOG_PATH = Path(os.getenv("PRAG_LECTURE_LOG_PATH", str(BASE_DIR / "prag_lecture_train_log.json")))
