@@ -16,7 +16,7 @@ from .config import (
     TRANSCRIPT_AUGMENTED_TRAIN_PATH,
     TRANSCRIPT_AUGMENTED_VALID_PATH,
 )
-from .data import get_passage, iter_json_records, normalize_qas
+from .data import contains_hangul, get_passage, iter_json_records, normalize_qas
 
 
 def clip(text: str, width: int = 140) -> str:
@@ -35,6 +35,32 @@ def print_qa_list(title: str, qas: list[dict], max_items: int, width: int) -> No
         full_answer = qa.get("full_answer")
         if full_answer:
             print(f"       full: {clip(full_answer, width)}")
+
+
+def row_text(row: dict) -> str:
+    fields = [get_passage(row), str(row.get("rewrite") or "")]
+    for key in ("atomic_qas", "final_qas"):
+        for qa in normalize_qas(row.get(key)):
+            fields.extend([
+                qa.get("sub_passage", ""),
+                qa.get("question", ""),
+                qa.get("answer", ""),
+                qa.get("full_answer", ""),
+            ])
+    negatives = row.get("hard_negatives") if isinstance(row.get("hard_negatives"), list) else []
+    for neg in negatives:
+        if not isinstance(neg, dict):
+            continue
+        fields.append(get_passage(neg))
+        for key in ("atomic_qas", "qas", "final_qas"):
+            for qa in normalize_qas(neg.get(key)):
+                fields.extend([
+                    qa.get("sub_passage", ""),
+                    qa.get("question", ""),
+                    qa.get("answer", ""),
+                    qa.get("full_answer", ""),
+                ])
+    return "\n".join(str(item or "") for item in fields)
 
 
 def main() -> None:
@@ -70,7 +96,11 @@ def main() -> None:
     parser.add_argument("--max-qas", type=int, default=4)
     parser.add_argument("--width", type=int, default=160)
     parser.add_argument("--random", action="store_true")
+    parser.add_argument("--ko-only", action="store_true", help="Preview only rows containing Korean text.")
+    parser.add_argument("--en-only", action="store_true", help="Preview only rows without Korean text.")
     args = parser.parse_args()
+    if args.ko_only and args.en_only:
+        raise ValueError("Use only one of --ko-only or --en-only.")
 
     path = args.path
     train_default = AUGMENTED_TRAIN_PATH
@@ -92,7 +122,15 @@ def main() -> None:
         path = str(train_default)
 
     rows = list(iter_json_records(path))
-    print(f"[PRAG:preview] path={path} rows={len(rows)}")
+    ko_rows = [row for row in rows if contains_hangul(row_text(row))]
+    en_rows = [row for row in rows if row not in ko_rows]
+    print(f"[PRAG:preview] path={path} rows={len(rows)} ko_like={len(ko_rows)} non_ko_like={len(en_rows)}")
+    if args.ko_only:
+        rows = ko_rows
+        print(f"[PRAG:preview] filter=ko_only rows={len(rows)}")
+    elif args.en_only:
+        rows = en_rows
+        print(f"[PRAG:preview] filter=en_only rows={len(rows)}")
     if args.random:
         random.shuffle(rows)
         rows = rows[: args.samples]
