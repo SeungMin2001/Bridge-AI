@@ -1,6 +1,7 @@
 """Single Korean sanity check for PRAG K/V passage injection.
 
-This diagnostic uses the same chat prompt format as training/test diagnostics.
+This diagnostic uses the same generation prompt format as training/test
+diagnostics, falling back to the MergePRAG-style plain prompt for base models.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from .memory import (
     make_memory_hook,
     model_num_heads,
     tokenize_qa,
+    uses_chat_prompt,
 )
 from .prompts import system_prompt, user_prompt
 
@@ -204,6 +206,9 @@ def generate_plain(model, tokenizer, question: str, device, max_new_tokens: int)
 
 
 def build_memory_cued_prompt(tokenizer, question: str) -> str:
+    if not uses_chat_prompt(tokenizer):
+        return build_paper_prompt(question)
+
     if contains_hangul(question):
         messages = [
             {
@@ -253,6 +258,9 @@ def build_memory_cued_prompt(tokenizer, question: str) -> str:
 
 
 def build_short_chat_prompt(tokenizer, question: str) -> str:
+    if not uses_chat_prompt(tokenizer):
+        return build_paper_prompt(question)
+
     if contains_hangul(question):
         messages = [
             {"role": "system", "content": "주입된 메모리만 근거로 정답 구절만 짧게 답하세요. 없으면 '모름'이라고 답하세요."},
@@ -330,6 +338,11 @@ def compute_prefix_answer_loss(logits: torch.Tensor, labels: torch.Tensor, prefi
 
 
 def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
+    if not uses_chat_prompt(tokenizer):
+        if contains_hangul(f"{question}\n{passage}"):
+            return f"passage:\n{passage}\n\n질문:\n{question}\n\n답변:"
+        return f"Passage:\n{passage}\n\nQuestion:\n{question}\nAnswer:"
+
     messages = [
         {
             "role": "system",

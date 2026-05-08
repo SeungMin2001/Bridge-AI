@@ -14,6 +14,7 @@ from .config import (
     HIDDEN_DIM,
     MAX_MEMORY_TOKENS,
     MAX_SEQ_LEN,
+    MODEL_NAME,
     NUM_KV,
     QUESTION_CONDITIONED_MEMORY,
     USE_CONTEXTUAL_MEMORY,
@@ -273,7 +274,28 @@ def make_memory_hook(
     return hook_fn
 
 
+def uses_chat_prompt(tokenizer) -> bool:
+    """Use chat templates only for instruction/chat checkpoints.
+
+    The MergePRAG author path trains with a plain ``Question/Answer`` prompt.
+    Base checkpoints such as ``Qwen/Qwen2.5-7B`` may not define a compatible
+    chat template, so falling back to the paper-style prompt avoids silently
+    training/evaluating with an instruction-only format.
+    """
+    model_name = str(MODEL_NAME).lower()
+    return bool(getattr(tokenizer, "chat_template", None)) and any(
+        marker in model_name for marker in ("instruct", "chat")
+    )
+
+
 def build_chat_prompt(tokenizer, question: str, answer: str = "") -> str:
+    if not uses_chat_prompt(tokenizer):
+        if contains_hangul(question):
+            prompt = f"질문: {question}\n답변:"
+        else:
+            prompt = f"Question: {question}\nAnswer:"
+        return f"{prompt} {answer}" if answer else prompt
+
     messages = [
         {"role": "system", "content": system_prompt(question)},
         {"role": "user", "content": user_prompt(question)},

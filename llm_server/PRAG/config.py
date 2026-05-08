@@ -11,7 +11,9 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parents[2]
 DATA_DIR = Path(os.getenv("PRAG_DATA_DIR", str(PROJECT_ROOT / "data")))
 
-MODEL_NAME = os.getenv("PRAG_MODEL_NAME", os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-3B-Instruct"))
+# Match the MergePRAG author-code Qwen setting by default. Keep env overrides
+# available for smaller local smoke tests or ablations.
+MODEL_NAME = os.getenv("PRAG_MODEL_NAME", os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-7B"))
 AUGMENT_MODEL_NAME = os.getenv("PRAG_AUGMENT_MODEL_NAME", MODEL_NAME)
 
 DIVERSE_SOURCE_PATH = Path(os.getenv("PRAG_DIVERSE_SOURCE_PATH", str(DATA_DIR / "PRAG_diverse_sources.jsonl")))
@@ -44,15 +46,15 @@ WEIGHTS_PATH = Path(os.getenv("PRAG_WEIGHTS_PATH", str(BASE_DIR / "prag_memory_w
 LOG_PATH = Path(os.getenv("PRAG_LOG_PATH", str(BASE_DIR / "prag_train_log.json")))
 MULTIFACT_CHECKPOINT_PATH = Path(os.getenv(
     "PRAG_MULTIFACT_CHECKPOINT_PATH",
-    str(BASE_DIR / "prag_multifact_paper_ce_phrase_clean_ko_checkpoint.pt"),
+    str(BASE_DIR / "prag_multifact_qwen25_7b_qp_embed_phrase_clean_ko_checkpoint.pt"),
 ))
 MULTIFACT_WEIGHTS_PATH = Path(os.getenv(
     "PRAG_MULTIFACT_WEIGHTS_PATH",
-    str(BASE_DIR / "prag_multifact_paper_ce_phrase_clean_ko_weights.pt"),
+    str(BASE_DIR / "prag_multifact_qwen25_7b_qp_embed_phrase_clean_ko_weights.pt"),
 ))
 MULTIFACT_LOG_PATH = Path(os.getenv(
     "PRAG_MULTIFACT_LOG_PATH",
-    str(BASE_DIR / "prag_multifact_paper_ce_phrase_clean_ko_train_log.json"),
+    str(BASE_DIR / "prag_multifact_qwen25_7b_qp_embed_phrase_clean_ko_train_log.json"),
 ))
 LECTURE_CHECKPOINT_PATH = Path(os.getenv("PRAG_LECTURE_CHECKPOINT_PATH", str(BASE_DIR / "prag_lecture_memory_checkpoint.pt")))
 LECTURE_WEIGHTS_PATH = Path(os.getenv("PRAG_LECTURE_WEIGHTS_PATH", str(BASE_DIR / "prag_lecture_memory_weights.pt")))
@@ -71,7 +73,9 @@ TRANSCRIPT_WEIGHTS_PATH = Path(os.getenv("PRAG_TRANSCRIPT_WEIGHTS_PATH", str(BAS
 TRANSCRIPT_LOG_PATH = Path(os.getenv("PRAG_TRANSCRIPT_LOG_PATH", str(BASE_DIR / "prag_transcript_train_log.json")))
 CRITICAL_LAYERS_PATH = Path(os.getenv("PRAG_CRITICAL_LAYERS_PATH", str(BASE_DIR / "critical_layers.json")))
 
-DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "19"))
+# The MergePRAG author config uses single_layer=9 for the public setup. Keep
+# PRAG_CRITICAL_LAYER/PRAG_DEFAULT_LAYER overrides available for layer sweeps.
+DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "9"))
 NUM_KV = int(os.getenv("PRAG_NUM_KV", "16"))
 HIDDEN_DIM = int(os.getenv("PRAG_HIDDEN_DIM", "1024"))
 ALPHA = float(os.getenv("PRAG_ALPHA", "1.0"))

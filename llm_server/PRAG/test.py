@@ -38,6 +38,7 @@ from .memory import (
     make_memory_hook,
     model_num_heads,
     tokenize_qa,
+    uses_chat_prompt,
 )
 
 
@@ -81,6 +82,11 @@ def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max
 
 
 def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
+    if not uses_chat_prompt(tokenizer):
+        if any("\uac00" <= ch <= "\ud7a3" for ch in f"{question}\n{passage}"):
+            return f"passage:\n{passage}\n\n질문:\n{question}\n\n답변:"
+        return f"Passage:\n{passage}\n\nQuestion:\n{question}\nAnswer:"
+
     messages = [
         {
             "role": "system",
