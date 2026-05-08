@@ -39,6 +39,44 @@ from .prompts import system_prompt, user_prompt
 
 
 SYNTHETIC_CASES = {
+    "training_like": {
+        "name": "ko_multifact_style_qa_meeting_definition",
+        "question": "리포트 제출 시간은 언제인가?",
+        "main_passage": (
+            "이 교수는 QA 회의에서 자동화 대상은 반복 로그인이라고 정의했다. "
+            "이 정의를 보완하면서 리포트 제출 시간은 금요일 오후, "
+            "회귀 테스트 범위는 로그인과 채팅이라고 설명했다."
+        ),
+        "negative_passage": (
+            "이 교수는 QA 회의에서 자동화 대상은 로고 선택이라고 정의했다. "
+            "이 정의를 보완하면서 리포트 제출 시간은 월요일 새벽, "
+            "회귀 테스트 범위는 배경 음악이라고 설명했다."
+        ),
+        "main_answer": "금요일 오후",
+        "negative_answer": "월요일 새벽",
+        "full_answer": "리포트 제출 시간은 금요일 오후입니다.",
+        "negative_full_answer": "리포트 제출 시간은 월요일 새벽입니다.",
+        "hit_phrases": ["금요일 오후", "금요일"],
+    },
+    "training_like_analogy": {
+        "name": "ko_multifact_style_database_analogy",
+        "question": "캐시 의미를 이해하기 위한 비유는 무엇인가요?",
+        "main_passage": (
+            "민아 조교는 데이터베이스 수업에서 캐시 의미를 쉽게 이해하도록 "
+            "자주 쓰는 자료를 책상 위에 올려두는 것이라는 비유로 설명했다. "
+            "그 비유를 바탕으로 인덱스 역할은 검색 속도 향상이라고 덧붙였다."
+        ),
+        "negative_passage": (
+            "민아 조교는 데이터베이스 수업에서 캐시 의미를 쉽게 이해하도록 "
+            "오래 보관할 자료를 창고 깊숙이 넣어두는 것이라는 비유로 설명했다. "
+            "그 비유를 바탕으로 인덱스 역할은 화면 색상 변경이라고 덧붙였다."
+        ),
+        "main_answer": "자주 쓰는 자료를 책상 위에 올려두는 것",
+        "negative_answer": "오래 보관할 자료를 창고 깊숙이 넣어두는 것",
+        "full_answer": "캐시는 자주 쓰는 자료를 책상 위에 올려두는 것에 비유되었습니다.",
+        "negative_full_answer": "캐시는 오래 보관할 자료를 창고 깊숙이 넣어두는 것에 비유되었습니다.",
+        "hit_phrases": ["책상 위", "자주 쓰는 자료", "책상"],
+    },
     "process_restaurant": {
         "name": "ko_lecture_process_restaurant_analogy",
         "question": "교수님이 컴퓨터 프로세스를 뭐라고 비유하셨어?",
@@ -742,11 +780,11 @@ def main() -> None:
     parser.add_argument(
         "--synthetic-case",
         choices=tuple(SYNTHETIC_CASES.keys()) + ("all",),
-        default="process_restaurant",
+        default="training_like",
         help=(
-            "Synthetic transcript-style case to run: process_restaurant checks short analogy recall, "
-            "deadline checks date/deadline recall, location checks upload/location recall, "
-            "analogy checks concept analogy recall."
+            "Synthetic case to run. training_like is closest to the clean-ko multifact training format; "
+            "training_like_analogy checks a training-style concept analogy; process_restaurant/deadline/"
+            "location/analogy are out-of-distribution sanity cases kept for comparison."
         ),
     )
     parser.add_argument(
