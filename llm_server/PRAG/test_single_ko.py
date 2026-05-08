@@ -40,23 +40,19 @@ from .prompts import system_prompt, user_prompt
 
 SYNTHETIC_CASES = {
     "training_like": {
-        "name": "ko_multifact_style_qa_meeting_definition",
-        "question": "리포트 제출 시간은 언제인가?",
+        "name": "ko_short_memory_location",
+        "question": "미르노트는 어디에 내?",
         "main_passage": (
-            "이 교수는 QA 회의에서 자동화 대상은 반복 로그인이라고 정의했다. "
-            "이 정의를 보완하면서 리포트 제출 시간은 금요일 오후, "
-            "회귀 테스트 범위는 로그인과 채팅이라고 설명했다."
+            "미르노트는 3층 파란함에 내세요."
         ),
         "negative_passage": (
-            "이 교수는 QA 회의에서 자동화 대상은 로고 선택이라고 정의했다. "
-            "이 정의를 보완하면서 리포트 제출 시간은 월요일 새벽, "
-            "회귀 테스트 범위는 배경 음악이라고 설명했다."
+            "미르노트는 1층 초록함에 내세요."
         ),
-        "main_answer": "금요일 오후",
-        "negative_answer": "월요일 새벽",
-        "full_answer": "리포트 제출 시간은 금요일 오후입니다.",
-        "negative_full_answer": "리포트 제출 시간은 월요일 새벽입니다.",
-        "hit_phrases": ["금요일 오후", "금요일"],
+        "main_answer": "3층 파란함",
+        "negative_answer": "1층 초록함",
+        "full_answer": "미르노트는 3층 파란함에 내면 됩니다.",
+        "negative_full_answer": "미르노트는 1층 초록함에 내면 됩니다.",
+        "hit_phrases": ["3층 파란함", "3층"],
     },
     "training_like_analogy": {
         "name": "ko_multifact_style_database_analogy",
@@ -782,7 +778,7 @@ def main() -> None:
         choices=tuple(SYNTHETIC_CASES.keys()) + ("all",),
         default="training_like",
         help=(
-            "Synthetic case to run. training_like is closest to the clean-ko multifact training format; "
+            "Synthetic case to run. training_like is the short default passage-injection sanity case; "
             "training_like_analogy checks a training-style concept analogy; process_restaurant/deadline/"
             "location/analogy are out-of-distribution sanity cases kept for comparison."
         ),
