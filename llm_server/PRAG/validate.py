@@ -56,6 +56,42 @@ def add_normalized_qa_stats(stats: Counter, prefix: str, qa: dict) -> None:
     stats[f"{prefix}_full_answer_starts_answer"] += int(starts_with_answer(answer, full_answer))
 
 
+def contains_cjk_ideograph(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
+
+
+def has_korean_artifact(text: str) -> bool:
+    lowered = str(text or "").casefold()
+    english_list_markers = ("part 1", "part 2", "part 3", "part 1:", "part 2:", "part 3:")
+    return contains_cjk_ideograph(lowered) or any(marker in lowered for marker in english_list_markers)
+
+
+def collect_row_text(row: dict) -> str:
+    fields = [get_passage(row), str(row.get("rewrite") or "")]
+    for key in ("atomic_qas", "final_qas"):
+        for qa in normalize_qas(row.get(key)):
+            fields.extend([
+                qa.get("sub_passage", ""),
+                qa.get("question", ""),
+                qa.get("answer", ""),
+                qa.get("full_answer", ""),
+            ])
+    negatives = row.get("hard_negatives") if isinstance(row.get("hard_negatives"), list) else []
+    for neg in negatives:
+        if not isinstance(neg, dict):
+            continue
+        fields.append(get_passage(neg))
+        for key in ("atomic_qas", "qas", "final_qas"):
+            for qa in normalize_qas(neg.get(key)):
+                fields.extend([
+                    qa.get("sub_passage", ""),
+                    qa.get("question", ""),
+                    qa.get("answer", ""),
+                    qa.get("full_answer", ""),
+                ])
+    return "\n".join(str(item or "") for item in fields)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("paths", nargs="*", default=[str(AUGMENTED_TRAIN_PATH), str(AUGMENTED_VALID_PATH)])
@@ -96,14 +132,19 @@ def main() -> None:
         shown = 0
         for row in rows:
             passage = get_passage(row)
+            full_text = collect_row_text(row)
             raw_atomic = raw_qas(row.get("atomic_qas"))
             raw_final = raw_qas(row.get("final_qas"))
             atomic = normalize_qas(row.get("atomic_qas"))
             final = normalize_qas(row.get("final_qas"))
             negatives = row.get("hard_negatives") if isinstance(row.get("hard_negatives"), list) else []
             stats["rows"] += 1
-            stats["ko_rows"] += int(contains_hangul(passage))
-            stats["en_rows"] += int(bool(passage) and not contains_hangul(passage))
+            row_has_hangul = contains_hangul(full_text)
+            row_has_artifact = has_korean_artifact(full_text)
+            stats["ko_rows"] += int(row_has_hangul)
+            stats["en_rows"] += int(bool(passage) and not row_has_hangul)
+            stats["artifact_rows"] += int(row_has_artifact)
+            stats["clean_ko_rows"] += int(row_has_hangul and not row_has_artifact)
             stats["missing_passage"] += int(not passage)
             stats["missing_atomic"] += int(not atomic)
             stats["missing_final"] += int(not final)
@@ -187,6 +228,8 @@ def main() -> None:
             print(f"  answer_in_full_answer_ratio: {answer_in_full / max(normalized_qa_total, 1):.3f}")
             print(f"  negative_answer_in_full_answer_ratio: {neg_answer_in_full / max(neg_normalized_qa_total, 1):.3f}")
             print(f"  ko_row_ratio: {stats['ko_rows'] / stats['rows']:.3f}")
+            print(f"  clean_ko_row_ratio: {stats['clean_ko_rows'] / stats['rows']:.3f}")
+            print(f"  artifact_row_ratio: {stats['artifact_rows'] / stats['rows']:.3f}")
 
 
 if __name__ == "__main__":

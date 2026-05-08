@@ -123,6 +123,32 @@ def example_has_hangul(example: MemoryExample) -> bool:
     return contains_hangul("\n".join(fields))
 
 
+def contains_cjk_ideograph(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
+
+
+def has_korean_artifact(text: str) -> bool:
+    lowered = str(text or "").casefold()
+    # Keep normal technical English tokens such as QA, AI, pH, TCP, but remove
+    # obvious generation artifacts in Korean rows.
+    english_list_markers = ("part 1", "part 2", "part 3", "part 1:", "part 2:", "part 3:")
+    return contains_cjk_ideograph(lowered) or any(marker in lowered for marker in english_list_markers)
+
+
+def example_is_clean_korean(example: MemoryExample) -> bool:
+    fields = [
+        example.passage,
+        example.question,
+        example.answer,
+        example.full_answer,
+        example.negative_passage or "",
+        example.negative_answer or "",
+        example.negative_full_answer or "",
+    ]
+    text = "\n".join(fields)
+    return contains_hangul(text) and not has_korean_artifact(text)
+
+
 def group_has_hangul(group: MemoryGroup) -> bool:
     fields = [group.passage, group.negative_passage or ""]
     for qa in group.qas:
@@ -134,6 +160,20 @@ def group_has_hangul(group: MemoryGroup) -> bool:
             qa.negative_full_answer or "",
         ])
     return contains_hangul("\n".join(fields))
+
+
+def group_is_clean_korean(group: MemoryGroup) -> bool:
+    fields = [group.passage, group.negative_passage or ""]
+    for qa in group.qas:
+        fields.extend([
+            qa.question,
+            qa.answer,
+            qa.full_answer,
+            qa.negative_answer or "",
+            qa.negative_full_answer or "",
+        ])
+    text = "\n".join(fields)
+    return contains_hangul(text) and not has_korean_artifact(text)
 
 
 def load_compatible_hypernet_weights(hypernet, weights_path: str, device) -> tuple[int, int]:
@@ -968,6 +1008,7 @@ def normalize_resume_config(config: dict) -> dict:
         "external_qa",
         "transcript",
         "ko_only",
+        "clean_ko_only",
         "ko_content",
         "lecture",
         "aihub_lecture",
@@ -1067,6 +1108,14 @@ def main() -> None:
         "--ko-only",
         action="store_true",
         help="Train/evaluate only Korean examples from the selected augmented dataset.",
+    )
+    parser.add_argument(
+        "--clean-ko-only",
+        action="store_true",
+        help=(
+            "Train/evaluate only Korean examples and drop obvious generation artifacts "
+            "such as CJK ideographs or English list labels like 'part 1'."
+        ),
     )
     parser.add_argument("--max-samples", type=int, default=0)
     parser.add_argument("--max-val-samples", type=int, default=0)
@@ -1259,15 +1308,20 @@ def main() -> None:
     valid_examples = load_augmented_examples(args.valid, max_samples=args.max_val_samples or None)
     train_groups = load_augmented_groups(args.train, max_samples=args.max_samples or None)
     valid_groups = load_augmented_groups(args.valid, max_samples=args.max_val_samples or None)
+    if args.clean_ko_only:
+        args.ko_only = True
     if args.ko_only:
         before = (len(train_examples), len(valid_examples), len(train_groups), len(valid_groups))
-        train_examples = [item for item in train_examples if example_has_hangul(item)]
-        valid_examples = [item for item in valid_examples if example_has_hangul(item)]
-        train_groups = [item for item in train_groups if group_has_hangul(item)]
-        valid_groups = [item for item in valid_groups if group_has_hangul(item)]
+        example_filter = example_is_clean_korean if args.clean_ko_only else example_has_hangul
+        group_filter = group_is_clean_korean if args.clean_ko_only else group_has_hangul
+        filter_name = "clean-ko-only" if args.clean_ko_only else "ko-only"
+        train_examples = [item for item in train_examples if example_filter(item)]
+        valid_examples = [item for item in valid_examples if example_filter(item)]
+        train_groups = [item for item in train_groups if group_filter(item)]
+        valid_groups = [item for item in valid_groups if group_filter(item)]
         after = (len(train_examples), len(valid_examples), len(train_groups), len(valid_groups))
         print(
-            "[PRAG:train] ko-only filter: "
+            f"[PRAG:train] {filter_name} filter: "
             f"examples train={before[0]}->{after[0]} valid={before[1]}->{after[1]} | "
             f"groups train={before[2]}->{after[2]} valid={before[3]}->{after[3]}"
         )
@@ -1323,6 +1377,7 @@ def main() -> None:
         "external_qa": args.external_qa,
         "transcript": args.transcript,
         "ko_only": args.ko_only,
+        "clean_ko_only": args.clean_ko_only,
         "lecture": args.lecture,
         "aihub_lecture": args.aihub_lecture,
         "rank_weight": args.rank_weight,

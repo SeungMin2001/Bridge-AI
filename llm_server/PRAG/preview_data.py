@@ -63,6 +63,16 @@ def row_text(row: dict) -> str:
     return "\n".join(str(item or "") for item in fields)
 
 
+def contains_cjk_ideograph(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
+
+
+def has_korean_artifact(text: str) -> bool:
+    lowered = str(text or "").casefold()
+    english_list_markers = ("part 1", "part 2", "part 3", "part 1:", "part 2:", "part 3:")
+    return contains_cjk_ideograph(lowered) or any(marker in lowered for marker in english_list_markers)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("path", nargs="?", default=str(AUGMENTED_TRAIN_PATH))
@@ -97,10 +107,15 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=160)
     parser.add_argument("--random", action="store_true")
     parser.add_argument("--ko-only", action="store_true", help="Preview only rows containing Korean text.")
+    parser.add_argument(
+        "--clean-ko-only",
+        action="store_true",
+        help="Preview Korean rows after dropping obvious artifacts such as CJK ideographs or 'part 1' labels.",
+    )
     parser.add_argument("--en-only", action="store_true", help="Preview only rows without Korean text.")
     args = parser.parse_args()
-    if args.ko_only and args.en_only:
-        raise ValueError("Use only one of --ko-only or --en-only.")
+    if sum(bool(flag) for flag in (args.ko_only, args.clean_ko_only, args.en_only)) > 1:
+        raise ValueError("Use only one of --ko-only, --clean-ko-only, or --en-only.")
 
     path = args.path
     train_default = AUGMENTED_TRAIN_PATH
@@ -123,11 +138,22 @@ def main() -> None:
 
     rows = list(iter_json_records(path))
     ko_rows = [row for row in rows if contains_hangul(row_text(row))]
+    clean_ko_rows = [
+        row
+        for row in ko_rows
+        if not has_korean_artifact(row_text(row))
+    ]
     en_rows = [row for row in rows if row not in ko_rows]
-    print(f"[PRAG:preview] path={path} rows={len(rows)} ko_like={len(ko_rows)} non_ko_like={len(en_rows)}")
+    print(
+        f"[PRAG:preview] path={path} rows={len(rows)} "
+        f"ko_like={len(ko_rows)} clean_ko_like={len(clean_ko_rows)} non_ko_like={len(en_rows)}"
+    )
     if args.ko_only:
         rows = ko_rows
         print(f"[PRAG:preview] filter=ko_only rows={len(rows)}")
+    elif args.clean_ko_only:
+        rows = clean_ko_rows
+        print(f"[PRAG:preview] filter=clean_ko_only rows={len(rows)}")
     elif args.en_only:
         rows = en_rows
         print(f"[PRAG:preview] filter=en_only rows={len(rows)}")
