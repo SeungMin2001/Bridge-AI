@@ -68,7 +68,10 @@ HIDDEN_DIM = int(os.getenv("PRAG_HIDDEN_DIM", "1024"))
 ALPHA = float(os.getenv("PRAG_ALPHA", "1.0"))
 MAX_MEMORY_TOKENS = int(os.getenv("PRAG_MAX_MEMORY_TOKENS", "256"))
 MAX_SEQ_LEN = int(os.getenv("PRAG_MAX_SEQ_LEN", "512"))
-USE_CONTEXTUAL_MEMORY = os.getenv("PRAG_USE_CONTEXTUAL_MEMORY", "1").strip().lower() in {
+# Default to the paper-closer, embedding-only memory input. The question is still
+# included in the memory text by QUESTION_CONDITIONED_MEMORY below, but we avoid
+# concatenating full-model hidden states unless explicitly enabled.
+USE_CONTEXTUAL_MEMORY = os.getenv("PRAG_USE_CONTEXTUAL_MEMORY", "0").strip().lower() in {
     "1",
     "true",
     "yes",
