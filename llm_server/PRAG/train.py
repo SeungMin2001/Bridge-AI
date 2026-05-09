@@ -42,6 +42,11 @@ from .config import (
     KORQUAD_AUGMENTED_VALID_PATH,
     KORQUAD_CHECKPOINT_PATH,
     KORQUAD_LOG_PATH,
+    KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH,
+    KORQUAD_SERVICE_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_CHECKPOINT_PATH,
+    KORQUAD_SERVICE_LOG_PATH,
+    KORQUAD_SERVICE_WEIGHTS_PATH,
     KORQUAD_WEIGHTS_PATH,
     LECTURE_AUGMENTED_TRAIN_PATH,
     LECTURE_AUGMENTED_VALID_PATH,
@@ -1011,6 +1016,7 @@ def normalize_resume_config(config: dict) -> dict:
     for key in (
         "multifact",
         "korquad",
+        "korquad_service",
         "external_qa",
         "transcript",
         "ko_only",
@@ -1089,6 +1095,11 @@ def main() -> None:
         "--korquad",
         action="store_true",
         help="Use the converted KorQuAD Korean MRC train/valid JSONL files and separate KorQuAD output weights.",
+    )
+    parser.add_argument(
+        "--korquad-service",
+        action="store_true",
+        help="Use KorQuAD rewritten as professor-style service transcript data and separate output weights.",
     )
     parser.add_argument(
         "--external-qa",
@@ -1269,6 +1280,12 @@ def main() -> None:
         checkpoint_path = KORQUAD_CHECKPOINT_PATH
         weights_path = KORQUAD_WEIGHTS_PATH
         log_path = KORQUAD_LOG_PATH
+    if args.korquad_service:
+        args.train = str(KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH)
+        args.valid = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
+        checkpoint_path = KORQUAD_SERVICE_CHECKPOINT_PATH
+        weights_path = KORQUAD_SERVICE_WEIGHTS_PATH
+        log_path = KORQUAD_SERVICE_LOG_PATH
     if args.external_qa:
         args.train = str(EXTERNAL_QA_AUGMENTED_TRAIN_PATH)
         args.valid = str(EXTERNAL_QA_AUGMENTED_VALID_PATH)
@@ -1380,6 +1397,7 @@ def main() -> None:
         "objective": "atomic_final_ce_plus_negative_flip",
         "multifact": args.multifact,
         "korquad": args.korquad,
+        "korquad_service": args.korquad_service,
         "external_qa": args.external_qa,
         "transcript": args.transcript,
         "ko_only": args.ko_only,

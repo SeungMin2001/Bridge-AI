@@ -11,6 +11,8 @@ from .config import (
     AUGMENTED_VALID_PATH,
     EXTERNAL_QA_AUGMENTED_TRAIN_PATH,
     EXTERNAL_QA_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH,
+    KORQUAD_SERVICE_AUGMENTED_VALID_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
     TRANSCRIPT_AUGMENTED_TRAIN_PATH,
@@ -92,6 +94,11 @@ def main() -> None:
         help="Preview the HotpotQA/KorQuAD external-QA augmented train or valid dataset.",
     )
     parser.add_argument(
+        "--korquad-service",
+        action="store_true",
+        help="Preview KorQuAD rewritten as professor-style service transcript data.",
+    )
+    parser.add_argument(
         "--transcript",
         action="store_true",
         help="Preview the transcript-style augmented train or valid dataset.",
@@ -126,6 +133,9 @@ def main() -> None:
     if args.external_qa:
         train_default = EXTERNAL_QA_AUGMENTED_TRAIN_PATH
         valid_default = EXTERNAL_QA_AUGMENTED_VALID_PATH
+    if args.korquad_service:
+        train_default = KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH
+        valid_default = KORQUAD_SERVICE_AUGMENTED_VALID_PATH
     if args.transcript:
         train_default = TRANSCRIPT_AUGMENTED_TRAIN_PATH
         valid_default = TRANSCRIPT_AUGMENTED_VALID_PATH
@@ -133,7 +143,7 @@ def main() -> None:
         path = str(train_default)
     elif args.split == "valid":
         path = str(valid_default)
-    elif args.multifact or args.external_qa or args.transcript:
+    elif args.multifact or args.external_qa or args.korquad_service or args.transcript:
         path = str(train_default)
 
     rows = list(iter_json_records(path))

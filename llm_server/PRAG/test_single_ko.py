@@ -14,6 +14,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import (
     ALPHA,
+    KORQUAD_SERVICE_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_WEIGHTS_PATH,
     MODEL_NAME,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_WEIGHTS_PATH,
@@ -824,6 +826,11 @@ def main() -> None:
         action="store_true",
         help="Use the transcript-style trained weights.",
     )
+    parser.add_argument(
+        "--korquad-service",
+        action="store_true",
+        help="Use KorQuAD professor-style service transcript weights.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--alpha", type=float, default=ALPHA)
     parser.add_argument(
@@ -894,6 +901,9 @@ def main() -> None:
 
     if args.singlefact:
         args.weights = str(WEIGHTS_PATH)
+    elif args.korquad_service:
+        args.weights = str(KORQUAD_SERVICE_WEIGHTS_PATH)
+        args.data = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
     elif args.transcript:
         args.weights = str(TRANSCRIPT_WEIGHTS_PATH)
     elif args.multifact:

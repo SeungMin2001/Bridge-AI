@@ -30,30 +30,75 @@ SPEECH_PATTERNS = [
 ]
 
 
+def ko_sentence(key: str, value: str) -> str:
+    return f"{key}은 {value}입니다"
+
+
+def en_sentence(key: str, value: str) -> str:
+    return f"{key} is {value}"
+
+
 def ko_template(kind: str, subject: str, facts: list[tuple[str, str]], speaker: str) -> str:
-    joined = "; ".join(f"{key}: {value}" for key, value in facts)
+    first = facts[0] if facts else ("핵심 내용", "")
+    rest = facts[1:]
+    rest_text = " ".join(f"그리고 {ko_sentence(key, value)}." for key, value in rest)
     if kind == "analogy":
-        return f"{speaker}는 {subject} 설명에서 다음 핵심 내용을 실제 비유를 섞어 말해야 한다: {joined}"
+        return (
+            f"자, {subject}를 비유로 한번 설명해볼게요. "
+            f"{first[0]}은 쉽게 말하면 {first[1]}라고 보면 됩니다. {rest_text}"
+        ).strip()
     if kind in {"assignment_notice", "exam_notice", "lab_instruction"}:
-        return f"{speaker}는 {subject} 수업 공지처럼 말하며 다음 내용을 알려야 한다: {joined}"
+        return (
+            f"자, {subject} 수업 공지 잠깐 할게요. "
+            f"{ko_sentence(first[0], first[1])}. {rest_text} "
+            f"이 부분은 헷갈리지 않게 꼭 확인해 주세요."
+        ).strip()
     if kind in {"meeting_decision", "operation_notice"}:
-        return f"{speaker}는 {subject} 회의 발화처럼 말하며 결정사항을 알려야 한다: {joined}"
+        return (
+            f"오늘 {subject} 회의에서 정리된 내용부터 말할게요. "
+            f"{ko_sentence(first[0], first[1])}. {rest_text} "
+            f"회의록에도 이 내용 그대로 남기면 됩니다."
+        ).strip()
     if kind == "common_mistake_correction":
-        return f"{speaker}는 {subject}에서 헷갈리기 쉬운 내용을 바로잡으며 다음 내용을 설명해야 한다: {joined}"
-    return f"{speaker}는 {subject} 수업에서 실제 강의처럼 다음 내용을 설명해야 한다: {joined}"
+        return (
+            f"{subject}에서 많이 헷갈리는 부분을 바로잡을게요. "
+            f"{ko_sentence(first[0], first[1])}. {rest_text} "
+            f"다른 값으로 기억하면 안 됩니다."
+        ).strip()
+    return (
+        f"자, 오늘 {subject}에서 꼭 기억해야 할 내용을 보겠습니다. "
+        f"{ko_sentence(first[0], first[1])}. {rest_text}"
+    ).strip()
 
 
 def en_template(kind: str, subject: str, facts: list[tuple[str, str]], speaker: str) -> str:
-    joined = "; ".join(f"{key}: {value}" for key, value in facts)
+    first = facts[0] if facts else ("key point", "")
+    rest = facts[1:]
+    rest_text = " ".join(f"Also, {en_sentence(key, value)}." for key, value in rest)
     if kind == "analogy":
-        return f"{speaker} should explain these {subject} points with a natural classroom analogy: {joined}"
+        return (
+            f"Okay, let me explain {subject} with a simple analogy. "
+            f"{en_sentence(first[0], first[1])}. {rest_text}"
+        ).strip()
     if kind in {"assignment_notice", "exam_notice", "lab_instruction"}:
-        return f"{speaker} should announce these {subject} class details in a realistic spoken style: {joined}"
+        return (
+            f"Okay, quick {subject} class notice. "
+            f"{en_sentence(first[0], first[1])}. {rest_text} Please check this carefully."
+        ).strip()
     if kind in {"meeting_decision", "operation_notice"}:
-        return f"{speaker} should state these {subject} meeting decisions in a realistic spoken style: {joined}"
+        return (
+            f"Let me summarize what we decided in the {subject} meeting. "
+            f"{en_sentence(first[0], first[1])}. {rest_text}"
+        ).strip()
     if kind == "common_mistake_correction":
-        return f"{speaker} should correct a common misconception in {subject} while explaining: {joined}"
-    return f"{speaker} should explain these {subject} points like a real lecture transcript: {joined}"
+        return (
+            f"Here is the part people often mix up in {subject}. "
+            f"{en_sentence(first[0], first[1])}. {rest_text}"
+        ).strip()
+    return (
+        f"Okay, here are the key points for {subject}. "
+        f"{en_sentence(first[0], first[1])}. {rest_text}"
+    ).strip()
 
 
 def build_rows(rows_per_domain: int, facts_per_passage: int, seed: int, languages: list[str]) -> list[dict]:

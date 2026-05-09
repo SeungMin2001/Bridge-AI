@@ -476,6 +476,26 @@ def normalize_generated(raw: dict, source: dict, source_id: str) -> dict | None:
     }
 
 
+def fallback_augmented_from_source(source: dict, source_id: str) -> dict | None:
+    """Use source facts directly when the LLM output is invalid.
+
+    The transcript source builder now stores a spoken-style passage plus exact
+    fact spans, so fallback rows remain service-like instead of becoming a
+    table or instruction string.
+    """
+    passage = str(source.get("passage") or "").strip()
+    if not passage:
+        return None
+    raw = {
+        "passage": passage,
+        "rewrite": passage,
+        "atomic_qas": [],
+        "final_qas": [],
+        "hard_negatives": source.get("hard_negatives") if isinstance(source.get("hard_negatives"), list) else [],
+    }
+    return normalize_generated(raw, source, source_id)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default=str(TRANSCRIPT_SOURCE_PATH))
@@ -494,6 +514,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shuffle", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--fallback-on-invalid",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="If the LLM returns invalid JSON, build a deterministic QA row from source facts when available.",
+    )
     return parser
 
 
@@ -581,18 +607,32 @@ def run(args: argparse.Namespace) -> None:
                 f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
             )
             continue
+        row = None
+        fallback_reason = ""
         if generated is None:
-            skipped_invalid += 1
-            processed = idx + 1
-            print(
-                f"[PRAG:transcript-augment] skip {source_id}: invalid JSON "
-                f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
-            )
+            if args.fallback_on_invalid:
+                row = fallback_augmented_from_source(source, source_id)
+                fallback_reason = "invalid JSON"
+            if row is None:
+                skipped_invalid += 1
+                processed = idx + 1
+                print(
+                    f"[PRAG:transcript-augment] skip {source_id}: invalid JSON "
+                    f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
+                )
+                if args.debug_invalid_raw:
+                    preview = " ".join(str(raw_text or "").split())
+                    print(f"[PRAG:transcript-augment:raw] {preview[:args.debug_raw_chars]}")
+                continue
             if args.debug_invalid_raw:
                 preview = " ".join(str(raw_text or "").split())
                 print(f"[PRAG:transcript-augment:raw] {preview[:args.debug_raw_chars]}")
-            continue
-        row = normalize_generated(generated, source, source_id)
+        if row is None:
+            row = normalize_generated(generated, source, source_id)
+        if row is None:
+            if args.fallback_on_invalid:
+                row = fallback_augmented_from_source(source, source_id)
+                fallback_reason = "missing required fields"
         if row is None:
             skipped_invalid += 1
             processed = idx + 1
@@ -606,6 +646,12 @@ def run(args: argparse.Namespace) -> None:
                 print(f"[PRAG:transcript-augment:parsed] {parsed_preview}")
                 print(f"[PRAG:transcript-augment:raw] {raw_preview[:args.debug_raw_chars]}")
             continue
+        if fallback_reason:
+            processed = idx + 1
+            print(
+                f"[PRAG:transcript-augment] fallback {source_id}: {fallback_reason} -> source facts "
+                f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
+            )
 
         is_valid = args.valid_every > 0 and idx % args.valid_every == args.valid_every - 1
         saved_to = args.valid_output if is_valid else args.train_output

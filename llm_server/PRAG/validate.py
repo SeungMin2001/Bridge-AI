@@ -12,6 +12,8 @@ from .config import (
     AUGMENTED_VALID_PATH,
     EXTERNAL_QA_AUGMENTED_TRAIN_PATH,
     EXTERNAL_QA_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH,
+    KORQUAD_SERVICE_AUGMENTED_VALID_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
     TRANSCRIPT_AUGMENTED_TRAIN_PATH,
@@ -111,6 +113,11 @@ def main() -> None:
         help="Validate the HotpotQA/KorQuAD external-QA augmented train/valid files.",
     )
     parser.add_argument(
+        "--korquad-service",
+        action="store_true",
+        help="Validate KorQuAD rewritten as professor-style service transcript data.",
+    )
+    parser.add_argument(
         "--transcript",
         action="store_true",
         help="Validate the transcript-style augmented train/valid files.",
@@ -123,6 +130,8 @@ def main() -> None:
         args.paths = [str(AIHUB_LECTURE_AUGMENTED_TRAIN_PATH), str(AIHUB_LECTURE_AUGMENTED_VALID_PATH)]
     if args.external_qa:
         args.paths = [str(EXTERNAL_QA_AUGMENTED_TRAIN_PATH), str(EXTERNAL_QA_AUGMENTED_VALID_PATH)]
+    if args.korquad_service:
+        args.paths = [str(KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH), str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)]
     if args.transcript:
         args.paths = [str(TRANSCRIPT_AUGMENTED_TRAIN_PATH), str(TRANSCRIPT_AUGMENTED_VALID_PATH)]
 

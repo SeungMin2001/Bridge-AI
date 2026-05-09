@@ -16,6 +16,8 @@ from .config import (
     EXTERNAL_QA_AUGMENTED_VALID_PATH,
     EXTERNAL_QA_WEIGHTS_PATH,
     KORQUAD_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_WEIGHTS_PATH,
     KORQUAD_WEIGHTS_PATH,
     LECTURE_AUGMENTED_VALID_PATH,
     LECTURE_WEIGHTS_PATH,
@@ -202,6 +204,11 @@ def main() -> None:
         help="Use the converted KorQuAD valid file and KorQuAD fine-tuned weights.",
     )
     parser.add_argument(
+        "--korquad-service",
+        action="store_true",
+        help="Use KorQuAD professor-style service transcript valid file and weights.",
+    )
+    parser.add_argument(
         "--external-qa",
         action="store_true",
         help="Use external HotpotQA/KorQuAD-style augmented valid file and external-QA fine-tuned weights.",
@@ -243,6 +250,9 @@ def main() -> None:
     elif args.korquad:
         args.data = str(KORQUAD_AUGMENTED_VALID_PATH)
         args.weights = str(KORQUAD_WEIGHTS_PATH)
+    elif args.korquad_service:
+        args.data = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
+        args.weights = str(KORQUAD_SERVICE_WEIGHTS_PATH)
     elif args.external_qa:
         args.data = str(EXTERNAL_QA_AUGMENTED_VALID_PATH)
         args.weights = str(EXTERNAL_QA_WEIGHTS_PATH)
