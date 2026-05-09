@@ -36,6 +36,7 @@ from .memory import (
     uses_chat_prompt,
 )
 from .prompts import system_prompt, user_prompt
+from .train import compute_answer_phrase_loss
 
 
 SYNTHETIC_CASES = {
@@ -502,12 +503,38 @@ def run_case(
             )
             kv_loss = compute_answer_loss(kv_logits, no_memory_tok["labels"])
             prefix_loss = compute_prefix_answer_loss(kv_logits, no_memory_tok["labels"], answer_prefix_tokens)
+            no_memory_phrase_loss = compute_answer_phrase_loss(
+                no_memory_logits,
+                no_memory_tok["labels"],
+                tokenizer,
+                full_answer,
+                main_answer,
+            )
+            kv_phrase_loss = compute_answer_phrase_loss(
+                kv_logits,
+                no_memory_tok["labels"],
+                tokenizer,
+                full_answer,
+                main_answer,
+            )
             direct_prompt = build_direct_passage_prompt(tokenizer, question, main_passage)
             direct_tok = tokenize_prompt_answer(tokenizer, direct_prompt, full_answer, device)
             direct_logits = model(**direct_tok)["logits"]
             direct_loss = compute_answer_loss(direct_logits, direct_tok["labels"])
+            direct_phrase_loss = compute_answer_phrase_loss(
+                direct_logits,
+                direct_tok["labels"],
+                tokenizer,
+                full_answer,
+                main_answer,
+            )
             memory_gain = None if no_memory_loss is None or kv_loss is None else no_memory_loss - kv_loss
             direct_gain = None if no_memory_loss is None or direct_loss is None else no_memory_loss - direct_loss
+            phrase_memory_gain = (
+                None
+                if no_memory_phrase_loss is None or kv_phrase_loss is None
+                else no_memory_phrase_loss - kv_phrase_loss
+            )
             direct_recovery = None
             if memory_gain is not None and direct_gain is not None and abs(float(direct_gain.item())) > 1e-6:
                 direct_recovery = memory_gain / direct_gain
@@ -542,6 +569,14 @@ def run_case(
                 print(f"direct_recovery: {direct_recovery.item():.3f}")
             if prefix_loss is not None:
                 print(f"answer_prefix_loss@{answer_prefix_tokens}: {prefix_loss.item():.4f}")
+            if no_memory_phrase_loss is not None:
+                print(f"no_memory_phrase_loss: {no_memory_phrase_loss.item():.4f}")
+            if direct_phrase_loss is not None:
+                print(f"direct_phrase_loss: {direct_phrase_loss.item():.4f}")
+            if kv_phrase_loss is not None:
+                print(f"with_KV_phrase_loss: {kv_phrase_loss.item():.4f}")
+            if phrase_memory_gain is not None:
+                print(f"phrase_memory_gain: {phrase_memory_gain.item():+.4f}")
             print("\n[model answer | with passage K/V]")
             print("----- BEGIN -----")
             print(main_gen)
