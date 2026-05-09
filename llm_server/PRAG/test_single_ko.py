@@ -74,6 +74,25 @@ SYNTHETIC_CASES = {
         "negative_full_answer": "리포트 제출 시간은 월요일 새벽입니다.",
         "hit_phrases": ["금요일 오후", "금요일"],
     },
+    "training_like_new": {
+        "name": "ko_multifact_style_new_content_policy",
+        "question": "자료 보관 기한은 언제인가?",
+        "main_passage": (
+            "서윤 조교는 보안 회의에서 접근 권한 기준은 연구실 구성원이라고 정의했다. "
+            "이 정의를 보완하면서 자료 보관 기한은 6개월 후 폐기, "
+            "백업 담당자는 인프라 2팀이라고 설명했다."
+        ),
+        "negative_passage": (
+            "서윤 조교는 보안 회의에서 접근 권한 기준은 외부 방문자라고 정의했다. "
+            "이 정의를 보완하면서 자료 보관 기한은 즉시 삭제, "
+            "백업 담당자는 홍보팀이라고 설명했다."
+        ),
+        "main_answer": "6개월 후 폐기",
+        "negative_answer": "즉시 삭제",
+        "full_answer": "자료 보관 기한은 6개월 후 폐기입니다.",
+        "negative_full_answer": "자료 보관 기한은 즉시 삭제입니다.",
+        "hit_phrases": ["6개월 후 폐기", "6개월"],
+    },
     "training_like_analogy": {
         "name": "ko_multifact_style_database_analogy",
         "question": "캐시 의미를 이해하기 위한 비유는 무엇인가요?",
@@ -830,10 +849,11 @@ def main() -> None:
     parser.add_argument(
         "--synthetic-case",
         choices=tuple(SYNTHETIC_CASES.keys()) + ("all",),
-        default="short_location",
+        default="training_like_new",
         help=(
-            "Synthetic case to run. short_location is the short default passage-injection sanity case; "
-            "training_like is closest to the clean-ko multifact training format; "
+            "Synthetic case to run. training_like_new keeps the clean-ko multifact format with unseen content; "
+            "short_location is a short out-of-distribution passage-injection sanity case; "
+            "training_like is closest to an existing clean-ko multifact pattern; "
             "training_like_analogy checks a training-style concept analogy; process_restaurant/deadline/"
             "location/analogy are out-of-distribution sanity cases kept for comparison."
         ),
