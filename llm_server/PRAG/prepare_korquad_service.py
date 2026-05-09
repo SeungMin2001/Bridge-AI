@@ -55,14 +55,75 @@ def answer_span(answer: str, passage: str, max_chars: int = 320) -> str:
     return ""
 
 
-def choose_distractor(answer: str, pool: list[str], rng: random.Random) -> str:
+def answer_type(answer: str) -> str:
+    text = normalize_text(answer)
+    if re.search(r"\d+\s*악장|[일이삼사오육칠팔구십한두세네]\s*악장", text):
+        return "movement"
+    if re.search(r"교향곡\s*\d+\s*번", text):
+        return "symphony_number"
+    if re.search(r"\d+\s*(년|월|일|시|분|초|개월|주|명|개|권|편|번|회|%)", text):
+        return "number_unit"
+    if re.search(r"(월요일|화요일|수요일|목요일|금요일|토요일|일요일|주말|평일)", text):
+        return "weekday"
+    if re.search(r"(대학교|대학|학교|고등학교|중학교|초등학교)$", text):
+        return "school"
+    if re.search(r"(시|군|구|도|국|나라|공화국|왕국|섬|강|산|궁|성)$", text):
+        return "place"
+    if re.search(r"(곡|서곡|소나타|협주곡|오페라)$", text):
+        return "music_work"
+    if re.search(r"(왕|대통령|장군|교수|작가|시인|화가|감독)$", text):
+        return "person_title"
+    if len(text) <= 12 and re.fullmatch(r"[가-힣A-Za-z0-9\s·.-]+", text):
+        return "short_phrase"
+    return "other"
+
+
+def synthetic_distractor(answer: str) -> str | None:
+    text = normalize_text(answer)
+    match = re.search(r"(\d+)(\s*악장)", text)
+    if match:
+        value = int(match.group(1))
+        replacement = f"{value + 1 if value < 9 else value - 1}{match.group(2)}"
+        return text[:match.start()] + replacement + text[match.end():]
+
+    match = re.search(r"(\d+)(\s*번)", text)
+    if match and "교향곡" in text:
+        value = int(match.group(1))
+        replacement = f"{value + 1 if value < 9 else value - 1}{match.group(2)}"
+        return text[:match.start()] + replacement + text[match.end():]
+
+    match = re.search(r"(\d+)(\s*(년|월|일|시|분|초|개월|주|명|개|권|편|회|%))", text)
+    if match:
+        value = int(match.group(1))
+        replacement = f"{value + 1 if value < 99 else value - 1}{match.group(2)}"
+        return text[:match.start()] + replacement + text[match.end():]
+
+    weekdays = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+    for idx, day in enumerate(weekdays):
+        if day in text:
+            return text.replace(day, weekdays[(idx + 1) % len(weekdays)], 1)
+    return None
+
+
+def choose_distractor(answer: str, pool: list[str], rng: random.Random) -> str | None:
     answer = normalize_text(answer)
+    expected_type = answer_type(answer)
+    synthetic = synthetic_distractor(answer)
+    if synthetic and synthetic.casefold() != answer.casefold():
+        return synthetic
     choices = [
         item
         for item in pool
-        if item and item.casefold() != answer.casefold() and 1 <= len(item) <= 80
+        if (
+            item
+            and item.casefold() != answer.casefold()
+            and 1 <= len(item) <= 80
+            and answer_type(item) == expected_type
+        )
     ]
-    return rng.choice(choices) if choices else f"{answer}_반례"
+    if choices:
+        return rng.choice(choices)
+    return None
 
 
 def replace_once(text: str, old: str, new: str) -> tuple[str, bool]:
@@ -142,6 +203,7 @@ KorQuAD의 한국어 지문 내용을 우리 서비스에 맞는 실제 강의 �
 - passage 밖의 새로운 사실을 만들지 않는다.
 - atomic_qas는 원본 질문 의미를 유지하되, answer는 반드시 "{answer}" 그대로 둔다.
 - full_answer도 학생에게 답하는 AI 선생님 문장처럼 쓰고, "{answer}"를 그대로 포함한다.
+- final_qas의 question은 원본 질문 "{question}"을 그대로 사용한다.
 - JSON 외 설명, markdown, 코드블록은 절대 쓰지 않는다.
 
 [출력 JSON 스키마]
@@ -152,7 +214,7 @@ KorQuAD의 한국어 지문 내용을 우리 서비스에 맞는 실제 강의 �
     {{"sub_passage": "...정답 phrase가 포함된 passage 일부...", "question": "...", "answer": "{answer}", "full_answer": "..."}}
   ],
   "final_qas": [
-    {{"question": "교수님 설명에서 핵심 답은 무엇인가요?", "answer": "{answer}", "full_answer": "..."}}
+    {{"question": "{question}", "answer": "{answer}", "full_answer": "..."}}
   ]
 }}
 """.strip()
@@ -180,7 +242,17 @@ def generate_vllm(record: dict, idx: int, model: str, url: str, max_tokens: int,
     return extract_json_object(text), text
 
 
-def normalize_generated(raw: dict | None, record: dict, idx: int, distractor: str, source_id: str) -> dict:
+def teacher_full_answer(question: str, answer: str) -> str:
+    question = normalize_text(question)
+    answer = normalize_text(answer)
+    if not answer:
+        return ""
+    if question.endswith("?"):
+        return f"교수님 설명에 따르면, 답은 {answer}입니다."
+    return f"교수님 설명에 따르면, {answer}입니다."
+
+
+def normalize_generated(raw: dict | None, record: dict, idx: int, distractor: str | None, source_id: str) -> dict:
     answer = normalize_text(record["answer"])
     question = normalize_text(record["question"])
     passage = normalize_text(raw.get("passage") if isinstance(raw, dict) else "")
@@ -197,21 +269,13 @@ def normalize_generated(raw: dict | None, record: dict, idx: int, distractor: st
     generated_qa = generated_atomic[0] if isinstance(generated_atomic, list) and generated_atomic and isinstance(generated_atomic[0], dict) else {}
     atomic_question = normalize_text(generated_qa.get("question") or question)
     atomic_full = normalize_text(generated_qa.get("full_answer") or service_full_answer(atomic_question, answer))
-    if not contains_text(answer, atomic_full):
-        atomic_full = service_full_answer(atomic_question, answer)
+    if not contains_text(answer, atomic_full) or atomic_full == service_full_answer(atomic_question, answer):
+        atomic_full = teacher_full_answer(atomic_question, answer)
 
-    final_question = "교수님 설명에서 핵심 답은 무엇인가요?"
-    final_full = f"교수님 설명에서 핵심 답은 {answer}입니다."
+    final_question = question
+    final_full = teacher_full_answer(final_question, answer)
 
-    negative_passage, changed = replace_once(passage, answer, distractor)
-    if not changed:
-        negative_passage = f"{passage} 반례로 보면 핵심 답은 {distractor}입니다."
-    negative_sub = answer_span(distractor, negative_passage)
-    if not negative_sub:
-        negative_sub = f"핵심 답은 {distractor}입니다."
-        negative_passage = f"{negative_passage} {negative_sub}".strip()
-
-    return {
+    row = {
         "source_id": source_id,
         "task": "korquad_service_transcript_memory",
         "dataset": "korquad",
@@ -230,22 +294,31 @@ def normalize_generated(raw: dict | None, record: dict, idx: int, distractor: st
             "answer": answer,
             "full_answer": final_full,
         }],
-        "hard_negatives": [{
-            "passage": negative_passage,
-            "answer": distractor,
-            "atomic_qas": [{
-                "sub_passage": negative_sub,
-                "question": atomic_question,
-                "answer": distractor,
-                "full_answer": service_full_answer(atomic_question, distractor),
-            }],
-            "final_qas": [{
-                "question": final_question,
-                "answer": distractor,
-                "full_answer": f"교수님 설명에서 핵심 답은 {distractor}입니다.",
-            }],
-        }],
+        "hard_negatives": [],
     }
+    if distractor:
+        negative_passage, changed = replace_once(passage, answer, distractor)
+        if changed:
+            negative_sub = answer_span(distractor, negative_passage)
+            if not negative_sub:
+                negative_sub = f"핵심 답은 {distractor}입니다."
+                negative_passage = f"{negative_passage} {negative_sub}".strip()
+            row["hard_negatives"] = [{
+                "passage": negative_passage,
+                "answer": distractor,
+                "atomic_qas": [{
+                    "sub_passage": negative_sub,
+                    "question": atomic_question,
+                    "answer": distractor,
+                    "full_answer": teacher_full_answer(atomic_question, distractor),
+                }],
+                "final_qas": [{
+                    "question": final_question,
+                    "answer": distractor,
+                    "full_answer": teacher_full_answer(final_question, distractor),
+                }],
+            }]
+    return row
 
 
 def load_records(args: argparse.Namespace) -> tuple[list[dict], list[dict], str]:
@@ -306,7 +379,7 @@ def run_split(
         if source_id in seen:
             skipped += 1
             continue
-        distractor = choose_distractor(record["answer"], answer_pool, rng)
+        distractor = choose_distractor(record["answer"], answer_pool, rng) if args.negative else None
         raw = None
         if args.backend == "vllm":
             try:
@@ -353,13 +426,22 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--log-every", type=int, default=25)
+    parser.add_argument(
+        "--negative",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Generate same-type hard negatives. Default is disabled for positive-only service-generation training.",
+    )
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
 
     train_records, valid_records, source_desc = load_records(args)
     answer_pool = [normalize_text(row["answer"]) for row in train_records + valid_records if normalize_text(row.get("answer"))]
     print(f"[PRAG:korquad-service] source={source_desc}")
-    print(f"[PRAG:korquad-service] train_records={len(train_records)} valid_records={len(valid_records)} backend={args.backend}")
+    print(
+        f"[PRAG:korquad-service] train_records={len(train_records)} "
+        f"valid_records={len(valid_records)} backend={args.backend} negative={args.negative}"
+    )
     train_made = run_split(train_records, "train", Path(args.train_output), answer_pool, args)
     valid_made = run_split(valid_records, "valid", Path(args.valid_output), answer_pool, args)
     print(f"[PRAG:korquad-service] done train_new={train_made} -> {args.train_output}")
