@@ -193,13 +193,13 @@ BAD_QUESTION_PREFIXES = (
 )
 
 
-def is_good_single_case(example: MemoryExample) -> bool:
+def is_good_single_case(example: MemoryExample, *, require_negative: bool = False) -> bool:
     question = example.question.strip()
     answer = example.answer.strip()
     passage = example.passage.strip()
     if example.qa_type != "atomic":
         return False
-    if not (example.negative_passage and example.negative_answer):
+    if require_negative and not (example.negative_passage and example.negative_answer):
         return False
     if not contains_hangul(f"{question}\n{passage}\n{answer}"):
         return False
@@ -221,17 +221,19 @@ def has_equals_pattern(example: MemoryExample) -> bool:
 
 
 def example_to_case(example: MemoryExample, index: int) -> dict:
+    negative_answer = example.negative_answer or "__NO_NEGATIVE__"
     return {
         "name": f"dataset_ko_{index}_{example.qa_type}",
         "source_id": example.source_id,
         "qa_type": example.qa_type,
         "question": example.question,
         "main_passage": example.passage,
-        "negative_passage": example.negative_passage or "",
+        "negative_passage": example.negative_passage or example.passage,
         "main_answer": example.answer,
-        "negative_answer": example.negative_answer or "",
+        "negative_answer": negative_answer,
         "full_answer": example.full_answer,
         "negative_full_answer": example.negative_full_answer or "",
+        "hit_phrases": [example.answer],
     }
 
 
@@ -244,12 +246,13 @@ def load_dataset_cases(path: str, *, case_index: int, max_cases: int) -> list[di
         selected = [
             ex
             for ex in examples
-            if ex.negative_passage
-            and ex.negative_answer
-            and contains_hangul(f"{ex.question}\n{ex.passage}\n{ex.answer}")
+            if contains_hangul(f"{ex.question}\n{ex.passage}\n{ex.answer}")
+            and ex.question
+            and ex.answer
+            and ex.passage
         ]
     if not selected:
-        raise ValueError(f"No Korean hard-pair examples found in {path}")
+        raise ValueError(f"No Korean dataset examples found in {path}")
     start = min(max(case_index, 0), max(len(selected) - 1, 0))
     end = min(start + max_cases, len(selected))
     return [example_to_case(ex, idx) for idx, ex in enumerate(selected[start:end], start=start)]
