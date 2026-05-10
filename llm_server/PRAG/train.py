@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import time
 from datetime import datetime
 
@@ -253,7 +254,57 @@ def answer_phrase_token_span(tokenizer, answer_text: str, answer_phrase: str) ->
     return token_indices[0], token_indices[-1] + 1
 
 
-def compute_answer_phrase_loss(
+def clean_answer_phrase(phrase: str) -> str:
+    return str(phrase or "").strip(" \t\r\n'\"`“”‘’.,;:：；")
+
+
+def answer_phrase_candidates(answer_phrase: str) -> list[str]:
+    """Split a possibly multi-fact answer into value-like phrases.
+
+    Final answers often store facts as "key: value; key: value". The generated
+    natural answer may not contain the exact "key:" formatting, so phrase loss
+    should target each value phrase instead of only the whole serialized answer.
+    """
+    text = clean_answer_phrase(answer_phrase)
+    if not text:
+        return []
+
+    pieces: list[str] = []
+    for chunk in re.split(r"[;\n]+", text):
+        chunk = clean_answer_phrase(chunk)
+        if not chunk:
+            continue
+        # Split commas only when they likely separate labeled facts.
+        parts = re.split(
+            r"\s*,\s*(?=(?:part\s*\d+|\d+\s*단계|[A-Za-z가-힣0-9 _-]{1,32}\s*[:=：]))",
+            chunk,
+            flags=re.IGNORECASE,
+        )
+        pieces.extend(clean_answer_phrase(part) for part in parts if clean_answer_phrase(part))
+
+    candidates: list[str] = []
+    for piece in pieces or [text]:
+        value = piece
+        if re.search(r"[:：=]", piece):
+            value = re.split(r"[:：=]", piece)[-1]
+        value = clean_answer_phrase(value)
+        if len(value) >= 2:
+            candidates.append(value)
+
+    if not candidates:
+        candidates = [text]
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = candidate.casefold()
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def compute_single_answer_phrase_loss(
     logits: torch.Tensor,
     labels: torch.Tensor,
     tokenizer,
@@ -292,6 +343,24 @@ def compute_answer_phrase_loss(
     selected_logits = shift_logits[selected[:, 0], selected[:, 1]]
     selected_labels = shift_labels[selected[:, 0], selected[:, 1]]
     return F.cross_entropy(selected_logits, selected_labels)
+
+
+def compute_answer_phrase_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    tokenizer,
+    full_answer: str,
+    answer_phrase: str,
+):
+    """Mean CE over one or more compact answer phrases."""
+    losses = [
+        loss
+        for phrase in answer_phrase_candidates(answer_phrase)
+        if (loss := compute_single_answer_phrase_loss(logits, labels, tokenizer, full_answer, phrase)) is not None
+    ]
+    if not losses:
+        return None
+    return torch.stack(losses).mean()
 
 
 def example_loss(

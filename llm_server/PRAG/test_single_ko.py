@@ -38,7 +38,7 @@ from .memory import (
     uses_chat_prompt,
 )
 from .prompts import system_prompt, user_prompt
-from .train import compute_answer_phrase_loss
+from .train import answer_phrase_candidates, compute_answer_phrase_loss
 
 
 SYNTHETIC_CASES = {
@@ -532,6 +532,7 @@ def run_case(
         if not verbose:
             prompt_style = "service" if "service" in prompt_styles else prompt_styles[0]
             full_answer = case.get("full_answer") or main_answer
+            phrase_targets = answer_phrase_candidates(main_answer)
             no_memory_tok = tokenize_qa(tokenizer, question, full_answer, device)
             no_memory_logits = model(**no_memory_tok)["logits"]
             no_memory_loss = compute_answer_loss(no_memory_logits, no_memory_tok["labels"])
@@ -600,6 +601,8 @@ def run_case(
             print(f"question: {question}")
             print(f"passage: {main_passage}")
             print(f"expected: {full_answer}")
+            if phrase_targets:
+                print(f"phrase_targets: {' | '.join(phrase_targets)}")
             print("\n[injection metrics | full_answer]")
             if no_memory_loss is not None:
                 print(f"no_memory_loss: {no_memory_loss.item():.4f}")
