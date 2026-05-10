@@ -198,10 +198,21 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
 
         atomic_qas = normalize_qas(row.get("atomic_qas"))
         final_qas = normalize_qas(row.get("final_qas"))
+        use_row_passage_for_examples = row.get("task") == "korquad_service_transcript_memory"
 
         qas = []
-        qas.extend((qa, "atomic", qa.get("sub_passage") or passage) for qa in atomic_qas)
-        qas.extend((qa, "final", select_evidence_passage(qa, atomic_qas, passage)) for qa in final_qas)
+        qas.extend(
+            (qa, "atomic", passage if use_row_passage_for_examples else qa.get("sub_passage") or passage)
+            for qa in atomic_qas
+        )
+        qas.extend(
+            (
+                qa,
+                "final",
+                passage if use_row_passage_for_examples else select_evidence_passage(qa, atomic_qas, passage),
+            )
+            for qa in final_qas
+        )
         if not qas and row.get("question") and row.get("answer"):
             qas.append(({"question": str(row["question"]), "answer": str(row["answer"])}, "direct", passage))
 
