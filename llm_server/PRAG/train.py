@@ -1406,13 +1406,29 @@ def main() -> None:
     if args.mixed_kor_service:
         mixed_train_paths = [MULTIFACT_AUGMENTED_TRAIN_PATH, KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH]
         mixed_valid_paths = [MULTIFACT_AUGMENTED_VALID_PATH, KORQUAD_SERVICE_AUGMENTED_VALID_PATH]
+        train_snapshots = []
+        valid_snapshots = []
         for label, paths in (("train", mixed_train_paths), ("valid", mixed_valid_paths)):
             for path in paths:
                 snapshot = jsonl_snapshot(path)
+                if label == "train":
+                    train_snapshots.append(snapshot)
+                else:
+                    valid_snapshots.append(snapshot)
                 print(
                     f"[PRAG:train:datafile:{label}] "
                     f"rows={snapshot['rows']} last_source={snapshot['last_source_id']} path={snapshot['path']}"
                 )
+        train_snapshot = {
+            "rows": sum(item["rows"] for item in train_snapshots),
+            "last_source_id": train_snapshots[-1]["last_source_id"] if train_snapshots else None,
+            "path": ";".join(str(path) for path in mixed_train_paths),
+        }
+        valid_snapshot = {
+            "rows": sum(item["rows"] for item in valid_snapshots),
+            "last_source_id": valid_snapshots[-1]["last_source_id"] if valid_snapshots else None,
+            "path": ";".join(str(path) for path in mixed_valid_paths),
+        }
         train_examples = []
         valid_examples = []
         train_groups = []
