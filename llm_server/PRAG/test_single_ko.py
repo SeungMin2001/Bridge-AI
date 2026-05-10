@@ -838,7 +838,16 @@ def run_case(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--weights", default=str(MULTIFACT_WEIGHTS_PATH))
+    parser.add_argument(
+        "--weights",
+        default=None,
+        help="Hypernetwork weights/checkpoint path. If omitted, the path is selected from --korquad-service/--multifact/etc.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        default=None,
+        help="Alias for --weights, useful for diagnosing the latest in-progress training checkpoint.",
+    )
     parser.add_argument(
         "--multifact",
         action="store_true",
@@ -875,10 +884,11 @@ def main() -> None:
     parser.add_argument(
         "--case-mode",
         choices=("dataset", "synthetic", "both"),
-        default="synthetic",
+        default=None,
         help=(
             "dataset: use an actual Korean multi-fact valid example to check learned-distribution injection; "
-            "synthetic: use the fixed simple passage-injection sanity case; both: run both."
+            "synthetic: use the fixed simple passage-injection sanity case; both: run both. "
+            "Default is dataset for --korquad-service and synthetic otherwise."
         ),
     )
     parser.add_argument(
@@ -928,15 +938,27 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.singlefact:
+    explicit_weights = args.weights is not None
+    if args.checkpoint:
+        args.weights = args.checkpoint
+        explicit_weights = True
+
+    if args.singlefact and not explicit_weights:
         args.weights = str(WEIGHTS_PATH)
-    elif args.korquad_service:
+    elif args.korquad_service and not explicit_weights:
         args.weights = str(KORQUAD_SERVICE_WEIGHTS_PATH)
-        args.data = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
-    elif args.transcript:
+    elif args.transcript and not explicit_weights:
         args.weights = str(TRANSCRIPT_WEIGHTS_PATH)
-    elif args.multifact:
+    elif args.multifact and not explicit_weights:
         args.weights = str(MULTIFACT_WEIGHTS_PATH)
+    elif args.weights is None:
+        args.weights = str(MULTIFACT_WEIGHTS_PATH)
+
+    if args.korquad_service:
+        args.data = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
+
+    if args.case_mode is None:
+        args.case_mode = "dataset" if args.korquad_service else "synthetic"
 
     model, tokenizer = load_model()
     device = next(model.parameters()).device
@@ -944,6 +966,8 @@ def main() -> None:
     config = state.get("config", {})
     layer_idx = int(config.get("critical_layer", load_critical_layer()))
     target_layer = model.model.layers[layer_idx]
+    state_step = state.get("step", "unknown")
+    answer_target = config.get("answer_target", "unknown")
     question_conditioned = bool(config.get("question_conditioned_memory", False))
     legacy_hypernet = "feature_dim" not in config
 
@@ -977,6 +1001,10 @@ def main() -> None:
         f"case_mode={args.case_mode} | weights={args.weights} | data={args.data} | "
         f"synthetic_case={args.synthetic_case} | injection_mode={args.injection_mode} | "
         f"question_conditioned={question_conditioned}"
+    )
+    print(
+        f"state_step={state_step} | critical_layer={layer_idx} | "
+        f"answer_target={answer_target} | prompt_style={args.prompt_style}"
     )
     for injection_mode in injection_modes:
         for case in cases:
