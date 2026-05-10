@@ -562,6 +562,7 @@ def run_case(
             direct_recovery = None
             if memory_gain is not None and direct_gain is not None and abs(float(direct_gain.item())) > 1e-6:
                 direct_recovery = memory_gain / direct_gain
+            direct_main = generate_direct_passage(model, tokenizer, question, main_passage, device, max_new_tokens)
             main_gen = generate_with_kv(
                 model,
                 tokenizer,
@@ -601,6 +602,11 @@ def run_case(
                 print(f"with_KV_phrase_loss: {kv_phrase_loss.item():.4f}")
             if phrase_memory_gain is not None:
                 print(f"phrase_memory_gain: {phrase_memory_gain.item():+.4f}")
+            print("\n[model answer | direct passage RAG]")
+            print("----- BEGIN -----")
+            print(direct_main)
+            print("------ END ------")
+            print(f"direct_generation_hit: {answer_hit(direct_main, case)}")
             print("\n[model answer | with passage K/V]")
             print("----- BEGIN -----")
             print(main_gen)
