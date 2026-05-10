@@ -55,6 +55,9 @@ from .config import (
     LECTURE_CHECKPOINT_PATH,
     LECTURE_LOG_PATH,
     LECTURE_WEIGHTS_PATH,
+    MIXED_KOR_SERVICE_CHECKPOINT_PATH,
+    MIXED_KOR_SERVICE_LOG_PATH,
+    MIXED_KOR_SERVICE_WEIGHTS_PATH,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_CHECKPOINT_PATH,
@@ -1087,6 +1090,7 @@ def normalize_resume_config(config: dict) -> dict:
         "multifact",
         "korquad",
         "korquad_service",
+        "mixed_kor_service",
         "external_qa",
         "transcript",
         "ko_only",
@@ -1170,6 +1174,14 @@ def main() -> None:
         "--korquad-service",
         action="store_true",
         help="Use KorQuAD rewritten as professor-style service transcript data and separate output weights.",
+    )
+    parser.add_argument(
+        "--mixed-kor-service",
+        action="store_true",
+        help=(
+            "Train one mixed Korean service run from clean multi-fact data plus "
+            "KorQuAD professor-style service data, with separate mixed output weights."
+        ),
     )
     parser.add_argument(
         "--external-qa",
@@ -1356,6 +1368,11 @@ def main() -> None:
         checkpoint_path = KORQUAD_SERVICE_CHECKPOINT_PATH
         weights_path = KORQUAD_SERVICE_WEIGHTS_PATH
         log_path = KORQUAD_SERVICE_LOG_PATH
+    if args.mixed_kor_service:
+        checkpoint_path = MIXED_KOR_SERVICE_CHECKPOINT_PATH
+        weights_path = MIXED_KOR_SERVICE_WEIGHTS_PATH
+        log_path = MIXED_KOR_SERVICE_LOG_PATH
+        args.clean_ko_only = True
     if args.external_qa:
         args.train = str(EXTERNAL_QA_AUGMENTED_TRAIN_PATH)
         args.valid = str(EXTERNAL_QA_AUGMENTED_VALID_PATH)
@@ -1383,25 +1400,54 @@ def main() -> None:
 
     model, tokenizer = load_model()
     device = next(model.parameters()).device
-    critical_layer_path = KORQUAD_SERVICE_CRITICAL_LAYERS_PATH if args.korquad_service else None
+    critical_layer_path = KORQUAD_SERVICE_CRITICAL_LAYERS_PATH if (args.korquad_service or args.mixed_kor_service) else None
     layer_idx = load_critical_layer(critical_layer_path)
     target_layer = model.model.layers[layer_idx]
-    train_snapshot = jsonl_snapshot(args.train)
-    valid_snapshot = jsonl_snapshot(args.valid)
-    print(
-        "[PRAG:train:datafile] "
-        f"train_rows={train_snapshot['rows']} last_train_source={train_snapshot['last_source_id']} "
-        f"path={train_snapshot['path']}"
-    )
-    print(
-        "[PRAG:train:datafile] "
-        f"valid_rows={valid_snapshot['rows']} last_valid_source={valid_snapshot['last_source_id']} "
-        f"path={valid_snapshot['path']}"
-    )
-    train_examples = load_augmented_examples(args.train, max_samples=args.max_samples or None)
-    valid_examples = load_augmented_examples(args.valid, max_samples=args.max_val_samples or None)
-    train_groups = load_augmented_groups(args.train, max_samples=args.max_samples or None)
-    valid_groups = load_augmented_groups(args.valid, max_samples=args.max_val_samples or None)
+    if args.mixed_kor_service:
+        mixed_train_paths = [MULTIFACT_AUGMENTED_TRAIN_PATH, KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH]
+        mixed_valid_paths = [MULTIFACT_AUGMENTED_VALID_PATH, KORQUAD_SERVICE_AUGMENTED_VALID_PATH]
+        for label, paths in (("train", mixed_train_paths), ("valid", mixed_valid_paths)):
+            for path in paths:
+                snapshot = jsonl_snapshot(path)
+                print(
+                    f"[PRAG:train:datafile:{label}] "
+                    f"rows={snapshot['rows']} last_source={snapshot['last_source_id']} path={snapshot['path']}"
+                )
+        train_examples = []
+        valid_examples = []
+        train_groups = []
+        valid_groups = []
+        for path in mixed_train_paths:
+            train_examples.extend(load_augmented_examples(path))
+            train_groups.extend(load_augmented_groups(path))
+        for path in mixed_valid_paths:
+            valid_examples.extend(load_augmented_examples(path))
+            valid_groups.extend(load_augmented_groups(path))
+        args.train = ";".join(str(path) for path in mixed_train_paths)
+        args.valid = ";".join(str(path) for path in mixed_valid_paths)
+        if args.max_samples:
+            train_examples = train_examples[: args.max_samples]
+            train_groups = train_groups[: args.max_samples]
+        if args.max_val_samples:
+            valid_examples = valid_examples[: args.max_val_samples]
+            valid_groups = valid_groups[: args.max_val_samples]
+    else:
+        train_snapshot = jsonl_snapshot(args.train)
+        valid_snapshot = jsonl_snapshot(args.valid)
+        print(
+            "[PRAG:train:datafile] "
+            f"train_rows={train_snapshot['rows']} last_train_source={train_snapshot['last_source_id']} "
+            f"path={train_snapshot['path']}"
+        )
+        print(
+            "[PRAG:train:datafile] "
+            f"valid_rows={valid_snapshot['rows']} last_valid_source={valid_snapshot['last_source_id']} "
+            f"path={valid_snapshot['path']}"
+        )
+        train_examples = load_augmented_examples(args.train, max_samples=args.max_samples or None)
+        valid_examples = load_augmented_examples(args.valid, max_samples=args.max_val_samples or None)
+        train_groups = load_augmented_groups(args.train, max_samples=args.max_samples or None)
+        valid_groups = load_augmented_groups(args.valid, max_samples=args.max_val_samples or None)
     if args.clean_ko_only:
         args.ko_only = True
     if args.ko_only:
@@ -1469,6 +1515,7 @@ def main() -> None:
         "multifact": args.multifact,
         "korquad": args.korquad,
         "korquad_service": args.korquad_service,
+        "mixed_kor_service": args.mixed_kor_service,
         "external_qa": args.external_qa,
         "transcript": args.transcript,
         "ko_only": args.ko_only,

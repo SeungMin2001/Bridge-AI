@@ -85,6 +85,18 @@ KORQUAD_SERVICE_LOG_PATH = Path(os.getenv(
     "PRAG_KORQUAD_SERVICE_LOG_PATH",
     str(BASE_DIR / "prag_korquad_service_train_log.json"),
 ))
+MIXED_KOR_SERVICE_CHECKPOINT_PATH = Path(os.getenv(
+    "PRAG_MIXED_KOR_SERVICE_CHECKPOINT_PATH",
+    str(BASE_DIR / "prag_mixed_kor_service_memory_checkpoint.pt"),
+))
+MIXED_KOR_SERVICE_WEIGHTS_PATH = Path(os.getenv(
+    "PRAG_MIXED_KOR_SERVICE_WEIGHTS_PATH",
+    str(BASE_DIR / "prag_mixed_kor_service_memory_weights.pt"),
+))
+MIXED_KOR_SERVICE_LOG_PATH = Path(os.getenv(
+    "PRAG_MIXED_KOR_SERVICE_LOG_PATH",
+    str(BASE_DIR / "prag_mixed_kor_service_train_log.json"),
+))
 EXTERNAL_QA_CHECKPOINT_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_CHECKPOINT_PATH", str(BASE_DIR / "prag_external_qa_memory_checkpoint.pt")))
 EXTERNAL_QA_WEIGHTS_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_WEIGHTS_PATH", str(BASE_DIR / "prag_external_qa_memory_weights.pt")))
 EXTERNAL_QA_LOG_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_LOG_PATH", str(BASE_DIR / "prag_external_qa_train_log.json")))
