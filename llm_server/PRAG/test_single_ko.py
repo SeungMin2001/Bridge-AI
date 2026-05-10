@@ -886,13 +886,22 @@ def main() -> None:
     )
     parser.add_argument(
         "--case-mode",
-        choices=("dataset", "synthetic", "both"),
+        choices=("dataset", "synthetic", "both", "custom"),
         default=None,
         help=(
             "dataset: use an actual Korean multi-fact valid example to check learned-distribution injection; "
-            "synthetic: use the fixed simple passage-injection sanity case; both: run both. "
+            "synthetic: use the fixed simple passage-injection sanity case; "
+            "custom: use --question/--passage/--answer; both: run both. "
             "Default is dataset for --korquad-service and synthetic otherwise."
         ),
+    )
+    parser.add_argument("--question", default="", help="Custom question used with --case-mode custom.")
+    parser.add_argument("--passage", default="", help="Custom passage used with --case-mode custom.")
+    parser.add_argument("--answer", default="", help="Compact expected answer phrase used with --case-mode custom.")
+    parser.add_argument(
+        "--expected",
+        default="",
+        help="Full expected answer used with --case-mode custom. Defaults to --answer if omitted.",
     )
     parser.add_argument(
         "--synthetic-case",
@@ -989,7 +998,21 @@ def main() -> None:
         if args.injection_mode == "all"
         else [args.injection_mode]
     )
-    if args.case_mode == "dataset":
+    if args.case_mode == "custom":
+        if not args.question or not args.passage or not args.answer:
+            raise ValueError("--case-mode custom requires --question, --passage, and --answer")
+        cases = [{
+            "name": "custom_korean_injection",
+            "question": args.question,
+            "main_passage": args.passage,
+            "negative_passage": args.passage,
+            "main_answer": args.answer,
+            "negative_answer": "__NO_NEGATIVE__",
+            "full_answer": args.expected or args.answer,
+            "negative_full_answer": "",
+            "hit_phrases": answer_phrase_candidates(args.answer),
+        }]
+    elif args.case_mode == "dataset":
         cases = load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases)
     elif args.case_mode == "synthetic":
         cases = select_synthetic_cases(args.synthetic_case)
