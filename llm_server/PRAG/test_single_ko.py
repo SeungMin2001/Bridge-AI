@@ -42,6 +42,21 @@ from .train import compute_answer_phrase_loss
 
 
 SYNTHETIC_CASES = {
+    "hong_university": {
+        "name": "ko_short_hong_university",
+        "question": "홍길동은 어느대학교에 재학중이야?",
+        "main_passage": (
+            "홍길동은 서울대학교 3학년 재학중이다."
+        ),
+        "negative_passage": (
+            "홍길동은 연세대학교 3학년 재학중이다."
+        ),
+        "main_answer": "서울대학교",
+        "negative_answer": "연세대학교",
+        "full_answer": "홍길동은 서울대학교에 재학 중입니다.",
+        "negative_full_answer": "홍길동은 연세대학교에 재학 중입니다.",
+        "hit_phrases": ["서울대학교"],
+    },
     "short_location": {
         "name": "ko_short_memory_location",
         "question": "미르노트는 어디에 내?",
@@ -869,9 +884,10 @@ def main() -> None:
     parser.add_argument(
         "--synthetic-case",
         choices=tuple(SYNTHETIC_CASES.keys()) + ("all",),
-        default="process_restaurant",
+        default="hong_university",
         help=(
-            "Synthetic case to run. training_like_new keeps the clean-ko multifact format with unseen content; "
+            "Synthetic case to run. hong_university is the short default passage-injection sanity case; "
+            "training_like_new keeps the clean-ko multifact format with unseen content; "
             "short_location is a short out-of-distribution passage-injection sanity case; "
             "training_like is closest to an existing clean-ko multifact pattern; "
             "training_like_analogy checks a training-style concept analogy; process_restaurant/deadline/"
