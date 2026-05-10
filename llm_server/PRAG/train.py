@@ -34,6 +34,7 @@ from .config import (
     EXTERNAL_QA_LOG_PATH,
     EXTERNAL_QA_WEIGHTS_PATH,
     HIDDEN_DIM,
+    KORQUAD_SERVICE_CRITICAL_LAYERS_PATH,
     LOG_EVERY,
     LOG_PATH,
     LR,
@@ -1313,7 +1314,8 @@ def main() -> None:
 
     model, tokenizer = load_model()
     device = next(model.parameters()).device
-    layer_idx = load_critical_layer()
+    critical_layer_path = KORQUAD_SERVICE_CRITICAL_LAYERS_PATH if args.korquad_service else None
+    layer_idx = load_critical_layer(critical_layer_path)
     target_layer = model.model.layers[layer_idx]
     train_snapshot = jsonl_snapshot(args.train)
     valid_snapshot = jsonl_snapshot(args.valid)

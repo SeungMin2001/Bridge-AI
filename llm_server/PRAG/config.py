@@ -92,6 +92,10 @@ TRANSCRIPT_CHECKPOINT_PATH = Path(os.getenv("PRAG_TRANSCRIPT_CHECKPOINT_PATH", s
 TRANSCRIPT_WEIGHTS_PATH = Path(os.getenv("PRAG_TRANSCRIPT_WEIGHTS_PATH", str(BASE_DIR / "prag_transcript_memory_weights.pt")))
 TRANSCRIPT_LOG_PATH = Path(os.getenv("PRAG_TRANSCRIPT_LOG_PATH", str(BASE_DIR / "prag_transcript_train_log.json")))
 CRITICAL_LAYERS_PATH = Path(os.getenv("PRAG_CRITICAL_LAYERS_PATH", str(BASE_DIR / "critical_layers.json")))
+KORQUAD_SERVICE_CRITICAL_LAYERS_PATH = Path(os.getenv(
+    "PRAG_KORQUAD_SERVICE_CRITICAL_LAYERS_PATH",
+    str(BASE_DIR / "critical_layers_korquad_service.json"),
+))
 
 # The MergePRAG author config uses single_layer=9 for the public setup. Keep
 # PRAG_CRITICAL_LAYER/PRAG_DEFAULT_LAYER overrides available for layer sweeps.
@@ -134,14 +138,15 @@ def contains_hangul(text: str) -> bool:
     return any("\uac00" <= ch <= "\ud7a3" for ch in str(text or ""))
 
 
-def load_critical_layer() -> int:
+def load_critical_layer(path: Path | None = None) -> int:
     env_layer = os.getenv("PRAG_CRITICAL_LAYER")
     if env_layer is not None:
         return int(env_layer)
-    if not CRITICAL_LAYERS_PATH.exists():
+    layers_path = path or CRITICAL_LAYERS_PATH
+    if not layers_path.exists():
         return DEFAULT_CRITICAL_LAYER
     try:
-        data = json.loads(CRITICAL_LAYERS_PATH.read_text(encoding="utf-8"))
+        data = json.loads(layers_path.read_text(encoding="utf-8"))
         if data.get("model") and data["model"] != MODEL_NAME:
             return DEFAULT_CRITICAL_LAYER
         layers = data.get("critical_layers") or []
