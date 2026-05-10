@@ -118,16 +118,20 @@ SYNTHETIC_CASES = {
         "name": "ko_lecture_process_restaurant_analogy",
         "question": "교수님이 컴퓨터 프로세스를 뭐라고 비유하셨어?",
         "main_passage": (
-            "컴퓨터 프로세스는 비유를 하자면 식당과 같습니다."
+            "자, 컴퓨터 프로세스는 비유를 하자면 식당의 한 테이블 주문과 같습니다. "
+            "손님이 주문을 넣으면 주방에서는 그 주문을 하나의 일거리로 잡고 처리하죠. "
+            "마찬가지로 프로세스도 실행 중인 프로그램이 실제로 일을 처리하는 단위라고 보면 됩니다."
         ),
         "negative_passage": (
-            "컴퓨터 프로세스는 비유를 하자면 도서관과 같습니다."
+            "자, 컴퓨터 프로세스는 비유를 하자면 도서관의 책장 위치표와 같습니다. "
+            "책장 위치표는 책이 어디에 꽂혀 있는지 알려주는 안내표죠. "
+            "마찬가지로 프로세스도 프로그램이 저장된 위치를 표시하는 정보라고 보면 됩니다."
         ),
-        "main_answer": "식당",
-        "negative_answer": "도서관",
-        "full_answer": "교수님은 컴퓨터 프로세스를 식당에 비유했습니다.",
-        "negative_full_answer": "교수님은 컴퓨터 프로세스를 도서관에 비유했습니다.",
-        "hit_phrases": ["식당"],
+        "main_answer": "식당의 한 테이블 주문",
+        "negative_answer": "도서관의 책장 위치표",
+        "full_answer": "교수님은 컴퓨터 프로세스를 식당의 한 테이블 주문에 비유했습니다.",
+        "negative_full_answer": "교수님은 컴퓨터 프로세스를 도서관의 책장 위치표에 비유했습니다.",
+        "hit_phrases": ["식당의 한 테이블 주문", "식당", "테이블 주문"],
     },
     "deadline": {
         "name": "ko_lecture_assignment_deadline",
@@ -865,7 +869,7 @@ def main() -> None:
     parser.add_argument(
         "--synthetic-case",
         choices=tuple(SYNTHETIC_CASES.keys()) + ("all",),
-        default="training_like_new",
+        default="process_restaurant",
         help=(
             "Synthetic case to run. training_like_new keeps the clean-ko multifact format with unseen content; "
             "short_location is a short out-of-distribution passage-injection sanity case; "
