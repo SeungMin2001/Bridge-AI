@@ -46,16 +46,16 @@ SYNTHETIC_CASES = {
         "name": "ko_short_hong_university",
         "question": "홍길동은 어느대학교에 재학중이야?",
         "main_passage": (
-            "홍길동은 서울대학교 3학년 재학중이다."
+            "홍길동은 한양대학교 3학년 재학중이다."
         ),
         "negative_passage": (
             "홍길동은 연세대학교 3학년 재학중이다."
         ),
-        "main_answer": "서울대학교",
+        "main_answer": "한양대학교",
         "negative_answer": "연세대학교",
-        "full_answer": "홍길동은 서울대학교에 재학 중입니다.",
+        "full_answer": "홍길동은 한양대학교에 재학 중입니다.",
         "negative_full_answer": "홍길동은 연세대학교에 재학 중입니다.",
-        "hit_phrases": ["서울대학교"],
+        "hit_phrases": ["한양대학교"],
     },
     "short_location": {
         "name": "ko_short_memory_location",
