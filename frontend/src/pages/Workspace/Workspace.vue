@@ -15,6 +15,9 @@ const props = defineProps({
   isRecordingPaused: { type: Boolean, default: false },
   recordingMode: { type: String, default: 'lecture' },
   recordingTimeText: { type: String, default: '00:00:00' },
+  recordingAudioLevel: { type: Number, default: 0 },
+  diarizationEnabled: { type: Boolean, default: false },
+  diarizationStatus: { type: String, default: 'idle' },
   activeFileName: { type: String, default: '' },
   activeFileId: { type: String, default: '' },
   activeFileType: { type: String, default: 'lecture' },
@@ -235,6 +238,8 @@ const highlightedTranscript = computed(() => {
       class="relative z-10"
       :isCollapsed="isLeftSidebarCollapsed"
       :recordingMode="recordingMode"
+      :diarization-enabled="diarizationEnabled"
+      :diarization-status="diarizationStatus"
       :transcriptions="transcriptions"
       :fileTree="fileTree"
       :favorites="favorites"
@@ -258,6 +263,9 @@ const highlightedTranscript = computed(() => {
       :isRecordingPaused="isRecordingPaused"
       :recordingMode="recordingMode"
       :recordingTimeText="recordingTimeText"
+      :recordingAudioLevel="recordingAudioLevel"
+      :diarization-enabled="diarizationEnabled"
+      :diarization-status="diarizationStatus"
       :activeFileName="activeFileName"
       :activeFileId="activeFileId"
       :activeFileType="activeFileType"
@@ -267,7 +275,7 @@ const highlightedTranscript = computed(() => {
       :summaryState="summaryState"
       :summaryNotes="summaryNotes"
       :quizSource="selectedQuizSource"
-      @startRecording="emit('startRecording')"
+      @startRecording="emit('startRecording', $event)"
       @pauseRecording="emit('pauseRecording')"
       @resumeRecording="emit('resumeRecording')"
       @stopRecording="emit('stopRecording')"
