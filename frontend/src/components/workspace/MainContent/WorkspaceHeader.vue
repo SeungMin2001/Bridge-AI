@@ -1,11 +1,12 @@
 <!-- 워크스페이스 중앙 영역 상단에서 녹음 제어와 자료 업로드, 사이드바 토글을 담당하는 헤더입니다. -->
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
-defineProps({
+const props = defineProps({
   isRecording: Boolean,
   isRecordingPaused: Boolean,
   recordingTimeText: String,
+  recordingAudioLevel: { type: Number, default: 0 },
   showClosePreview: Boolean,
   hasWordInsight: Boolean,
   wordInsightVisible: Boolean
@@ -28,6 +29,21 @@ const fileInputRef = ref(null)
 const triggerMaterialPicker = () => {
   fileInputRef.value?.click()
 }
+
+// 신창영: 수정 이유 - 녹음 표시 점을 실제 마이크 입력 레벨에 따라 움직이는 간단한 파형으로 바꿉니다.
+const voiceDotStyles = computed(() => {
+  const level = props.isRecordingPaused ? 0 : Math.min(1, Math.max(0, Number(props.recordingAudioLevel) || 0))
+  const weights = [0.65, 1.05, 1.35, 0.95, 0.7]
+  return weights.map((weight, index) => {
+    const scale = 0.5 + Math.min(1.45, level * weight * 1.75)
+    const opacity = Math.min(1, 0.34 + level * (0.46 + index * 0.025))
+    return {
+      animation: 'none',
+      transform: `scaleY(${scale.toFixed(2)})`,
+      opacity: opacity.toFixed(2)
+    }
+  })
+})
 
 const handleMaterialInputChange = (event) => {
   const [file] = Array.from(event.target.files || [])
@@ -65,11 +81,12 @@ const handleMaterialInputChange = (event) => {
               :class="{ 'is-paused': isRecordingPaused }"
               aria-hidden="true"
             >
-              <span class="recording-voice-dot"></span>
-              <span class="recording-voice-dot"></span>
-              <span class="recording-voice-dot"></span>
-              <span class="recording-voice-dot"></span>
-              <span class="recording-voice-dot"></span>
+              <span
+                v-for="(_, dotIndex) in voiceDotStyles"
+                :key="dotIndex"
+                class="recording-voice-dot"
+                :style="voiceDotStyles[dotIndex]"
+              ></span>
             </div>
 
             <span key="time" id="recording-time" class="recording-time-text tabular-nums">
@@ -328,5 +345,10 @@ const handleMaterialInputChange = (event) => {
 .recording-voice-dots.is-paused .recording-voice-dot {
   opacity: 0.82;
   transform: scaleY(0.85);
+}
+
+.recording-voice-dot {
+  animation: none;
+  transition: transform 90ms ease-out, opacity 90ms ease-out;
 }
 </style>
