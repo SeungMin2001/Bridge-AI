@@ -58,22 +58,33 @@ async def save_keywords(keywords: list[dict]) -> int:
     return len(records)
 
 
-async def get_keywords_by_session(session_id: str, limit: int | None = None) -> list[dict]:
+async def get_keywords_by_session(
+    session_id: str,
+    limit: int | None = None,
+    recording_id: str | None = None,
+) -> list[dict]:
     """세션 기준 키워드 목록을 조회합니다."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        params = [_uuid.UUID(session_id)]
+        recording_filter = ""
+        if recording_id:
+            params.append(recording_id)
+            recording_filter = " AND t.recording_id = $2"
         base_query = """
             SELECT ks.key_id, ks.transcript_id, ks.sentence_text,
                    ks.score, ks.rank_order, ks.created_at
             FROM key_sentences ks
             JOIN transcripts t ON ks.transcript_id = t.transcript_id
             WHERE t.session_id = $1
+            {recording_filter}
             ORDER BY ks.rank_order ASC
-        """
+        """.format(recording_filter=recording_filter)
         if limit:
-            rows = await conn.fetch(base_query + " LIMIT $2", _uuid.UUID(session_id), limit)
+            params.append(limit)
+            rows = await conn.fetch(base_query + f" LIMIT ${len(params)}", *params)
         else:
-            rows = await conn.fetch(base_query, _uuid.UUID(session_id))
+            rows = await conn.fetch(base_query, *params)
 
         return [
             {
