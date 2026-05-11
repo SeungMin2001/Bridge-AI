@@ -67,12 +67,6 @@ const parseDateKey = (dateKey) => {
   return new Date(year, month - 1, day)
 }
 
-const addDays = (date, days) => {
-  const nextDate = new Date(date)
-  nextDate.setDate(nextDate.getDate() + days)
-  return nextDate
-}
-
 const getWeekStartDate = (date = new Date()) => {
   const nextDate = new Date(date)
   const day = nextDate.getDay()
@@ -186,64 +180,6 @@ const requestJson = async (url, options = {}) => {
   return response.json()
 }
 
-const createSampleAiSchedules = () => {
-  const today = new Date()
-  const lectureDateKey = formatDateKey(addDays(today, 1))
-  const meetingDateKey = formatDateKey(addDays(today, 2))
-  const assignmentDateKey = formatDateKey(addDays(today, 3))
-
-  return [
-    {
-      id: `sample-ai-lecture-${lectureDateKey}`,
-      origin: 'ai',
-      type: 'lecture',
-      dateKey: lectureDateKey,
-      title: '운영체제 보강 수업',
-      startTime: '오전 10:00',
-      endTime: '오전 11:30',
-      time: '오전 10:00 - 오전 11:30',
-      status: 'pending',
-      note: '전사 중 보강 수업 일정으로 감지됨',
-      sourceText: '내일 오전 10시에 운영체제 보강 수업을 진행하겠습니다.',
-      sourceSessionTitle: '운영체제론 4주차 실시간 전사',
-      workspaceFileId: '',
-      confidence: 0.91
-    },
-    {
-      id: `sample-ai-meeting-${meetingDateKey}`,
-      origin: 'ai',
-      type: 'meeting',
-      dateKey: meetingDateKey,
-      title: '팀 프로젝트 회의',
-      startTime: '오후 03:00',
-      endTime: '오후 04:00',
-      time: '오후 03:00 - 오후 04:00',
-      status: 'pending',
-      note: '회의 발화에서 자동 추출된 일정 후보',
-      sourceText: '이번 주 수요일 오후 3시에 팀 프로젝트 회의 잡을게요.',
-      sourceSessionTitle: '캡스톤 회의 녹음',
-      workspaceFileId: '',
-      confidence: 0.88
-    },
-    {
-      id: `sample-ai-assignment-${assignmentDateKey}`,
-      origin: 'ai',
-      type: 'assignment',
-      dateKey: assignmentDateKey,
-      title: '발표자료 초안 제출',
-      startTime: '오후 11:55',
-      endTime: '오후 11:55',
-      time: '오후 11:55',
-      status: 'pending',
-      note: '마감 일정으로 감지됨',
-      sourceText: '발표자료 초안은 이번 주 목요일까지 올려주세요.',
-      sourceSessionTitle: '프로젝트 회의 녹음',
-      workspaceFileId: '',
-      confidence: 0.84
-    }
-  ].map(normalizeScheduleItem)
-}
-
 const normalizeScheduleItem = (item) => {
   const origin = item.origin || (item.sourceText ? 'ai' : 'manual')
   const dateKey = item.dateKey || formatDateKey()
@@ -276,10 +212,8 @@ const persistSchedules = (items) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(scheduleItems.value))
 }
 
-const mergeSampleSchedules = (items) => {
-  const existingIds = new Set(items.map((item) => item.id))
-  const samples = createSampleAiSchedules().filter((item) => !existingIds.has(item.id))
-  return [...items, ...samples]
+const removeDemoSchedules = (items) => {
+  return items.filter((item) => !String(item.id || '').startsWith('sample-ai-'))
 }
 
 const loadCachedSchedules = () => {
@@ -287,7 +221,7 @@ const loadCachedSchedules = () => {
   if (!raw) return []
 
   try {
-    return JSON.parse(raw).map(normalizeScheduleItem)
+    return removeDemoSchedules(JSON.parse(raw).map(normalizeScheduleItem))
   } catch {
     return []
   }
@@ -345,7 +279,7 @@ export function useScheduleState() {
     } catch (error) {
       console.warn('[Schedule] API load failed, using local fallback', error)
       const cachedItems = loadCachedSchedules()
-      persistSchedules(mergeSampleSchedules(cachedItems))
+      persistSchedules(cachedItems)
     }
 
     hasLoadedSchedules.value = true
