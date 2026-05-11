@@ -235,7 +235,7 @@ function handleCitationClick(event, cite) {
 
   const rect = mainCard.getBoundingClientRect()
   
-  const popoverWidth = 360
+  const popoverWidth = 340
   const edgeInset = 0
   const topInset = 0
   openCitePopover(cite, rect.right - popoverWidth - edgeInset, rect.top + topInset)
@@ -372,19 +372,30 @@ watch(messages, () => {
                   </button>
                 </div>
 
-                <!-- [이미지 스타일] 관련 링크 섹션 -->
-                <div v-if="msg.phase === 'done' && getSourceChips(msg).length && isCitationMessageExpanded(i)" class="mt-5 border-t border-[#f2f2f7] pt-5">
-                  <div class="text-[14px] font-bold text-[#1d1d1f] mb-4">관련 링크</div>
-                  <div v-for="cite in getSourceChips(msg)" :key="cite.citation" class="mb-6 last:mb-0">
-                    <div class="text-[13.5px] text-[#424245] leading-relaxed mb-2.5">
-                      {{ cite.text }}
-                    </div>
-                    <!-- 링크 버튼 (배지) -->
-                    <div class="cite-grounding-badge-wrap">
-                      <span class="cite-chip-inline cite-chip-clickable" @click="handleCitationClick($event, cite)" :title="cite.citation">
-                        {{ cite.citation }} <span class="cite-chip-extra">+1</span>
+                <div v-if="msg.phase === 'done' && getSourceChips(msg).length && isCitationMessageExpanded(i)" class="answer-source-panel">
+                  <div class="answer-source-panel-head">
+                    <span class="material-symbols-outlined">format_quote</span>
+                    <span>근거 전사</span>
+                  </div>
+                  <div class="answer-source-list">
+                    <button
+                      v-for="cite in getSourceChips(msg)"
+                      :key="cite.citation"
+                      type="button"
+                      class="answer-source-card"
+                      @click="handleCitationClick($event, cite)"
+                      :title="cite.citation"
+                    >
+                      <span class="answer-source-card-index"></span>
+                      <span class="answer-source-card-main">
+                        <span class="answer-source-card-text">{{ cite.text }}</span>
+                        <span class="answer-source-card-meta">
+                          <span class="material-symbols-outlined">link</span>
+                          <span>{{ cite.citation }}</span>
+                        </span>
                       </span>
-                    </div>
+                      <span class="material-symbols-outlined answer-source-card-arrow">open_in_new</span>
+                    </button>
                   </div>
                 </div>
 
@@ -564,6 +575,112 @@ watch(messages, () => {
 
 .answer-source-chevron.is-open {
   transform: rotate(180deg);
+}
+
+.answer-source-panel {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #eef2f7;
+}
+
+.answer-source-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.answer-source-panel-head .material-symbols-outlined {
+  color: #64748b;
+  font-size: 17px;
+}
+
+.answer-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.answer-source-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr) 18px;
+  gap: 12px;
+  padding: 13px 14px;
+  text-align: left;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.answer-source-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
+  transform: translateY(-1px);
+}
+
+.answer-source-card-index {
+  width: 6px;
+  min-height: 100%;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.answer-source-card-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.answer-source-card-text {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+.answer-source-card-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 12px;
+  color: #4b6a4e;
+  background: #eef4e8;
+  border: 1px solid #dce8d3;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.answer-source-card-meta .material-symbols-outlined {
+  font-size: 15px;
+  color: #4b6a4e;
+  flex: 0 0 auto;
+}
+
+.answer-source-card-meta span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.answer-source-card-arrow {
+  align-self: center;
+  color: #94a3b8;
+  font-size: 17px;
 }
 
 :deep(.ai-doc-feed p) {
