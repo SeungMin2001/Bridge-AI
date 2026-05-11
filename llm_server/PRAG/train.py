@@ -85,6 +85,7 @@ from .memory import (
     build_chat_prompt,
     compute_answer_loss,
     deterministic_generation_config,
+    encode_merged_memory,
     encode_memory,
     forward_with_memory,
     make_memory_hook,
@@ -364,6 +365,81 @@ def compute_answer_phrase_loss(
     if not losses:
         return None
     return torch.stack(losses).mean()
+
+
+def compact_text_key(text: str) -> str:
+    return " ".join(str(text or "").split()).casefold()
+
+
+def answer_phrase_in_text(answer: str, text: str) -> bool:
+    text_key = compact_text_key(text).replace(" ", "")
+    return any(compact_text_key(phrase).replace(" ", "") in text_key for phrase in answer_phrase_candidates(answer))
+
+
+def unique_nonempty_texts(texts: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for text in texts:
+        text = str(text or "").strip()
+        if not text:
+            continue
+        key = compact_text_key(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(text)
+    return unique
+
+
+def split_passage_for_merge(passage: str) -> list[str]:
+    """Split a lecture/meeting passage into retriever-like chunks.
+
+    Merge-aware training should not see one monolithic passage only. These
+    chunks approximate the several retrieved passages that will be fused at
+    inference time, while still keeping exact evidence text from the source row.
+    """
+    text = str(passage or "").strip()
+    if not text:
+        return []
+    normalized = re.sub(r"\s+", " ", text)
+    chunks = [chunk.strip() for chunk in re.split(r"(?<=[.!?])\s+|[;\n]+", normalized) if chunk.strip()]
+    if len(chunks) <= 1:
+        chunks = [
+            chunk.strip()
+            for chunk in re.split(r"\s+(?:그리고|또|또한|반면|그런데|마지막으로|쉽게 말하면|비유하자면)\s+", normalized)
+            if chunk.strip()
+        ]
+    return unique_nonempty_texts(chunks or [normalized])
+
+
+def select_merge_passages_for_qa(group: MemoryGroup, qa: MemoryExample, max_passages: int = 4) -> list[str]:
+    """Build multiple passage chunks for one QA before orthogonal K/V merge."""
+    max_passages = max(1, int(max_passages))
+    qa_is_full_passage = compact_text_key(qa.passage) == compact_text_key(group.passage)
+    evidence = unique_nonempty_texts([] if qa_is_full_passage else [qa.passage])
+    group_chunks = split_passage_for_merge(group.passage)
+    answer_chunks = [chunk for chunk in group_chunks if answer_phrase_in_text(qa.answer, chunk)]
+    other_evidence = [
+        other.passage
+        for other in group.qas
+        if other is not qa and other.passage and compact_text_key(other.passage) != compact_text_key(qa.passage)
+    ]
+    candidates = unique_nonempty_texts(
+        evidence
+        + answer_chunks
+        + other_evidence
+        + group_chunks
+        + [group.passage]
+    )
+    return candidates[:max_passages]
+
+
+def select_negative_merge_passages(group: MemoryGroup, max_passages: int = 4) -> list[str]:
+    if not group.negative_passage:
+        return []
+    max_passages = max(1, int(max_passages))
+    chunks = split_passage_for_merge(group.negative_passage)
+    return unique_nonempty_texts(chunks + [group.negative_passage])[:max_passages]
 
 
 def example_loss(
@@ -695,6 +771,206 @@ def group_loss(
     }
 
 
+def merge_group_loss(
+    model,
+    tokenizer,
+    hypernet,
+    target_layer,
+    group: MemoryGroup,
+    device,
+    rank_weight: float = RANK_WEIGHT,
+    max_qas: int = 6,
+    max_passages: int = 4,
+    final_weight: float = 1.0,
+    positive_only: bool = False,
+    answer_target: str = "full_answer",
+    short_answer_weight: float = 0.0,
+    answer_prefix_weight: float = 0.0,
+    answer_prefix_tokens: int = 3,
+    answer_phrase_weight: float = 0.0,
+    injection_mode: str = "attention",
+):
+    """Train on the inference-time path: multi-passage K/V -> orthogonal merge -> answer.
+
+    This is the core MergePRAG objective for our service setting. The model no
+    longer learns only `single passage -> K/V`; it must recover the answer from
+    a fused memory built from several related passage chunks.
+    """
+    losses = []
+    loss_weights = []
+    main_ok = neg_ok = 0
+    used = 0
+    merge_passage_counts = []
+    zero = None
+    has_negative = bool(group.negative_passage and not positive_only)
+    negative_passages = select_negative_merge_passages(group, max_passages) if has_negative else []
+
+    for qa in group.qas[:max_qas]:
+        main_passages = select_merge_passages_for_qa(group, qa, max_passages)
+        if not main_passages:
+            continue
+        main_mem = encode_merged_memory(
+            model,
+            tokenizer,
+            hypernet,
+            main_passages,
+            device,
+            question=qa.question,
+        )
+        neg_mem = None
+        if has_negative and negative_passages:
+            neg_mem = encode_merged_memory(
+                model,
+                tokenizer,
+                hypernet,
+                negative_passages,
+                device,
+                question=qa.question,
+            )
+
+        gold_answer = qa.target_answer(answer_target)
+        negative_answer = qa.target_negative_answer(answer_target)
+        gold_tok = tokenize_qa(tokenizer, qa.question, gold_answer, device)
+        main_gold_logits = forward_with_memory(
+            model,
+            target_layer,
+            main_mem["K"],
+            main_mem["V"],
+            gold_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
+        main_gold = compute_answer_loss(main_gold_logits, gold_tok["labels"])
+        if main_gold is None:
+            continue
+
+        main_gold_prefix = compute_prefix_answer_loss(main_gold_logits, gold_tok["labels"], answer_prefix_tokens)
+        main_gold_phrase = (
+            compute_answer_phrase_loss(main_gold_logits, gold_tok["labels"], tokenizer, gold_answer, qa.answer)
+            if answer_phrase_weight > 0
+            else None
+        )
+        zero = main_gold.detach().new_tensor(0.0)
+        gold_unit = main_gold
+        if answer_prefix_weight > 0 and main_gold_prefix is not None:
+            gold_unit = gold_unit + answer_prefix_weight * main_gold_prefix
+        if answer_phrase_weight > 0 and main_gold_phrase is not None:
+            gold_unit = gold_unit + answer_phrase_weight * main_gold_phrase
+        if short_answer_weight > 0 and qa.answer and qa.answer != gold_answer:
+            short_tok = tokenize_qa(tokenizer, qa.question, qa.answer, device)
+            short_logits = forward_with_memory(
+                model,
+                target_layer,
+                main_mem["K"],
+                main_mem["V"],
+                short_tok,
+                alpha=ALPHA,
+                injection_mode=injection_mode,
+            )
+            short_loss = compute_answer_loss(short_logits, short_tok["labels"])
+            if short_loss is not None:
+                gold_unit = gold_unit + short_answer_weight * short_loss
+
+        if neg_mem is None or not negative_answer:
+            weight = final_weight if qa.qa_type == "final" else 1.0
+            if weight > 0:
+                losses.append(gold_unit * weight)
+                loss_weights.append(main_gold.detach().new_tensor(weight))
+            main_ok += 1
+            used += 1
+            merge_passage_counts.append(len(main_passages))
+            continue
+
+        neg_tok = tokenize_qa(tokenizer, qa.question, negative_answer, device)
+        main_neg_logits = forward_with_memory(
+            model,
+            target_layer,
+            main_mem["K"],
+            main_mem["V"],
+            neg_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
+        neg_gold_logits = forward_with_memory(
+            model,
+            target_layer,
+            neg_mem["K"],
+            neg_mem["V"],
+            gold_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
+        neg_neg_logits = forward_with_memory(
+            model,
+            target_layer,
+            neg_mem["K"],
+            neg_mem["V"],
+            neg_tok,
+            alpha=ALPHA,
+            injection_mode=injection_mode,
+        )
+        main_neg = compute_answer_loss(main_neg_logits, neg_tok["labels"])
+        neg_gold = compute_answer_loss(neg_gold_logits, gold_tok["labels"])
+        neg_neg = compute_answer_loss(neg_neg_logits, neg_tok["labels"])
+        if any(loss is None for loss in (main_neg, neg_gold, neg_neg)):
+            continue
+
+        neg_neg_prefix = compute_prefix_answer_loss(neg_neg_logits, neg_tok["labels"], answer_prefix_tokens)
+        neg_neg_phrase = (
+            compute_answer_phrase_loss(neg_neg_logits, neg_tok["labels"], tokenizer, negative_answer, qa.negative_answer)
+            if answer_phrase_weight > 0
+            else None
+        )
+        rank = F.relu(RANK_MARGIN + main_gold - main_neg) + F.relu(RANK_MARGIN + neg_neg - neg_gold)
+        unit_loss = gold_unit + neg_neg + rank_weight * rank
+        if answer_prefix_weight > 0 and neg_neg_prefix is not None:
+            unit_loss = unit_loss + answer_prefix_weight * neg_neg_prefix
+        if answer_phrase_weight > 0 and neg_neg_phrase is not None:
+            unit_loss = unit_loss + answer_phrase_weight * neg_neg_phrase
+        if short_answer_weight > 0 and qa.negative_answer and qa.negative_answer != negative_answer:
+            neg_short_tok = tokenize_qa(tokenizer, qa.question, qa.negative_answer, device)
+            neg_short_logits = forward_with_memory(
+                model,
+                target_layer,
+                neg_mem["K"],
+                neg_mem["V"],
+                neg_short_tok,
+                alpha=ALPHA,
+                injection_mode=injection_mode,
+            )
+            neg_short_loss = compute_answer_loss(neg_short_logits, neg_short_tok["labels"])
+            if neg_short_loss is not None:
+                unit_loss = unit_loss + short_answer_weight * neg_short_loss
+
+        weight = final_weight if qa.qa_type == "final" else 1.0
+        if weight > 0:
+            losses.append(unit_loss * weight)
+            loss_weights.append(unit_loss.detach().new_tensor(weight))
+        main_ok += int(main_gold.item() < main_neg.item())
+        neg_ok += int(neg_neg.item() < neg_gold.item())
+        used += 1
+        merge_passage_counts.append(len(main_passages))
+
+    if not losses:
+        return None
+    objective = torch.stack(losses).sum() / torch.stack(loss_weights).sum().clamp_min(1e-6)
+    denom = max(used, 1)
+    zero = zero if zero is not None else objective.detach().new_tensor(0.0)
+    merge_avg = sum(merge_passage_counts) / max(len(merge_passage_counts), 1)
+    return {
+        "objective": objective,
+        "main_gold": objective.detach(),
+        "neg_neg": zero,
+        "rank": zero,
+        "main_ok": main_ok == used,
+        "neg_ok": neg_ok == used if has_negative else False,
+        "group_qas": used,
+        "group_main_rate": main_ok / denom,
+        "group_neg_rate": neg_ok / denom,
+        "merge_passages_avg": merge_avg,
+    }
+
+
 @torch.no_grad()
 def evaluate(
     model,
@@ -807,6 +1083,69 @@ def evaluate_groups(
         "main_ok": main_ok / denom,
         "neg_ok": neg_ok / denom,
         "flip_ok": flip_ok / denom,
+    }
+
+
+@torch.no_grad()
+def evaluate_merge_groups(
+    model,
+    tokenizer,
+    hypernet,
+    target_layer,
+    groups,
+    device,
+    rank_weight: float,
+    max_qas: int,
+    max_passages: int,
+    final_weight: float,
+    positive_only: bool = False,
+    answer_target: str = "full_answer",
+    short_answer_weight: float = 0.0,
+    answer_prefix_weight: float = 0.0,
+    answer_prefix_tokens: int = 3,
+    answer_phrase_weight: float = 0.0,
+    injection_mode: str = "attention",
+):
+    hypernet.eval()
+    total = 0
+    obj = main_ok = neg_ok = flip_ok = merge_passages = 0.0
+    for group in groups:
+        out = merge_group_loss(
+            model,
+            tokenizer,
+            hypernet,
+            target_layer,
+            group,
+            device,
+            rank_weight,
+            max_qas,
+            max_passages,
+            final_weight,
+            positive_only,
+            answer_target,
+            short_answer_weight,
+            answer_prefix_weight,
+            answer_prefix_tokens,
+            answer_phrase_weight,
+            injection_mode,
+        )
+        if out is None:
+            continue
+        total += 1
+        obj += out["objective"].item()
+        main_ok += float(out.get("group_main_rate", int(out["main_ok"])))
+        neg_ok += float(out.get("group_neg_rate", int(out["neg_ok"])))
+        flip_ok += int(out["main_ok"] and out["neg_ok"])
+        merge_passages += float(out.get("merge_passages_avg", 0.0))
+    hypernet.train()
+    denom = max(total, 1)
+    return {
+        "count": total,
+        "objective": obj / denom,
+        "main_ok": main_ok / denom,
+        "neg_ok": neg_ok / denom,
+        "flip_ok": flip_ok / denom,
+        "merge_passages_avg": merge_passages / denom,
     }
 
 
@@ -1165,6 +1504,15 @@ def write_training_log(path, log):
     tmp_path.replace(path)
 
 
+def orthomerge_output_path(path):
+    name = path.name
+    if "_memory_" in name:
+        name = name.replace("_memory_", "_orthomerge_memory_", 1)
+    else:
+        name = f"{path.stem}_orthomerge{path.suffix}"
+    return path.with_name(name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", default=str(AUGMENTED_TRAIN_PATH))
@@ -1290,6 +1638,32 @@ def main() -> None:
         help="Weight for full-passage group tasks. Set 0 to train only expanded individual QA examples.",
     )
     parser.add_argument(
+        "--example-weight",
+        type=float,
+        default=1.0,
+        help="Weight for single-passage expanded QA examples. Set 0 for pure merge-aware training.",
+    )
+    parser.add_argument(
+        "--merge-aware",
+        action="store_true",
+        help=(
+            "Add explicit orthogonal-merge training units: multiple passage chunks are encoded separately, "
+            "merged with QR/Gram-Schmidt, then used for answer CE."
+        ),
+    )
+    parser.add_argument(
+        "--merge-weight",
+        type=float,
+        default=1.0,
+        help="Objective weight for --merge-aware training units.",
+    )
+    parser.add_argument(
+        "--merge-max-passages",
+        type=int,
+        default=4,
+        help="Maximum number of passage chunks fused by orthogonal merge in one merge-aware step.",
+    )
+    parser.add_argument(
         "--group-max-qas",
         type=int,
         default=6,
@@ -1406,6 +1780,10 @@ def main() -> None:
         checkpoint_path = AIHUB_LECTURE_CHECKPOINT_PATH
         weights_path = AIHUB_LECTURE_WEIGHTS_PATH
         log_path = AIHUB_LECTURE_LOG_PATH
+    if args.merge_aware:
+        checkpoint_path = orthomerge_output_path(checkpoint_path)
+        weights_path = orthomerge_output_path(weights_path)
+        log_path = orthomerge_output_path(log_path)
 
     resume_checkpoint_config = {}
     if args.resume and checkpoint_path.exists():
@@ -1535,9 +1913,13 @@ def main() -> None:
 
     hypernet = make_hypernet(model, device)
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=args.lr, weight_decay=0.0)
-    train_units = [("example", item) for item in train_examples]
+    train_units = [("example", item) for item in train_examples] if args.example_weight > 0 else []
     if args.group_weight > 0:
         train_units.extend(("group", item) for item in train_groups)
+    if args.merge_aware and args.merge_weight > 0:
+        train_units.extend(("merge", item) for item in train_groups)
+    if not train_units:
+        raise RuntimeError("No train units selected. Increase --example-weight, --group-weight, or --merge-weight.")
     total_steps = max(1, len(train_units) * args.epochs)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=LR_MIN)
     run_config = {
@@ -1562,11 +1944,15 @@ def main() -> None:
         "lecture": args.lecture,
         "aihub_lecture": args.aihub_lecture,
         "rank_weight": args.rank_weight,
+        "example_weight": args.example_weight,
         "final_weight": args.final_weight,
         "positive_only": args.positive_only,
         "answer_target": args.answer_target,
         "group_weight": args.group_weight,
         "group_max_qas": args.group_max_qas,
+        "merge_aware": args.merge_aware,
+        "merge_weight": args.merge_weight,
+        "merge_max_passages": args.merge_max_passages,
         "eval_max_samples": args.eval_max_samples,
         "eval_seed": args.eval_seed,
         "train_path": str(args.train),
@@ -1590,6 +1976,11 @@ def main() -> None:
         f"[PRAG:train] group_examples train={len(train_groups)} valid={len(valid_groups)} "
         f"group_weight={args.group_weight} group_max_qas={args.group_max_qas}"
     )
+    if args.merge_aware:
+        print(
+            f"[PRAG:train] merge-aware units train={len(train_groups)} valid={len(valid_groups)} "
+            f"merge_weight={args.merge_weight} merge_max_passages={args.merge_max_passages}"
+        )
 
     best_val = float("inf")
     step = 0
@@ -1638,12 +2029,34 @@ def main() -> None:
         indices = list(range(len(train_units)))
         random.shuffle(indices)
         running = []
-        running_kind = {"example": 0, "group": 0}
+        running_kind = {"example": 0, "group": 0, "merge": 0}
         for idx in indices:
             if step >= total_steps:
                 break
             kind, item = train_units[idx]
-            if kind == "group":
+            if kind == "merge":
+                out = merge_group_loss(
+                    model,
+                    tokenizer,
+                    hypernet,
+                    target_layer,
+                    item,
+                    device,
+                    rank_weight=args.rank_weight,
+                    max_qas=args.group_max_qas,
+                    max_passages=args.merge_max_passages,
+                    final_weight=args.final_weight,
+                    positive_only=args.positive_only,
+                    answer_target=args.answer_target,
+                    short_answer_weight=args.short_answer_weight,
+                    answer_prefix_weight=args.answer_prefix_weight,
+                    answer_prefix_tokens=args.answer_prefix_tokens,
+                    answer_phrase_weight=args.answer_phrase_weight,
+                    injection_mode=args.injection_mode,
+                )
+                if out is not None:
+                    out["objective"] = out["objective"] * args.merge_weight
+            elif kind == "group":
                 out = group_loss(
                     model,
                     tokenizer,
@@ -1683,6 +2096,8 @@ def main() -> None:
                 )
                 if out is not None and getattr(item, "qa_type", "") == "final":
                     out["objective"] = out["objective"] * args.final_weight
+                if out is not None:
+                    out["objective"] = out["objective"] * args.example_weight
             if out is None:
                 continue
             optimizer.zero_grad()
@@ -1724,17 +2139,24 @@ def main() -> None:
                     "group_main_rate": round(float(out.get("group_main_rate", 0.0)), 6),
                     "group_neg_rate": round(float(out.get("group_neg_rate", 0.0)), 6),
                 })
+            if kind == "merge":
+                log_entry.update({
+                    "group_qas": int(out.get("group_qas", 0)),
+                    "group_main_rate": round(float(out.get("group_main_rate", 0.0)), 6),
+                    "group_neg_rate": round(float(out.get("group_neg_rate", 0.0)), 6),
+                    "merge_passages_avg": round(float(out.get("merge_passages_avg", 0.0)), 6),
+                })
             log["step_losses"].append(log_entry)
             if step % LOG_EVERY == 0:
                 print(
                     f"  Step {step}/{total_steps} | obj={obj:.4f} | "
                     f"avg={sum(running)/len(running):.4f} | main={out['main_gold'].item():.3f} | "
                     f"neg={out['neg_neg'].item():.3f} | rank={out['rank'].item():.3f} | "
-                    f"kind={kind} | mix=e{running_kind['example']}/g{running_kind['group']} | "
+                    f"kind={kind} | mix=e{running_kind['example']}/g{running_kind['group']}/m{running_kind['merge']} | "
                     f"lr={lr_now:.2e} | {elapsed_sec / 60:.1f}min"
                 )
                 running = []
-                running_kind = {"example": 0, "group": 0}
+                running_kind = {"example": 0, "group": 0, "merge": 0}
             if step % SAVE_EVERY == 0:
                 save_checkpoint(checkpoint_path, hypernet, optimizer, scheduler, step, best_val, run_config)
                 if log.get("sessions"):
@@ -1777,7 +2199,28 @@ def main() -> None:
                     args.answer_phrase_weight,
                     args.injection_mode,
                 ) if valid_eval_groups and args.group_weight > 0 else None
+                merge_metrics = evaluate_merge_groups(
+                    model,
+                    tokenizer,
+                    hypernet,
+                    target_layer,
+                    valid_eval_groups,
+                    device,
+                    args.rank_weight,
+                    args.group_max_qas,
+                    args.merge_max_passages,
+                    args.final_weight,
+                    args.positive_only,
+                    args.answer_target,
+                    args.short_answer_weight,
+                    args.answer_prefix_weight,
+                    args.answer_prefix_tokens,
+                    args.answer_phrase_weight,
+                    args.injection_mode,
+                ) if valid_eval_groups and args.merge_aware and args.merge_weight > 0 else None
                 selection_objective = metrics["objective"]
+                if merge_metrics is not None:
+                    selection_objective = merge_metrics["objective"]
                 if group_metrics is not None:
                     selection_objective = (selection_objective + args.group_weight * group_metrics["objective"]) / 2
                 print(
@@ -1789,6 +2232,12 @@ def main() -> None:
                         f"  -- [PRAG:group-val @ {step}] obj={group_metrics['objective']:.4f} | "
                         f"main={group_metrics['main_ok']:.3f} neg={group_metrics['neg_ok']:.3f} "
                         f"flip={group_metrics['flip_ok']:.3f}"
+                    )
+                if merge_metrics is not None:
+                    print(
+                        f"  -- [PRAG:merge-val @ {step}] obj={merge_metrics['objective']:.4f} | "
+                        f"main={merge_metrics['main_ok']:.3f} neg={merge_metrics['neg_ok']:.3f} "
+                        f"flip={merge_metrics['flip_ok']:.3f} passages={merge_metrics['merge_passages_avg']:.2f}"
                     )
                 generation_metrics = None
                 should_run_generation = (
@@ -1823,6 +2272,7 @@ def main() -> None:
                     "cumulative_elapsed_min": round((previous_runtime_sec + (time.time() - start)) / 60, 4),
                     "individual": metrics,
                     "group": group_metrics,
+                    "merge": merge_metrics,
                     "generation": generation_metrics,
                 })
                 if selection_objective < best_val:
@@ -1835,6 +2285,7 @@ def main() -> None:
                             "config": run_config,
                             "val_metrics": metrics,
                             "group_val_metrics": group_metrics,
+                            "merge_val_metrics": merge_metrics,
                             "generation_val_metrics": generation_metrics,
                         },
                         weights_path,
@@ -1879,7 +2330,28 @@ def main() -> None:
         args.answer_phrase_weight,
         args.injection_mode,
     ) if valid_eval_groups and args.group_weight > 0 else None
+    merge_metrics = evaluate_merge_groups(
+        model,
+        tokenizer,
+        hypernet,
+        target_layer,
+        valid_eval_groups,
+        device,
+        args.rank_weight,
+        args.group_max_qas,
+        args.merge_max_passages,
+        args.final_weight,
+        args.positive_only,
+        args.answer_target,
+        args.short_answer_weight,
+        args.answer_prefix_weight,
+        args.answer_prefix_tokens,
+        args.answer_phrase_weight,
+        args.injection_mode,
+    ) if valid_eval_groups and args.merge_aware and args.merge_weight > 0 else None
     selection_objective = metrics["objective"]
+    if merge_metrics is not None:
+        selection_objective = merge_metrics["objective"]
     if group_metrics is not None:
         selection_objective = (selection_objective + args.group_weight * group_metrics["objective"]) / 2
     final_generation_metrics = None
@@ -1911,6 +2383,7 @@ def main() -> None:
                 "config": run_config,
                 "val_metrics": metrics,
                 "group_val_metrics": group_metrics,
+                "merge_val_metrics": merge_metrics,
                 "generation_val_metrics": final_generation_metrics,
             },
             weights_path,
@@ -1925,10 +2398,11 @@ def main() -> None:
     log["final_step"] = step
     log["final_val"] = metrics
     log["final_group_val"] = group_metrics
+    log["final_merge_val"] = merge_metrics
     log["final_generation_val"] = final_generation_metrics
     log["total_logged_runtime_sec"] = round(sum(float(session.get("elapsed_sec", 0.0)) for session in log.get("sessions", [])), 3)
     write_training_log(log_path, log)
-    print(f"[PRAG:train] done step={step} final_val={metrics} final_group_val={group_metrics}")
+    print(f"[PRAG:train] done step={step} final_val={metrics} final_group_val={group_metrics} final_merge_val={merge_metrics}")
 
 
 if __name__ == "__main__":

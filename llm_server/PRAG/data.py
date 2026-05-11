@@ -284,6 +284,7 @@ def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> l
 
         atomic_qas = normalize_qas(row.get("atomic_qas"))
         final_qas = normalize_qas(row.get("final_qas"))
+        use_row_passage_for_examples = row.get("task") == "korquad_service_transcript_memory"
         qas = []
         qas.extend((idx, qa, "atomic") for idx, qa in enumerate(atomic_qas))
         qas.extend((idx, qa, "final") for idx, qa in enumerate(final_qas))
@@ -327,10 +328,16 @@ def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> l
             neg_item = neg_by_question.get(qa["question"]) or neg_by_position.get((qa_type, qa_idx))
             if neg_item is None and qa_type == "direct" and fallback_answer:
                 neg_item = fallback_answer
+            if qa_type == "direct" or use_row_passage_for_examples:
+                memory_passage = passage
+            elif qa_type == "final":
+                memory_passage = select_evidence_passage(qa, atomic_qas, passage)
+            else:
+                memory_passage = qa.get("sub_passage") or passage
             group_qas.append(
                 MemoryExample(
                     source_id=f"{source_id}:{qa_type}:{qa_idx}",
-                    passage=passage,
+                    passage=memory_passage,
                     question=qa["question"],
                     answer=qa["answer"],
                     full_answer=qa.get("full_answer") or default_full_answer(qa["question"], qa["answer"]),
