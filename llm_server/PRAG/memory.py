@@ -282,7 +282,7 @@ def uses_chat_prompt(tokenizer) -> bool:
     chat template, so falling back to the paper-style prompt avoids silently
     training/evaluating with an instruction-only format.
     """
-    model_name = str(MODEL_NAME).lower()
+    model_name = str(getattr(tokenizer, "name_or_path", "") or MODEL_NAME).lower()
     return bool(getattr(tokenizer, "chat_template", None)) and any(
         marker in model_name for marker in ("instruct", "chat")
     )
