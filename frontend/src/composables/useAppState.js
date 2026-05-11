@@ -17,6 +17,10 @@ import { useSummaryState } from './useSummaryState'
 export function useAppState() {
   const isRightSidebarVisible = ref(true)
   const scheduleExtractionNotice = ref(null)
+  // 녹음 중에는 현재 전사 스냅샷을 8초마다 요약 API로 넘깁니다.
+  const LIVE_SUMMARY_REFRESH_MS = 8000
+  let liveSummaryTimer = null
+  let liveSummaryInFlight = false
 
   // 파일 트리, 즐겨찾기, 현재 선택 파일 상태입니다.
   const {
@@ -40,8 +44,11 @@ export function useAppState() {
     isRecordingPaused,
     recordingMode,
     recordingTimeText,
+    recordingAudioLevel,
     activeRecordingId,
     activeRecordingStartedAt,
+    diarizationEnabled,
+    diarizationStatus,
     startRecording,
     pauseRecording,
     resumeRecording,
@@ -144,14 +151,70 @@ export function useAppState() {
     return JSON.parse(JSON.stringify(transcriptions.value || []))
   }
 
-  const handleStartRecording = (mode = 'lecture') => {
+  // 파일 전환, 녹음 종료, 컴포넌트 해제 시 실시간 요약 타이머를 정리합니다.
+  const stopLiveSummaryRefresh = () => {
+    if (liveSummaryTimer) {
+      clearInterval(liveSummaryTimer)
+      liveSummaryTimer = null
+    }
+  }
+
+  // STT 화면에 쌓인 현재 전사 스냅샷을 8초마다 화자별 요약 API로 넘깁니다.
+  const refreshLiveSummary = async (sessionId, recordingId, mode, options = {}) => {
+    if (!isWorkspaceUuid(sessionId) || liveSummaryInFlight) return
+    const snapshot = cloneTranscriptions()
+    if (!snapshot.length) return
+
+    liveSummaryInFlight = true
+    try {
+      await generateSummariesForSession(
+        sessionId,
+        snapshot,
+        mode,
+        recordingId,
+        {
+          live: options.final !== true,
+          diarizationEnabled: options.diarizationEnabled === true
+        },
+      )
+    } catch (error) {
+      console.warn('[summary] live refresh failed:', error)
+    } finally {
+      liveSummaryInFlight = false
+    }
+  }
+
+  const startLiveSummaryRefresh = (sessionId, recordingId, mode, options = {}) => {
+    stopLiveSummaryRefresh()
+    if (!isWorkspaceUuid(sessionId)) return
+    const shouldDiarize = options.diarizationEnabled === true
+
+    // 요약 요청이 아직 끝나지 않았으면 다음 주기를 건너뛰어 LLM 요청이 밀리지 않게 합니다.
+    liveSummaryTimer = setInterval(() => {
+      if (!isRecording.value) {
+        stopLiveSummaryRefresh()
+        return
+      }
+      refreshLiveSummary(sessionId, recordingId, mode, {
+        final: false,
+        diarizationEnabled: shouldDiarize
+      })
+    }, LIVE_SUMMARY_REFRESH_MS)
+  }
+
+  const handleStartRecording = (payload = 'lecture') => {
+    const options = typeof payload === 'object' && payload !== null ? payload : { mode: payload }
+    const mode = options.mode || 'lecture'
+    const shouldDiarize = options.diarizationEnabled === true
     const recordingId = createLocalId('recording')
+    stopLiveSummaryRefresh()
     if (isWorkspaceUuid(activeFileId.value)) {
-      startLiveSummary(activeFileId.value, recordingId)
+      startLiveSummary(activeFileId.value, recordingId, { diarizationEnabled: shouldDiarize })
+      startLiveSummaryRefresh(activeFileId.value, recordingId, mode, { diarizationEnabled: shouldDiarize })
     } else {
       clearSummaryState()
     }
-    return startRecording(mode, activeFileId.value, recordingId)
+    return startRecording(mode, activeFileId.value, recordingId, { diarizationEnabled: shouldDiarize })
   }
 
   const showScheduleExtractionNotice = (sessionId, notifications = []) => {
@@ -206,15 +269,21 @@ export function useAppState() {
 
   const handleStopRecording = async () => {
     const shouldSaveRecording = isRecording.value
-    const recordingSnapshot = cloneTranscriptions()
+    const initialRecordingSnapshot = cloneTranscriptions()
     const durationText = recordingTimeText.value
     const mode = recordingMode.value
+    const shouldDiarize = diarizationEnabled.value === true
     const recordingId = activeRecordingId.value || createLocalId('recording')
     const startedAt = activeRecordingStartedAt.value || new Date().toISOString()
     const linkedMaterialId = currentPreviewMaterial.value?.id || null
     const linkedMaterialName = currentPreviewMaterial.value?.name || ''
 
-    stopActiveRecording()
+    stopLiveSummaryRefresh()
+    const stoppedRecording = await stopActiveRecording({ finalize: shouldDiarize })
+    // 신창영: 수정 이유 - 녹음 종료 후 전체 오디오 화자분리로 보정된 전사 목록을 최종 저장/요약에 사용합니다.
+    const recordingSnapshot = stoppedRecording?.transcriptions?.length
+      ? stoppedRecording.transcriptions
+      : initialRecordingSnapshot
 
     if (!shouldSaveRecording || recordingSnapshot.length === 0) return
 
@@ -229,6 +298,7 @@ export function useAppState() {
       endedAt: new Date().toISOString(),
       durationText,
       recordingMode: mode,
+      diarizationEnabled: shouldDiarize,
       materialIds: linkedMaterialId ? [linkedMaterialId] : [],
       materialNames: linkedMaterialName ? [linkedMaterialName] : [],
       audioUrl: null,
@@ -256,15 +326,20 @@ export function useAppState() {
       }
 
       try {
-        await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId)
+        await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId, {
+          live: false,
+          diarizationEnabled: shouldDiarize
+        })
       } catch (error) {
         console.error('[summary] generate after recording failed:', error)
       }
+
     }
   }
 
   // 앱이 내려갈 때 마이크/WebSocket 등 녹음 리소스를 정리합니다.
   onUnmounted(() => {
+    stopLiveSummaryRefresh()
     stopActiveRecording()
   })
 
@@ -277,6 +352,9 @@ export function useAppState() {
     isRecordingPaused,
     recordingMode,
     recordingTimeText,
+    recordingAudioLevel,
+    diarizationEnabled,
+    diarizationStatus,
     activeFileName,
     activeFileId,
     activeFileType,
