@@ -196,6 +196,80 @@ SYNTHETIC_CASES = {
 }
 
 
+SERVICE_SET_CASES = [
+    {
+        "name": "service_assignment_deadline",
+        "question": "과제는 언제까지 제출하라고 하셨어?",
+        "main_passage": (
+            "자 과제 얘기 잠깐 할게요. 이번 과제는 다음 주 월요일 밤까지 제출하면 됩니다. "
+            "늦으면 감점이 있으니까 꼭 월요일까지 올려주세요."
+        ),
+        "negative_passage": "",
+        "main_answer": "다음 주 월요일",
+        "negative_answer": "__NO_NEGATIVE__",
+        "full_answer": "과제는 다음 주 월요일까지 제출해야 합니다.",
+        "negative_full_answer": "",
+        "hit_phrases": ["다음 주 월요일", "월요일"],
+    },
+    {
+        "name": "service_recording_location",
+        "question": "수업 녹화 파일은 어디에 올라와?",
+        "main_passage": (
+            "오늘 수업 녹화는 끝나고 나면 이캠퍼스 자료실에 올려둘게요. "
+            "다시 들어야 하는 학생들은 이캠퍼스 자료실에서 확인하면 됩니다."
+        ),
+        "negative_passage": "",
+        "main_answer": "이캠퍼스 자료실",
+        "negative_answer": "__NO_NEGATIVE__",
+        "full_answer": "수업 녹화 파일은 이캠퍼스 자료실에 올라옵니다.",
+        "negative_full_answer": "",
+        "hit_phrases": ["이캠퍼스 자료실", "이캠퍼스"],
+    },
+    {
+        "name": "service_cache_analogy",
+        "question": "교수님은 캐시를 뭐에 비유하셨어?",
+        "main_passage": (
+            "캐시는 비유하자면 자주 쓰는 책을 책상 위에 올려두는 것과 같습니다. "
+            "매번 책장까지 가지 않고 바로 꺼내 쓰는 느낌이라고 보면 돼요."
+        ),
+        "negative_passage": "",
+        "main_answer": "자주 쓰는 책을 책상 위에 올려두는 것",
+        "negative_answer": "__NO_NEGATIVE__",
+        "full_answer": "교수님은 캐시를 자주 쓰는 책을 책상 위에 올려두는 것에 비유하셨습니다.",
+        "negative_full_answer": "",
+        "hit_phrases": ["자주 쓰는 책", "책상 위", "책상"],
+    },
+    {
+        "name": "service_backup_owner",
+        "question": "백업 담당자는 누구야?",
+        "main_passage": (
+            "오늘 회의에서 백업 담당자는 인프라 2팀으로 정했습니다. "
+            "장애가 나면 인프라 2팀이 먼저 백업 상태를 확인하는 걸로 할게요."
+        ),
+        "negative_passage": "",
+        "main_answer": "인프라 2팀",
+        "negative_answer": "__NO_NEGATIVE__",
+        "full_answer": "백업 담당자는 인프라 2팀입니다.",
+        "negative_full_answer": "",
+        "hit_phrases": ["인프라 2팀", "인프라"],
+    },
+    {
+        "name": "service_student_school",
+        "question": "민수는 어느 학교 학생이야?",
+        "main_passage": (
+            "민수는 선문대학교 컴퓨터공학과 3학년 학생입니다. "
+            "그러니까 민수의 소속 학교는 선문대학교라고 기억하면 됩니다."
+        ),
+        "negative_passage": "",
+        "main_answer": "선문대학교",
+        "negative_answer": "__NO_NEGATIVE__",
+        "full_answer": "민수는 선문대학교 학생입니다.",
+        "negative_full_answer": "",
+        "hit_phrases": ["선문대학교"],
+    },
+]
+
+
 def select_synthetic_cases(case_name: str) -> list[dict]:
     if case_name == "all":
         return list(SYNTHETIC_CASES.values())
@@ -886,12 +960,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--case-mode",
-        choices=("dataset", "synthetic", "both", "custom"),
+        choices=("dataset", "synthetic", "both", "custom", "service-set"),
         default=None,
         help=(
             "dataset: use an actual Korean multi-fact valid example to check learned-distribution injection; "
             "synthetic: use the fixed simple passage-injection sanity case; "
-            "custom: use --question/--passage/--answer; both: run both. "
+            "custom: use --question/--passage/--answer; "
+            "service-set: run fixed service-like Korean lecture/meeting cases; both: run both. "
             "Default is dataset for --korquad-service and synthetic otherwise."
         ),
     )
@@ -1012,6 +1087,8 @@ def main() -> None:
             "negative_full_answer": "",
             "hit_phrases": answer_phrase_candidates(args.answer),
         }]
+    elif args.case_mode == "service-set":
+        cases = SERVICE_SET_CASES[: max(args.max_cases, 1)]
     elif args.case_mode == "dataset":
         cases = load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases)
     elif args.case_mode == "synthetic":
