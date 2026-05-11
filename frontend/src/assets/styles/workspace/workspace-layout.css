@@ -109,7 +109,7 @@ aside:last-of-type {
   background: linear-gradient(160deg, rgba(55, 53, 73, 0.94), rgba(34, 42, 68, 0.9));
   color: white;
   border-bottom-right-radius: 4px;
-  box-shadow: 0 16px 26px rgba(55, 53, 73, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  box-shadow: none;
 }
 
 /* ── Chat Input ── */
