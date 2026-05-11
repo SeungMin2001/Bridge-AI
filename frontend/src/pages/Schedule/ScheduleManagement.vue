@@ -23,8 +23,7 @@ const {
   formatDateLabel,
   getTypeLabel,
   getTypeIcon,
-  getStatusLabel,
-  getConfidenceLabel
+  getStatusLabel
 } = useScheduleState()
 
 const {
@@ -34,7 +33,6 @@ const {
   hoveredSchedule,
   selectedDateKey,
   selectedSchedules,
-  upcomingSchedules,
   currentPeriodLabel,
   calendarDays,
   weekDays,
@@ -134,12 +132,10 @@ onMounted(async () => {
         :selectedDateKey="selectedDateKey"
         :selectedSchedules="selectedSchedules"
         :pendingSchedules="pendingSchedules"
-        :upcomingSchedules="upcomingSchedules"
         :formatDateLabel="formatDateLabel"
         :getTypeLabel="getTypeLabel"
         :getTypeIcon="getTypeIcon"
         :getStatusLabel="getStatusLabel"
-        :getConfidenceLabel="getConfidenceLabel"
         @confirm="handleConfirm"
         @ignore="handleIgnore"
         @open-workspace="openWorkspace"
