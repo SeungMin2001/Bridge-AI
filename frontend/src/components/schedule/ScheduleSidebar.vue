@@ -3,12 +3,10 @@ defineProps({
   selectedDateKey: { type: String, required: true },
   selectedSchedules: { type: Array, required: true },
   pendingSchedules: { type: Array, required: true },
-  upcomingSchedules: { type: Array, required: true },
   formatDateLabel: { type: Function, required: true },
   getTypeLabel: { type: Function, required: true },
   getTypeIcon: { type: Function, required: true },
-  getStatusLabel: { type: Function, required: true },
-  getConfidenceLabel: { type: Function, required: true }
+  getStatusLabel: { type: Function, required: true }
 })
 
 const emit = defineEmits([
@@ -89,38 +87,11 @@ const emit = defineEmits([
             <strong>{{ item.title }}</strong>
             <span>{{ formatDateLabel(item.dateKey) }} · {{ item.time }}</span>
           </div>
-          <em class="confidence-badge">{{ getConfidenceLabel(item.confidence) }}</em>
         </article>
       </div>
       <div v-else class="schedule-small-empty-minimal">
         <span class="material-symbols-outlined">done_all</span>
         <p>모든 일정을 확인했습니다.</p>
-      </div>
-    </section>
-
-    <div class="schedule-divider"></div>
-
-    <section class="schedule-side-section">
-      <div class="schedule-side-heading compact">
-        <div>
-          <span>전체 일정</span>
-          <h2>다가오는 일정</h2>
-        </div>
-      </div>
-
-      <div class="schedule-compact-list">
-        <article
-          v-for="item in upcomingSchedules"
-          :key="`upcoming-${item.id}`"
-          class="schedule-compact-card"
-          @click="emit('focus-schedule', item)"
-        >
-          <div class="compact-info">
-            <strong>{{ item.title }}</strong>
-            <span>{{ formatDateLabel(item.dateKey) }} · {{ getTypeLabel(item.type) }}</span>
-          </div>
-          <span class="material-symbols-outlined arrow-icon">chevron_right</span>
-        </article>
       </div>
     </section>
   </aside>
@@ -376,26 +347,6 @@ const emit = defineEmits([
   color: #a1a1aa;
   font-size: 11px;
   font-weight: 600;
-}
-
-.confidence-badge {
-  font-size: 10px;
-  font-weight: 800;
-  padding: 3px 6px;
-  border-radius: 6px;
-  background: #fef3c7;
-  color: #d97706;
-  font-style: normal;
-}
-
-.arrow-icon {
-  color: #d4d4d8;
-  font-size: 18px;
-  transition: color 0.2s ease;
-}
-
-.schedule-compact-card:hover .arrow-icon {
-  color: #a1a1aa;
 }
 
 .schedule-empty-minimal,
