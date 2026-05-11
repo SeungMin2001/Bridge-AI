@@ -9,7 +9,7 @@ const props = defineProps({
   favorites: { type: Set, default: () => new Set() }
 })
 
-const emit = defineEmits(['toggle', 'navigate', 'openScheduleSource'])
+const emit = defineEmits(['toggle', 'navigate', 'openScheduleSource', 'openFileCreate'])
 
 const expandedSidebarWidth = 370
 const collapsedSidebarWidth = 56
@@ -350,9 +350,12 @@ onUnmounted(() => {
           </button>
           <button
             class="sidebar-icon-btn home-sidebar-icon-btn"
-            @click="emit('navigate', 'workspace')"
+            type="button"
+            aria-label="새 파일 생성"
+            title="새 파일 생성"
+            @click="emit('openFileCreate')"
           >
-            <span class="material-symbols-outlined">edit_note</span>
+            <span class="material-symbols-outlined">note_add</span>
           </button>
         </div>
       </div>
@@ -371,8 +374,14 @@ onUnmounted(() => {
                 <span class="material-symbols-outlined text-[15px]">add</span>
                 <span>일정 추가</span>
               </button>
-              <button class="home-calendar-icon-btn" @click="emit('navigate', 'schedule')">
-                <span class="material-symbols-outlined text-[18px]">menu</span>
+              <button
+                class="home-calendar-icon-btn"
+                type="button"
+                aria-label="일정관리로 이동"
+                title="일정관리"
+                @click="emit('navigate', 'schedule')"
+              >
+                <span class="material-symbols-outlined text-[18px]">calendar_month</span>
               </button>
             </div>
           </div>
