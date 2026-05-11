@@ -19,6 +19,12 @@ async def get_pool():
     return _pool
 
 
+async def ensure_transcripts_schema(conn) -> None:
+    await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
+    await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS speaker_id TEXT NULL")
+    await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS speaker_name TEXT NULL")
+
+
 async def create_session(session_id: str, title: str = "강의 녹음"):
     pool = await get_pool()
     import uuid
@@ -52,20 +58,22 @@ async def save_transcript_to_db(transcript_data: dict, segment_index: int):
     if getattr(created_at, "tzinfo", None) is not None:
         created_at = created_at.astimezone().replace(tzinfo=None)
     async with pool.acquire() as conn:
-        # 신창영 : 녹음본 JSON의 id와 DB 전사 청크를 직접 연결하기 위한 recording_id 컬럼 보장
-        await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
+        await ensure_transcripts_schema(conn)
         # transcripts 저장
         await conn.execute("""
             INSERT INTO transcripts
-                (transcript_id, session_id, recording_id, chunk_index, start_time, end_time, chunk_text, corrected_text, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                (transcript_id, session_id, recording_id, chunk_index, start_time, end_time,
+                 speaker_id, speaker_name, chunk_text, corrected_text, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         """,
             transcript_id,
             uuid.UUID(transcript_data["session_id"]),
-            transcript_data.get("recording_id") or None,
+            transcript_data.get("recording_id"),
             segment_index,
             float(transcript_data["start_time"]),
             float(transcript_data["end_time"]),
+            transcript_data.get("speaker_id"),
+            transcript_data.get("speaker_name"),
             transcript_data.get("raw_text") or transcript_data.get("text"),
             transcript_data.get("text"),
             created_at,
@@ -76,13 +84,64 @@ async def save_transcript_to_db(transcript_data: dict, segment_index: int):
     }
 
 
+async def update_transcript_speakers(session_id: str, recording_id: str, speaker_updates: list[dict]) -> int:
+    """전체 화자분리 결과로 기존 전사 청크의 speaker_id만 갱신합니다."""
+    import uuid as _uuid
+    if not speaker_updates:
+        return 0
+
+    pool = await get_pool()
+    updated_count = 0
+    async with pool.acquire() as conn:
+        await ensure_transcripts_schema(conn)
+        async with conn.transaction():
+            for item in speaker_updates:
+                speaker_id = item.get("speaker_id")
+                if not speaker_id:
+                    continue
+
+                transcript_id = item.get("transcript_id") or item.get("transcriptId")
+                if transcript_id:
+                    result = await conn.execute("""
+                        UPDATE transcripts
+                        SET speaker_id = $1
+                        WHERE session_id = $2
+                          AND recording_id = $3
+                          AND transcript_id = $4
+                    """,
+                        speaker_id,
+                        _uuid.UUID(session_id),
+                        recording_id,
+                        _uuid.UUID(str(transcript_id)),
+                    )
+                else:
+                    result = await conn.execute("""
+                        UPDATE transcripts
+                        SET speaker_id = $1
+                        WHERE session_id = $2
+                          AND recording_id = $3
+                          AND start_time = $4
+                          AND end_time = $5
+                    """,
+                        speaker_id,
+                        _uuid.UUID(session_id),
+                        recording_id,
+                        float(item["start_time"]),
+                        float(item["end_time"]),
+                    )
+
+                updated_count += int(result.rsplit(" ", 1)[-1])
+
+    return updated_count
+
+
 #  세션별 전사문 조회
 async def get_transcripts_by_session(session_id: str, recording_id: str | None = None) -> list[dict]:
     """session_id에 해당하는 전사문을 시간순으로 조회"""
     import uuid as _uuid
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
+        await ensure_transcripts_schema(conn)
         if recording_id:
             rows = await conn.fetch("""
                 SELECT transcript_id, recording_id, chunk_index, start_time, end_time,
@@ -123,6 +182,7 @@ async def get_transcripts_by_ids(session_id: str, transcript_ids: list[str]) -> 
     parsed_ids = [_uuid.UUID(item) for item in transcript_ids]
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_transcripts_schema(conn)
         rows = await conn.fetch("""
             SELECT transcript_id, recording_id, chunk_index, start_time, end_time,
                    chunk_text, corrected_text
