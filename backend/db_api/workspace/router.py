@@ -1,5 +1,6 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
+import logging
 
 from db_api.workspace.common import WorkspaceApiError
 from db_api.workspace.courses_api import create_course, delete_course, update_course
@@ -9,6 +10,7 @@ from db_api.workspace.tree_api import get_workspace_tree
 
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
+logger = logging.getLogger(__name__)
 
 
 class CreateCourseRequest(BaseModel):
@@ -49,6 +51,8 @@ def _raise_http_error(error: Exception) -> None:
     if isinstance(error, WorkspaceApiError):
         raise HTTPException(status_code=error.status_code, detail=str(error))
 
+    # 신창영: 수정 이유 - 프론트에는 500만 보이므로 백엔드 콘솔에 실제 DB/SQL 에러를 남겨 원인을 확인합니다.
+    logger.exception("[WORKSPACE] API 처리 실패")
     raise HTTPException(status_code=500, detail=str(error))
 
 
