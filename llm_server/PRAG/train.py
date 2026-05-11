@@ -1413,11 +1413,18 @@ def main() -> None:
             resume_checkpoint_config = torch.load(checkpoint_path, map_location="cpu").get("config", {}) or {}
         except Exception as exc:  # pragma: no cover - defensive logging for corrupted checkpoints.
             print(f"[PRAG:train] could not inspect checkpoint config before model load: {exc}")
-    effective_model_name = str(resume_checkpoint_config.get("model") or MODEL_NAME)
+    init_weights_config = {}
+    if not resume_checkpoint_config and args.init_weights:
+        try:
+            init_weights_config = torch.load(args.init_weights, map_location="cpu").get("config", {}) or {}
+        except Exception as exc:  # pragma: no cover - defensive logging for corrupted weights.
+            print(f"[PRAG:train] could not inspect init-weights config before model load: {exc}")
+    effective_source_config = resume_checkpoint_config or init_weights_config
+    effective_model_name = str(effective_source_config.get("model") or MODEL_NAME)
     model, tokenizer = load_model(effective_model_name)
     device = next(model.parameters()).device
     critical_layer_path = KORQUAD_SERVICE_CRITICAL_LAYERS_PATH if (args.korquad_service or args.mixed_kor_service) else None
-    layer_idx = int(resume_checkpoint_config.get("critical_layer", load_critical_layer(critical_layer_path)))
+    layer_idx = int(effective_source_config.get("critical_layer", load_critical_layer(critical_layer_path)))
     target_layer = model.model.layers[layer_idx]
     if args.mixed_kor_service:
         mixed_train_paths = [MULTIFACT_AUGMENTED_TRAIN_PATH, KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH]
