@@ -9,6 +9,8 @@ const props = defineProps({
   favorites: { type: Set, default: () => new Set() },
   transcriptions: { type: Array, default: () => [] },
   recordingMode: { type: String, default: 'lecture' },
+  diarizationEnabled: { type: Boolean, default: false },
+  diarizationStatus: { type: String, default: 'idle' },
   activeFileId: { type: String, default: '' },
   citationSourceRequest: { type: Object, default: null },
   isCollapsed: { type: Boolean, default: false }
@@ -320,6 +322,8 @@ watch(() => props.citationSourceRequest, (request) => {
           <VoiceTransferSideTab
             :transcriptions="visibleTranscriptions"
             :recording-mode="recordingMode"
+            :diarization-enabled="diarizationEnabled"
+            :diarization-status="diarizationStatus"
             @addToNote="(text, source) => emit('addToNote', text, source)"
             @askAi="emit('askAi', $event)"
           />
