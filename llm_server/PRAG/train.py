@@ -94,12 +94,12 @@ from .memory import (
 )
 
 
-def load_model():
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+def load_model(model_name: str = MODEL_NAME):
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
+        model_name,
         device_map="auto",
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
@@ -1105,6 +1105,15 @@ def normalize_resume_config(config: dict) -> dict:
         if key in normalized:
             normalized[key] = str(normalized[key]).replace("\\", "/")
     normalized["injection_mode"] = normalized.get("injection_mode", "attention")
+    # Auxiliary loss weights do not change the hypernetwork architecture or data
+    # identity, so allow them to be adjusted during a resumed curriculum run.
+    for key in (
+        "answer_phrase_weight",
+        "answer_prefix_weight",
+        "answer_prefix_tokens",
+        "short_answer_weight",
+    ):
+        normalized.pop(key, None)
     return normalized
 
 
@@ -1398,10 +1407,17 @@ def main() -> None:
         weights_path = AIHUB_LECTURE_WEIGHTS_PATH
         log_path = AIHUB_LECTURE_LOG_PATH
 
-    model, tokenizer = load_model()
+    resume_checkpoint_config = {}
+    if args.resume and checkpoint_path.exists():
+        try:
+            resume_checkpoint_config = torch.load(checkpoint_path, map_location="cpu").get("config", {}) or {}
+        except Exception as exc:  # pragma: no cover - defensive logging for corrupted checkpoints.
+            print(f"[PRAG:train] could not inspect checkpoint config before model load: {exc}")
+    effective_model_name = str(resume_checkpoint_config.get("model") or MODEL_NAME)
+    model, tokenizer = load_model(effective_model_name)
     device = next(model.parameters()).device
     critical_layer_path = KORQUAD_SERVICE_CRITICAL_LAYERS_PATH if (args.korquad_service or args.mixed_kor_service) else None
-    layer_idx = load_critical_layer(critical_layer_path)
+    layer_idx = int(resume_checkpoint_config.get("critical_layer", load_critical_layer(critical_layer_path)))
     target_layer = model.model.layers[layer_idx]
     if args.mixed_kor_service:
         mixed_train_paths = [MULTIFACT_AUGMENTED_TRAIN_PATH, KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH]
@@ -1518,7 +1534,7 @@ def main() -> None:
     total_steps = max(1, len(train_units) * args.epochs)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=LR_MIN)
     run_config = {
-        "model": MODEL_NAME,
+        "model": effective_model_name,
         "critical_layer": layer_idx,
         "num_kv": NUM_KV,
         "hidden_dim": HIDDEN_DIM,
