@@ -38,11 +38,45 @@ const getFileIcon = (type) => {
   }
 }
 
+const colorWithAlpha = (color = '#6366f1', alpha = 0.12) => {
+  const hex = String(color || '').trim()
+  const fullHex = /^#[0-9a-fA-F]{6}$/.test(hex)
+    ? hex
+    : (/^#[0-9a-fA-F]{3}$/.test(hex)
+        ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+        : '#6366f1')
+  const value = fullHex.slice(1)
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+const getRecentFileNode = (file = {}) => file.node || file
+const getRecentFileColor = (file = {}) => getRecentFileNode(file)?.color || '#6366f1'
+const isRecentMeetingFile = (file = {}) => {
+  const node = getRecentFileNode(file)
+  return node?.fileKind === 'meeting' || node?.tag === '회의' || file?.type === 'meeting'
+}
+const getRecentFileIcon = (file = {}) => {
+  const node = getRecentFileNode(file)
+  if (node?.fileIcon) return node.fileIcon
+  if (node?.tag === '프로젝트') return 'workspaces'
+  if (node?.tag === '개인') return 'person'
+  if (node?.tag === '중요') return 'priority_high'
+  return isRecentMeetingFile(file) ? 'groups_2' : getFileIcon(file?.type || node?.type)
+}
+const getRecentFileTag = (file = {}) => {
+  const node = getRecentFileNode(file)
+  return node?.tag || (isRecentMeetingFile(file) ? '회의' : '강의')
+}
+
 const cleanAssistantContent = (content = '') => {
   return String(content)
     .split('\n')
-    .filter((line) => !/^\s*(출처|참고\s*출처)\s*[:：]/i.test(line.trim()))
+    .filter((line) => !/^\s*(\[?\s*(출처|참고\s*출처)\s*\]?|출처\s*\d+)\s*[:：]/i.test(line.trim()))
     .join('\n')
+    .replace(/\s*\[출처\s*\d+\]/g, '')
     .replace(/\s*\[출처[:：]?[^\]]*\]\s*$/i, '')
     .trim()
 }
@@ -271,7 +305,7 @@ const onStopGenerating = () => {
                     v-for="ref in msg.references" 
                     :key="ref.id" 
                     @click="emit('openReference', ref)"
-                    class="flex items-center gap-1 text-[13px] bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full border border-indigo-200/50 transition-colors shadow-sm font-medium"
+                    class="home-reference-chip"
                   >
                     <span class="material-symbols-outlined text-[14px]">link</span>
                     {{ ref.title }}
@@ -331,22 +365,50 @@ const onStopGenerating = () => {
       </div>
 
       <!-- Recent Files Section -->
-      <div v-if="messages.length === 0 && props.recentFiles.length" class="w-full max-w-[600px] pointer-events-auto flex flex-col gap-4 mt-12 opacity-80 animate-fade-in-up shrink-0" style="animation-duration: 0.6s; animation-delay: 0.2s; animation-fill-mode: both;">
-        <h3 class="text-sm font-semibold text-[#64748b] px-2 uppercase tracking-wider font-sans">최근 연 파일</h3>
-        <div class="flex gap-4">
+      <div v-if="messages.length === 0 && props.recentFiles.length" class="home-recent-files animate-fade-in-up" style="animation-duration: 0.6s; animation-delay: 0.2s; animation-fill-mode: both;">
+        <h3>최근 연 파일</h3>
+        <div class="home-recent-file-grid">
           <button
             v-for="file in props.recentFiles"
             :key="file.id"
             type="button"
-            class="flex-1 neo-card p-5 flex flex-col gap-3 cursor-pointer hover:-translate-y-1 hover:brightness-105 transition-all duration-300 text-left"
+            class="home-recent-file-card"
             @click="emit('openRecentFile', file)"
           >
-            <div class="w-10 h-10 rounded-xl neo-inner flex items-center justify-center text-gray-500">
-              <span class="material-symbols-outlined text-[20px]">{{ getFileIcon(file.type) }}</span>
-            </div>
-            <div class="flex flex-col">
-              <span class="text-[14px] font-bold text-[#1e293b] truncate leading-tight">{{ file.name }}</span>
-              <span class="text-[12px] text-[#64748b] mt-0.5">{{ file.date }}</span>
+            <div class="home-recent-file-paper">
+              <div
+                class="home-recent-file-strip"
+                :style="{ background: getRecentFileColor(file) }"
+              ></div>
+              <div class="home-recent-file-lines"></div>
+              <div class="home-recent-file-content">
+                <div class="home-recent-file-meta">
+                  <div
+                    class="home-recent-file-icon"
+                    :style="{ background: colorWithAlpha(getRecentFileColor(file), 0.14) }"
+                  >
+                    <span
+                      class="material-symbols-outlined"
+                      :style="{ color: getRecentFileColor(file) }"
+                    >
+                      {{ getRecentFileIcon(file) }}
+                    </span>
+                  </div>
+                  <span
+                    class="home-recent-file-tag"
+                    :style="{
+                      color: getRecentFileColor(file),
+                      background: colorWithAlpha(getRecentFileColor(file), 0.12)
+                    }"
+                  >
+                    {{ getRecentFileTag(file) }}
+                  </span>
+                </div>
+                <div class="home-recent-file-bottom">
+                  <strong>{{ file.name }}</strong>
+                  <span>{{ file.date }}</span>
+                </div>
+              </div>
             </div>
           </button>
         </div>
@@ -493,23 +555,170 @@ const onStopGenerating = () => {
   border-color: #1f2937;
 }
 
+.home-recent-files {
+  width: 100%;
+  max-width: 700px;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 48px;
+  flex-shrink: 0;
+}
+
+.home-recent-files h3 {
+  padding: 0 2px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.home-recent-file-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.home-recent-file-card {
+  min-width: 0;
+  height: 160px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.home-recent-file-card:hover {
+  transform: translateY(-3px);
+  filter: brightness(1.02);
+}
+
+.home-recent-file-paper {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1.5px solid #e5e5ea;
+  border-radius: 16px;
+  box-shadow: 2px 3px 0 #e0e0e8;
+}
+
+.home-recent-file-strip {
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 16px 16px 0 0;
+}
+
+.home-recent-file-lines {
+  position: absolute;
+  top: 58px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 22px,
+    #f0f0f5 22px,
+    #f0f0f5 23px
+  );
+  opacity: 0.58;
+}
+
+.home-recent-file-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+}
+
+.home-recent-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.home-recent-file-icon {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.home-recent-file-icon .material-symbols-outlined {
+  font-size: 20px;
+  font-variation-settings: 'FILL' 1;
+}
+
+.home-recent-file-tag {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.home-recent-file-bottom {
+  margin-top: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-recent-file-bottom strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.home-recent-file-bottom span {
+  margin-top: 4px;
+  color: #8e8e93;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
 .home-reference-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 800;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  background: rgba(255, 255, 255, 0.62);
+  max-width: 100%;
+  color: #4b6a4e;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #dce8d3;
+  background: #eef4e8;
   border-radius: 999px;
-  padding: 7px 11px;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  padding: 5px 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .home-reference-toggle:hover {
-  background: rgba(248, 250, 252, 0.95);
-  border-color: rgba(199, 210, 254, 0.9);
+  background: #dce8d3;
+  border-color: #b8cfae;
+  box-shadow: 0 1px 4px rgba(72, 101, 74, 0.15);
 }
 
 .home-reference-chevron {
@@ -523,6 +732,37 @@ const onStopGenerating = () => {
 
 .home-reference-dropdown {
   animation: revealContent 0.22s ease forwards;
+}
+
+.home-reference-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 12px;
+  color: #4b6a4e;
+  background: #eef4e8;
+  border: 1px solid #dce8d3;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.home-reference-chip:hover {
+  background: #dce8d3;
+  border-color: #b8cfae;
+  box-shadow: 0 1px 4px rgba(72, 101, 74, 0.15);
+}
+
+.home-reference-chip .material-symbols-outlined {
+  color: #4b6a4e;
+  flex: 0 0 auto;
 }
 
 </style>
