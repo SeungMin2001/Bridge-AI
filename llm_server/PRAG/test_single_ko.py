@@ -30,6 +30,7 @@ from .memory import (
     build_chat_prompt,
     compute_answer_loss,
     deterministic_generation_config,
+    encode_merged_memory,
     encode_memory,
     forward_with_memory,
     make_memory_hook,
@@ -590,15 +591,17 @@ def run_case(
     question = case["question"]
     main_passage = case["main_passage"]
     negative_passage = case["negative_passage"]
+    main_passages = [main_passage] + list(case.get("merge_passages") or [])
+    direct_main_passage = "\n\n".join(main_passages)
     main_answer = case["main_answer"]
     negative_answer = case["negative_answer"]
 
     with torch.no_grad():
-        main_mem = encode_memory(
+        main_mem = encode_merged_memory(
             model,
             tokenizer,
             hypernet,
-            main_passage,
+            main_passages,
             device,
             question=question,
             question_conditioned=question_conditioned,
@@ -635,7 +638,7 @@ def run_case(
                 full_answer,
                 main_answer,
             )
-            direct_prompt = build_direct_passage_prompt(tokenizer, question, main_passage)
+            direct_prompt = build_direct_passage_prompt(tokenizer, question, direct_main_passage)
             direct_tok = tokenize_prompt_answer(tokenizer, direct_prompt, full_answer, device)
             direct_logits = model(**direct_tok)["logits"]
             direct_loss = compute_answer_loss(direct_logits, direct_tok["labels"])
@@ -656,7 +659,7 @@ def run_case(
             direct_recovery = None
             if memory_gain is not None and direct_gain is not None and abs(float(direct_gain.item())) > 1e-6:
                 direct_recovery = memory_gain / direct_gain
-            direct_main = generate_direct_passage(model, tokenizer, question, main_passage, device, max_new_tokens)
+            direct_main = generate_direct_passage(model, tokenizer, question, direct_main_passage, device, max_new_tokens)
             main_gen = generate_with_kv(
                 model,
                 tokenizer,
@@ -674,6 +677,10 @@ def run_case(
             print(f"injection_mode: {injection_mode}")
             print(f"question: {question}")
             print(f"passage: {main_passage}")
+            if case.get("merge_passages"):
+                print(f"merged_passages: {len(main_passages)}")
+                for idx, passage in enumerate(main_passages, start=1):
+                    print(f"  passage[{idx}]: {passage}")
             print(f"expected: {full_answer}")
             if phrase_targets:
                 print(f"phrase_targets: {' | '.join(phrase_targets)}")
@@ -769,7 +776,7 @@ def run_case(
             neg_tok["labels"],
         ).item()
         no_passage = generate_plain(model, tokenizer, question, device, max_new_tokens)
-        direct_main = generate_direct_passage(model, tokenizer, question, main_passage, device, max_new_tokens)
+        direct_main = generate_direct_passage(model, tokenizer, question, direct_main_passage, device, max_new_tokens)
         direct_neg = generate_direct_passage(model, tokenizer, question, negative_passage, device, max_new_tokens)
         generations = {}
         prompt_losses = {}
@@ -863,6 +870,10 @@ def run_case(
     print(f"alpha: {alpha}")
     print(f"question: {question}")
     print(f"passage: {main_passage}")
+    if case.get("merge_passages"):
+        print(f"merged_passages: {len(main_passages)}")
+        for idx, passage in enumerate(main_passages, start=1):
+            print(f"  passage[{idx}]: {passage}")
     print(f"negative passage: {negative_passage}")
     print(f"expected: {main_answer}")
     print(f"negative expected: {negative_answer}")
@@ -972,6 +983,15 @@ def main() -> None:
     )
     parser.add_argument("--question", default="", help="Custom question used with --case-mode custom.")
     parser.add_argument("--passage", default="", help="Custom passage used with --case-mode custom.")
+    parser.add_argument(
+        "--merge-passage",
+        action="append",
+        default=[],
+        help=(
+            "Additional custom passage to orthogonally merge with --passage before K/V injection. "
+            "Repeat this option to simulate retrieved multi-passage MergePRAG memory."
+        ),
+    )
     parser.add_argument("--answer", default="", help="Compact expected answer phrase used with --case-mode custom.")
     parser.add_argument(
         "--expected",
@@ -1087,6 +1107,7 @@ def main() -> None:
             "full_answer": args.expected or args.answer,
             "negative_full_answer": "",
             "hit_phrases": answer_phrase_candidates(args.answer),
+            "merge_passages": args.merge_passage,
         }]
     elif args.case_mode == "service-set":
         cases = SERVICE_SET_CASES[: max(args.max_cases, 1)]

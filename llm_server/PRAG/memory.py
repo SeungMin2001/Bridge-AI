@@ -199,6 +199,94 @@ def encode_memory(
     return memory
 
 
+def orthogonal_merge_slots(base: torch.Tensor | None, update: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """Merge two slot matrices by adding only the update's orthogonal component.
+
+    This mirrors the local MergePRAG author-code path:
+    `B_orth = B - Q_A(Q_A^T B)` where `Q_A` comes from QR over existing slots.
+    Inputs can be `[num_kv, d_model]` or `[batch, num_kv, d_model]`; the output
+    keeps the same shape as `update`/`base`, so the downstream hook does not
+    need to change when multiple passages are fused into one K/V memory.
+    """
+    if base is None:
+        return update
+    if base.shape != update.shape:
+        raise ValueError(f"Cannot orthogonally merge tensors with different shapes: {base.shape} vs {update.shape}")
+    squeezed = False
+    if base.dim() == 2:
+        base = base.unsqueeze(0)
+        update = update.unsqueeze(0)
+        squeezed = True
+    if base.dim() != 3:
+        raise ValueError(f"Expected [num_kv, d_model] or [batch, num_kv, d_model], got {base.shape}")
+
+    merged = []
+    for existing, incoming in zip(base, update):
+        existing_cols = existing.transpose(0, 1).to(dtype=torch.float32)
+        incoming_cols = incoming.transpose(0, 1).to(dtype=torch.float32)
+        q_existing, _ = torch.linalg.qr(existing_cols, mode="reduced")
+        projection = q_existing @ (q_existing.transpose(0, 1) @ incoming_cols)
+        orthogonal_component = incoming_cols - projection
+        fused = existing_cols + orthogonal_component
+        merged.append(fused.transpose(0, 1).to(dtype=update.dtype))
+    out = torch.stack(merged, dim=0)
+    return out.squeeze(0) if squeezed else out
+
+
+def merge_memory_dicts(memories: list[dict], mode: str = "orthogonal") -> dict:
+    if not memories:
+        raise ValueError("Need at least one memory to merge.")
+    if len(memories) == 1:
+        return dict(memories[0])
+
+    if mode != "orthogonal":
+        raise ValueError(f"Unsupported memory merge mode: {mode}")
+    merged_k = None
+    merged_v = None
+    for memory in memories:
+        merged_k = orthogonal_merge_slots(merged_k, memory["K"])
+        merged_v = orthogonal_merge_slots(merged_v, memory["V"])
+    merged = dict(memories[0])
+    merged["K"] = merged_k
+    merged["V"] = merged_v
+    merged["merged_count"] = len(memories)
+    merged["merge_mode"] = mode
+    return merged
+
+
+def encode_merged_memory(
+    model,
+    tokenizer,
+    hypernet: HyperKVGenerator,
+    passages: list[str],
+    device,
+    *,
+    question: str | None = None,
+    use_contextual: bool | None = None,
+    question_conditioned: bool = QUESTION_CONDITIONED_MEMORY,
+    merge_mode: str = "orthogonal",
+):
+    clean_passages = [p for p in passages if str(p or "").strip()]
+    if not clean_passages:
+        raise ValueError("Need at least one non-empty passage for memory encoding.")
+    memories = [
+        encode_memory(
+            model,
+            tokenizer,
+            hypernet,
+            passage,
+            device,
+            question=question,
+            use_contextual=use_contextual,
+            question_conditioned=question_conditioned,
+        )
+        for passage in clean_passages
+    ]
+    merged = merge_memory_dicts(memories, mode=merge_mode)
+    merged["passages"] = clean_passages
+    return merged
+
+
 def cross_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, num_heads: int) -> torch.Tensor:
     if Q.dim() == 2:
         Q = Q.unsqueeze(0)

@@ -1,27 +1,21 @@
 import torch
 
-def orthogonal_merging(WF:torch.Tensor|None,Wt:torch.tensor,eps=1e-6)->torch.Tensor:
-  if WF==None: # 만약 merge된 벡터 없다면 wt바로 반환
-    return Wt
+def orthogonal_merging(WF: torch.Tensor | None, Wt: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """Fuse slot matrices with the QR/Gram-Schmidt path used by the paper code.
 
-  # Wf:[d,k]
-  # Wt:[d,k]
+    WF, Wt are shaped [num_kv, d_model]. The new memory is projected onto the
+    orthogonal complement of the existing memory before being added, preserving
+    the original slot count while reducing overwrite between passages.
+    """
+    if WF is None:
+        return Wt
+    if WF.shape != Wt.shape:
+        raise ValueError(f"Cannot orthogonally merge tensors with different shapes: {WF.shape} vs {Wt.shape}")
 
-  # d차원에서 정사영 해줘야하므로 행이 d가 되야함. 즉 전치
-  A=WF.T # 기존 memory
-  B=Wt.T # 추가할 memory
-
-  k=A.size(1)
-  d=A.size(0)
-
-  gram=A.T@A #[k*k]
-  gram+=eps*torch.eye(k,device=gram.device)
-  gram=torch.linalg.inv(gram)
-
-  P=A@gram@A.T #10번수식 적용 [d,d]
-
-  res=(torch.eye(d,device=P.device)-P)@B #직교 성분 가져오기.
-
-  A=A+res
-
-  return A.T # 입력값 차원 그대로 다시 [k,d] 로 반환하기
+    existing_cols = WF.transpose(0, 1).to(dtype=torch.float32)
+    incoming_cols = Wt.transpose(0, 1).to(dtype=torch.float32)
+    q_existing, _ = torch.linalg.qr(existing_cols, mode="reduced")
+    projection = q_existing @ (q_existing.transpose(0, 1) @ incoming_cols)
+    orthogonal_component = incoming_cols - projection
+    fused = existing_cols + orthogonal_component
+    return fused.transpose(0, 1).to(dtype=Wt.dtype)
