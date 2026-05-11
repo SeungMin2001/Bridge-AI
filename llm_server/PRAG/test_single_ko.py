@@ -351,12 +351,12 @@ def load_dataset_cases(path: str, *, case_index: int, max_cases: int) -> list[di
     return [example_to_case(ex, idx) for idx, ex in enumerate(selected[start:end], start=start)]
 
 
-def load_model():
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+def load_model(model_name: str = MODEL_NAME):
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
+        model_name,
         device_map="auto",
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
@@ -1047,10 +1047,11 @@ def main() -> None:
     if args.case_mode is None:
         args.case_mode = "dataset" if args.korquad_service else "synthetic"
 
-    model, tokenizer = load_model()
-    device = next(model.parameters()).device
-    state = torch.load(Path(args.weights), map_location=device)
+    state = torch.load(Path(args.weights), map_location="cpu")
     config = state.get("config", {})
+    effective_model_name = str(config.get("model") or MODEL_NAME)
+    model, tokenizer = load_model(effective_model_name)
+    device = next(model.parameters()).device
     layer_idx = int(config.get("critical_layer", load_critical_layer()))
     target_layer = model.model.layers[layer_idx]
     state_step = state.get("step", "unknown")
@@ -1107,7 +1108,8 @@ def main() -> None:
     )
     print(
         f"state_step={state_step} | critical_layer={layer_idx} | "
-        f"answer_target={answer_target} | prompt_style={args.prompt_style}"
+        f"answer_target={answer_target} | prompt_style={args.prompt_style} | "
+        f"model={effective_model_name}"
     )
     for injection_mode in injection_modes:
         for case in cases:
