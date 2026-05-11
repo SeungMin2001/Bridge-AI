@@ -18,6 +18,9 @@ const {
   isRecordingPaused,
   recordingMode,
   recordingTimeText,
+  recordingAudioLevel,
+  diarizationEnabled,
+  diarizationStatus,
   activeFileName,
   activeFileId,
   activeFileType,
@@ -90,6 +93,9 @@ const {
     :isRecordingPaused="isRecordingPaused"
     :recordingMode="recordingMode"
     :recordingTimeText="recordingTimeText"
+    :recordingAudioLevel="recordingAudioLevel"
+    :diarizationEnabled="diarizationEnabled"
+    :diarizationStatus="diarizationStatus"
     :activeFileName="activeFileName"
     :activeFileId="activeFileId"
     :activeFileType="activeFileType"
