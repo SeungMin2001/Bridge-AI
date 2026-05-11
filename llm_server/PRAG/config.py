@@ -11,7 +11,9 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parents[2]
 DATA_DIR = Path(os.getenv("PRAG_DATA_DIR", str(PROJECT_ROOT / "data")))
 
-MODEL_NAME = os.getenv("PRAG_MODEL_NAME", os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-3B-Instruct"))
+# Fix the PRAG training target to Qwen2.5-7B. Windows user-level env vars from
+# older 3B runs can otherwise silently override the intended model in new shells.
+MODEL_NAME = "Qwen/Qwen2.5-7B"
 AUGMENT_MODEL_NAME = os.getenv("PRAG_AUGMENT_MODEL_NAME", MODEL_NAME)
 
 DIVERSE_SOURCE_PATH = Path(os.getenv("PRAG_DIVERSE_SOURCE_PATH", str(DATA_DIR / "PRAG_diverse_sources.jsonl")))
@@ -33,15 +35,35 @@ AIHUB_LECTURE_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_AIHUB_LECTURE_AUGMENTE
 AIHUB_LECTURE_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_AIHUB_LECTURE_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_aihub_lecture_augmented_valid.jsonl")))
 KORQUAD_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_KORQUAD_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_korquad_augmented_train.jsonl")))
 KORQUAD_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_KORQUAD_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_korquad_augmented_valid.jsonl")))
+KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH = Path(os.getenv(
+    "PRAG_KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH",
+    str(DATA_DIR / "PRAG_korquad_service_augmented_train.jsonl"),
+))
+KORQUAD_SERVICE_AUGMENTED_VALID_PATH = Path(os.getenv(
+    "PRAG_KORQUAD_SERVICE_AUGMENTED_VALID_PATH",
+    str(DATA_DIR / "PRAG_korquad_service_augmented_valid.jsonl"),
+))
 EXTERNAL_QA_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_external_qa_augmented_train.jsonl")))
 EXTERNAL_QA_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_external_qa_augmented_valid.jsonl")))
+TRANSCRIPT_SOURCE_PATH = Path(os.getenv("PRAG_TRANSCRIPT_SOURCE_PATH", str(DATA_DIR / "PRAG_transcript_sources.jsonl")))
+TRANSCRIPT_AUGMENTED_TRAIN_PATH = Path(os.getenv("PRAG_TRANSCRIPT_AUGMENTED_TRAIN_PATH", str(DATA_DIR / "PRAG_transcript_augmented_train.jsonl")))
+TRANSCRIPT_AUGMENTED_VALID_PATH = Path(os.getenv("PRAG_TRANSCRIPT_AUGMENTED_VALID_PATH", str(DATA_DIR / "PRAG_transcript_augmented_valid.jsonl")))
 
 CHECKPOINT_PATH = Path(os.getenv("PRAG_CHECKPOINT_PATH", str(BASE_DIR / "prag_memory_checkpoint.pt")))
 WEIGHTS_PATH = Path(os.getenv("PRAG_WEIGHTS_PATH", str(BASE_DIR / "prag_memory_weights.pt")))
 LOG_PATH = Path(os.getenv("PRAG_LOG_PATH", str(BASE_DIR / "prag_train_log.json")))
-MULTIFACT_CHECKPOINT_PATH = Path(os.getenv("PRAG_MULTIFACT_CHECKPOINT_PATH", str(BASE_DIR / "prag_multifact_memory_checkpoint.pt")))
-MULTIFACT_WEIGHTS_PATH = Path(os.getenv("PRAG_MULTIFACT_WEIGHTS_PATH", str(BASE_DIR / "prag_multifact_memory_weights.pt")))
-MULTIFACT_LOG_PATH = Path(os.getenv("PRAG_MULTIFACT_LOG_PATH", str(BASE_DIR / "prag_multifact_train_log.json")))
+MULTIFACT_CHECKPOINT_PATH = Path(os.getenv(
+    "PRAG_MULTIFACT_CHECKPOINT_PATH",
+    str(BASE_DIR / "prag_multifact_qwen25_7b_qp_embed_phrase_clean_ko_checkpoint.pt"),
+))
+MULTIFACT_WEIGHTS_PATH = Path(os.getenv(
+    "PRAG_MULTIFACT_WEIGHTS_PATH",
+    str(BASE_DIR / "prag_multifact_qwen25_7b_qp_embed_phrase_clean_ko_weights.pt"),
+))
+MULTIFACT_LOG_PATH = Path(os.getenv(
+    "PRAG_MULTIFACT_LOG_PATH",
+    str(BASE_DIR / "prag_multifact_qwen25_7b_qp_embed_phrase_clean_ko_train_log.json"),
+))
 LECTURE_CHECKPOINT_PATH = Path(os.getenv("PRAG_LECTURE_CHECKPOINT_PATH", str(BASE_DIR / "prag_lecture_memory_checkpoint.pt")))
 LECTURE_WEIGHTS_PATH = Path(os.getenv("PRAG_LECTURE_WEIGHTS_PATH", str(BASE_DIR / "prag_lecture_memory_weights.pt")))
 LECTURE_LOG_PATH = Path(os.getenv("PRAG_LECTURE_LOG_PATH", str(BASE_DIR / "prag_lecture_train_log.json")))
@@ -51,18 +73,54 @@ AIHUB_LECTURE_LOG_PATH = Path(os.getenv("PRAG_AIHUB_LECTURE_LOG_PATH", str(BASE_
 KORQUAD_CHECKPOINT_PATH = Path(os.getenv("PRAG_KORQUAD_CHECKPOINT_PATH", str(BASE_DIR / "prag_korquad_memory_checkpoint.pt")))
 KORQUAD_WEIGHTS_PATH = Path(os.getenv("PRAG_KORQUAD_WEIGHTS_PATH", str(BASE_DIR / "prag_korquad_memory_weights.pt")))
 KORQUAD_LOG_PATH = Path(os.getenv("PRAG_KORQUAD_LOG_PATH", str(BASE_DIR / "prag_korquad_train_log.json")))
+KORQUAD_SERVICE_CHECKPOINT_PATH = Path(os.getenv(
+    "PRAG_KORQUAD_SERVICE_CHECKPOINT_PATH",
+    str(BASE_DIR / "prag_korquad_service_memory_checkpoint.pt"),
+))
+KORQUAD_SERVICE_WEIGHTS_PATH = Path(os.getenv(
+    "PRAG_KORQUAD_SERVICE_WEIGHTS_PATH",
+    str(BASE_DIR / "prag_korquad_service_memory_weights.pt"),
+))
+KORQUAD_SERVICE_LOG_PATH = Path(os.getenv(
+    "PRAG_KORQUAD_SERVICE_LOG_PATH",
+    str(BASE_DIR / "prag_korquad_service_train_log.json"),
+))
+MIXED_KOR_SERVICE_CHECKPOINT_PATH = Path(os.getenv(
+    "PRAG_MIXED_KOR_SERVICE_CHECKPOINT_PATH",
+    str(BASE_DIR / "prag_mixed_kor_service_memory_checkpoint.pt"),
+))
+MIXED_KOR_SERVICE_WEIGHTS_PATH = Path(os.getenv(
+    "PRAG_MIXED_KOR_SERVICE_WEIGHTS_PATH",
+    str(BASE_DIR / "prag_mixed_kor_service_memory_weights.pt"),
+))
+MIXED_KOR_SERVICE_LOG_PATH = Path(os.getenv(
+    "PRAG_MIXED_KOR_SERVICE_LOG_PATH",
+    str(BASE_DIR / "prag_mixed_kor_service_train_log.json"),
+))
 EXTERNAL_QA_CHECKPOINT_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_CHECKPOINT_PATH", str(BASE_DIR / "prag_external_qa_memory_checkpoint.pt")))
 EXTERNAL_QA_WEIGHTS_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_WEIGHTS_PATH", str(BASE_DIR / "prag_external_qa_memory_weights.pt")))
 EXTERNAL_QA_LOG_PATH = Path(os.getenv("PRAG_EXTERNAL_QA_LOG_PATH", str(BASE_DIR / "prag_external_qa_train_log.json")))
+TRANSCRIPT_CHECKPOINT_PATH = Path(os.getenv("PRAG_TRANSCRIPT_CHECKPOINT_PATH", str(BASE_DIR / "prag_transcript_memory_checkpoint.pt")))
+TRANSCRIPT_WEIGHTS_PATH = Path(os.getenv("PRAG_TRANSCRIPT_WEIGHTS_PATH", str(BASE_DIR / "prag_transcript_memory_weights.pt")))
+TRANSCRIPT_LOG_PATH = Path(os.getenv("PRAG_TRANSCRIPT_LOG_PATH", str(BASE_DIR / "prag_transcript_train_log.json")))
 CRITICAL_LAYERS_PATH = Path(os.getenv("PRAG_CRITICAL_LAYERS_PATH", str(BASE_DIR / "critical_layers.json")))
+KORQUAD_SERVICE_CRITICAL_LAYERS_PATH = Path(os.getenv(
+    "PRAG_KORQUAD_SERVICE_CRITICAL_LAYERS_PATH",
+    str(BASE_DIR / "critical_layers_korquad_service.json"),
+))
 
-DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "19"))
+# The MergePRAG author config uses single_layer=9 for the public setup. Keep
+# PRAG_CRITICAL_LAYER/PRAG_DEFAULT_LAYER overrides available for layer sweeps.
+DEFAULT_CRITICAL_LAYER = int(os.getenv("PRAG_DEFAULT_LAYER", "9"))
 NUM_KV = int(os.getenv("PRAG_NUM_KV", "16"))
 HIDDEN_DIM = int(os.getenv("PRAG_HIDDEN_DIM", "1024"))
 ALPHA = float(os.getenv("PRAG_ALPHA", "1.0"))
 MAX_MEMORY_TOKENS = int(os.getenv("PRAG_MAX_MEMORY_TOKENS", "256"))
 MAX_SEQ_LEN = int(os.getenv("PRAG_MAX_SEQ_LEN", "512"))
-USE_CONTEXTUAL_MEMORY = os.getenv("PRAG_USE_CONTEXTUAL_MEMORY", "1").strip().lower() in {
+# Default to the paper-closer, embedding-only memory input. The question is still
+# included in the memory text by QUESTION_CONDITIONED_MEMORY below, but we avoid
+# concatenating full-model hidden states unless explicitly enabled.
+USE_CONTEXTUAL_MEMORY = os.getenv("PRAG_USE_CONTEXTUAL_MEMORY", "0").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -92,14 +150,15 @@ def contains_hangul(text: str) -> bool:
     return any("\uac00" <= ch <= "\ud7a3" for ch in str(text or ""))
 
 
-def load_critical_layer() -> int:
+def load_critical_layer(path: Path | None = None) -> int:
     env_layer = os.getenv("PRAG_CRITICAL_LAYER")
     if env_layer is not None:
         return int(env_layer)
-    if not CRITICAL_LAYERS_PATH.exists():
+    layers_path = path or CRITICAL_LAYERS_PATH
+    if not layers_path.exists():
         return DEFAULT_CRITICAL_LAYER
     try:
-        data = json.loads(CRITICAL_LAYERS_PATH.read_text(encoding="utf-8"))
+        data = json.loads(layers_path.read_text(encoding="utf-8"))
         if data.get("model") and data["model"] != MODEL_NAME:
             return DEFAULT_CRITICAL_LAYER
         layers = data.get("critical_layers") or []

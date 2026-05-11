@@ -355,6 +355,30 @@ DOMAIN_FACTS.extend([
         ("자동화 대상", "automation target", "반복 로그인", "repeated login", "로고 선택", "logo selection"),
         ("리포트 제출 시간", "report submission time", "금요일 오후", "Friday afternoon", "월요일 새벽", "Monday dawn"),
     ]),
+    ("lecture", "class_notice", "수업 공지", "class notice", [
+        ("과제 제출 기한", "assignment deadline", "다음 주 월요일", "next Monday", "다음 주 금요일", "next Friday"),
+        ("미르노트 제출 장소", "Mirnote submission location", "3층 파란함", "blue box on the third floor", "1층 초록함", "green box on the first floor"),
+        ("수업 녹화 위치", "class recording location", "이캠퍼스 자료실", "e-campus resources", "개인 메일함", "personal mailbox"),
+        ("퀴즈 응시 시간", "quiz time", "목요일 오후 6시", "Thursday 6 p.m.", "일요일 오전 9시", "Sunday 9 a.m."),
+        ("실습 파일 이름", "lab file name", "week3_practice.ipynb", "week3_practice.ipynb", "final_report.pdf", "final_report.pdf"),
+        ("보충 설명 위치", "extra explanation location", "강의자료 마지막 페이지", "last page of the lecture slide", "출석부 첫 줄", "first row of the attendance sheet"),
+    ]),
+    ("lecture", "lecture_analogy", "개념 비유", "concept analogy", [
+        ("캐시 비유", "cache analogy", "책상 위에 올려둔 자료", "materials placed on a desk", "창고에 잠가둔 상자", "a locked box in storage"),
+        ("컴퓨터 프로세스 비유", "computer process analogy", "식당", "a restaurant", "주차장", "a parking lot"),
+        ("스택 비유", "stack analogy", "접시를 위에 쌓는 구조", "stacking plates upward", "여러 문을 동시에 여는 구조", "opening many doors at once"),
+        ("큐 비유", "queue analogy", "줄 선 순서대로 들어가는 매표소", "a ticket booth serving people in line order", "가장 큰 물건부터 꺼내는 창고", "a warehouse that takes out the largest item first"),
+        ("인덱스 비유", "index analogy", "책 뒤쪽의 찾아보기", "the index at the back of a book", "책 표지의 색깔", "the color of a book cover"),
+        ("학습률 비유", "learning rate analogy", "걸음 크기", "step size", "문장 길이", "sentence length"),
+    ]),
+    ("meeting", "service_policy", "서비스 정책 회의", "service policy meeting", [
+        ("자료 보관 기한", "data retention deadline", "6개월 후 폐기", "delete after six months", "30일 후 폐기", "delete after 30 days"),
+        ("접근 권한 기준", "access permission rule", "연구실 구성원", "lab members", "전체 방문자", "all visitors"),
+        ("백업 담당자", "backup owner", "인프라 2팀", "infra team 2", "홍보팀", "promotion team"),
+        ("문의 응답 시간", "support response time", "30분 이내", "within 30 minutes", "3일 이내", "within three days"),
+        ("녹화 공개 범위", "recording visibility", "수강생만", "students only", "전체 공개", "public"),
+        ("삭제 요청 처리 기한", "deletion request deadline", "7일 이내", "within seven days", "다음 학기 말", "end of next semester"),
+    ]),
 ])
 
 
@@ -387,8 +411,24 @@ def fact_parts(fact: tuple[str, str, str, str, str, str], lang: str, flipped: bo
 
 def sentence(domain: str, item: str, value: str, lang: str) -> str:
     if lang == "ko":
-        return f"{domain}에서 {item}: {value}"
+        return f"{item}은 {value}입니다"
     return f"in {domain}, {item} is {value}"
+
+
+def ko_topic_intro(domain: str) -> str:
+    if "회의" in domain:
+        return f"자, 오늘 {domain}에서 정리할 내용부터 말할게요."
+    if "공지" in domain:
+        return "자, 공지사항 잠깐 이야기할게요."
+    return f"자, 오늘 {domain}에서 꼭 기억해야 할 부분을 볼게요."
+
+
+def ko_followup(domain: str) -> str:
+    if "회의" in domain:
+        return "이 부분은 회의록에도 그대로 남겨두면 됩니다."
+    if "공지" in domain:
+        return "헷갈리지 않게 이 부분만 잘 확인해 주세요."
+    return "이 표현 그대로 기억하면 됩니다."
 
 
 def build_passage(
@@ -402,43 +442,52 @@ def build_passage(
     parts = [fact_parts(fact, lang, flipped) for fact in chosen]
     (i1, v1, n1), (i2, v2, n2), (i3, v3, n3) = parts[:3]
     if lang == "ko":
+        intro = ko_topic_intro(domain)
+        tail = ko_followup(domain)
         if pattern == "definition":
             return (
-                f"{speaker}는 {domain}에서 '{i1} = {v1}'라고 정의했다. "
-                f"이 정의를 보완하면서 '{i2} = {v2}', '{i3} = {v3}'라고 설명했다."
+                f"{intro} 먼저 {i1}은 {v1}입니다. "
+                f"그리고 이 정의를 보완해서 {i2}은 {v2}라고 보면 되고요, "
+                f"{i3}은 {v3}입니다. {tail}"
             )
         if pattern == "composition":
             return (
-                f"{speaker}는 {domain} 설명을 세 부분으로 나눴다. "
-                f"첫째는 '{i1} = {v1}', 둘째는 '{i2} = {v2}', 셋째는 '{i3} = {v3}'이다."
+                f"{intro} 세 가지로 나눠서 보겠습니다. "
+                f"첫째, {i1}은 {v1}입니다. 둘째, {i2}은 {v2}입니다. "
+                f"셋째, {i3}은 {v3}입니다. {tail}"
             )
         if pattern == "analogy":
             return (
-                f"{speaker}는 {domain}에서 {i1}을 쉽게 이해하도록 '{v1}'라는 비유로 설명했다. "
-                f"그 비유를 바탕으로 '{i2} = {v2}', '{i3} = {v3}'라고 덧붙였다."
+                f"{intro} {i1}을 쉽게 말하면 {v1}에 비유할 수 있어요. "
+                f"이 비유를 떠올리면 {i2}은 {v2}라고 이해하면 되고, "
+                f"{i3}은 {v3}입니다. {tail}"
             )
         if pattern == "contrast":
             return (
-                f"{speaker}는 {domain}에서 '{i1}'은 '{n1}'가 아니라 '{v1}'에 가깝다고 대조했다. "
-                f"또한 '{i2}'은 '{n2}'가 아니라 '{v2}', '{i3}'은 '{n3}'가 아니라 '{v3}'라고 정리했다."
+                f"{intro} 여기서 헷갈리면 안 되는 게 있어요. "
+                f"{i1}은 {n1}가 아니라 {v1}입니다. "
+                f"또 {i2}은 {n2}가 아니라 {v2}이고, "
+                f"{i3}은 {n3}가 아니라 {v3}입니다. {tail}"
             )
         if pattern == "cause":
             return (
-                f"{speaker}는 {domain}에서 '{i1} = {v1}'라는 전제가 있어서 "
-                f"'{i2} = {v2}'로 이어진다고 설명했다. 마지막으로 이 흐름에서 '{i3} = {v3}'라고 말했다."
+                f"{intro} 흐름으로 보면 {i1}은 {v1}이라는 점이 먼저 나옵니다. "
+                f"이 전제 때문에 {i2}은 {v2}로 이어지고요. "
+                f"마지막으로 이 흐름에서 {i3}은 {v3}입니다. {tail}"
             )
         if pattern == "procedure":
             return (
-                f"{speaker}는 {domain}을 이해하는 순서를 제시했다. "
-                f"1단계는 '{i1} = {v1}', 2단계는 '{i2} = {v2}', 3단계는 '{i3} = {v3}'이다."
+                f"{intro} 순서대로 정리하면 됩니다. "
+                f"1단계는 {i1}이 {v1}입니다. 2단계는 {i2}이 {v2}입니다. "
+                f"3단계는 {i3}이 {v3}입니다. {tail}"
             )
         if pattern == "example":
             return (
-                f"{speaker}는 {domain}의 예시로 '{i1} = {v1}'인 경우를 들었다. "
-                f"같은 예시 설명에서 '{i2} = {v2}', '{i3} = {v3}'라고 했다."
+                f"{intro} 예를 들어 보면 {i1}은 {v1}인 경우입니다. "
+                f"같은 예시 안에서 {i2}은 {v2}이고, {i3}은 {v3}입니다. {tail}"
             )
         simple_parts = [sentence(domain, item, value, lang) for item, value, _neg in parts]
-        return f"{speaker}의 설명 내용은 다음과 같다. " + "; ".join(simple_parts) + "."
+        return f"{intro} " + ". ".join(simple_parts) + f". {tail}"
 
     if pattern == "definition":
         return (
@@ -528,7 +577,7 @@ def build_question(domain: str, speaker: str, lang: str, pattern: str) -> str:
     return f"What {labels.get(pattern, 'key points')} did {speaker} explain in {domain}?"
 
 
-def build_rows(rows_per_domain: int, facts_per_passage: int, seed: int, limit: int) -> list[dict]:
+def build_rows(rows_per_domain: int, facts_per_passage: int, seed: int, limit: int, languages: list[str]) -> list[dict]:
     rng = random.Random(seed)
     rows = []
     for domain_idx, (group, domain_key, domain_ko, domain_en, facts) in enumerate(DOMAIN_FACTS):
@@ -539,16 +588,27 @@ def build_rows(rows_per_domain: int, facts_per_passage: int, seed: int, limit: i
             chosen = [facts[(start + offset) % len(facts)] for offset in range(facts_per_passage)]
             if variant % 3 == 2:
                 chosen = rng.sample(facts, facts_per_passage)
-            for lang in ("ko", "en"):
+            for lang in languages:
                 domain = domain_ko if lang == "ko" else domain_en
                 speaker = SPEAKERS[lang][(domain_idx + variant) % len(SPEAKERS[lang])]
                 pattern = EXPLANATION_PATTERNS[(variant + domain_idx) % len(EXPLANATION_PATTERNS)]
                 source_id = f"multifact_{group}_{lang}_{domain_key}_{pattern}_{domain_idx}_{variant}"
+                positive_facts = []
+                negative_facts = []
+                for fact in chosen:
+                    item, value, neg_value = fact_parts(fact, lang, flipped=False)
+                    positive_facts.append({"key": item, "answer": value})
+                    negative_facts.append({"key": item, "answer": neg_value})
                 rows.append({
                     "source_id": source_id,
                     "speaker": speaker,
+                    "scene": group,
+                    "domain": domain_key,
+                    "language": lang,
                     "task": "multifact_service_memory",
                     "pattern": pattern,
+                    "facts": positive_facts,
+                    "negative_facts": negative_facts,
                     "question": build_question(domain, speaker, lang, pattern),
                     "answer": build_answer(chosen, lang, flipped=False, pattern=pattern),
                     "passage": build_passage(domain, speaker, chosen, lang, flipped=False, pattern=pattern),
@@ -570,17 +630,31 @@ def main() -> None:
     parser.add_argument("--facts-per-passage", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--languages",
+        default="ko,en",
+        help="Comma-separated language mix. Use 'ko' for Korean-only service data.",
+    )
     args = parser.parse_args()
+    languages = [item.strip() for item in args.languages.split(",") if item.strip()]
+    if not languages:
+        raise ValueError("--languages must contain at least one language code")
+    unsupported = sorted(set(languages) - {"ko", "en"})
+    if unsupported:
+        raise ValueError(f"Unsupported languages: {unsupported}")
 
     rows = build_rows(
         rows_per_domain=args.rows_per_domain,
         facts_per_passage=args.facts_per_passage,
         seed=args.seed,
         limit=args.limit,
+        languages=languages,
     )
+    ko_rows = sum(1 for row in rows if row.get("source_id", "").split("_")[2:3] == ["ko"])
+    en_rows = len(rows) - ko_rows
     write_jsonl(args.output, rows)
     print(
-        f"[PRAG:multifact-sources] rows={len(rows)} domains={len(DOMAIN_FACTS)} "
+        f"[PRAG:multifact-sources] rows={len(rows)} ko={ko_rows} en={en_rows} domains={len(DOMAIN_FACTS)} "
         f"facts_per_passage={args.facts_per_passage} -> {args.output}"
     )
 

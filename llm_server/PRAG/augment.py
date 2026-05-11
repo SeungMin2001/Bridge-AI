@@ -13,7 +13,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import AUGMENT_MODEL_NAME, SOURCE_DATA_PATH, AUGMENTED_TRAIN_PATH, AUGMENTED_VALID_PATH
-from .data import default_full_answer, extract_answer, get_passage, iter_json_records, jsonl_snapshot, write_jsonl
+from .data import contains_hangul, default_full_answer, extract_answer, get_passage, iter_json_records, jsonl_snapshot, write_jsonl
 from .prompts import augmentation_prompt
 
 
@@ -201,6 +201,150 @@ def build_synthetic_negative(atomic: list[dict], final: list[dict]) -> dict | No
         "answer": joined_answers,
         "atomic_qas": neg_atomic,
         "final_qas": neg_final,
+    }
+
+
+def source_fact_items(source: dict, key: str) -> list[dict]:
+    values = source.get(key)
+    if not isinstance(values, list):
+        return []
+    out = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        fact_key = str(item.get("key") or "").strip()
+        answer = str(item.get("answer") or "").strip()
+        if fact_key and answer:
+            out.append({"key": fact_key, "answer": answer})
+    return out
+
+
+def answer_span(answer: str, passage: str) -> str:
+    answer = str(answer or "").strip()
+    passage = str(passage or "").strip()
+    if not answer or not passage or not contains_text(answer, passage):
+        return ""
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!?。！？요다죠])\s+|(?<=[.!?。！？])", passage)
+        if item.strip()
+    ]
+    for sentence in sentences:
+        if contains_text(answer, sentence):
+            return sentence
+    idx = passage.casefold().find(answer.casefold())
+    if idx < 0:
+        return passage
+    start = max(0, idx - 80)
+    end = min(len(passage), idx + len(answer) + 80)
+    return passage[start:end].strip()
+
+
+def ensure_source_answers_in_passage(source: dict, passage: str, key: str) -> str:
+    passage = str(passage or "").strip()
+    additions = []
+    is_ko = contains_hangul(passage) or str(source.get("language") or "").strip() == "ko"
+    for item in source_fact_items(source, key):
+        if contains_text(item["answer"], passage):
+            continue
+        if is_ko:
+            additions.append(f"그리고 {item['key']}은 {item['answer']}입니다.")
+        else:
+            additions.append(f"And {item['key']} is {item['answer']}.")
+    if additions:
+        passage = f"{passage} {' '.join(additions)}".strip()
+    return passage
+
+
+def source_question(source: dict, fact_key: str) -> str:
+    if str(source.get("language") or "").strip() == "ko" or contains_hangul(fact_key):
+        return f"{fact_key}은 무엇인가요?"
+    return f"What is {fact_key}?"
+
+
+def source_full_answer(source: dict, fact_key: str, answer: str) -> str:
+    if str(source.get("language") or "").strip() == "ko" or contains_hangul(f"{fact_key}\n{answer}"):
+        return f"{fact_key}은 {answer}입니다."
+    return f"{fact_key} is {answer}."
+
+
+def fallback_augmented_from_source(source: dict, passage: str, source_id: str) -> dict | None:
+    """Build a deterministic training row when the augmenter returns bad JSON.
+
+    New source builders store exact facts and counterfactual facts. If the LLM
+    fails, preserving these exact spans is better than discarding the row,
+    especially for service-style dates, locations, owners, and analogies.
+    """
+    facts = source_fact_items(source, "facts")
+    if not facts:
+        return None
+    passage = ensure_source_answers_in_passage(source, passage, "facts")
+    atomic = []
+    for item in facts:
+        sub_passage = answer_span(item["answer"], passage)
+        if not sub_passage:
+            return None
+        question = source_question(source, item["key"])
+        atomic.append({
+            "sub_passage": sub_passage,
+            "question": question,
+            "answer": item["answer"],
+            "full_answer": source_full_answer(source, item["key"], item["answer"]),
+        })
+    final_question = str(source.get("question") or "").strip()
+    if not final_question:
+        final_question = "핵심 내용은 무엇인가요?" if contains_hangul(passage) else "What are the key points?"
+    final_answer = str(source.get("answer") or "").strip() or "; ".join(
+        f"{item['key']}: {item['answer']}" for item in facts
+    )
+    final = [{
+        "question": final_question,
+        "answer": final_answer,
+        "full_answer": default_full_answer(final_question, final_answer),
+    }]
+
+    hard_negatives = []
+    negative_items = source_fact_items(source, "negative_facts")
+    source_negative = first_hard_negative(source)
+    neg_passage = source_negative["passage"]
+    if negative_items:
+        if not neg_passage:
+            neg_passage = passage
+            for pos, neg in zip(facts, negative_items):
+                neg_passage = neg_passage.replace(pos["answer"], neg["answer"], 1)
+        neg_passage = ensure_source_answers_in_passage(source, neg_passage, "negative_facts")
+        neg_atomic = []
+        for pos_qa, neg_item in zip(atomic, negative_items):
+            neg_sub_passage = answer_span(neg_item["answer"], neg_passage)
+            if not neg_sub_passage:
+                return None
+            neg_atomic.append({
+                "sub_passage": neg_sub_passage,
+                "question": pos_qa["question"],
+                "answer": neg_item["answer"],
+                "full_answer": source_full_answer(source, neg_item["key"], neg_item["answer"]),
+            })
+        neg_answer = str(source_negative.get("answer") or "").strip() or "; ".join(
+            f"{item['key']}: {item['answer']}" for item in negative_items
+        )
+        hard_negatives.append({
+            "passage": neg_passage,
+            "answer": neg_answer,
+            "atomic_qas": neg_atomic,
+            "final_qas": [{
+                "question": final_question,
+                "answer": neg_answer,
+                "full_answer": default_full_answer(final_question, neg_answer),
+            }],
+        })
+    return {
+        "source_id": source_id,
+        "speaker": source.get("speaker", ""),
+        "passage": passage,
+        "rewrite": " ".join(qa["full_answer"] for qa in atomic),
+        "atomic_qas": atomic,
+        "final_qas": final,
+        "hard_negatives": hard_negatives,
     }
 
 
@@ -416,6 +560,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Resume from existing output JSONL files by skipping already written source_id rows.",
     )
+    parser.add_argument(
+        "--fallback-on-invalid",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="If the LLM returns invalid JSON, build a deterministic QA row from source facts when available.",
+    )
     return parser
 
 
@@ -501,18 +651,32 @@ def run(args: argparse.Namespace) -> None:
                 f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
             )
             continue
+        row = None
+        fallback_reason = ""
         if generated is None:
-            skipped_invalid += 1
-            processed = idx + 1
-            print(
-                f"[PRAG:augment] skip {source_id}: invalid JSON "
-                f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
-            )
+            if args.fallback_on_invalid:
+                row = fallback_augmented_from_source(source, passage, source_id)
+                fallback_reason = "invalid JSON"
+            if row is None:
+                skipped_invalid += 1
+                processed = idx + 1
+                print(
+                    f"[PRAG:augment] skip {source_id}: invalid JSON "
+                    f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
+                )
+                if args.debug_invalid_raw:
+                    preview = " ".join(str(raw_text or "").split())
+                    print(f"[PRAG:augment:raw] {preview[:args.debug_raw_chars]}")
+                continue
             if args.debug_invalid_raw:
                 preview = " ".join(str(raw_text or "").split())
                 print(f"[PRAG:augment:raw] {preview[:args.debug_raw_chars]}")
-            continue
-        row = normalize_augmented(generated, source, passage, source_id)
+        if row is None:
+            row = normalize_augmented(generated, source, passage, source_id)
+        if row is None:
+            if args.fallback_on_invalid:
+                row = fallback_augmented_from_source(source, passage, source_id)
+                fallback_reason = "missing required fields"
         if row is None:
             skipped_invalid += 1
             processed = idx + 1
@@ -528,6 +692,12 @@ def run(args: argparse.Namespace) -> None:
                 print(f"[PRAG:augment:parsed] {parsed_preview}")
                 print(f"[PRAG:augment:raw] {raw_preview[:args.debug_raw_chars]}")
             continue
+        if fallback_reason:
+            processed = idx + 1
+            print(
+                f"[PRAG:augment] fallback {source_id}: {fallback_reason} -> source facts "
+                f"({progress_suffix(processed, input_total, existing_in_input, made, skipped_seen, skipped_invalid, train_count, valid_count, started_at)})"
+            )
         is_valid = args.valid_every > 0 and idx % args.valid_every == args.valid_every - 1
         saved_to = args.valid_output if is_valid else args.train_output
         append_jsonl(saved_to, row)

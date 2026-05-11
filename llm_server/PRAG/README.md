@@ -64,6 +64,63 @@ The first clean implementation follows this hybrid strategy:
    - bidirectional flip
    - real K/V generation versus zero K/V generation
 
+## KorQuAD Service-Transcript Dataset
+
+The next service-focused dataset is separate from the older direct KorQuAD
+converter. The goal is not to train on raw MRC paragraphs, but to use KorQuAD's
+Korean factual content as source material and rewrite it into the kind of
+lecture transcript our product will inject as K/V memory.
+
+`prepare_korquad_service.py` creates:
+
+- Korean-only professor-style transcript passages.
+- Direct speech, not report style. Prefer "자, 여기서 중요한 건 ...입니다" over
+  "교수가 ...라고 말했다".
+- One or more professor-like explanation devices: example, analogy, comparison,
+  or common-mistake correction.
+- Atomic QA whose `answer` phrase appears verbatim in both `passage` and
+  `full_answer`.
+- Deterministic hard-negative rows by replacing the answer phrase with a
+  distractor answer.
+
+Generate service-style KorQuAD data with vLLM:
+
+```bash
+python -m llm_server.PRAG.prepare_korquad_service \
+  --backend vllm \
+  --vllm-url http://localhost:8001/v1/chat/completions \
+  --model Qwen/Qwen3.5-4B \
+  --max-train-records 4000 \
+  --max-valid-records 800 \
+  --max-new-tokens 1024 \
+  --no-resume
+```
+
+Preview and validate:
+
+```bash
+python -m llm_server.PRAG.preview_data --korquad-service --split train --samples 5 --max-qas 3 --width 220
+python -m llm_server.PRAG.validate --korquad-service --show 5
+```
+
+Train a fresh KorQuAD-service HyperKV:
+
+```bash
+python -m llm_server.PRAG.train \
+  --korquad-service \
+  --epochs 3 \
+  --no-resume \
+  --lr 5e-5 \
+  --positive-only \
+  --answer-target full_answer \
+  --final-weight 0.25 \
+  --answer-phrase-weight 5.0 \
+  --eval-generation-samples 30 \
+  --eval-generation-every 250 \
+  --eval-generation-max-new-tokens 64 \
+  --injection-mode attention
+```
+
 ## Commands
 
 Prepare raw passage data as JSONL, or reuse the current `ServiceHardPair`

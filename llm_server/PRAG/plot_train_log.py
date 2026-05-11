@@ -175,11 +175,73 @@ def plot_png(output: Path, step_rows: list[dict], val_rows: list[dict], smooth: 
     return True
 
 
+def plot_objective_time_png(
+    output: Path,
+    step_rows: list[dict],
+    val_rows: list[dict],
+    smooth: int,
+    *,
+    hide_val_labels: bool = False,
+) -> bool:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        print(f"[PRAG:plot] matplotlib unavailable; skipped PNG plot ({exc})")
+        return False
+
+    steps = [int(row["step"]) for row in step_rows]
+    objectives = [float(row["objective"]) for row in step_rows]
+    elapsed = [float(row.get("cumulative_elapsed_min") or row.get("elapsed_min") or 0.0) for row in step_rows]
+    val_steps = [int(row["step"]) for row in val_rows]
+    val_obj = [float((row.get("individual") or {}).get("objective", 0.0)) for row in val_rows]
+    group_steps = [int(row["step"]) for row in val_rows if row.get("group")]
+    group_obj = [float((row.get("group") or {}).get("objective", 0.0)) for row in val_rows if row.get("group")]
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle("PRAG Objective And Time")
+
+    axes[0].plot(steps, moving_average(objectives, smooth), label=f"train objective ma{smooth}")
+    if val_obj:
+        axes[0].scatter(val_steps, val_obj, s=28, label=None if hide_val_labels else "val objective")
+    if group_obj:
+        axes[0].scatter(group_steps, group_obj, s=28, label=None if hide_val_labels else "group val objective")
+    axes[0].set_title("Objective")
+    axes[0].set_xlabel("step")
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(steps, elapsed, color="tab:green", label="elapsed min")
+    axes[1].set_title("Elapsed Time")
+    axes[1].set_xlabel("step")
+    axes[1].set_ylabel("minutes")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=160)
+    plt.close(fig)
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--log", default=str(MULTIFACT_LOG_PATH))
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--smooth", type=int, default=25)
+    parser.add_argument(
+        "--objective-time-only",
+        action="store_true",
+        help="Plot only objective curves and elapsed time.",
+    )
+    parser.add_argument(
+        "--hide-val-labels",
+        action="store_true",
+        help="Hide validation labels in the objective/time-only plot legend.",
+    )
     parser.add_argument("--generic", action="store_true", help="Use the non-multifact default log path.")
     args = parser.parse_args()
 
@@ -195,7 +257,7 @@ def main() -> None:
     step_csv = output_dir / "step_losses.csv"
     val_csv = output_dir / "val_evals.csv"
     summary_json = output_dir / "summary.json"
-    png_path = output_dir / "training_curves.png"
+    png_path = output_dir / ("objective_time_curves.png" if args.objective_time_only else "training_curves.png")
     write_step_csv(step_csv, step_rows)
     write_val_csv(val_csv, val_rows)
 
@@ -219,7 +281,16 @@ def main() -> None:
         "last_generation_eval": generation_evals[-1].get("generation") if generation_evals else {},
     }
     summary_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    plotted = plot_png(png_path, step_rows, val_rows, args.smooth) if step_rows else False
+    if step_rows and args.objective_time_only:
+        plotted = plot_objective_time_png(
+            png_path,
+            step_rows,
+            val_rows,
+            args.smooth,
+            hide_val_labels=args.hide_val_labels,
+        )
+    else:
+        plotted = plot_png(png_path, step_rows, val_rows, args.smooth) if step_rows else False
 
     print(f"[PRAG:plot] log={log_path}")
     print(f"[PRAG:plot] steps={len(step_rows)} val_evals={len(val_rows)} final_step={data.get('final_step')}")

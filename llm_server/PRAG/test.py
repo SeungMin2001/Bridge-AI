@@ -16,12 +16,16 @@ from .config import (
     EXTERNAL_QA_AUGMENTED_VALID_PATH,
     EXTERNAL_QA_WEIGHTS_PATH,
     KORQUAD_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_WEIGHTS_PATH,
     KORQUAD_WEIGHTS_PATH,
     LECTURE_AUGMENTED_VALID_PATH,
     LECTURE_WEIGHTS_PATH,
     MODEL_NAME,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_WEIGHTS_PATH,
+    TRANSCRIPT_AUGMENTED_VALID_PATH,
+    TRANSCRIPT_WEIGHTS_PATH,
     WEIGHTS_PATH,
     load_critical_layer,
 )
@@ -36,6 +40,7 @@ from .memory import (
     make_memory_hook,
     model_num_heads,
     tokenize_qa,
+    uses_chat_prompt,
 )
 
 
@@ -79,6 +84,11 @@ def generate_with_kv(model, tokenizer, target_layer, question, K, V, device, max
 
 
 def build_direct_passage_prompt(tokenizer, question: str, passage: str) -> str:
+    if not uses_chat_prompt(tokenizer):
+        if any("\uac00" <= ch <= "\ud7a3" for ch in f"{question}\n{passage}"):
+            return f"passage:\n{passage}\n\n질문:\n{question}\n\n답변:"
+        return f"Passage:\n{passage}\n\nQuestion:\n{question}\nAnswer:"
+
     messages = [
         {
             "role": "system",
@@ -194,9 +204,19 @@ def main() -> None:
         help="Use the converted KorQuAD valid file and KorQuAD fine-tuned weights.",
     )
     parser.add_argument(
+        "--korquad-service",
+        action="store_true",
+        help="Use KorQuAD professor-style service transcript valid file and weights.",
+    )
+    parser.add_argument(
         "--external-qa",
         action="store_true",
         help="Use external HotpotQA/KorQuAD-style augmented valid file and external-QA fine-tuned weights.",
+    )
+    parser.add_argument(
+        "--transcript",
+        action="store_true",
+        help="Use transcript-style augmented valid file and transcript fine-tuned weights.",
     )
     parser.add_argument(
         "--lecture",
@@ -230,9 +250,15 @@ def main() -> None:
     elif args.korquad:
         args.data = str(KORQUAD_AUGMENTED_VALID_PATH)
         args.weights = str(KORQUAD_WEIGHTS_PATH)
+    elif args.korquad_service:
+        args.data = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
+        args.weights = str(KORQUAD_SERVICE_WEIGHTS_PATH)
     elif args.external_qa:
         args.data = str(EXTERNAL_QA_AUGMENTED_VALID_PATH)
         args.weights = str(EXTERNAL_QA_WEIGHTS_PATH)
+    elif args.transcript:
+        args.data = str(TRANSCRIPT_AUGMENTED_VALID_PATH)
+        args.weights = str(TRANSCRIPT_WEIGHTS_PATH)
     elif args.lecture:
         args.data = str(LECTURE_AUGMENTED_VALID_PATH)
         args.weights = str(LECTURE_WEIGHTS_PATH)
