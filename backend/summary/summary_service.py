@@ -66,6 +66,24 @@ SUMMARY_SESSION_PROMPT_TEMPLATE = """아래는 세션 요약을 위한 정보입
 }}
 """
 
+SUMMARY_SESSION_TEXT_PROMPT_TEMPLATE = """아래는 하나의 녹음 세션 전체 전사문입니다:
+
+[핵심 키워드]
+{keywords}
+
+[전체 전사문]
+{transcript_text}
+
+위 내용을 바탕으로 {summary_sentences}문장 이내의 한국어 요약을 작성하세요.
+- 중복을 제거하고 핵심만 요약
+- 새로운 사실을 추가하지 말 것
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{{
+  "summary_text": "요약 텍스트"
+}}
+"""
+
 SUMMARY_COURSE_PROMPT_TEMPLATE = """아래는 과목 요약을 위한 정보입니다:
 
 [핵심 키워드]
@@ -113,14 +131,61 @@ def _format_keywords(keywords: list[dict], limit: int) -> str:
     return "\n".join(f"- {kw['keyword_text']}" for kw in items)
 
 
+def _format_speaker_label(speaker_id: str | None) -> str | None:
+    """내부 speaker_id를 사용자에게 보일 화자명으로 변환합니다."""
+    normalized = str(speaker_id or "").strip()
+    if not normalized or normalized == "UNKNOWN":
+        return None
+
+    match = re.match(r"^SPEAKER_(\d+)$", normalized, re.IGNORECASE)
+    if match:
+        return f"화자 {int(match.group(1)) + 1}"
+
+    return normalized
+
+
+def _speaker_summary_sort_key(item: tuple[int, dict]) -> tuple[int, float | int]:
+    index, summary = item
+    start_time = summary.get("source_start_time")
+    if isinstance(start_time, (int, float)):
+        return (0, float(start_time))
+    return (1, index)
+
+
 def _format_speaker_summaries(summaries: list[dict], limit: int) -> str:
     """화자 요약 목록을 프롬프트용 문자열로 변환합니다."""
     if not summaries:
         return "(없음)"
-    items = summaries[:limit]
-    return "\n".join(
-        f"- {s.get('speaker_id') or 'UNKNOWN'}: {s.get('speaker_summary', '')}" for s in items
-    )
+
+    lines = []
+    speaker_label_map = {}
+    ordered_summaries = [
+        summary for _, summary in sorted(enumerate(summaries), key=_speaker_summary_sort_key)
+    ]
+
+    for summary in ordered_summaries:
+        speaker_id = str(summary.get("speaker_id") or "").strip()
+        if not speaker_id or speaker_id == "UNKNOWN":
+            continue
+
+        if speaker_id not in speaker_label_map:
+            fallback_label = _format_speaker_label(speaker_id)
+            speaker_label_map[speaker_id] = (
+                f"화자 {len(speaker_label_map) + 1}"
+                if re.match(r"^SPEAKER_\d+$", speaker_id, re.IGNORECASE)
+                else fallback_label
+            )
+
+        speaker_label = speaker_label_map[speaker_id]
+        speaker_summary = str(summary.get("speaker_summary") or "").strip()
+        if not speaker_label or not speaker_summary:
+            continue
+
+        lines.append(f"- {speaker_label}: {speaker_summary}")
+        if len(lines) >= limit:
+            break
+
+    return "\n".join(lines) if lines else "(없음)"
 
 
 def _format_session_summaries(summaries: list[dict], limit: int) -> str:
@@ -244,6 +309,32 @@ async def generate_session_summary(
     user_prompt = SUMMARY_SESSION_PROMPT_TEMPLATE.format(
         keywords=keywords_text,
         speaker_summaries=speaker_text,
+        summary_sentences=summary_sentences,
+    )
+
+    return await _call_llm(_build_messages(user_prompt))
+
+
+async def generate_session_summary_from_text(
+    session_text: str,
+    keywords: list[dict] | None = None,
+    summary_sentences: int | None = None,
+) -> str:
+    """화자 구분 없이 전체 전사문을 직접 요약합니다."""
+    if not session_text.strip():
+        raise ValueError("요약할 세션 전사문이 없습니다")
+
+    summary_sentences = summary_sentences or DEFAULT_SUMMARY_SENTENCES
+    transcript_text = _truncate_text(session_text, MAX_SESSION_CHARS)
+    keywords_text = _format_keywords(keywords or [], MAX_KEYWORDS)
+
+    if MOCK_MODE:
+        logger.info("[SUMMARY] MOCK_MODE: 전체 전사 기반 세션 요약 반환")
+        return _mock_summary(transcript_text, summary_sentences)
+
+    user_prompt = SUMMARY_SESSION_TEXT_PROMPT_TEMPLATE.format(
+        keywords=keywords_text,
+        transcript_text=transcript_text,
         summary_sentences=summary_sentences,
     )
 
