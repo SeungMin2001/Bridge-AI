@@ -18,6 +18,7 @@ const props = defineProps({
   isRecording: Boolean,
   isRecordingPaused: Boolean,
   recordingMode: { type: String, default: 'lecture' },
+  diarizationEnabled: { type: Boolean, default: true },
   transcriptions: { type: Array, default: () => [] },
   summaryState: { type: Object, default: () => ({}) }
 })
@@ -51,8 +52,25 @@ const getSpeakerSummaryKey = (transcription, index) => {
   return props.recordingMode === 'meeting' ? `unknown-speaker-${index}` : 'me'
 }
 
+const getTranscriptionSpeakerId = (transcription = {}) => (
+  String(transcription?.speakerId || transcription?.speaker || '').trim()
+)
+
+const formatSpeakerLabel = (speakerId = '') => {
+  const normalized = String(speakerId || '').trim()
+  const match = normalized.match(/^SPEAKER_(\d+)$/i)
+  if (match) return `화자 ${Number.parseInt(match[1], 10) + 1}`
+  if (!normalized || normalized === 'UNKNOWN') return '화자 미상'
+  return normalized
+}
+
+const isUnknownSpeaker = (speakerId = '') => {
+  const normalized = String(speakerId || '').trim()
+  return !normalized || normalized === 'UNKNOWN' || normalized === '화자 미상'
+}
+
 const getSpeakerAccent = (speakerLabel) => {
-  if (speakerLabel === '나') return 'blue'
+  if (speakerLabel === '나' || speakerLabel === '화자 1') return 'blue'
   if (speakerLabel === '화자 B' || speakerLabel === '화자 2') return 'rose'
   if (speakerLabel === '화자 C' || speakerLabel === '화자 3') return 'green'
   return 'amber'
@@ -60,6 +78,8 @@ const getSpeakerAccent = (speakerLabel) => {
 
 const getSpeakerAvatarSrc = (speakerLabel) => {
   if (speakerLabel === '화자 B' || speakerLabel === '화자 2') return '/images/man1.png'
+  if (speakerLabel === '화자 3') return '/images/woman2.png'
+  if (speakerLabel === '화자 4') return '/images/man2.png'
   return '/images/woman1.png'
 }
 
@@ -67,6 +87,53 @@ const buildMockSpeakerSummary = (utterances) => {
   const texts = utterances.map((utterance) => utterance.text).filter(Boolean)
   if (texts.length <= 1) return texts[0] || ''
   return texts.slice(-2).join(' ')
+}
+
+// 화면의 화자 번호는 SPEAKER_00 숫자가 아니라 녹음에서 처음 등장한 순서로 부여합니다.
+const speakerOrderTranscriptions = computed(() => {
+  const liveTranscriptions = Array.isArray(props.transcriptions)
+    ? props.transcriptions.filter((transcription) => getTranscriptText(transcription))
+    : []
+  if (liveTranscriptions.length) return liveTranscriptions
+
+  const recordingId = props.summaryState?.recordingId || ''
+  const recording = props.currentRecordings.find((item) => (
+    recordingId && (item?.id === recordingId || item?.recordingId === recordingId)
+  ))
+  return Array.isArray(recording?.transcriptions) ? recording.transcriptions : []
+})
+
+const speakerDisplayMap = computed(() => {
+  const speakerMap = new Map()
+
+  speakerOrderTranscriptions.value.forEach((transcription) => {
+    const speakerId = getTranscriptionSpeakerId(transcription)
+    if (isUnknownSpeaker(speakerId) || speakerMap.has(speakerId)) return
+
+    const order = speakerMap.size
+    speakerMap.set(speakerId, {
+      label: `화자 ${order + 1}`,
+      order
+    })
+  })
+
+  return speakerMap
+})
+
+const getDisplaySpeakerLabel = (speakerId = '', fallbackLabel = '') => {
+  const normalized = String(speakerId || '').trim()
+  return speakerDisplayMap.value.get(normalized)?.label || fallbackLabel || formatSpeakerLabel(normalized)
+}
+
+const getDisplaySpeakerOrder = (speakerId = '', fallbackIndex = 0) => {
+  const normalized = String(speakerId || '').trim()
+  const mappedOrder = speakerDisplayMap.value.get(normalized)?.order
+  if (Number.isFinite(mappedOrder)) return mappedOrder
+
+  const match = normalized.match(/^SPEAKER_(\d+)$/i)
+  if (match) return Number.parseInt(match[1], 10)
+
+  return fallbackIndex
 }
 
 const formatSummaryTime = (value = '') => {
@@ -183,6 +250,7 @@ const handleDeleteSummary = (summaryId) => {
   emit('deleteSummary', summaryId)
 }
 
+// 백엔드 요약이 아직 없을 때만 현재 전사 상태에서 임시 화자 요약 카드를 만듭니다.
 const speakerSummaryItems = computed(() => {
   const speakerMap = new Map()
 
@@ -190,8 +258,12 @@ const speakerSummaryItems = computed(() => {
     const text = getTranscriptText(transcription)
     if (!text) return
 
-    const speakerLabel = transcription.speaker || (props.recordingMode === 'meeting' ? '화자 미상' : '나')
-    const speakerKey = getSpeakerSummaryKey(transcription, index)
+    // UNKNOWN은 화자별 요약 화면에서 제외해 "화자 미상" 카드가 생기지 않게 합니다.
+    const rawSpeakerId = transcription.speakerId || transcription.speaker || ''
+    if (isUnknownSpeaker(rawSpeakerId)) return
+
+    const speakerLabel = getDisplaySpeakerLabel(rawSpeakerId, transcription.speaker || formatSpeakerLabel(transcription.speakerId))
+    const speakerKey = rawSpeakerId || getSpeakerSummaryKey(transcription, index)
 
     if (!speakerMap.has(speakerKey)) {
       speakerMap.set(speakerKey, {
@@ -225,22 +297,25 @@ const speakerSummaryItems = computed(() => {
       latestText: latestUtterance?.text || '',
       lastUpdatedAt: latestUtterance?.time || ''
     }
-  })
+  }).sort((left, right) => left.firstIndex - right.firstIndex)
 })
 
+// 백엔드가 저장한 화자별 최신 요약을 화면 모델로 바꿉니다.
 const backendSpeakerSummaryItems = computed(() => {
   const items = Array.isArray(props.summaryState?.speakerSummaries)
     ? props.summaryState.speakerSummaries
     : []
 
   return items.map((item, index) => {
-    const label = item.label || '화자'
+    const speakerId = item.speakerId || item.label || ''
+    const label = getDisplaySpeakerLabel(speakerId, item.label || '화자')
     const accent = getSpeakerAccent(label)
     return {
       id: item.id,
       key: item.key || item.id || `backend-speaker-${index}`,
       label,
-      firstIndex: index,
+      speakerId,
+      firstIndex: getDisplaySpeakerOrder(speakerId, index),
       accent: {
         avatar: `speaker-summary-avatar-${accent}`,
         dot: `speaker-summary-dot-${accent}`
@@ -251,14 +326,18 @@ const backendSpeakerSummaryItems = computed(() => {
       latestText: item.latestText || '',
       lastUpdatedAt: formatSummaryTime(item.createdAt)
     }
-  })
+  }).sort((left, right) => left.firstIndex - right.firstIndex)
 })
 
-const displayedSpeakerSummaryItems = computed(() => (
-  backendSpeakerSummaryItems.value.length
+const isSpeakerSummaryEnabled = computed(() => (
+  props.summaryState?.diarizationEnabled ?? props.diarizationEnabled
+) !== false)
+const displayedSpeakerSummaryItems = computed(() => {
+  if (!isSpeakerSummaryEnabled.value) return []
+  return backendSpeakerSummaryItems.value.length
     ? backendSpeakerSummaryItems.value
     : speakerSummaryItems.value
-))
+})
 const sessionSummary = computed(() => props.summaryState?.sessionSummary || null)
 const sessionSummaryTitle = computed(() => {
   const recordingId = sessionSummary.value?.recordingId || props.summaryState?.recordingId || ''
