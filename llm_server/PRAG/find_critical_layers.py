@@ -30,6 +30,9 @@ from .config import (
     ALPHA,
     CRITICAL_LAYERS_PATH,
     HIDDEN_DIM,
+    KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH,
+    KORQUAD_SERVICE_AUGMENTED_VALID_PATH,
+    KORQUAD_SERVICE_CRITICAL_LAYERS_PATH,
     LR_MIN,
     MODEL_NAME,
     MULTIFACT_AUGMENTED_TRAIN_PATH,
@@ -80,13 +83,13 @@ def safe_ppl(loss: float) -> float:
     return math.exp(min(loss, 20.0))
 
 
-def load_model():
-    print(f"[PRAG:layer-scan] loading model={MODEL_NAME}")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+def load_model(model_name: str):
+    print(f"[PRAG:layer-scan] loading model={model_name}")
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
+        model_name,
         device_map="auto",
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
@@ -122,8 +125,17 @@ def sample_objective(
     answer_target: str,
     final_weight: float,
     injection_mode: str,
+    question_conditioned_memory: bool,
 ):
-    memory = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
+    memory = encode_memory(
+        model,
+        tokenizer,
+        hypernet,
+        example.passage,
+        device,
+        question=example.question,
+        question_conditioned=question_conditioned_memory,
+    )
     answer = example.target_answer(answer_target)
     tok = tokenize_qa(tokenizer, example.question, answer, device)
     logits = forward_with_memory(
@@ -158,6 +170,7 @@ def evaluate_layer(
     answer_target: str,
     final_weight: float,
     injection_mode: str,
+    question_conditioned_memory: bool,
 ):
     target_layer = model.model.layers[layer_idx]
     hypernet.eval()
@@ -174,6 +187,7 @@ def evaluate_layer(
             answer_target=answer_target,
             final_weight=final_weight,
             injection_mode=injection_mode,
+            question_conditioned_memory=question_conditioned_memory,
         )
         if loss is None:
             continue
@@ -197,6 +211,7 @@ def train_and_score_layer(
     answer_target: str,
     final_weight: float,
     injection_mode: str,
+    question_conditioned_memory: bool,
     legacy_hypernet: bool,
 ):
     target_layer = model.model.layers[layer_idx]
@@ -226,6 +241,7 @@ def train_and_score_layer(
             answer_target=answer_target,
             final_weight=final_weight,
             injection_mode=injection_mode,
+            question_conditioned_memory=question_conditioned_memory,
         )
         if loss is None:
             continue
@@ -246,6 +262,7 @@ def train_and_score_layer(
         answer_target=answer_target,
         final_weight=final_weight,
         injection_mode=injection_mode,
+        question_conditioned_memory=question_conditioned_memory,
     )
     train_loss = train_total / max(train_count, 1)
     result = {
@@ -269,14 +286,14 @@ def filter_examples(examples: list[MemoryExample], *, ko_only: bool, clean_ko_on
     return examples
 
 
-def load_existing_results(output_path: Path, scan_config: dict, resume: bool) -> dict[int, dict]:
+def load_existing_results(output_path: Path, scan_config: dict, resume: bool, model_name: str) -> dict[int, dict]:
     if not resume or not output_path.exists():
         return {}
     try:
         data = json.loads(output_path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    if data.get("model") != MODEL_NAME:
+    if data.get("model") != model_name:
         return {}
     previous_config = data.get("scan_config") or {}
     comparable_keys = [
@@ -305,9 +322,20 @@ def write_scan_output(output_path: Path, payload: dict) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Find PRAG critical layers with a MergePRAG paper-style CE scan.")
+    parser.add_argument("--model", default=MODEL_NAME, help="Base HF model name to scan.")
     parser.add_argument("--train", default=str(MULTIFACT_AUGMENTED_TRAIN_PATH))
     parser.add_argument("--valid", default=str(MULTIFACT_AUGMENTED_VALID_PATH))
     parser.add_argument("--multifact", action="store_true", help="Use the default multifact augmented files.")
+    parser.add_argument(
+        "--korquad-service",
+        action="store_true",
+        help="Use the professor-style KorQuAD service train/valid files.",
+    )
+    parser.add_argument(
+        "--mixed-kor-service",
+        action="store_true",
+        help="Scan mixed clean-Korean multifact + KorQuAD-service examples.",
+    )
     parser.add_argument("--ko-only", action="store_true", help="Scan only Korean examples.")
     parser.add_argument("--clean-ko-only", action="store_true", help="Scan only clean Korean examples.")
     parser.add_argument("--max-train-samples", type=int, default=DEFAULT_TRAIN_SAMPLES)
@@ -322,6 +350,15 @@ def main():
     parser.add_argument("--final-weight", type=float, default=0.25)
     parser.add_argument("--injection-mode", choices=("attention", "add_all", "add_last", "hybrid"), default="attention")
     parser.add_argument(
+        "--question-conditioned-memory",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Include the question text in the HyperKV memory input. "
+            "--no-question-conditioned-memory scans the passage-token-only baseline."
+        ),
+    )
+    parser.add_argument(
         "--legacy-hypernet",
         action="store_true",
         help="Use the author-code style single-pool HyperKV head for the scan.",
@@ -332,21 +369,43 @@ def main():
     if args.multifact:
         args.train = str(MULTIFACT_AUGMENTED_TRAIN_PATH)
         args.valid = str(MULTIFACT_AUGMENTED_VALID_PATH)
+    if args.korquad_service:
+        args.train = str(KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH)
+        args.valid = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
+        if args.output == str(CRITICAL_LAYERS_PATH):
+            args.output = str(KORQUAD_SERVICE_CRITICAL_LAYERS_PATH)
+    if args.mixed_kor_service:
+        args.clean_ko_only = True
+        args.train = f"{MULTIFACT_AUGMENTED_TRAIN_PATH};{KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH}"
+        args.valid = f"{MULTIFACT_AUGMENTED_VALID_PATH};{KORQUAD_SERVICE_AUGMENTED_VALID_PATH}"
+        if args.output == str(CRITICAL_LAYERS_PATH):
+            args.output = str(CRITICAL_LAYERS_PATH.with_name("critical_layers_mixed_kor_service.json"))
     if args.clean_ko_only:
         args.ko_only = True
+    question_conditioned_memory = (
+        QUESTION_CONDITIONED_MEMORY
+        if args.question_conditioned_memory is None
+        else bool(args.question_conditioned_memory)
+    )
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
-    model, tokenizer = load_model()
+    model, tokenizer = load_model(args.model)
     device = next(model.parameters()).device
     num_layers = len(model.model.layers)
     selected_layers = parse_layer_spec(args.layers, num_layers)
 
-    train_examples = load_augmented_examples(args.train)
-    valid_examples = load_augmented_examples(args.valid)
+    train_paths = [item.strip() for item in str(args.train).split(";") if item.strip()]
+    valid_paths = [item.strip() for item in str(args.valid).split(";") if item.strip()]
+    train_examples = []
+    valid_examples = []
+    for path in train_paths:
+        train_examples.extend(load_augmented_examples(path))
+    for path in valid_paths:
+        valid_examples.extend(load_augmented_examples(path))
     before = (len(train_examples), len(valid_examples))
     train_examples = filter_examples(train_examples, ko_only=args.ko_only, clean_ko_only=args.clean_ko_only)
     valid_examples = filter_examples(valid_examples, ko_only=args.ko_only, clean_ko_only=args.clean_ko_only)
@@ -361,6 +420,7 @@ def main():
     scan_config = {
         "train_path": str(args.train),
         "valid_path": str(args.valid),
+        "model": args.model,
         "ko_only": bool(args.ko_only),
         "clean_ko_only": bool(args.clean_ko_only),
         "max_train_samples": args.max_train_samples,
@@ -376,21 +436,21 @@ def main():
         "hidden_dim": HIDDEN_DIM,
         "alpha": ALPHA,
         "use_contextual_memory": USE_CONTEXTUAL_MEMORY,
-        "question_conditioned_memory": QUESTION_CONDITIONED_MEMORY,
+        "question_conditioned_memory": question_conditioned_memory,
     }
-    existing = load_existing_results(output_path, scan_config, args.resume)
+    existing = load_existing_results(output_path, scan_config, args.resume, args.model)
     results: dict[int, dict] = dict(existing)
 
     print(
         "[PRAG:layer-scan] "
-        f"layers={selected_layers} model={MODEL_NAME} d_model={model.config.hidden_size} "
+        f"layers={selected_layers} model={args.model} d_model={model.config.hidden_size} "
         f"train={before[0]}->{len(train_examples)} valid={before[1]}->{len(valid_examples)} "
         f"steps={args.steps} lr={args.lr} answer_target={args.answer_target}"
     )
     print(
         "[PRAG:layer-scan] "
         f"num_kv={NUM_KV} alpha={ALPHA} contextual={USE_CONTEXTUAL_MEMORY} "
-        f"question_conditioned={QUESTION_CONDITIONED_MEMORY} legacy_hypernet={args.legacy_hypernet}"
+        f"question_conditioned={question_conditioned_memory} legacy_hypernet={args.legacy_hypernet}"
     )
     if existing:
         print(f"[PRAG:layer-scan] resume: found {len(existing)} existing layer results in {output_path}")
@@ -414,6 +474,7 @@ def main():
             answer_target=args.answer_target,
             final_weight=args.final_weight,
             injection_mode=args.injection_mode,
+            question_conditioned_memory=question_conditioned_memory,
             legacy_hypernet=args.legacy_hypernet,
         )
         metrics = {
@@ -435,7 +496,7 @@ def main():
         sorted_layers = sorted(results.values(), key=lambda item: (item["val_loss"], item["layer"]))
         payload = {
             "scanner": "prag_paper_ce_layer_scan",
-            "model": MODEL_NAME,
+            "model": args.model,
             "num_layers": num_layers,
             "d_model": int(model.config.hidden_size),
             "critical_layers": [item["layer"] for item in sorted_layers[: args.top_n]],
@@ -451,7 +512,7 @@ def main():
     critical = [item["layer"] for item in sorted_layers[: args.top_n]]
     payload = {
         "scanner": "prag_paper_ce_layer_scan",
-        "model": MODEL_NAME,
+        "model": args.model,
         "num_layers": num_layers,
         "d_model": int(model.config.hidden_size),
         "critical_layers": critical,

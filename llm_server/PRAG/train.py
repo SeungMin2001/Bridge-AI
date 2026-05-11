@@ -457,8 +457,17 @@ def example_loss(
     answer_prefix_tokens: int = 3,
     answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
+    question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
 ):
-    main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
+    main_mem = encode_memory(
+        model,
+        tokenizer,
+        hypernet,
+        example.passage,
+        device,
+        question=example.question,
+        question_conditioned=question_conditioned_memory,
+    )
     gold_answer = example.target_answer(answer_target)
     negative_answer = example.target_negative_answer(answer_target)
     gold_tok = tokenize_qa(tokenizer, example.question, gold_answer, device)
@@ -522,7 +531,15 @@ def example_loss(
     if positive_only or not (example.negative_passage and negative_answer):
         return out
 
-    neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device, question=example.question)
+    neg_mem = encode_memory(
+        model,
+        tokenizer,
+        hypernet,
+        example.negative_passage,
+        device,
+        question=example.question,
+        question_conditioned=question_conditioned_memory,
+    )
     neg_tok = tokenize_qa(tokenizer, example.question, negative_answer, device)
     main_neg_logits = forward_with_memory(
         model,
@@ -624,6 +641,7 @@ def group_loss(
     answer_prefix_tokens: int = 3,
     answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
+    question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
 ):
     losses = []
     loss_weights = []
@@ -632,10 +650,26 @@ def group_loss(
     zero = None
     has_negative = bool(group.negative_passage and not positive_only)
     for qa in group.qas[:max_qas]:
-        main_mem = encode_memory(model, tokenizer, hypernet, group.passage, device, question=qa.question)
+        main_mem = encode_memory(
+            model,
+            tokenizer,
+            hypernet,
+            group.passage,
+            device,
+            question=qa.question,
+            question_conditioned=question_conditioned_memory,
+        )
         neg_mem = None
         if has_negative:
-            neg_mem = encode_memory(model, tokenizer, hypernet, group.negative_passage, device, question=qa.question)
+            neg_mem = encode_memory(
+                model,
+                tokenizer,
+                hypernet,
+                group.negative_passage,
+                device,
+                question=qa.question,
+                question_conditioned=question_conditioned_memory,
+            )
         gold_answer = qa.target_answer(answer_target)
         negative_answer = qa.target_negative_answer(answer_target)
         gold_tok = tokenize_qa(tokenizer, qa.question, gold_answer, device)
@@ -789,6 +823,7 @@ def merge_group_loss(
     answer_prefix_tokens: int = 3,
     answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
+    question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
 ):
     """Train on the inference-time path: multi-passage K/V -> orthogonal merge -> answer.
 
@@ -816,6 +851,7 @@ def merge_group_loss(
             main_passages,
             device,
             question=qa.question,
+            question_conditioned=question_conditioned_memory,
         )
         neg_mem = None
         if has_negative and negative_passages:
@@ -826,6 +862,7 @@ def merge_group_loss(
                 negative_passages,
                 device,
                 question=qa.question,
+                question_conditioned=question_conditioned_memory,
             )
 
         gold_answer = qa.target_answer(answer_target)
@@ -987,6 +1024,7 @@ def evaluate(
     answer_prefix_tokens: int = 3,
     answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
+    question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
 ):
     hypernet.eval()
     total = 0
@@ -1006,6 +1044,7 @@ def evaluate(
             answer_prefix_tokens=answer_prefix_tokens,
             answer_phrase_weight=answer_phrase_weight,
             injection_mode=injection_mode,
+            question_conditioned_memory=question_conditioned_memory,
         )
         if out is None:
             continue
@@ -1045,6 +1084,7 @@ def evaluate_groups(
     answer_prefix_tokens: int = 3,
     answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
+    question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
 ):
     hypernet.eval()
     total = 0
@@ -1067,6 +1107,7 @@ def evaluate_groups(
             answer_prefix_tokens,
             answer_phrase_weight,
             injection_mode,
+            question_conditioned_memory,
         )
         if out is None:
             continue
@@ -1105,6 +1146,7 @@ def evaluate_merge_groups(
     answer_prefix_tokens: int = 3,
     answer_phrase_weight: float = 0.0,
     injection_mode: str = "attention",
+    question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
 ):
     hypernet.eval()
     total = 0
@@ -1128,6 +1170,7 @@ def evaluate_merge_groups(
             answer_prefix_tokens,
             answer_phrase_weight,
             injection_mode,
+            question_conditioned_memory,
         )
         if out is None:
             continue
@@ -1264,6 +1307,7 @@ def evaluate_generation(
     max_new_tokens: int,
     alpha: float,
     injection_mode: str = "attention",
+    question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
 ):
     """Small fixed free-generation probe for plotting service behavior.
 
@@ -1277,8 +1321,24 @@ def evaluate_generation(
     for example in examples:
         if not (example.negative_passage and example.negative_answer):
             continue
-        main_mem = encode_memory(model, tokenizer, hypernet, example.passage, device, question=example.question)
-        neg_mem = encode_memory(model, tokenizer, hypernet, example.negative_passage, device, question=example.question)
+        main_mem = encode_memory(
+            model,
+            tokenizer,
+            hypernet,
+            example.passage,
+            device,
+            question=example.question,
+            question_conditioned=question_conditioned_memory,
+        )
+        neg_mem = encode_memory(
+            model,
+            tokenizer,
+            hypernet,
+            example.negative_passage,
+            device,
+            question=example.question,
+            question_conditioned=question_conditioned_memory,
+        )
         main_gen = generate_with_kv(
             model,
             tokenizer,
@@ -1513,8 +1573,54 @@ def orthomerge_output_path(path):
     return path.with_name(name)
 
 
+def tagged_output_path(path, suffix: str):
+    suffix = str(suffix or "").strip().strip("_")
+    if not suffix:
+        return path
+    name = path.name
+    if "_memory_" in name:
+        name = name.replace("_memory_", f"_{suffix}_memory_", 1)
+    else:
+        name = f"{path.stem}_{suffix}{path.suffix}"
+    return path.with_name(name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model",
+        default="",
+        help=(
+            "Base HF model name for a fresh run. Existing checkpoints still "
+            "resume with the model stored in their config."
+        ),
+    )
+    parser.add_argument(
+        "--output-suffix",
+        default="",
+        help=(
+            "Insert a suffix into checkpoint/weights/log filenames so lower-model "
+            "experiments do not overwrite existing 7B runs."
+        ),
+    )
+    parser.add_argument(
+        "--critical-layer",
+        type=int,
+        default=-1,
+        help=(
+            "Override the injection layer for a fresh run. Existing checkpoints "
+            "still resume with the layer stored in their config."
+        ),
+    )
+    parser.add_argument(
+        "--question-conditioned-memory",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Include the question text in the HyperKV memory input. "
+            "--no-question-conditioned-memory gives the passage-token-only baseline."
+        ),
+    )
     parser.add_argument("--train", default=str(AUGMENTED_TRAIN_PATH))
     parser.add_argument("--valid", default=str(AUGMENTED_VALID_PATH))
     parser.add_argument(
@@ -1784,6 +1890,9 @@ def main() -> None:
         checkpoint_path = orthomerge_output_path(checkpoint_path)
         weights_path = orthomerge_output_path(weights_path)
         log_path = orthomerge_output_path(log_path)
+    checkpoint_path = tagged_output_path(checkpoint_path, args.output_suffix)
+    weights_path = tagged_output_path(weights_path, args.output_suffix)
+    log_path = tagged_output_path(log_path, args.output_suffix)
 
     resume_checkpoint_config = {}
     if args.resume and checkpoint_path.exists():
@@ -1798,11 +1907,21 @@ def main() -> None:
         except Exception as exc:  # pragma: no cover - defensive logging for corrupted weights.
             print(f"[PRAG:train] could not inspect init-weights config before model load: {exc}")
     effective_source_config = resume_checkpoint_config or init_weights_config
-    effective_model_name = str(effective_source_config.get("model") or MODEL_NAME)
+    effective_model_name = str(effective_source_config.get("model") or args.model or MODEL_NAME)
+    question_conditioned_memory = (
+        bool(effective_source_config["question_conditioned_memory"])
+        if args.question_conditioned_memory is None and "question_conditioned_memory" in effective_source_config
+        else (QUESTION_CONDITIONED_MEMORY if args.question_conditioned_memory is None else bool(args.question_conditioned_memory))
+    )
     model, tokenizer = load_model(effective_model_name)
     device = next(model.parameters()).device
     critical_layer_path = KORQUAD_SERVICE_CRITICAL_LAYERS_PATH if (args.korquad_service or args.mixed_kor_service) else None
-    layer_idx = int(effective_source_config.get("critical_layer", load_critical_layer(critical_layer_path)))
+    layer_idx = int(
+        effective_source_config.get(
+            "critical_layer",
+            args.critical_layer if args.critical_layer >= 0 else load_critical_layer(critical_layer_path),
+        )
+    )
     target_layer = model.model.layers[layer_idx]
     if args.mixed_kor_service:
         mixed_train_paths = [MULTIFACT_AUGMENTED_TRAIN_PATH, KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH]
@@ -1929,7 +2048,7 @@ def main() -> None:
         "hidden_dim": HIDDEN_DIM,
         "feature_dim": model.config.hidden_size * (2 if USE_CONTEXTUAL_MEMORY else 1),
         "use_contextual_memory": USE_CONTEXTUAL_MEMORY,
-        "question_conditioned_memory": QUESTION_CONDITIONED_MEMORY,
+        "question_conditioned_memory": question_conditioned_memory,
         "injection_mode": args.injection_mode,
         "alpha": ALPHA,
         "objective": "atomic_final_ce_plus_negative_flip",
@@ -2016,6 +2135,7 @@ def main() -> None:
         "max_new_tokens": args.eval_generation_max_new_tokens,
         "alpha": ALPHA,
         "injection_mode": args.injection_mode,
+        "question_conditioned_memory": question_conditioned_memory,
         "note": "Free-generation probe is intentionally outside checkpoint config so resume compatibility is stable.",
     }
     previous_runtime_sec = round(
@@ -2053,6 +2173,7 @@ def main() -> None:
                     answer_prefix_tokens=args.answer_prefix_tokens,
                     answer_phrase_weight=args.answer_phrase_weight,
                     injection_mode=args.injection_mode,
+                    question_conditioned_memory=question_conditioned_memory,
                 )
                 if out is not None:
                     out["objective"] = out["objective"] * args.merge_weight
@@ -2074,6 +2195,7 @@ def main() -> None:
                     answer_prefix_tokens=args.answer_prefix_tokens,
                     answer_phrase_weight=args.answer_phrase_weight,
                     injection_mode=args.injection_mode,
+                    question_conditioned_memory=question_conditioned_memory,
                 )
                 if out is not None:
                     out["objective"] = out["objective"] * args.group_weight
@@ -2093,6 +2215,7 @@ def main() -> None:
                     answer_prefix_tokens=args.answer_prefix_tokens,
                     answer_phrase_weight=args.answer_phrase_weight,
                     injection_mode=args.injection_mode,
+                    question_conditioned_memory=question_conditioned_memory,
                 )
                 if out is not None and getattr(item, "qa_type", "") == "final":
                     out["objective"] = out["objective"] * args.final_weight
@@ -2180,6 +2303,7 @@ def main() -> None:
                     args.answer_prefix_tokens,
                     args.answer_phrase_weight,
                     args.injection_mode,
+                    question_conditioned_memory,
                 )
                 group_metrics = evaluate_groups(
                     model,
@@ -2198,6 +2322,7 @@ def main() -> None:
                     args.answer_prefix_tokens,
                     args.answer_phrase_weight,
                     args.injection_mode,
+                    question_conditioned_memory,
                 ) if valid_eval_groups and args.group_weight > 0 else None
                 merge_metrics = evaluate_merge_groups(
                     model,
@@ -2217,6 +2342,7 @@ def main() -> None:
                     args.answer_prefix_tokens,
                     args.answer_phrase_weight,
                     args.injection_mode,
+                    question_conditioned_memory,
                 ) if valid_eval_groups and args.merge_aware and args.merge_weight > 0 else None
                 selection_objective = metrics["objective"]
                 if merge_metrics is not None:
@@ -2255,6 +2381,7 @@ def main() -> None:
                         max_new_tokens=args.eval_generation_max_new_tokens,
                         alpha=ALPHA,
                         injection_mode=args.injection_mode,
+                        question_conditioned_memory=question_conditioned_memory,
                     )
                     print(
                         f"  -- [PRAG:gen-val @ {step}] count={generation_metrics['count']} | "
@@ -2311,6 +2438,7 @@ def main() -> None:
         args.answer_prefix_tokens,
         args.answer_phrase_weight,
         args.injection_mode,
+        question_conditioned_memory,
     )
     group_metrics = evaluate_groups(
         model,
@@ -2329,6 +2457,7 @@ def main() -> None:
         args.answer_prefix_tokens,
         args.answer_phrase_weight,
         args.injection_mode,
+        question_conditioned_memory,
     ) if valid_eval_groups and args.group_weight > 0 else None
     merge_metrics = evaluate_merge_groups(
         model,
@@ -2348,6 +2477,7 @@ def main() -> None:
         args.answer_prefix_tokens,
         args.answer_phrase_weight,
         args.injection_mode,
+        question_conditioned_memory,
     ) if valid_eval_groups and args.merge_aware and args.merge_weight > 0 else None
     selection_objective = metrics["objective"]
     if merge_metrics is not None:
@@ -2366,6 +2496,7 @@ def main() -> None:
             max_new_tokens=args.eval_generation_max_new_tokens,
             alpha=ALPHA,
             injection_mode=args.injection_mode,
+            question_conditioned_memory=question_conditioned_memory,
         )
         print(
             f"[PRAG:gen-final] count={final_generation_metrics['count']} | "
