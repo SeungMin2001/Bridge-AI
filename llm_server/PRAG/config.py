@@ -11,9 +11,9 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parents[2]
 DATA_DIR = Path(os.getenv("PRAG_DATA_DIR", str(PROJECT_ROOT / "data")))
 
-# Match the MergePRAG author-code Qwen setting by default. Keep env overrides
-# available for smaller local smoke tests or ablations.
-MODEL_NAME = os.getenv("PRAG_MODEL_NAME", os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-7B"))
+# Fix the PRAG training target to Qwen2.5-7B. Windows user-level env vars from
+# older 3B runs can otherwise silently override the intended model in new shells.
+MODEL_NAME = "Qwen/Qwen2.5-7B"
 AUGMENT_MODEL_NAME = os.getenv("PRAG_AUGMENT_MODEL_NAME", MODEL_NAME)
 
 DIVERSE_SOURCE_PATH = Path(os.getenv("PRAG_DIVERSE_SOURCE_PATH", str(DATA_DIR / "PRAG_diverse_sources.jsonl")))
