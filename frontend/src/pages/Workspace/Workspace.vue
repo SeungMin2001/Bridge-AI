@@ -173,6 +173,15 @@ const highlightedTranscript = computed(() => {
 
   return escapeHtml(fullText)
 })
+
+const currentCitationTitle = computed(() => (
+  currentCite.value?.recording_title
+  || currentCite.value?.session_title
+  || currentCite.value?.file_title
+  || 'AI 분석 결과'
+))
+
+const currentCitationLabel = computed(() => currentCite.value?.citation || '연결된 전사')
 </script>
 
 <template>
@@ -306,21 +315,26 @@ const highlightedTranscript = computed(() => {
           class="cite-popover"
           :style="{ left: citePopoverPos.x + 'px', top: citePopoverPos.y + 'px' }"
         >
-          <!-- 헤더 -->
-          <div class="flex items-center justify-between mb-5 px-1">
-            <div class="flex items-center gap-3">
+          <div class="cite-popover-header">
+            <div class="cite-popover-title">
               <div class="cite-popover-badge">
-                <span class="material-symbols-outlined text-[15px]">fact_check</span>
+                <span class="material-symbols-outlined">fact_check</span>
               </div>
-              <span class="font-bold text-[#1c1c1e] text-[18px] tracking-tight">근거 정보</span>
+              <div>
+                <span>근거 정보</span>
+                <p>{{ currentCitationLabel }}</p>
+              </div>
             </div>
-            <button class="cite-popover-close-btn" @click="closeCitePopover">
-              <span class="material-symbols-outlined text-[20px]">close</span>
+            <button class="cite-popover-close-btn" aria-label="근거 정보 닫기" @click="closeCitePopover">
+              <span class="material-symbols-outlined">close</span>
             </button>
           </div>
 
-          <!-- 본문 (스크롤 영역) -->
-          <div class="flex-1 overflow-y-auto mb-6 px-1 custom-scrollbar" style="max-height: 400px;">
+          <div class="cite-transcript-scroll custom-scrollbar">
+            <div class="cite-transcript-kicker">
+              <span class="material-symbols-outlined">subject</span>
+              <span>발췌 원문</span>
+            </div>
             <div 
               class="cite-transcript-body whitespace-pre-wrap break-keep"
               v-html="highlightedTranscript"
@@ -328,23 +342,20 @@ const highlightedTranscript = computed(() => {
             </div>
           </div>
 
-          <!-- 구분선 -->
-          <div class="cite-popover-divider"></div>
-
-          <!-- 출처 정보 -->
           <div class="cite-source-wrap shrink-0">
-            <div class="flex items-center gap-2">
-              <span class="material-symbols-outlined text-[15px] text-[#8e8e93]">link</span>
-              <span class="font-bold text-[#8e8e93] text-[11px] uppercase tracking-wider">Source</span>
-              <button
-                type="button"
-                class="cite-source-title"
-                @click="openCitationSource(currentCite)"
-                :title="currentCite?.file_title || currentCite?.session_title || ''"
-              >
-                {{ currentCite?.recording_title || currentCite?.session_title || 'AI 분석 결과' }}
-              </button>
-            </div>
+            <button
+              type="button"
+              class="cite-source-title"
+              @click="openCitationSource(currentCite)"
+              :title="currentCite?.file_title || currentCite?.session_title || ''"
+            >
+              <span class="material-symbols-outlined">folder_open</span>
+              <span>
+                <small>출처</small>
+                <strong>{{ currentCitationTitle }}</strong>
+              </span>
+              <span class="material-symbols-outlined cite-source-arrow">open_in_new</span>
+            </button>
           </div>
         </div>
       </div>
@@ -530,53 +541,152 @@ const highlightedTranscript = computed(() => {
 
 .cite-popover {
   position: fixed;
-  width: 360px;
-  background: linear-gradient(160deg, rgba(246, 240, 232, 0.94), rgba(241, 233, 223, 0.72));
-  border-radius: 24px;
-  box-shadow: 0 24px 48px rgba(148, 163, 184, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.82);
+  width: min(340px, calc(100vw - 32px));
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 22px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.16), 0 1px 0 rgba(255, 255, 255, 0.86) inset;
+  border: 1px solid rgba(226, 232, 240, 0.88);
   display: flex;
   flex-direction: column;
-  padding: 18px;
+  padding: 16px;
   transform-origin: right top;
-  backdrop-filter: blur(22px) saturate(145%);
-  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+
+.cite-popover-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.84);
+}
+
+.cite-popover-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cite-popover-title span:not(.material-symbols-outlined) {
+  display: block;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.cite-popover-title p {
+  max-width: 220px;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cite-transcript-scroll {
+  max-height: 320px;
+  margin: 12px 0;
+  overflow-y: auto;
+  padding: 1px 2px 2px;
+}
+
+.cite-transcript-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cite-transcript-kicker .material-symbols-outlined {
+  font-size: 15px;
 }
 
 :deep(.cite-highlighted-script) {
-  background: #ffeb3b;
+  background: rgba(253, 224, 71, 0.42);
   color: #111827;
-  font-weight: 900;
-  border-radius: 5px;
-  padding: 1px 5px;
+  font-weight: 850;
+  border-radius: 6px;
+  padding: 2px 4px;
   margin: 0 -2px;
-  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.45), 0 4px 14px rgba(255, 193, 7, 0.28);
+  box-shadow: none;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
 
 .cite-transcript-body {
-  color: #343437;
+  color: #1f2937;
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.65;
+  line-height: 1.7;
 }
 
 .cite-source-title {
+  width: 100%;
   min-width: 0;
-  color: #374151;
-  font-size: 12px;
-  font-weight: 800;
-  margin-left: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  color: #334155;
+  text-align: left;
   cursor: pointer;
 }
 
+.cite-source-title > .material-symbols-outlined:first-child {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+  font-size: 17px;
+  border-radius: 10px;
+  background: #f1f5f9;
+}
+
+.cite-source-title small {
+  display: block;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+}
+
+.cite-source-title strong {
+  display: block;
+  margin-top: 3px;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cite-source-title:hover {
-  color: #111827;
+  color: #0f172a;
+}
+
+.cite-source-title:hover strong {
   text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.cite-source-arrow {
+  color: #94a3b8;
+  font-size: 17px;
 }
 
 /* 애니메이션 개선 */
@@ -596,51 +706,49 @@ const highlightedTranscript = computed(() => {
 }
 
 .cite-popover-badge {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6b7280;
-  background: linear-gradient(180deg, rgba(250,246,240,0.96), rgba(242,235,226,0.76));
-  border: 1px solid rgba(255,255,255,0.84);
-  box-shadow: 0 12px 24px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255,255,255,0.96);
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+}
+
+.cite-popover-badge .material-symbols-outlined {
+  font-size: 18px;
 }
 
 .cite-popover-close-btn {
-  color: #8e8e93;
-  background: rgba(248,244,238,0.48);
-  border: 1px solid rgba(255,255,255,0.72);
-  padding: 6px;
+  width: 32px;
+  height: 32px;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   transition: all 0.2s ease;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 .cite-popover-close-btn:hover {
-  background: rgba(250,246,240,0.78);
-  color: #1c1c1e;
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
-.cite-popover-divider {
-  width: 100%;
-  height: 1px;
-  margin-bottom: 12px;
-  background: linear-gradient(90deg, rgba(255,255,255,0), rgba(206,212,218,0.7), rgba(255,255,255,0));
-  flex-shrink: 0;
+.cite-popover-close-btn .material-symbols-outlined {
+  font-size: 20px;
 }
 
 .cite-source-wrap {
-  padding: 10px 12px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(249,244,238,0.78), rgba(241,233,224,0.56));
-  border: 1px solid rgba(255,255,255,0.78);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.94);
+  padding: 10px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
 }
 
 /* 팝오버 스크롤바 디자인 */
