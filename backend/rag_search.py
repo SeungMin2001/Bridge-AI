@@ -350,18 +350,18 @@ def init():
         _vector_store = None
         _index = None
         _initialized = True
-        logger.warning("[RAG] 초기화 실패; 벡터 검색 비활성화: %s", exc)
+        # logger.warning("[RAG] 초기화 실패; 벡터 검색 비활성화: %s", exc)
 
 
 def add_document(text: str, metadata: dict):
     """실시간 전사 chunk를 임베딩하여 vector store에 추가"""
     init()
     if _index is None:
-        logger.warning("[RAG] 벡터 스토어 미초기화로 문서 추가 스킵")
+        # logger.warning("[RAG] 벡터 스토어 미초기화로 문서 추가 스킵")
         return
     doc = Document(text=text, metadata=metadata)
     _index.insert(doc)
-    print(f"[RAG] 문서 추가됨: {text[:30]}...")
+    # print(f"[RAG] 문서 추가됨: {text[:30]}...")
 
 
 # ── 키워드(BM25 대용) 검색: DB에서 직접 텍스트 매칭 ──
