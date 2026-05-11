@@ -14,9 +14,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import (
     ALPHA,
+    KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH,
     KORQUAD_SERVICE_AUGMENTED_VALID_PATH,
     KORQUAD_SERVICE_WEIGHTS_PATH,
+    MIXED_KOR_SERVICE_WEIGHTS_PATH,
     MODEL_NAME,
+    MULTIFACT_AUGMENTED_TRAIN_PATH,
     MULTIFACT_AUGMENTED_VALID_PATH,
     MULTIFACT_WEIGHTS_PATH,
     TRANSCRIPT_WEIGHTS_PATH,
@@ -24,7 +27,7 @@ from .config import (
     contains_hangul,
     load_critical_layer,
 )
-from .data import MemoryExample, load_augmented_examples
+from .data import MemoryExample, load_augmented_examples, load_augmented_groups
 from .memory import (
     HyperKVGenerator,
     build_chat_prompt,
@@ -39,7 +42,7 @@ from .memory import (
     uses_chat_prompt,
 )
 from .prompts import system_prompt, user_prompt
-from .train import answer_phrase_candidates, compute_answer_phrase_loss
+from .train import answer_phrase_candidates, compute_answer_phrase_loss, select_merge_passages_for_qa
 
 
 SYNTHETIC_CASES = {
@@ -314,9 +317,14 @@ def has_equals_pattern(example: MemoryExample) -> bool:
     return "=" in f"{example.question}\n{example.passage}\n{example.answer}\n{example.negative_passage or ''}\n{example.negative_answer or ''}"
 
 
-def example_to_case(example: MemoryExample, index: int) -> dict:
+def split_data_paths(path: str) -> list[str]:
+    """Support mixed diagnostics with semicolon-separated JSONL paths."""
+    return [item.strip() for item in str(path).split(";") if item.strip()]
+
+
+def example_to_case(example: MemoryExample, index: int, *, merge_passages: list[str] | None = None) -> dict:
     negative_answer = example.negative_answer or "__NO_NEGATIVE__"
-    return {
+    case = {
         "name": f"dataset_ko_{index}_{example.qa_type}",
         "source_id": example.source_id,
         "qa_type": example.qa_type,
@@ -329,27 +337,51 @@ def example_to_case(example: MemoryExample, index: int) -> dict:
         "negative_full_answer": example.negative_full_answer or "",
         "hit_phrases": [example.answer],
     }
+    cleaned_merge_passages = [passage.strip() for passage in (merge_passages or []) if passage and passage.strip()]
+    if cleaned_merge_passages:
+        # Match merge-aware training: the first selected chunk is the anchor,
+        # the remaining chunks are orthogonally merged into the same memory.
+        case["source_passage"] = example.passage
+        case["main_passage"] = cleaned_merge_passages[0]
+        case["merge_passages"] = cleaned_merge_passages[1:]
+    return case
 
 
-def load_dataset_cases(path: str, *, case_index: int, max_cases: int) -> list[dict]:
-    examples = load_augmented_examples(path)
-    good = [ex for ex in examples if is_good_single_case(ex)]
-    no_equals = [ex for ex in good if not has_equals_pattern(ex)]
-    selected = no_equals or good
-    if not selected:
-        selected = [
-            ex
-            for ex in examples
-            if contains_hangul(f"{ex.question}\n{ex.passage}\n{ex.answer}")
-            and ex.question
-            and ex.answer
-            and ex.passage
-        ]
-    if not selected:
+def load_dataset_cases(path: str, *, case_index: int, max_cases: int, merge_max_passages: int = 4) -> list[dict]:
+    selected_with_merges: list[tuple[MemoryExample, list[str]]] = []
+    for data_path in split_data_paths(path):
+        examples = load_augmented_examples(data_path)
+        merge_by_source: dict[str, list[str]] = {}
+        for group in load_augmented_groups(data_path):
+            for qa in group.qas:
+                merge_by_source[qa.source_id] = select_merge_passages_for_qa(
+                    group,
+                    qa,
+                    max_passages=merge_max_passages,
+                )
+
+        good = [ex for ex in examples if is_good_single_case(ex)]
+        no_equals = [ex for ex in good if not has_equals_pattern(ex)]
+        selected = no_equals or good
+        if not selected:
+            selected = [
+                ex
+                for ex in examples
+                if contains_hangul(f"{ex.question}\n{ex.passage}\n{ex.answer}")
+                and ex.question
+                and ex.answer
+                and ex.passage
+            ]
+        selected_with_merges.extend((ex, merge_by_source.get(ex.source_id, [])) for ex in selected)
+
+    if not selected_with_merges:
         raise ValueError(f"No Korean dataset examples found in {path}")
-    start = min(max(case_index, 0), max(len(selected) - 1, 0))
-    end = min(start + max_cases, len(selected))
-    return [example_to_case(ex, idx) for idx, ex in enumerate(selected[start:end], start=start)]
+    start = min(max(case_index, 0), max(len(selected_with_merges) - 1, 0))
+    end = min(start + max_cases, len(selected_with_merges))
+    return [
+        example_to_case(ex, idx, merge_passages=merge_passages)
+        for idx, (ex, merge_passages) in enumerate(selected_with_merges[start:end], start=start)
+    ]
 
 
 def load_model(model_name: str = MODEL_NAME):
@@ -956,6 +988,11 @@ def main() -> None:
         action="store_true",
         help="Use KorQuAD professor-style service transcript weights.",
     )
+    parser.add_argument(
+        "--mixed-kor-service",
+        action="store_true",
+        help="Use mixed clean-Korean multifact + KorQuAD-service weights/data.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--alpha", type=float, default=ALPHA)
     parser.add_argument(
@@ -966,8 +1003,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--data",
-        default=str(MULTIFACT_AUGMENTED_VALID_PATH),
+        default=None,
         help="Augmented valid JSONL used when --case-mode includes dataset examples.",
+    )
+    parser.add_argument(
+        "--split",
+        choices=("train", "valid"),
+        default="valid",
+        help="Dataset split to use when --data is omitted.",
     )
     parser.add_argument(
         "--case-mode",
@@ -1024,6 +1067,15 @@ def main() -> None:
         help="Number of dataset cases to run from --case-index.",
     )
     parser.add_argument(
+        "--dataset-merge-max-passages",
+        type=int,
+        default=4,
+        help=(
+            "For dataset diagnostics, rebuild the same train-time orthogonal-merge chunks "
+            "from each source group. Use 1 to fall back to single-passage injection."
+        ),
+    )
+    parser.add_argument(
         "--prompt-style",
         choices=("service", "short-chat", "memory-cued", "paper", "all"),
         default="service",
@@ -1052,6 +1104,8 @@ def main() -> None:
 
     if args.singlefact and not explicit_weights:
         args.weights = str(WEIGHTS_PATH)
+    elif args.mixed_kor_service and not explicit_weights:
+        args.weights = str(MIXED_KOR_SERVICE_WEIGHTS_PATH)
     elif args.korquad_service and not explicit_weights:
         args.weights = str(KORQUAD_SERVICE_WEIGHTS_PATH)
     elif args.transcript and not explicit_weights:
@@ -1061,11 +1115,26 @@ def main() -> None:
     elif args.weights is None:
         args.weights = str(MULTIFACT_WEIGHTS_PATH)
 
-    if args.korquad_service:
-        args.data = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
+    if args.data is None:
+        if args.mixed_kor_service:
+            multifact_path = MULTIFACT_AUGMENTED_TRAIN_PATH if args.split == "train" else MULTIFACT_AUGMENTED_VALID_PATH
+            korquad_service_path = (
+                KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH
+                if args.split == "train"
+                else KORQUAD_SERVICE_AUGMENTED_VALID_PATH
+            )
+            args.data = f"{multifact_path};{korquad_service_path}"
+        elif args.korquad_service:
+            args.data = str(
+                KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH
+                if args.split == "train"
+                else KORQUAD_SERVICE_AUGMENTED_VALID_PATH
+            )
+        else:
+            args.data = str(MULTIFACT_AUGMENTED_TRAIN_PATH if args.split == "train" else MULTIFACT_AUGMENTED_VALID_PATH)
 
     if args.case_mode is None:
-        args.case_mode = "dataset" if args.korquad_service else "synthetic"
+        args.case_mode = "dataset" if (args.korquad_service or args.mixed_kor_service) else "synthetic"
 
     state = torch.load(Path(args.weights), map_location="cpu")
     config = state.get("config", {})
@@ -1112,12 +1181,22 @@ def main() -> None:
     elif args.case_mode == "service-set":
         cases = SERVICE_SET_CASES[: max(args.max_cases, 1)]
     elif args.case_mode == "dataset":
-        cases = load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases)
+        cases = load_dataset_cases(
+            args.data,
+            case_index=args.case_index,
+            max_cases=args.max_cases,
+            merge_max_passages=args.dataset_merge_max_passages,
+        )
     elif args.case_mode == "synthetic":
         cases = select_synthetic_cases(args.synthetic_case)
     else:
         cases = (
-            load_dataset_cases(args.data, case_index=args.case_index, max_cases=args.max_cases)
+            load_dataset_cases(
+                args.data,
+                case_index=args.case_index,
+                max_cases=args.max_cases,
+                merge_max_passages=args.dataset_merge_max_passages,
+            )
             + select_synthetic_cases(args.synthetic_case)
         )
 
