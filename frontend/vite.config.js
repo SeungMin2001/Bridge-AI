@@ -27,10 +27,26 @@ export default defineConfig(async () => {
   // 로컬 백엔드 상태 확인
   const isLocalAlive = await checkLocalBackend();
 
+  // 원격 백엔드 fallback이 필요할 때 아래 코드를 다시 활성화하세요.
+  // const checkRemote = () => new Promise(res => {
+  //   const s = new net.Socket();
+  //   s.setTimeout(500).on('connect', () => { s.destroy(); res(true); })
+  //     .on('error', () => res(false)).on('timeout', () => res(false)).connect(8000, '100.104.164.84');
+  // });
+
   // 127.0.0.1이 켜져있으면 우선 사용, 안 되면 환경변수(Docker) 사용
   const backendUrl = isLocalAlive
     ? 'http://127.0.0.1:8000'
     : (process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000');
+
+  // 원격 백엔드 fallback 포함 버전:
+  // const backendUrl = isLocalAlive
+  //   ? 'http://127.0.0.1:8000'
+  //   : process.env.VITE_BACKEND_URL
+  //     ? process.env.VITE_BACKEND_URL
+  //     : (await checkRemote())
+  //       ? 'http://100.104.164.84:8000'
+  //       : 'http://127.0.0.1:8000';
 
   const backendWsUrl = backendUrl.replace(/^http/, 'ws');
 
