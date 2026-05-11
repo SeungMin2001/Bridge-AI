@@ -8,6 +8,7 @@ import random
 import re
 import time
 from datetime import datetime
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -77,6 +78,7 @@ from .config import (
     USE_CONTEXTUAL_MEMORY,
     WEIGHTS_PATH,
     contains_hangul,
+    critical_layers_path_for_run,
     load_critical_layer,
 )
 from .data import MemoryExample, MemoryGroup, jsonl_snapshot, load_augmented_examples, load_augmented_groups
@@ -1585,6 +1587,57 @@ def tagged_output_path(path, suffix: str):
     return path.with_name(name)
 
 
+def read_critical_layer_file(path, model_name: str) -> int | None:
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[PRAG:train] skip critical layer file={path}: {exc}")
+        return None
+    stored_model = data.get("model")
+    if stored_model and str(stored_model) != str(model_name):
+        print(f"[PRAG:train] skip critical layer file={path}: model={stored_model!r} != {model_name!r}")
+        return None
+    layers = data.get("critical_layers") or []
+    if not layers:
+        print(f"[PRAG:train] skip critical layer file={path}: no critical_layers")
+        return None
+    return int(layers[0])
+
+
+def auto_critical_layer(args, model_name: str, question_conditioned_memory: bool) -> int:
+    candidates = []
+    if args.mixed_kor_service:
+        candidates.append(
+            critical_layers_path_for_run(
+                model_name=model_name,
+                mixed_kor_service=True,
+                question_conditioned_memory=question_conditioned_memory,
+            )
+        )
+        candidates.append(KORQUAD_SERVICE_CRITICAL_LAYERS_PATH.with_name("critical_layers_mixed_kor_service.json"))
+    elif args.korquad_service:
+        candidates.append(
+            critical_layers_path_for_run(
+                model_name=model_name,
+                korquad_service=True,
+                question_conditioned_memory=question_conditioned_memory,
+            )
+        )
+        candidates.append(KORQUAD_SERVICE_CRITICAL_LAYERS_PATH)
+    for path in candidates:
+        layer = read_critical_layer_file(path, model_name)
+        if layer is not None:
+            print(f"[PRAG:train] auto critical_layer={layer} from {path}")
+            return layer
+    fallback_path = candidates[0] if candidates else None
+    fallback = load_critical_layer(fallback_path, model_name=model_name)
+    print(f"[PRAG:train] auto critical_layer fallback={fallback} (no matching scan result)")
+    return fallback
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -1915,11 +1968,12 @@ def main() -> None:
     )
     model, tokenizer = load_model(effective_model_name)
     device = next(model.parameters()).device
-    critical_layer_path = KORQUAD_SERVICE_CRITICAL_LAYERS_PATH if (args.korquad_service or args.mixed_kor_service) else None
     layer_idx = int(
         effective_source_config.get(
             "critical_layer",
-            args.critical_layer if args.critical_layer >= 0 else load_critical_layer(critical_layer_path),
+            args.critical_layer
+            if args.critical_layer >= 0
+            else auto_critical_layer(args, effective_model_name, question_conditioned_memory),
         )
     )
     target_layer = model.model.layers[layer_idx]

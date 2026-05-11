@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 
@@ -150,7 +151,38 @@ def contains_hangul(text: str) -> bool:
     return any("\uac00" <= ch <= "\ud7a3" for ch in str(text or ""))
 
 
-def load_critical_layer(path: Path | None = None) -> int:
+def model_path_tag(model_name: str | None = None) -> str:
+    """Stable filename tag for model-specific scan/training artifacts."""
+    name = str(model_name or MODEL_NAME).lower()
+    replacements = {
+        "qwen/qwen2.5-": "qwen25_",
+        "qwen/qwen2-": "qwen2_",
+        "qwen/": "qwen_",
+    }
+    for source, target in replacements.items():
+        name = name.replace(source, target)
+    return re.sub(r"[^a-z0-9]+", "_", name).strip("_") or "model"
+
+
+def critical_layers_path_for_run(
+    *,
+    model_name: str | None = None,
+    korquad_service: bool = False,
+    mixed_kor_service: bool = False,
+    question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
+) -> Path:
+    """Return the condition-specific layer-scan path used by train/scan."""
+    if mixed_kor_service:
+        stem = "critical_layers_mixed_kor_service"
+    elif korquad_service:
+        stem = "critical_layers_korquad_service"
+    else:
+        stem = "critical_layers"
+    memory_tag = "qp" if question_conditioned_memory else "ponly"
+    return BASE_DIR / f"{stem}_{model_path_tag(model_name)}_{memory_tag}.json"
+
+
+def load_critical_layer(path: Path | None = None, *, model_name: str | None = None) -> int:
     env_layer = os.getenv("PRAG_CRITICAL_LAYER")
     if env_layer is not None:
         return int(env_layer)
@@ -159,7 +191,8 @@ def load_critical_layer(path: Path | None = None) -> int:
         return DEFAULT_CRITICAL_LAYER
     try:
         data = json.loads(layers_path.read_text(encoding="utf-8"))
-        if data.get("model") and data["model"] != MODEL_NAME:
+        expected_model = model_name or MODEL_NAME
+        if data.get("model") and data["model"] != expected_model:
             return DEFAULT_CRITICAL_LAYER
         layers = data.get("critical_layers") or []
         return int(layers[0]) if layers else DEFAULT_CRITICAL_LAYER

@@ -40,6 +40,7 @@ from .config import (
     NUM_KV,
     QUESTION_CONDITIONED_MEMORY,
     USE_CONTEXTUAL_MEMORY,
+    critical_layers_path_for_run,
 )
 from .data import MemoryExample, load_augmented_examples
 from .memory import HyperKVGenerator, encode_memory, forward_with_memory, tokenize_qa
@@ -365,6 +366,12 @@ def main():
     )
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
+    default_output = str(CRITICAL_LAYERS_PATH)
+    question_conditioned_memory = (
+        QUESTION_CONDITIONED_MEMORY
+        if args.question_conditioned_memory is None
+        else bool(args.question_conditioned_memory)
+    )
 
     if args.multifact:
         args.train = str(MULTIFACT_AUGMENTED_TRAIN_PATH)
@@ -372,21 +379,28 @@ def main():
     if args.korquad_service:
         args.train = str(KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH)
         args.valid = str(KORQUAD_SERVICE_AUGMENTED_VALID_PATH)
-        if args.output == str(CRITICAL_LAYERS_PATH):
-            args.output = str(KORQUAD_SERVICE_CRITICAL_LAYERS_PATH)
+        if args.output == default_output:
+            args.output = str(
+                critical_layers_path_for_run(
+                    model_name=args.model,
+                    korquad_service=True,
+                    question_conditioned_memory=question_conditioned_memory,
+                )
+            )
     if args.mixed_kor_service:
         args.clean_ko_only = True
         args.train = f"{MULTIFACT_AUGMENTED_TRAIN_PATH};{KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH}"
         args.valid = f"{MULTIFACT_AUGMENTED_VALID_PATH};{KORQUAD_SERVICE_AUGMENTED_VALID_PATH}"
-        if args.output == str(CRITICAL_LAYERS_PATH):
-            args.output = str(CRITICAL_LAYERS_PATH.with_name("critical_layers_mixed_kor_service.json"))
+        if args.output == default_output:
+            args.output = str(
+                critical_layers_path_for_run(
+                    model_name=args.model,
+                    mixed_kor_service=True,
+                    question_conditioned_memory=question_conditioned_memory,
+                )
+            )
     if args.clean_ko_only:
         args.ko_only = True
-    question_conditioned_memory = (
-        QUESTION_CONDITIONED_MEMORY
-        if args.question_conditioned_memory is None
-        else bool(args.question_conditioned_memory)
-    )
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
