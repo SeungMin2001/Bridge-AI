@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import string
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,6 +112,8 @@ def fmt(value) -> str:
 
 
 EVAL_TOKEN_RE = re.compile(r"[0-9A-Za-z가-힣]+")
+ENGLISH_ARTICLES_RE = re.compile(r"\b(a|an|the)\b", flags=re.IGNORECASE)
+PUNCT_TABLE = str.maketrans("", "", string.punctuation + "“”‘’·…，。！？、；：「」『』（）《》〈〉【】")
 QUESTION_STOPWORDS = {
     "무엇인가",
     "무엇이야",
@@ -174,6 +178,24 @@ def normalize_eval_text(text: str) -> str:
     return "".join(EVAL_TOKEN_RE.findall(str(text or "").casefold()))
 
 
+def normalize_qa_answer(text: str) -> str:
+    """SQuAD/FiD-style answer normalization for EM/F1.
+
+    The original QA literature lowercases, removes punctuation/articles, and
+    collapses whitespace. We additionally use casefold for Unicode text.
+    """
+
+    normalized = str(text or "").casefold().translate(PUNCT_TABLE)
+    normalized = ENGLISH_ARTICLES_RE.sub(" ", normalized)
+    return " ".join(normalized.split())
+
+
+def compact_qa_answer(text: str) -> str:
+    """Whitespace-insensitive form used only for Korean alias matching."""
+
+    return normalize_qa_answer(text).replace(" ", "")
+
+
 def eval_tokens(text: str) -> list[str]:
     tokens = EVAL_TOKEN_RE.findall(str(text or "").casefold())
     cleaned: list[str] = []
@@ -191,6 +213,70 @@ def eval_tokens(text: str) -> list[str]:
     return cleaned
 
 
+def accepted_answers(case: dict) -> list[str]:
+    """Reference aliases, matching FiD's accepted-answer-list evaluation style."""
+
+    candidates: list[str] = []
+    for value in (
+        case.get("full_answer"),
+        case.get("main_answer"),
+        *(case.get("hit_phrases") or []),
+        *answer_phrase_candidates(case.get("main_answer", "")),
+    ):
+        if value:
+            candidates.append(str(value))
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = compact_qa_answer(candidate)
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def normalized_exact_match(prediction: str, reference: str) -> bool:
+    pred = normalize_qa_answer(prediction)
+    ref = normalize_qa_answer(reference)
+    if pred == ref:
+        return True
+    # Korean service answers often differ only in spacing.
+    return compact_qa_answer(prediction) == compact_qa_answer(reference)
+
+
+def max_normalized_em(prediction: str, references: list[str]) -> bool:
+    return any(normalized_exact_match(prediction, reference) for reference in references)
+
+
+def answer_value_hit(prediction: str, references: list[str]) -> bool:
+    pred_key = compact_qa_answer(prediction)
+    return any((ref_key := compact_qa_answer(reference)) and ref_key in pred_key for reference in references)
+
+
+def token_f1_against_reference(prediction: str, reference: str) -> float:
+    pred_tokens = eval_tokens(normalize_qa_answer(prediction))
+    ref_tokens = eval_tokens(normalize_qa_answer(reference))
+    if not pred_tokens and not ref_tokens:
+        return 1.0
+    if not pred_tokens or not ref_tokens:
+        return 0.0
+    pred_counts = Counter(pred_tokens)
+    ref_counts = Counter(ref_tokens)
+    overlap = sum((pred_counts & ref_counts).values())
+    if overlap <= 0:
+        return 0.0
+    precision = overlap / max(len(pred_tokens), 1)
+    recall = overlap / max(len(ref_tokens), 1)
+    return 2 * precision * recall / max(precision + recall, 1e-12)
+
+
+def max_token_f1(prediction: str, references: list[str]) -> float:
+    if not references:
+        return 0.0
+    return max(token_f1_against_reference(prediction, reference) for reference in references)
+
+
 def char_f1(prediction: str, reference: str) -> float:
     pred = normalize_eval_text(prediction)
     ref = normalize_eval_text(reference)
@@ -206,6 +292,23 @@ def char_f1(prediction: str, reference: str) -> float:
     precision = overlap / max(len(pred), 1)
     recall = overlap / max(len(ref), 1)
     return 2 * precision * recall / max(precision + recall, 1e-12)
+
+
+PROMPT_LEAK_MARKERS = (
+    "질문:",
+    "답변:",
+    "question:",
+    "answer:",
+    "passage:",
+    "options:",
+    "expected:",
+    "-----",
+)
+
+
+def has_prompt_leak(answer: str) -> bool:
+    lowered = str(answer or "").casefold()
+    return any(marker in lowered for marker in PROMPT_LEAK_MARKERS)
 
 
 def relation_terms(case: dict) -> list[str]:
@@ -253,20 +356,49 @@ def relation_coverage(answer: str, case: dict) -> float:
 
 
 def score_answer(answer: str, case: dict) -> dict:
-    full_answer = case.get("full_answer") or case.get("main_answer") or ""
-    phrase_hit = answer_hit(answer, case)
-    full_f1 = char_f1(answer, full_answer)
-    relation = relation_coverage(answer, case)
-    # Primary service quality: value correctness first, then relation fidelity
-    # and full-answer overlap. Loss remains a diagnostic, not the selector.
-    quality = 0.50 * float(phrase_hit) + 0.30 * relation + 0.20 * full_f1
+    references = accepted_answers(case)
+    normalized_em = max_normalized_em(answer, references)
+    qa_token_f1 = max_token_f1(answer, references)
+    # Literature-aligned QA score: common PRAG/RAG papers report EM and/or F1.
+    qa_score = 0.50 * float(normalized_em) + 0.50 * qa_token_f1
     return {
-        "phrase_hit": phrase_hit,
-        "answer_char_f1": full_f1,
-        "relation_coverage": relation,
-        "quality_score": quality,
-        "relation_terms": relation_terms(case),
+        "normalized_em": normalized_em,
+        "answer_token_f1": qa_token_f1,
+        "qa_score": qa_score,
     }
+
+
+def recall_references(case: dict) -> list[str]:
+    """Gold answer values for Recall@K over merged passages.
+
+    Unlike generation scoring, retrieval recall should check whether the
+    evidence passages contain the answer value, not necessarily the full
+    natural-language answer sentence.
+    """
+
+    candidates: list[str] = []
+    for value in (
+        *(case.get("hit_phrases") or []),
+        *answer_phrase_candidates(case.get("main_answer", "")),
+        case.get("main_answer"),
+    ):
+        if value:
+            candidates.append(str(value))
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = compact_qa_answer(candidate)
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def recall_at_k(case: dict, passages: list[str]) -> bool:
+    """Whether the selected/merged top-K passages contain the gold answer."""
+
+    return answer_value_hit("\n".join(passages), recall_references(case))
 
 
 def compare_quality(qp_score: float, ponly_score: float, tie_threshold: float) -> str:
@@ -274,6 +406,11 @@ def compare_quality(qp_score: float, ponly_score: float, tie_threshold: float) -
     if abs(delta) <= tie_threshold:
         return "tie"
     return "question+passage" if delta > 0 else "passage-only"
+
+
+def sync_if_cuda(device) -> None:
+    if getattr(device, "type", None) == "cuda" and torch.cuda.is_available():
+        torch.cuda.synchronize()
 
 
 @torch.no_grad()
@@ -290,11 +427,14 @@ def evaluate_variant(
     prompt_style: str,
     injection_mode: str,
     answer_prefix_tokens: int,
+    include_loss: bool,
 ) -> dict:
     question = case["question"]
     main_answer = case["main_answer"]
     full_answer = case.get("full_answer") or main_answer
     main_passages = [case["main_passage"]] + list(case.get("merge_passages") or [])
+    sync_if_cuda(device)
+    started_at = time.perf_counter()
     memory = encode_merged_memory(
         model,
         tokenizer,
@@ -304,19 +444,6 @@ def evaluate_variant(
         question=question,
         question_conditioned=variant.question_conditioned,
     )
-    target = tokenize_qa(tokenizer, question, full_answer, device)
-    logits = forward_with_memory(
-        model,
-        target_layer,
-        memory["K"],
-        memory["V"],
-        target,
-        alpha=alpha,
-        injection_mode=injection_mode,
-    )
-    kv_loss = compute_answer_loss(logits, target["labels"])
-    prefix_loss = compute_prefix_answer_loss(logits, target["labels"], answer_prefix_tokens)
-    phrase_loss = compute_answer_phrase_loss(logits, target["labels"], tokenizer, full_answer, main_answer)
     generated = generate_with_kv(
         model,
         tokenizer,
@@ -330,19 +457,46 @@ def evaluate_variant(
         prompt_style,
         injection_mode,
     )
+    sync_if_cuda(device)
+    inference_time_s = time.perf_counter() - started_at
+
+    kv_loss = prefix_loss = phrase_loss = None
+    if include_loss:
+        target = tokenize_qa(tokenizer, question, full_answer, device)
+        logits = forward_with_memory(
+            model,
+            target_layer,
+            memory["K"],
+            memory["V"],
+            target,
+            alpha=alpha,
+            injection_mode=injection_mode,
+        )
+        kv_loss = compute_answer_loss(logits, target["labels"])
+        prefix_loss = compute_prefix_answer_loss(logits, target["labels"], answer_prefix_tokens)
+        phrase_loss = compute_answer_phrase_loss(logits, target["labels"], tokenizer, full_answer, main_answer)
     scores = score_answer(generated, case)
     return {
         "loss": None if kv_loss is None else float(kv_loss.item()),
         "prefix_loss": None if prefix_loss is None else float(prefix_loss.item()),
         "phrase_loss": None if phrase_loss is None else float(phrase_loss.item()),
         "answer": generated,
-        "hit": answer_hit(generated, case),
         "merged_count": len(main_passages),
+        "inference_time_s": inference_time_s,
         **scores,
     }
 
 
-def print_case_report(case: dict, direct: str, no_memory: str, qp: dict, ponly: dict, winner: str) -> None:
+def print_case_report(
+    case: dict,
+    direct: str | None,
+    no_memory: str | None,
+    qp: dict,
+    ponly: dict,
+    winner: str,
+    recall_hit: bool,
+    recall_k: int,
+) -> None:
     main_passages = [case["main_passage"]] + list(case.get("merge_passages") or [])
     print("\n" + "=" * 96)
     print(f"[case:{case['name']}]")
@@ -350,29 +504,31 @@ def print_case_report(case: dict, direct: str, no_memory: str, qp: dict, ponly: 
         print(f"source_id: {case['source_id']}")
     print(f"question: {case['question']}")
     print(f"expected: {case.get('full_answer') or case['main_answer']}")
-    print(f"phrase_targets: {' | '.join(answer_phrase_candidates(case['main_answer']))}")
-    print(f"relation_terms: {' | '.join(relation_terms(case)) or 'n/a'}")
     print(f"merged_passages: {len(main_passages)}")
+    print(f"recall@{recall_k}: {recall_hit}")
     for idx, passage in enumerate(main_passages, start=1):
         print(f"  passage[{idx}]: {passage}")
 
-    print("\n[baseline]")
-    print(f"direct_RAG_hit={answer_hit(direct, case)} | direct_RAG_answer={direct}")
-    print(f"no_memory_hit={answer_hit(no_memory, case)} | no_memory_answer={no_memory}")
+    if direct is not None and no_memory is not None:
+        direct_scores = score_answer(direct, case)
+        no_memory_scores = score_answer(no_memory, case)
+        print("\n[baseline]")
+        print(f"direct_RAG | em={direct_scores['normalized_em']} | f1={fmt(direct_scores['answer_token_f1'])}")
+        print(f"  answer: {direct}")
+        print(f"no_memory  | em={no_memory_scores['normalized_em']} | f1={fmt(no_memory_scores['answer_token_f1'])}")
+        print(f"  answer: {no_memory}")
 
     print("\n[variant comparison]")
     print(
         "question+passage | "
-        f"hit={qp['hit']} | loss={fmt(qp['loss'])} | phrase={fmt(qp['phrase_loss'])} | "
-        f"prefix={fmt(qp['prefix_loss'])} | rel={fmt(qp['relation_coverage'])} | "
-        f"f1={fmt(qp['answer_char_f1'])} | quality={fmt(qp['quality_score'])}"
+        f"em={qp['normalized_em']} | f1={fmt(qp['answer_token_f1'])} | "
+        f"qa_score={fmt(qp['qa_score'])} | time={fmt(qp['inference_time_s'])}s"
     )
     print(f"  answer: {qp['answer']}")
     print(
         "passage-only     | "
-        f"hit={ponly['hit']} | loss={fmt(ponly['loss'])} | phrase={fmt(ponly['phrase_loss'])} | "
-        f"prefix={fmt(ponly['prefix_loss'])} | rel={fmt(ponly['relation_coverage'])} | "
-        f"f1={fmt(ponly['answer_char_f1'])} | quality={fmt(ponly['quality_score'])}"
+        f"em={ponly['normalized_em']} | f1={fmt(ponly['answer_token_f1'])} | "
+        f"qa_score={fmt(ponly['qa_score'])} | time={fmt(ponly['inference_time_s'])}s"
     )
     print(f"  answer: {ponly['answer']}")
     print(f"pairwise_winner: {winner}")
@@ -420,15 +576,10 @@ def plot_report(path: Path, summary: dict) -> None:
     ponly_color = "#c66a2e"
     grid_color = "#d7dce2"
 
-    quality_specs = [
-        ("hit_rate", "Hit"),
-        ("avg_relation_coverage", "Relation"),
-        ("avg_answer_char_f1", "Answer F1"),
-        ("avg_quality_score", "Quality"),
-    ]
-    loss_specs = [
-        ("avg_loss", "Full CE"),
-        ("avg_phrase_loss", "Phrase CE"),
+    metric_specs = [
+        ("normalized_em_rate", "EM"),
+        ("avg_answer_token_f1", "Token F1"),
+        ("recall_at_k", "Recall@K"),
     ]
 
     def values_for(specs: list[tuple[str, str]], label: str) -> list[float]:
@@ -456,79 +607,77 @@ def plot_report(path: Path, summary: dict) -> None:
                 color="#111827",
             )
 
-    fig, axes = plt.subplots(
-        1,
-        2,
-        figsize=(10.8, 4.2),
-        gridspec_kw={"width_ratios": [1.35, 0.85]},
-    )
+    fig, axes = plt.subplots(1, 2, figsize=(9.4, 4.2), gridspec_kw={"width_ratios": [2.1, 1.0]})
     fig.patch.set_facecolor("white")
+    ax = axes[0]
 
     width = 0.34
-    quality_x = list(range(len(quality_specs)))
-    qp_quality = values_for(quality_specs, "question+passage")
-    ponly_quality = values_for(quality_specs, "passage-only")
-    bars_qp = axes[0].bar(
-        [i - width / 2 for i in quality_x],
-        qp_quality,
+    x = list(range(len(metric_specs)))
+    qp_values = values_for(metric_specs, "question+passage")
+    ponly_values = values_for(metric_specs, "passage-only")
+    bars_qp = ax.bar(
+        [i - width / 2 for i in x],
+        qp_values,
         width,
         label="Question + Passage",
         color=qp_color,
         edgecolor="#1f2937",
         linewidth=0.35,
     )
-    bars_ponly = axes[0].bar(
-        [i + width / 2 for i in quality_x],
-        ponly_quality,
+    bars_ponly = ax.bar(
+        [i + width / 2 for i in x],
+        ponly_values,
         width,
         label="Passage Only",
         color=ponly_color,
         edgecolor="#1f2937",
         linewidth=0.35,
     )
-    axes[0].set_xticks(quality_x)
-    axes[0].set_xticklabels([label for _, label in quality_specs])
-    axes[0].set_ylim(0, 1.05)
-    axes[0].yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
-    axes[0].set_ylabel("Score (higher is better)")
-    axes[0].set_title("(a) Generation quality")
-    annotate_bars(axes[0], bars_qp)
-    annotate_bars(axes[0], bars_ponly)
-    style_axis(axes[0])
+    ax.set_xticks(x)
+    ax.set_xticklabels([label for _, label in metric_specs])
+    ax.set_ylim(0, 1.05)
+    ax.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    ax.set_ylabel("Score (higher is better)")
+    ax.set_title("Accuracy and Retrieval")
+    annotate_bars(ax, bars_qp)
+    annotate_bars(ax, bars_ponly)
+    style_axis(ax)
 
-    loss_x = list(range(len(loss_specs)))
-    qp_loss = values_for(loss_specs, "question+passage")
-    ponly_loss = values_for(loss_specs, "passage-only")
-    loss_upper = max(qp_loss + ponly_loss + [1e-6]) * 1.22
-    bars_qp_loss = axes[1].bar(
-        [i - width / 2 for i in loss_x],
-        qp_loss,
+    ax_time = axes[1]
+    time_specs = [("avg_inference_time_s", "Avg. Time")]
+    time_x = list(range(len(time_specs)))
+    time_qp = values_for(time_specs, "question+passage")
+    time_ponly = values_for(time_specs, "passage-only")
+    bars_time_qp = ax_time.bar(
+        [i - width / 2 for i in time_x],
+        time_qp,
         width,
+        label="Question + Passage",
         color=qp_color,
         edgecolor="#1f2937",
         linewidth=0.35,
     )
-    bars_ponly_loss = axes[1].bar(
-        [i + width / 2 for i in loss_x],
-        ponly_loss,
+    bars_time_ponly = ax_time.bar(
+        [i + width / 2 for i in time_x],
+        time_ponly,
         width,
+        label="Passage Only",
         color=ponly_color,
         edgecolor="#1f2937",
         linewidth=0.35,
     )
-    axes[1].set_xticks(loss_x)
-    axes[1].set_xticklabels([label for _, label in loss_specs])
-    axes[1].set_ylim(0, loss_upper)
-    axes[1].set_ylabel("Cross entropy (lower is better)")
-    axes[1].set_title("(b) Token-level diagnostics")
-    annotate_bars(axes[1], bars_qp_loss, offset=0.018)
-    annotate_bars(axes[1], bars_ponly_loss, offset=0.018)
-    style_axis(axes[1])
+    ax_time.set_xticks(time_x)
+    ax_time.set_xticklabels([label for _, label in time_specs])
+    ax_time.set_ylabel("Seconds (lower is better)")
+    ax_time.set_title("Inference Time")
+    annotate_bars(ax_time, bars_time_qp, offset=0.018)
+    annotate_bars(ax_time, bars_time_ponly, offset=0.018)
+    style_axis(ax_time)
 
-    handles, labels = axes[0].get_legend_handles_labels()
+    handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 1.03))
-    fig.suptitle(f"Memory Conditioning Improves Grounded Generation (n={summary['cases']})", y=1.08, fontweight="bold")
-    fig.tight_layout(pad=1.4, w_pad=2.2)
+    fig.suptitle(f"Question+Passage vs Passage-Only (n={summary['cases']})", y=1.12, fontweight="bold")
+    fig.tight_layout(pad=1.4)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white")
     plt.close(fig)
@@ -550,6 +699,9 @@ def main() -> None:
     parser.add_argument("--injection-mode", choices=("attention", "add_all", "add_last", "hybrid"), default="attention")
     parser.add_argument("--answer-prefix-tokens", type=int, default=3)
     parser.add_argument("--quality-tie-threshold", type=float, default=0.025)
+    parser.add_argument("--include-baselines", action="store_true", help="Also generate direct-RAG and no-memory baselines.")
+    parser.add_argument("--include-loss", action="store_true", help="Also compute CE diagnostics. Slower; off by default.")
+    parser.add_argument("--quiet-cases", action="store_true", help="Suppress per-case text output and write only summary/report files.")
     parser.add_argument("--output-json", default=None, help="Optional path to write detailed JSON metrics.")
     parser.add_argument("--output-csv", default=None, help="Optional path to write per-case CSV metrics.")
     parser.add_argument("--plot-path", default=None, help="Optional path to write a PNG comparison figure.")
@@ -589,29 +741,38 @@ def main() -> None:
 
     totals = {
         "count": 0,
-        "direct_hits": 0,
-        "no_memory_hits": 0,
-        "qp_hits": 0,
-        "ponly_hits": 0,
+        "direct_em": 0,
+        "no_memory_em": 0,
+        "direct_token_f1": [],
+        "no_memory_token_f1": [],
+        "qp_em": 0,
+        "ponly_em": 0,
         "qp_loss": [],
         "ponly_loss": [],
         "qp_phrase": [],
         "ponly_phrase": [],
-        "qp_relation": [],
-        "ponly_relation": [],
-        "qp_f1": [],
-        "ponly_f1": [],
-        "qp_quality": [],
-        "ponly_quality": [],
+        "qp_token_f1": [],
+        "ponly_token_f1": [],
+        "qp_qa_score": [],
+        "ponly_qa_score": [],
+        "qp_inference_time_s": [],
+        "ponly_inference_time_s": [],
+        "recall_hits": 0,
     }
     pairwise_counts = {"question+passage": 0, "passage-only": 0, "tie": 0}
     records: list[dict] = []
     for case in cases:
         question = case["question"]
         main_passages = [case["main_passage"]] + list(case.get("merge_passages") or [])
-        direct_passage = "\n\n".join(main_passages)
-        direct = generate_direct_passage(model, tokenizer, question, direct_passage, device, args.max_new_tokens)
-        no_memory = generate_plain(model, tokenizer, question, device, args.max_new_tokens)
+        recall_hit = recall_at_k(case, main_passages)
+        direct = no_memory = None
+        direct_result = no_memory_result = None
+        if args.include_baselines:
+            direct_passage = "\n\n".join(main_passages)
+            direct = generate_direct_passage(model, tokenizer, question, direct_passage, device, args.max_new_tokens)
+            no_memory = generate_plain(model, tokenizer, question, device, args.max_new_tokens)
+            direct_result = score_answer(direct, case)
+            no_memory_result = score_answer(no_memory, case)
         qp_result = evaluate_variant(
             variant=qp,
             model=model,
@@ -624,6 +785,7 @@ def main() -> None:
             prompt_style=args.prompt_style,
             injection_mode=args.injection_mode,
             answer_prefix_tokens=args.answer_prefix_tokens,
+            include_loss=args.include_loss,
         )
         ponly_result = evaluate_variant(
             variant=ponly,
@@ -637,52 +799,69 @@ def main() -> None:
             prompt_style=args.prompt_style,
             injection_mode=args.injection_mode,
             answer_prefix_tokens=args.answer_prefix_tokens,
+            include_loss=args.include_loss,
         )
-        winner = compare_quality(qp_result["quality_score"], ponly_result["quality_score"], args.quality_tie_threshold)
+        winner = compare_quality(qp_result["qa_score"], ponly_result["qa_score"], args.quality_tie_threshold)
         pairwise_counts[winner] += 1
-        print_case_report(case, direct, no_memory, qp_result, ponly_result, winner)
+        if not args.quiet_cases:
+            print_case_report(
+                case,
+                direct,
+                no_memory,
+                qp_result,
+                ponly_result,
+                winner,
+                recall_hit,
+                args.dataset_merge_max_passages,
+            )
 
         totals["count"] += 1
-        totals["direct_hits"] += int(answer_hit(direct, case))
-        totals["no_memory_hits"] += int(answer_hit(no_memory, case))
-        totals["qp_hits"] += int(qp_result["hit"])
-        totals["ponly_hits"] += int(ponly_result["hit"])
-        for key, result_key, result in (
-            ("qp_loss", "loss", qp_result),
-            ("ponly_loss", "loss", ponly_result),
-            ("qp_phrase", "phrase_loss", qp_result),
-            ("ponly_phrase", "phrase_loss", ponly_result),
-        ):
-            if result[result_key] is not None:
-                totals[key].append(result[result_key])
-        totals["qp_relation"].append(qp_result["relation_coverage"])
-        totals["ponly_relation"].append(ponly_result["relation_coverage"])
-        totals["qp_f1"].append(qp_result["answer_char_f1"])
-        totals["ponly_f1"].append(ponly_result["answer_char_f1"])
-        totals["qp_quality"].append(qp_result["quality_score"])
-        totals["ponly_quality"].append(ponly_result["quality_score"])
+        totals["recall_hits"] += int(recall_hit)
+        if args.include_baselines and direct_result is not None and no_memory_result is not None:
+            totals["direct_em"] += int(direct_result["normalized_em"])
+            totals["no_memory_em"] += int(no_memory_result["normalized_em"])
+            totals["direct_token_f1"].append(direct_result["answer_token_f1"])
+            totals["no_memory_token_f1"].append(no_memory_result["answer_token_f1"])
+        totals["qp_em"] += int(qp_result["normalized_em"])
+        totals["ponly_em"] += int(ponly_result["normalized_em"])
+        if args.include_loss:
+            for key, result_key, result in (
+                ("qp_loss", "loss", qp_result),
+                ("ponly_loss", "loss", ponly_result),
+                ("qp_phrase", "phrase_loss", qp_result),
+                ("ponly_phrase", "phrase_loss", ponly_result),
+            ):
+                if result[result_key] is not None:
+                    totals[key].append(result[result_key])
+        totals["qp_token_f1"].append(qp_result["answer_token_f1"])
+        totals["ponly_token_f1"].append(ponly_result["answer_token_f1"])
+        totals["qp_qa_score"].append(qp_result["qa_score"])
+        totals["ponly_qa_score"].append(ponly_result["qa_score"])
+        totals["qp_inference_time_s"].append(qp_result["inference_time_s"])
+        totals["ponly_inference_time_s"].append(ponly_result["inference_time_s"])
         records.append(
             {
                 "case": case["name"],
                 "source_id": case.get("source_id") or "",
                 "question": case["question"],
                 "expected": case.get("full_answer") or case["main_answer"],
-                "phrase_targets": " | ".join(answer_phrase_candidates(case["main_answer"])),
-                "relation_terms": " | ".join(relation_terms(case)),
-                "direct_hit": answer_hit(direct, case),
-                "no_memory_hit": answer_hit(no_memory, case),
-                "qp_hit": qp_result["hit"],
-                "ponly_hit": ponly_result["hit"],
-                "qp_relation": qp_result["relation_coverage"],
-                "ponly_relation": ponly_result["relation_coverage"],
-                "qp_answer_char_f1": qp_result["answer_char_f1"],
-                "ponly_answer_char_f1": ponly_result["answer_char_f1"],
-                "qp_quality": qp_result["quality_score"],
-                "ponly_quality": ponly_result["quality_score"],
-                "qp_loss": qp_result["loss"],
-                "ponly_loss": ponly_result["loss"],
-                "qp_phrase_loss": qp_result["phrase_loss"],
-                "ponly_phrase_loss": ponly_result["phrase_loss"],
+                "recall_at_k": recall_hit,
+                "direct_normalized_em": "" if direct_result is None else direct_result["normalized_em"],
+                "no_memory_normalized_em": "" if no_memory_result is None else no_memory_result["normalized_em"],
+                "direct_answer_token_f1": "" if direct_result is None else direct_result["answer_token_f1"],
+                "no_memory_answer_token_f1": "" if no_memory_result is None else no_memory_result["answer_token_f1"],
+                "qp_normalized_em": qp_result["normalized_em"],
+                "ponly_normalized_em": ponly_result["normalized_em"],
+                "qp_answer_token_f1": qp_result["answer_token_f1"],
+                "ponly_answer_token_f1": ponly_result["answer_token_f1"],
+                "qp_qa_score": qp_result["qa_score"],
+                "ponly_qa_score": ponly_result["qa_score"],
+                "qp_inference_time_s": qp_result["inference_time_s"],
+                "ponly_inference_time_s": ponly_result["inference_time_s"],
+                "qp_loss": "" if qp_result["loss"] is None else qp_result["loss"],
+                "ponly_loss": "" if ponly_result["loss"] is None else ponly_result["loss"],
+                "qp_phrase_loss": "" if qp_result["phrase_loss"] is None else qp_result["phrase_loss"],
+                "ponly_phrase_loss": "" if ponly_result["phrase_loss"] is None else ponly_result["phrase_loss"],
                 "pairwise_winner": winner,
                 "qp_answer": qp_result["answer"],
                 "ponly_answer": ponly_result["answer"],
@@ -697,19 +876,21 @@ def main() -> None:
     print("\n" + "=" * 96)
     print("[summary]")
     print(f"cases={totals['count']}")
-    print(f"direct_RAG_hit_rate={totals['direct_hits'] / denom:.3f}")
-    print(f"no_memory_hit_rate={totals['no_memory_hits'] / denom:.3f}")
+    print(f"recall_at_{args.dataset_merge_max_passages}={totals['recall_hits'] / denom:.3f}")
+    if args.include_baselines:
+        print(f"direct_RAG_em_rate={totals['direct_em'] / denom:.3f} avg_token_f1={avg(totals['direct_token_f1'])}")
+        print(f"no_memory_em_rate={totals['no_memory_em'] / denom:.3f} avg_token_f1={avg(totals['no_memory_token_f1'])}")
     print(
-        f"question+passage_hit_rate={totals['qp_hits'] / denom:.3f} "
-        f"avg_relation={avg(totals['qp_relation'])} avg_f1={avg(totals['qp_f1'])} "
-        f"avg_quality={avg(totals['qp_quality'])} avg_loss={avg(totals['qp_loss'])} "
-        f"avg_phrase={avg(totals['qp_phrase'])}"
+        f"question+passage_em_rate={totals['qp_em'] / denom:.3f} "
+        f"avg_token_f1={avg(totals['qp_token_f1'])} "
+        f"avg_qa_score={avg(totals['qp_qa_score'])} "
+        f"avg_inference_time_s={avg(totals['qp_inference_time_s'])}"
     )
     print(
-        f"passage-only_hit_rate={totals['ponly_hits'] / denom:.3f} "
-        f"avg_relation={avg(totals['ponly_relation'])} avg_f1={avg(totals['ponly_f1'])} "
-        f"avg_quality={avg(totals['ponly_quality'])} avg_loss={avg(totals['ponly_loss'])} "
-        f"avg_phrase={avg(totals['ponly_phrase'])}"
+        f"passage-only_em_rate={totals['ponly_em'] / denom:.3f} "
+        f"avg_token_f1={avg(totals['ponly_token_f1'])} "
+        f"avg_qa_score={avg(totals['ponly_qa_score'])} "
+        f"avg_inference_time_s={avg(totals['ponly_inference_time_s'])}"
     )
     print(
         "pairwise="
@@ -722,27 +903,43 @@ def main() -> None:
 
     summary = {
         "cases": totals["count"],
-        "direct_RAG_hit_rate": totals["direct_hits"] / denom,
-        "no_memory_hit_rate": totals["no_memory_hits"] / denom,
+        "recall_k": args.dataset_merge_max_passages,
+        "recall_at_k": totals["recall_hits"] / denom,
         "question+passage": {
-            "hit_rate": totals["qp_hits"] / denom,
-            "avg_relation_coverage": avg_float(totals["qp_relation"]),
-            "avg_answer_char_f1": avg_float(totals["qp_f1"]),
-            "avg_quality_score": avg_float(totals["qp_quality"]),
-            "avg_loss": avg_float(totals["qp_loss"]),
-            "avg_phrase_loss": avg_float(totals["qp_phrase"]),
+            "normalized_em_rate": totals["qp_em"] / denom,
+            "avg_answer_token_f1": avg_float(totals["qp_token_f1"]),
+            "avg_qa_score": avg_float(totals["qp_qa_score"]),
+            "recall_at_k": totals["recall_hits"] / denom,
+            "avg_inference_time_s": avg_float(totals["qp_inference_time_s"]),
         },
         "passage-only": {
-            "hit_rate": totals["ponly_hits"] / denom,
-            "avg_relation_coverage": avg_float(totals["ponly_relation"]),
-            "avg_answer_char_f1": avg_float(totals["ponly_f1"]),
-            "avg_quality_score": avg_float(totals["ponly_quality"]),
-            "avg_loss": avg_float(totals["ponly_loss"]),
-            "avg_phrase_loss": avg_float(totals["ponly_phrase"]),
+            "normalized_em_rate": totals["ponly_em"] / denom,
+            "avg_answer_token_f1": avg_float(totals["ponly_token_f1"]),
+            "avg_qa_score": avg_float(totals["ponly_qa_score"]),
+            "recall_at_k": totals["recall_hits"] / denom,
+            "avg_inference_time_s": avg_float(totals["ponly_inference_time_s"]),
         },
         "pairwise": pairwise_counts,
         "quality_tie_threshold": args.quality_tie_threshold,
     }
+    if args.include_baselines:
+        summary["direct_RAG"] = {
+            "normalized_em_rate": totals["direct_em"] / denom,
+            "avg_answer_token_f1": avg_float(totals["direct_token_f1"]),
+        }
+        summary["no_memory"] = {
+            "normalized_em_rate": totals["no_memory_em"] / denom,
+            "avg_answer_token_f1": avg_float(totals["no_memory_token_f1"]),
+        }
+    if args.include_loss:
+        summary["question+passage"].update({
+            "avg_loss": avg_float(totals["qp_loss"]),
+            "avg_phrase_loss": avg_float(totals["qp_phrase"]),
+        })
+        summary["passage-only"].update({
+            "avg_loss": avg_float(totals["ponly_loss"]),
+            "avg_phrase_loss": avg_float(totals["ponly_phrase"]),
+        })
     payload = {
         "summary": summary,
         "records": records,
