@@ -145,3 +145,4 @@ whisper==1.1.10
 wrapt==2.1.2
 xxhash==3.6.0
 yarl==1.23.0
+pypdf
