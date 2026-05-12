@@ -12,6 +12,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -83,7 +84,42 @@ def build_messages(row: dict) -> list[dict]:
     ]
 
 
-def generate_json_vllm(
+def build_completion_prompt(row: dict) -> str:
+    messages = build_messages(row)
+    return "\n\n".join(
+        f"{message['role'].upper()}:\n{message['content']}"
+        for message in messages
+    ) + "\n\nASSISTANT:\n"
+
+
+def completion_url_from_chat_url(url: str) -> str:
+    if url.rstrip("/").endswith("/chat/completions"):
+        return url.rstrip("/")[: -len("/chat/completions")] + "/completions"
+    parsed = urlsplit(url)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = f"{path}/completions"
+    elif not path.endswith("/completions"):
+        path = f"{path}/completions"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
+
+
+def parse_chat_response(data: dict) -> str:
+    try:
+        message = data["choices"][0]["message"]
+        return message.get("content") or message.get("reasoning_content") or ""
+    except (KeyError, IndexError, TypeError):
+        return json.dumps(data, ensure_ascii=False)
+
+
+def parse_completion_response(data: dict) -> str:
+    try:
+        return data["choices"][0].get("text") or ""
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return json.dumps(data, ensure_ascii=False)
+
+
+def post_chat_completion(
     row: dict,
     *,
     model_name: str,
@@ -102,13 +138,74 @@ def generate_json_vllm(
         payload["response_format"] = {"type": "json_object"}
     response = requests.post(url, json=payload, timeout=timeout)
     response.raise_for_status()
-    data = response.json()
-    try:
-        message = data["choices"][0]["message"]
-        text = message.get("content") or message.get("reasoning_content") or ""
-    except (KeyError, IndexError, TypeError):
-        text = json.dumps(data, ensure_ascii=False)
+    text = parse_chat_response(response.json())
     return extract_json_object(text), text
+
+
+def post_text_completion(
+    row: dict,
+    *,
+    model_name: str,
+    url: str,
+    max_tokens: int,
+    timeout: float,
+) -> tuple[dict | None, str]:
+    payload = {
+        "model": model_name,
+        "prompt": build_completion_prompt(row),
+        "temperature": 0.2,
+        "max_tokens": max_tokens,
+    }
+    response = requests.post(url, json=payload, timeout=timeout)
+    response.raise_for_status()
+    text = parse_completion_response(response.json())
+    return extract_json_object(text), text
+
+
+def generate_json_vllm(
+    row: dict,
+    *,
+    model_name: str,
+    url: str,
+    max_tokens: int,
+    timeout: float,
+    json_mode: bool,
+    api_mode: str,
+) -> tuple[dict | None, str]:
+    url_is_completion = url.rstrip("/").endswith("/completions") and not url.rstrip("/").endswith("/chat/completions")
+    if api_mode == "completion" or (api_mode == "auto" and url_is_completion):
+        return post_text_completion(row, model_name=model_name, url=url, max_tokens=max_tokens, timeout=timeout)
+    if api_mode == "chat":
+        return post_chat_completion(
+            row,
+            model_name=model_name,
+            url=url,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            json_mode=json_mode,
+        )
+    try:
+        return post_chat_completion(
+            row,
+            model_name=model_name,
+            url=url,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            json_mode=json_mode,
+        )
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code != 404:
+            raise
+        completion_url = completion_url_from_chat_url(url)
+        print(f"[PRAG:related-augment] chat endpoint 404; retrying completions endpoint: {completion_url}")
+        return post_text_completion(
+            row,
+            model_name=model_name,
+            url=completion_url,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
 
 
 def safe_text(value: object, fallback: str) -> str:
@@ -200,6 +297,7 @@ def process_file(
     max_tokens: int,
     timeout: float,
     json_mode: bool,
+    api_mode: str,
     limit: int,
     resume: bool,
     sleep_sec: float,
@@ -225,6 +323,7 @@ def process_file(
                 max_tokens=max_tokens,
                 timeout=timeout,
                 json_mode=json_mode,
+                api_mode=api_mode,
             )
             augmented, status = normalize_augmented_row(raw, row, model_name=model_name)
         except Exception as exc:
@@ -258,6 +357,12 @@ def main() -> None:
     parser.add_argument("--test-output", default="data/PRAG_related_merge_augmented_test.jsonl")
     parser.add_argument("--model", default="Qwen/Qwen2.5-7B")
     parser.add_argument("--vllm-url", default="http://localhost:8001/v1/chat/completions")
+    parser.add_argument(
+        "--api-mode",
+        choices=("auto", "chat", "completion"),
+        default="auto",
+        help="OpenAI-compatible endpoint mode. auto retries /v1/completions if chat returns 404.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=1400)
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--json-mode", action=argparse.BooleanOptionalAction, default=True)
@@ -289,6 +394,7 @@ def main() -> None:
             max_tokens=args.max_new_tokens,
             timeout=args.timeout,
             json_mode=args.json_mode,
+            api_mode=args.api_mode,
             limit=args.limit,
             resume=args.resume,
             sleep_sec=args.sleep_sec,
