@@ -40,6 +40,7 @@ DEFAULT_QP_WEIGHTS = Path(__file__).resolve().parent / "prag_mixed_kor_service_o
 DEFAULT_PONLY_WEIGHTS = (
     Path(__file__).resolve().parent / "prag_mixed_kor_service_orthomerge_qwen25_3b_ponly_memory_checkpoint.pt"
 )
+DEFAULT_NATURAL_TEST_PATH = Path(__file__).resolve().parents[2] / "data" / "PRAG_natural_service_test_450.jsonl"
 
 
 @dataclass
@@ -56,6 +57,8 @@ class Variant:
 
 
 def default_mixed_data(split: str) -> str:
+    if split == "test":
+        return str(DEFAULT_NATURAL_TEST_PATH)
     multifact_path = MULTIFACT_AUGMENTED_TRAIN_PATH if split == "train" else MULTIFACT_AUGMENTED_VALID_PATH
     korquad_path = KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH if split == "train" else KORQUAD_SERVICE_AUGMENTED_VALID_PATH
     return f"{multifact_path};{korquad_path}"
@@ -453,7 +456,7 @@ def main() -> None:
     parser.add_argument("--qp-weights", default=str(DEFAULT_QP_WEIGHTS), help="question+passage checkpoint/weights path.")
     parser.add_argument("--ponly-weights", default=str(DEFAULT_PONLY_WEIGHTS), help="passage-only checkpoint/weights path.")
     parser.add_argument("--data", default=None, help="Augmented JSONL path. Use ';' to compare over mixed datasets.")
-    parser.add_argument("--split", choices=("train", "valid"), default="train")
+    parser.add_argument("--split", choices=("train", "valid", "test"), default="train")
     parser.add_argument("--case-index", type=int, default=0)
     parser.add_argument("--max-cases", type=int, default=20)
     parser.add_argument("--dataset-merge-max-passages", type=int, default=4)
