@@ -35,9 +35,9 @@ const expandedCitationMessages = ref(new Set())
 // 백엔드 사용시 여부분 주석 처리 조심
 const USE_DEMO_DATA = false
 
-function getActiveSessionId() {
-  const id = props.activeFileId || ''
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null
+function getChatSessionId() {
+  // 오른쪽 AI 채팅은 선택 파일에 묶지 않고 전체 워크스페이스 자료에서 검색한다.
+  return null
 }
 
 async function sendMessage() {
@@ -97,7 +97,7 @@ async function sendMessage() {
       body: JSON.stringify({
         question,
         is_thinking: isThinkingMode.value,
-        session_id: getActiveSessionId()
+        session_id: getChatSessionId()
       }),
     })
 

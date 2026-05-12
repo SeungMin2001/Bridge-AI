@@ -459,6 +459,7 @@ def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -
             "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at or ""),
             "session_id": str(row_session_id) if row_session_id else "",
             "source": "keyword",
+            "match_count": int(match_count or 0),
         })
     return results
 
@@ -547,32 +548,51 @@ def _format_time(seconds: float) -> str:
 
 
 # ── Reciprocal Rank Fusion (RRF) 병합 ──
-def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, k: int = 60) -> list[dict]:
+def _keyword_hit_count(text: str, keywords: list[str]) -> int:
+    haystack = str(text or "").casefold()
+    return sum(1 for word in keywords if str(word or "").casefold() in haystack)
+
+
+def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, k: int = 60, query_keywords: list[str] | None = None) -> list[dict]:
     """
     RRF로 벡터 + 키워드 결과를 통합 랭킹.
     score = Σ 1/(k + rank)  (k=60이 표준값)
     벡터 3위 + 키워드 1위인 문장이 벡터 1위만인 문장보다 높을 수 있음.
     """
-    scores = {}  # text → {"score": float, "data": dict}
+    query_keywords = query_keywords or []
+    scores = {}  # text -> score/data/lexical metadata
 
     # 벡터 결과: 이미 cosine 유사도 순으로 정렬되어 있음
     for rank, r in enumerate(vector_results):
         text = r["text"]
         if text not in scores:
-            scores[text] = {"score": 0, "data": r}
+            scores[text] = {"score": 0, "data": r, "keyword_hits": 0, "lexical_hits": 0}
         scores[text]["score"] += 1.0 / (k + rank + 1)
 
     # 키워드 결과: match_count DESC로 정렬되어 있음
     for rank, r in enumerate(keyword_results):
         text = r["text"]
         if text not in scores:
-            scores[text] = {"score": 0, "data": r}
+            scores[text] = {"score": 0, "data": r, "keyword_hits": 0, "lexical_hits": 0}
         elif scores[text]["data"].get("source") == "vector":
             scores[text]["data"] = {**scores[text]["data"], **r}
+        scores[text]["keyword_hits"] = max(scores[text]["keyword_hits"], int(r.get("match_count") or 0))
         scores[text]["score"] += 1.0 / (k + rank + 1)
 
-    # RRF 점수 기준 정렬
-    ranked = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
+    for item in scores.values():
+        item["lexical_hits"] = _keyword_hit_count(item["data"].get("text", ""), query_keywords)
+
+    # 전체 워크스페이스 검색에서는 벡터-only 잡음보다 질문 키워드가 실제로 포함된 전사문을 우선한다.
+    ranked = sorted(
+        scores.values(),
+        key=lambda x: (
+            x["keyword_hits"] > 0 or x["lexical_hits"] > 0,
+            x["keyword_hits"],
+            x["lexical_hits"],
+            x["score"],
+        ),
+        reverse=True,
+    )
     return [item["data"] for item in ranked[:top_k]]
 
 
@@ -580,12 +600,13 @@ def _run_hybrid_search(queries: list[str], top_k: int = 5, session_id: str | Non
     """여러 검색어에 대해 벡터 검색과 키워드 검색을 실행한 뒤 RRF로 병합."""
     all_vector = []
     all_keyword = []
+    query_keywords = extract_keywords(queries[0]) if queries else []
 
     for query in queries:
         all_vector.extend(_vector_search(query, top_k=top_k, session_id=session_id))
         all_keyword.extend(_keyword_search(query, top_k=top_k, session_id=session_id))
 
-    return _merge_results(all_vector, all_keyword, top_k=top_k)
+    return _merge_results(all_vector, all_keyword, top_k=top_k, query_keywords=query_keywords)
 
 
 # ── Citation 포맷 ──
