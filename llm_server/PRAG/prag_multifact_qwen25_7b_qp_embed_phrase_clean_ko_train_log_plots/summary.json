@@ -1,0 +1,43 @@
+{
+  "log": "llm_server\\PRAG\\prag_multifact_qwen25_7b_qp_embed_phrase_clean_ko_train_log.json",
+  "steps_logged": 23500,
+  "val_evals": 94,
+  "generation_evals": 0,
+  "final_step": null,
+  "total_logged_runtime_sec": null,
+  "total_logged_runtime_min": 0.0,
+  "sessions": [
+    {
+      "start": "2026-05-08T19:49:49.155221",
+      "resume_step": 1250,
+      "last_saved_step": 2250,
+      "elapsed_sec": 3588.198,
+      "last_eval_step": 2250
+    },
+    {
+      "start": "2026-05-08T21:29:18.192765",
+      "resume_step": 2250,
+      "last_saved_step": 6000,
+      "elapsed_sec": 11557.538,
+      "last_eval_step": 6000
+    },
+    {
+      "start": "2026-05-09T01:23:41.629663",
+      "resume_step": 6000,
+      "last_saved_step": 23000,
+      "elapsed_sec": 48670.538,
+      "last_eval_step": 23000
+    },
+    {
+      "start": "2026-05-09T15:28:34.896641",
+      "resume_step": 23000,
+      "last_saved_step": 24750,
+      "elapsed_sec": 5329.207,
+      "last_eval_step": 24750
+    }
+  ],
+  "final_val": {},
+  "final_group_val": {},
+  "final_generation_val": {},
+  "last_generation_eval": {}
+}
