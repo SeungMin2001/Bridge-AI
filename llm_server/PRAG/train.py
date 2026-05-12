@@ -415,24 +415,43 @@ def split_passage_for_merge(passage: str) -> list[str]:
 
 
 def select_merge_passages_for_qa(group: MemoryGroup, qa: MemoryExample, max_passages: int = 4) -> list[str]:
-    """Build multiple passage chunks for one QA before orthogonal K/V merge."""
+    """Build same-source fact chunks for one QA before orthogonal K/V merge.
+
+    The merge should approximate retrieving several facts about the same
+    source/topic, not mixing unrelated rows. Prefer the target QA evidence plus
+    sibling QA evidence from the same MemoryGroup; use row-level chunks only as
+    a fallback when the group has too few explicit facts.
+    """
     max_passages = max(1, int(max_passages))
     qa_is_full_passage = compact_text_key(qa.passage) == compact_text_key(group.passage)
-    evidence = unique_nonempty_texts([] if qa_is_full_passage else [qa.passage])
-    group_chunks = split_passage_for_merge(group.passage)
-    answer_chunks = [chunk for chunk in group_chunks if answer_phrase_in_text(qa.answer, chunk)]
-    other_evidence = [
+    should_split_anchor = qa_is_full_passage or qa.qa_type == "final"
+    anchor_evidence = split_passage_for_merge(qa.passage) if should_split_anchor else [qa.passage]
+    atomic_sibling_evidence = [
         other.passage
         for other in group.qas
-        if other is not qa and other.passage and compact_text_key(other.passage) != compact_text_key(qa.passage)
+        if other is not qa
+        and other.qa_type == "atomic"
+        and other.passage
+        and compact_text_key(other.passage) != compact_text_key(qa.passage)
     ]
-    candidates = unique_nonempty_texts(
-        evidence
-        + answer_chunks
-        + other_evidence
-        + group_chunks
-        + [group.passage]
-    )
+    other_sibling_evidence = [
+        other.passage
+        for other in group.qas
+        if other is not qa
+        and other.qa_type != "atomic"
+        and other.passage
+        and compact_text_key(other.passage) != compact_text_key(qa.passage)
+    ]
+    candidates = unique_nonempty_texts(anchor_evidence + atomic_sibling_evidence)
+    min_useful_passages = min(max_passages, 2)
+    if len(candidates) < min_useful_passages:
+        group_chunks = split_passage_for_merge(group.passage)
+        answer_chunks = [chunk for chunk in group_chunks if answer_phrase_in_text(qa.answer, chunk)]
+        candidates = unique_nonempty_texts(candidates + answer_chunks + group_chunks)
+    if len(candidates) < min_useful_passages:
+        candidates = unique_nonempty_texts(candidates + other_sibling_evidence)
+    if not candidates:
+        candidates = unique_nonempty_texts([group.passage])
     return candidates[:max_passages]
 
 

@@ -504,6 +504,13 @@ def print_case_report(
         print(f"source_id: {case['source_id']}")
     print(f"question: {case['question']}")
     print(f"expected: {case.get('full_answer') or case['main_answer']}")
+    if case.get("root_source_id"):
+        print(f"root_source_id: {case['root_source_id']}")
+    if case.get("merge_group_source_id"):
+        print(f"merge_group_source_id: {case['merge_group_source_id']}")
+    if case.get("merge_policy"):
+        print(f"merge_policy: {case['merge_policy']}")
+    print(f"same_source_merge: {bool(case.get('same_source_merge'))}")
     print(f"merged_passages: {len(main_passages)}")
     print(f"recall@{recall_k}: {recall_hit}")
     for idx, passage in enumerate(main_passages, start=1):
@@ -758,6 +765,7 @@ def main() -> None:
         "qp_inference_time_s": [],
         "ponly_inference_time_s": [],
         "recall_hits": 0,
+        "same_source_merges": 0,
     }
     pairwise_counts = {"question+passage": 0, "passage-only": 0, "tie": 0}
     records: list[dict] = []
@@ -817,6 +825,7 @@ def main() -> None:
 
         totals["count"] += 1
         totals["recall_hits"] += int(recall_hit)
+        totals["same_source_merges"] += int(bool(case.get("same_source_merge")))
         if args.include_baselines and direct_result is not None and no_memory_result is not None:
             totals["direct_em"] += int(direct_result["normalized_em"])
             totals["no_memory_em"] += int(no_memory_result["normalized_em"])
@@ -843,6 +852,12 @@ def main() -> None:
             {
                 "case": case["name"],
                 "source_id": case.get("source_id") or "",
+                "root_source_id": case.get("root_source_id") or "",
+                "merge_group_source_id": case.get("merge_group_source_id") or "",
+                "same_source_merge": bool(case.get("same_source_merge")),
+                "merge_policy": case.get("merge_policy") or "",
+                "merge_group_qas": case.get("merge_group_qas") or "",
+                "merged_passage_count": len(main_passages),
                 "question": case["question"],
                 "expected": case.get("full_answer") or case["main_answer"],
                 "recall_at_k": recall_hit,
@@ -876,6 +891,7 @@ def main() -> None:
     print("\n" + "=" * 96)
     print("[summary]")
     print(f"cases={totals['count']}")
+    print(f"same_source_merge_rate={totals['same_source_merges'] / denom:.3f}")
     print(f"recall_at_{args.dataset_merge_max_passages}={totals['recall_hits'] / denom:.3f}")
     if args.include_baselines:
         print(f"direct_RAG_em_rate={totals['direct_em'] / denom:.3f} avg_token_f1={avg(totals['direct_token_f1'])}")
@@ -903,6 +919,7 @@ def main() -> None:
 
     summary = {
         "cases": totals["count"],
+        "same_source_merge_rate": totals["same_source_merges"] / denom,
         "recall_k": args.dataset_merge_max_passages,
         "recall_at_k": totals["recall_hits"] / denom,
         "question+passage": {

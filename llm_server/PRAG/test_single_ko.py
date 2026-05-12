@@ -322,11 +322,33 @@ def split_data_paths(path: str) -> list[str]:
     return [item.strip() for item in str(path).split(";") if item.strip()]
 
 
-def example_to_case(example: MemoryExample, index: int, *, merge_passages: list[str] | None = None) -> dict:
+def root_source_id(source_id: str) -> str:
+    parts = str(source_id or "").rsplit(":", 2)
+    if len(parts) == 3 and parts[-2] in {"atomic", "final", "direct"} and parts[-1].isdigit():
+        return parts[0]
+    return str(source_id or "")
+
+
+def example_to_case(
+    example: MemoryExample,
+    index: int,
+    *,
+    merge_passages: list[str] | None = None,
+    merge_group_source_id: str = "",
+    merge_policy: str = "",
+    merge_group_qas: int = 0,
+) -> dict:
     negative_answer = example.negative_answer or "__NO_NEGATIVE__"
+    example_root_source_id = root_source_id(example.source_id)
+    same_source_merge = bool(merge_group_source_id) and example_root_source_id == merge_group_source_id
     case = {
         "name": f"dataset_ko_{index}_{example.qa_type}",
         "source_id": example.source_id,
+        "root_source_id": example_root_source_id,
+        "merge_group_source_id": merge_group_source_id,
+        "same_source_merge": same_source_merge,
+        "merge_policy": merge_policy or ("same_source_sibling_facts" if same_source_merge else ""),
+        "merge_group_qas": merge_group_qas,
         "qa_type": example.qa_type,
         "question": example.question,
         "main_passage": example.passage,
@@ -348,10 +370,11 @@ def example_to_case(example: MemoryExample, index: int, *, merge_passages: list[
 
 
 def load_dataset_cases(path: str, *, case_index: int, max_cases: int, merge_max_passages: int = 4) -> list[dict]:
-    selected_with_merges: list[tuple[MemoryExample, list[str]]] = []
+    selected_with_merges: list[tuple[MemoryExample, list[str], dict]] = []
     for data_path in split_data_paths(path):
         examples = load_augmented_examples(data_path)
         merge_by_source: dict[str, list[str]] = {}
+        merge_meta_by_source: dict[str, dict] = {}
         for group in load_augmented_groups(data_path):
             for qa in group.qas:
                 merge_by_source[qa.source_id] = select_merge_passages_for_qa(
@@ -359,6 +382,11 @@ def load_dataset_cases(path: str, *, case_index: int, max_cases: int, merge_max_
                     qa,
                     max_passages=merge_max_passages,
                 )
+                merge_meta_by_source[qa.source_id] = {
+                    "merge_group_source_id": group.source_id,
+                    "merge_policy": "same_source_sibling_facts",
+                    "merge_group_qas": len(group.qas),
+                }
 
         good = [ex for ex in examples if is_good_single_case(ex)]
         no_equals = [ex for ex in good if not has_equals_pattern(ex)]
@@ -372,15 +400,18 @@ def load_dataset_cases(path: str, *, case_index: int, max_cases: int, merge_max_
                 and ex.answer
                 and ex.passage
             ]
-        selected_with_merges.extend((ex, merge_by_source.get(ex.source_id, [])) for ex in selected)
+        selected_with_merges.extend(
+            (ex, merge_by_source.get(ex.source_id, []), merge_meta_by_source.get(ex.source_id, {}))
+            for ex in selected
+        )
 
     if not selected_with_merges:
         raise ValueError(f"No Korean dataset examples found in {path}")
     start = min(max(case_index, 0), max(len(selected_with_merges) - 1, 0))
     end = min(start + max_cases, len(selected_with_merges))
     return [
-        example_to_case(ex, idx, merge_passages=merge_passages)
-        for idx, (ex, merge_passages) in enumerate(selected_with_merges[start:end], start=start)
+        example_to_case(ex, idx, merge_passages=merge_passages, **merge_meta)
+        for idx, (ex, merge_passages, merge_meta) in enumerate(selected_with_merges[start:end], start=start)
     ]
 
 
@@ -707,6 +738,15 @@ def run_case(
             )
             print(f"\n[case:{case['name']}]")
             print(f"injection_mode: {injection_mode}")
+            if case.get("source_id"):
+                print(f"source_id: {case['source_id']}")
+            if case.get("root_source_id"):
+                print(f"root_source_id: {case['root_source_id']}")
+            if case.get("merge_group_source_id"):
+                print(f"merge_group_source_id: {case['merge_group_source_id']}")
+            if case.get("merge_policy"):
+                print(f"merge_policy: {case['merge_policy']}")
+            print(f"same_source_merge: {bool(case.get('same_source_merge'))}")
             print(f"question: {question}")
             print(f"passage: {main_passage}")
             if case.get("merge_passages"):
@@ -897,6 +937,13 @@ def run_case(
     print(f"injection_mode: {injection_mode}")
     if case.get("source_id"):
         print(f"source_id: {case['source_id']}")
+    if case.get("root_source_id"):
+        print(f"root_source_id: {case['root_source_id']}")
+    if case.get("merge_group_source_id"):
+        print(f"merge_group_source_id: {case['merge_group_source_id']}")
+    if case.get("merge_policy"):
+        print(f"merge_policy: {case['merge_policy']}")
+    print(f"same_source_merge: {bool(case.get('same_source_merge'))}")
     if case.get("qa_type"):
         print(f"qa_type: {case['qa_type']}")
     print(f"alpha: {alpha}")
