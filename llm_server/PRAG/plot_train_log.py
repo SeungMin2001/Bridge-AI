@@ -25,6 +25,48 @@ def moving_average(values: list[float], window: int) -> list[float]:
     return out
 
 
+def latest_training_schedule(data: dict) -> dict:
+    schedules = data.get("training_schedules") or []
+    if schedules:
+        return schedules[-1] or {}
+    return data.get("training_schedule") or {}
+
+
+def resolve_steps_per_epoch(data: dict, override: float = 0.0) -> float | None:
+    if override and override > 0:
+        return float(override)
+    schedule = latest_training_schedule(data)
+    value = schedule.get("steps_per_epoch")
+    if value:
+        return float(value)
+    config = data.get("config") or {}
+    epochs = config.get("epochs") or schedule.get("epochs")
+    final_step = data.get("final_step") or schedule.get("total_steps")
+    if epochs and final_step:
+        return float(final_step) / max(float(epochs), 1.0)
+    return None
+
+
+def axis_values(
+    steps: list[int],
+    *,
+    x_axis: str,
+    steps_per_epoch: float | None,
+    offset: float = 0.0,
+) -> list[float]:
+    if x_axis == "epoch":
+        if not steps_per_epoch:
+            raise ValueError("Epoch x-axis requires steps_per_epoch. Use a new log or pass --steps-per-epoch.")
+        return [offset + (step / steps_per_epoch) for step in steps]
+    return [offset + step for step in steps]
+
+
+def axis_label(x_axis: str, stitched: bool = False) -> str:
+    if x_axis == "epoch":
+        return "stitched epoch" if stitched else "epoch"
+    return "stitched step" if stitched else "step"
+
+
 def write_step_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         return
@@ -113,7 +155,15 @@ def write_val_csv(path: Path, rows: list[dict]) -> None:
             })
 
 
-def plot_png(output: Path, step_rows: list[dict], val_rows: list[dict], smooth: int) -> bool:
+def plot_png(
+    output: Path,
+    step_rows: list[dict],
+    val_rows: list[dict],
+    smooth: int,
+    *,
+    x_axis: str = "step",
+    steps_per_epoch: float | None = None,
+) -> bool:
     try:
         import matplotlib
 
@@ -123,22 +173,35 @@ def plot_png(output: Path, step_rows: list[dict], val_rows: list[dict], smooth: 
         print(f"[PRAG:plot] matplotlib unavailable; skipped PNG plot ({exc})")
         return False
 
-    steps = [int(row["step"]) for row in step_rows]
+    raw_steps = [int(row["step"]) for row in step_rows]
+    steps = axis_values(raw_steps, x_axis=x_axis, steps_per_epoch=steps_per_epoch)
     objectives = [float(row["objective"]) for row in step_rows]
     ranks = [float(row.get("rank") or 0.0) for row in step_rows]
     elapsed = [float(row.get("cumulative_elapsed_min") or row.get("elapsed_min") or 0.0) for row in step_rows]
 
-    val_steps = [int(row["step"]) for row in val_rows]
+    val_steps = axis_values([int(row["step"]) for row in val_rows], x_axis=x_axis, steps_per_epoch=steps_per_epoch)
     val_obj = [float((row.get("individual") or {}).get("objective", 0.0)) for row in val_rows]
     group_obj = [float((row.get("group") or {}).get("objective", 0.0)) for row in val_rows if row.get("group")]
-    group_steps = [int(row["step"]) for row in val_rows if row.get("group")]
+    group_steps = axis_values(
+        [int(row["step"]) for row in val_rows if row.get("group")],
+        x_axis=x_axis,
+        steps_per_epoch=steps_per_epoch,
+    )
     merge_obj = [float((row.get("merge") or {}).get("objective", 0.0)) for row in val_rows if row.get("merge")]
-    merge_steps = [int(row["step"]) for row in val_rows if row.get("merge")]
+    merge_steps = axis_values(
+        [int(row["step"]) for row in val_rows if row.get("merge")],
+        x_axis=x_axis,
+        steps_per_epoch=steps_per_epoch,
+    )
     val_flip = [float((row.get("individual") or {}).get("flip_ok", 0.0)) for row in val_rows]
     group_flip = [float((row.get("group") or {}).get("flip_ok", 0.0)) for row in val_rows if row.get("group")]
     merge_flip = [float((row.get("merge") or {}).get("flip_ok", 0.0)) for row in val_rows if row.get("merge")]
     generation_rows = [row for row in val_rows if row.get("generation")]
-    generation_steps = [int(row["step"]) for row in generation_rows]
+    generation_steps = axis_values(
+        [int(row["step"]) for row in generation_rows],
+        x_axis=x_axis,
+        steps_per_epoch=steps_per_epoch,
+    )
     generation_main = [float((row.get("generation") or {}).get("main_kv_hit_rate", 0.0)) for row in generation_rows]
     generation_neg = [float((row.get("generation") or {}).get("neg_kv_hit_rate", 0.0)) for row in generation_rows]
     generation_direct = [
@@ -155,13 +218,13 @@ def plot_png(output: Path, step_rows: list[dict], val_rows: list[dict], smooth: 
     if merge_obj:
         axes[0, 0].scatter(merge_steps, merge_obj, s=24, label="merge val objective")
     axes[0, 0].set_title("Objective")
-    axes[0, 0].set_xlabel("step")
+    axes[0, 0].set_xlabel(axis_label(x_axis))
     axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
 
     axes[0, 1].plot(steps, moving_average(ranks, smooth), color="tab:orange", label=f"rank ma{smooth}")
     axes[0, 1].set_title("Rank Loss")
-    axes[0, 1].set_xlabel("step")
+    axes[0, 1].set_xlabel(axis_label(x_axis))
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
 
@@ -176,13 +239,13 @@ def plot_png(output: Path, step_rows: list[dict], val_rows: list[dict], smooth: 
         axes[1, 0].plot(generation_steps, generation_direct, marker="x", linestyle="--", label="gen direct")
     axes[1, 0].set_ylim(-0.05, 1.05)
     axes[1, 0].set_title("Candidate And Generation Accuracy")
-    axes[1, 0].set_xlabel("step")
+    axes[1, 0].set_xlabel(axis_label(x_axis))
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
 
     axes[1, 1].plot(steps, elapsed, color="tab:green", label="elapsed min")
     axes[1, 1].set_title("Elapsed Time")
-    axes[1, 1].set_xlabel("step")
+    axes[1, 1].set_xlabel(axis_label(x_axis))
     axes[1, 1].set_ylabel("minutes")
     axes[1, 1].legend()
     axes[1, 1].grid(True, alpha=0.3)
@@ -201,6 +264,8 @@ def plot_objective_time_png(
     smooth: int,
     *,
     hide_val_labels: bool = False,
+    x_axis: str = "step",
+    steps_per_epoch: float | None = None,
 ) -> bool:
     try:
         import matplotlib
@@ -211,14 +276,23 @@ def plot_objective_time_png(
         print(f"[PRAG:plot] matplotlib unavailable; skipped PNG plot ({exc})")
         return False
 
-    steps = [int(row["step"]) for row in step_rows]
+    raw_steps = [int(row["step"]) for row in step_rows]
+    steps = axis_values(raw_steps, x_axis=x_axis, steps_per_epoch=steps_per_epoch)
     objectives = [float(row["objective"]) for row in step_rows]
     elapsed = [float(row.get("cumulative_elapsed_min") or row.get("elapsed_min") or 0.0) for row in step_rows]
-    val_steps = [int(row["step"]) for row in val_rows]
+    val_steps = axis_values([int(row["step"]) for row in val_rows], x_axis=x_axis, steps_per_epoch=steps_per_epoch)
     val_obj = [float((row.get("individual") or {}).get("objective", 0.0)) for row in val_rows]
-    group_steps = [int(row["step"]) for row in val_rows if row.get("group")]
+    group_steps = axis_values(
+        [int(row["step"]) for row in val_rows if row.get("group")],
+        x_axis=x_axis,
+        steps_per_epoch=steps_per_epoch,
+    )
     group_obj = [float((row.get("group") or {}).get("objective", 0.0)) for row in val_rows if row.get("group")]
-    merge_steps = [int(row["step"]) for row in val_rows if row.get("merge")]
+    merge_steps = axis_values(
+        [int(row["step"]) for row in val_rows if row.get("merge")],
+        x_axis=x_axis,
+        steps_per_epoch=steps_per_epoch,
+    )
     merge_obj = [float((row.get("merge") or {}).get("objective", 0.0)) for row in val_rows if row.get("merge")]
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
@@ -232,13 +306,13 @@ def plot_objective_time_png(
     if merge_obj:
         axes[0].scatter(merge_steps, merge_obj, s=28, label=None if hide_val_labels else "merge val objective")
     axes[0].set_title("Objective")
-    axes[0].set_xlabel("step")
+    axes[0].set_xlabel(axis_label(x_axis))
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
 
     axes[1].plot(steps, elapsed, color="tab:green", label="elapsed min")
     axes[1].set_title("Elapsed Time")
-    axes[1].set_xlabel("step")
+    axes[1].set_xlabel(axis_label(x_axis))
     axes[1].set_ylabel("minutes")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -272,6 +346,8 @@ def plot_compare_objective_time_png(
     smooth: int,
     *,
     stitch: bool = False,
+    x_axis: str = "step",
+    steps_per_epoch_override: float = 0.0,
 ) -> bool:
     try:
         import matplotlib
@@ -285,7 +361,7 @@ def plot_compare_objective_time_png(
     fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
     fig.suptitle("PRAG Objective And Time Comparison")
 
-    step_offset = 0
+    x_offset = 0.0
     elapsed_offset = 0.0
     summary = []
     for label, path, data in series:
@@ -295,13 +371,20 @@ def plot_compare_objective_time_png(
             continue
         raw_steps = [int(row["step"]) for row in step_rows]
         raw_elapsed = [float(row.get("cumulative_elapsed_min") or row.get("elapsed_min") or 0.0) for row in step_rows]
-        steps = [step + step_offset for step in raw_steps]
+        steps_per_epoch = resolve_steps_per_epoch(data, steps_per_epoch_override)
+        steps = axis_values(raw_steps, x_axis=x_axis, steps_per_epoch=steps_per_epoch, offset=x_offset)
         elapsed = [minute + elapsed_offset for minute in raw_elapsed]
         objectives = [float(row["objective"]) for row in step_rows]
         line = axes[0].plot(steps, moving_average(objectives, smooth), label=f"{label} train ma{smooth}")[0]
         color = line.get_color()
 
-        val_points = [(int(row["step"]) + step_offset, preferred_val_objective(row)) for row in val_rows]
+        val_x = axis_values(
+            [int(row["step"]) for row in val_rows],
+            x_axis=x_axis,
+            steps_per_epoch=steps_per_epoch,
+            offset=x_offset,
+        )
+        val_points = [(x_value, preferred_val_objective(row)) for x_value, row in zip(val_x, val_rows)]
         val_points = [(step, obj) for step, obj in val_points if obj is not None]
         if val_points:
             axes[0].scatter(
@@ -321,20 +404,25 @@ def plot_compare_objective_time_png(
             "val_evals": len(val_rows),
             "first_step": raw_steps[0] if raw_steps else None,
             "last_step": raw_steps[-1] if raw_steps else None,
-            "step_offset": step_offset,
+            "x_axis": x_axis,
+            "steps_per_epoch": steps_per_epoch,
+            "x_offset": x_offset,
             "elapsed_offset_min": elapsed_offset,
         })
         if stitch:
-            step_offset += max(raw_steps) if raw_steps else 0
+            if x_axis == "epoch" and steps_per_epoch:
+                x_offset += max(raw_steps) / steps_per_epoch if raw_steps else 0.0
+            else:
+                x_offset += max(raw_steps) if raw_steps else 0.0
             elapsed_offset += max(raw_elapsed) if raw_elapsed else 0.0
 
     axes[0].set_title("Objective")
-    axes[0].set_xlabel("step" if not stitch else "stitched step")
+    axes[0].set_xlabel(axis_label(x_axis, stitch))
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
 
     axes[1].set_title("Elapsed Time")
-    axes[1].set_xlabel("step" if not stitch else "stitched step")
+    axes[1].set_xlabel(axis_label(x_axis, stitch))
     axes[1].set_ylabel("minutes" if not stitch else "stitched minutes")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -379,6 +467,18 @@ def main() -> None:
         action="store_true",
         help="Offset later logs by previous logs' last step/runtime so separate runs appear as one continuation.",
     )
+    parser.add_argument(
+        "--x-axis",
+        choices=("step", "epoch"),
+        default="step",
+        help="Plot against raw step or convert steps to epoch units. Epoch mode keeps all points and relabels x=step/steps_per_epoch.",
+    )
+    parser.add_argument(
+        "--steps-per-epoch",
+        type=float,
+        default=0.0,
+        help="Override steps per epoch for --x-axis epoch, useful for older logs without training_schedule metadata.",
+    )
     parser.add_argument("--generic", action="store_true", help="Use the non-multifact default log path.")
     args = parser.parse_args()
 
@@ -390,6 +490,12 @@ def main() -> None:
     step_rows = data.get("step_losses") or []
     val_rows = data.get("val_evals") or []
     output_dir.mkdir(parents=True, exist_ok=True)
+    steps_per_epoch = resolve_steps_per_epoch(data, args.steps_per_epoch)
+    if args.x_axis == "epoch" and not steps_per_epoch:
+        raise SystemExit(
+            "[PRAG:plot] --x-axis epoch requires steps_per_epoch. "
+            "Use a new training log with training_schedule metadata or pass --steps-per-epoch."
+        )
 
     if args.compare_log:
         primary_label = args.label or log_path.stem
@@ -403,6 +509,8 @@ def main() -> None:
             series,
             args.smooth,
             stitch=args.stitch_logs,
+            x_axis=args.x_axis,
+            steps_per_epoch_override=args.steps_per_epoch,
         )
         print(f"[PRAG:plot] compare_logs={len(series)} stitch={args.stitch_logs}")
         print(f"[PRAG:plot] compare_png={compare_png if plotted else 'not_created'}")
@@ -433,6 +541,9 @@ def main() -> None:
         "final_group_val": final_group,
         "final_generation_val": final_generation,
         "last_generation_eval": generation_evals[-1].get("generation") if generation_evals else {},
+        "x_axis": args.x_axis,
+        "steps_per_epoch": steps_per_epoch,
+        "training_schedule": latest_training_schedule(data),
     }
     summary_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     if step_rows and args.objective_time_only:
@@ -442,9 +553,22 @@ def main() -> None:
             val_rows,
             args.smooth,
             hide_val_labels=args.hide_val_labels,
+            x_axis=args.x_axis,
+            steps_per_epoch=steps_per_epoch,
         )
     else:
-        plotted = plot_png(png_path, step_rows, val_rows, args.smooth) if step_rows else False
+        plotted = (
+            plot_png(
+                png_path,
+                step_rows,
+                val_rows,
+                args.smooth,
+                x_axis=args.x_axis,
+                steps_per_epoch=steps_per_epoch,
+            )
+            if step_rows
+            else False
+        )
 
     print(f"[PRAG:plot] log={log_path}")
     print(f"[PRAG:plot] steps={len(step_rows)} val_evals={len(val_rows)} final_step={data.get('final_step')}")

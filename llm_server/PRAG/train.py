@@ -2182,6 +2182,24 @@ def main() -> None:
         )
 
     log = init_training_log(log_path, run_config, step)
+    schedule_entry = {
+        "epochs": args.epochs,
+        "steps_per_epoch": len(train_units),
+        "total_steps": total_steps,
+        "start_step": step,
+        "max_samples": args.max_samples,
+        "max_val_samples": args.max_val_samples,
+        "train_units": {
+            "example": len(train_examples) if args.example_weight > 0 else 0,
+            "group": len(train_groups) if args.group_weight > 0 else 0,
+            "merge": len(train_groups) if args.merge_aware and args.merge_weight > 0 else 0,
+        },
+    }
+    log["training_schedule"] = schedule_entry
+    log.setdefault("training_schedules", []).append({
+        **schedule_entry,
+        "session_index": len(log.get("sessions", [])) - 1,
+    })
     log["generation_eval_config"] = {
         "enabled": bool(valid_generation_examples),
         "samples": len(valid_generation_examples),
