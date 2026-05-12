@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    # pgvector가 사전 구성된(설치된) 이미지 사용
+    # pgvector?띠럾? ??????뚮봽??????노뭵?? ????嶺뚯솘? ????
     image: ankane/pgvector:latest
     container_name: rag_db
     environment:
@@ -16,7 +16,7 @@ services:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: always
 
-  # DeepFilterNet 잡음 제거 서버 (numpy<2.0 별도 환경)
+  # DeepFilterNet ???뚮쾳 ??蹂ㅽ깴 ??類ㅼ뮅 (numpy<2.0 ?곌랙?х뙴????삵렱)
   denoise_server:
     build: ./denoise_server
     container_name: denoise_server
@@ -26,7 +26,7 @@ services:
       - HF_TOKEN=${HF_TOKEN}
     restart: always
 
-  # diart 화자 분리 서버 (별도 컨테이너, 독립 스케일링 가능)
+  # diart ??븐슦???釉뚯뫊????類ㅼ뮅 (?곌랙?х뙴????쳜?????? ???몃뎡 ?????怨쀬땋 ?띠럾???
   diart_server:
     build: ./diart_server
     container_name: diart_server
@@ -42,27 +42,27 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Docker 내부에서는 IP 대신 서비스 이름('db')으로 DB에 연결합니다.
+      # Docker ??????????IP ??????類λ룴?????藥?'db')??怨쀬Ŧ DB????⑤슡???紐껊퉵??
       - DB_HOST=db
       - DB_PORT=5432
       - DB_USER=postgres
       - DB_PASSWORD=1234
-      - DB_NAME=rag
-      # 호스트 머신(현재 내 노트북/컴퓨터)에서 실행 중인 Qwen에 접근하기 위해 host.docker.internal 사용
+      - DB_NAME=postgres
+      # ?筌뤾쑬裕???誘⑹굣???熬곣뫗?????筌뤿굝諭?????샑甕??????????덈뺄 繞벿살탳??Qwen????얜∥????얄뵛 ?熬곥굥??host.docker.internal ????
       - LLM_API_URL=http://host.docker.internal:11434/api/generate
       #      - DENOISE_URL=http://denoise_server:8002/denoise/raw
       - DIARIZE_URL=http://diart_server:8003/diart/raw
       - QUIZ_MOCK_MODE=false
       - SUMMARY_MOCK_MODE=false
-      - LLM_URL=http://host.docker.internal:8001
-      - LLM_MODEL=QuantTrio/Qwen3.5-4B-AWQ
+      - LLM_URL=http://shin:8001
+      - LLM_MODEL=Qwen/Qwen3.5-4B
       - LLM_API_KEY=test-key
     depends_on:
       - db
       - diart_server
     #      - denoise_server
     volumes:
-      - .:/app # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
+      - .:/app # ?띠룇裕녻?繞??袁⑤?獄??곌떠?????嶺뚯빖留???꾩룇瑗?????洹먮맩夷?????熬곥굥???熬곣뫗??????臾딅ご????쳜???????????? ??⑤슡??
 
   frontend:
     build:
@@ -73,11 +73,11 @@ services:
       - "5173:5173"
     volumes:
       - ./frontend:/app
-      - /app/node_modules # 호스트의 node_modules가 컨테이너 내부를 덮어쓰지 않도록 설정
+      - /app/node_modules # ?筌뤾쑬裕?筌뤾쑴踰?node_modules?띠럾? ???쳜?????????????????? ???낆┣?????깆젧
     environment:
-      - CHOKIDAR_USEPOLLING=true # Windows/WSL 환경에서 파일 변경 감지를 위해 필요한 경우가 있음
-      - VITE_BACKEND_URL=http://100.104.164.84:8000
-      - VITE_BACKEND_WS_URL=ws://100.104.164.84:8000
+      - CHOKIDAR_USEPOLLING=true # Windows/WSL ???삵렱????????逾??곌떠????띠룆흮????熬곥굥???熬곣뫗????롪퍔???泥? ???깅쾳
+      - VITE_BACKEND_URL=http://fastapi_backend:8000 #100.104.164.84:8000
+      - VITE_BACKEND_WS_URL=ws://fastapi_backend:8000 #100.104.164.84:8000
 #    depends_on:
 #       - fastapi_backend
 volumes:
