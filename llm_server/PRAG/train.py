@@ -1823,6 +1823,15 @@ def main() -> None:
         help="Maximum number of passage chunks fused by orthogonal merge in one merge-aware step.",
     )
     parser.add_argument(
+        "--question-conditioned-memory",
+        action=argparse.BooleanOptionalAction,
+        default=QUESTION_CONDITIONED_MEMORY,
+        help=(
+            "Include the current question in the memory encoder input. "
+            "Use --no-question-conditioned-memory for passage-only training."
+        ),
+    )
+    parser.add_argument(
         "--group-max-qas",
         type=int,
         default=6,
