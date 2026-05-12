@@ -356,7 +356,7 @@ def main() -> None:
     parser.add_argument("--valid-output", default="data/PRAG_related_merge_augmented_valid.jsonl")
     parser.add_argument("--test-output", default="data/PRAG_related_merge_augmented_test.jsonl")
     parser.add_argument("--model", default="Qwen/Qwen2.5-7B")
-    parser.add_argument("--vllm-url", default="http://localhost:8001/v1/chat/completions")
+    parser.add_argument("--vllm-url", default="http://localhost:8001/v1/completions")
     parser.add_argument(
         "--api-mode",
         choices=("auto", "chat", "completion"),
