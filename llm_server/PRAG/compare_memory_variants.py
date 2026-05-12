@@ -400,53 +400,137 @@ def plot_report(path: Path, summary: dict) -> None:
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from matplotlib.ticker import FormatStrFormatter
     except Exception as exc:
         print(f"[PRAG:compare] matplotlib unavailable; skipped plot ({exc})")
         return
 
-    variants = ["question+passage", "passage-only"]
-    metric_specs = [
+    plt.rcParams.update({
+        "font.family": "DejaVu Sans",
+        "font.size": 10,
+        "axes.titlesize": 11,
+        "axes.labelsize": 10,
+        "legend.fontsize": 9,
+        "figure.titlesize": 13,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    })
+
+    qp_color = "#2f5f9f"
+    ponly_color = "#c66a2e"
+    grid_color = "#d7dce2"
+
+    quality_specs = [
         ("hit_rate", "Hit"),
         ("avg_relation_coverage", "Relation"),
         ("avg_answer_char_f1", "Answer F1"),
         ("avg_quality_score", "Quality"),
     ]
-    values = {
-        "question+passage": [summary["question+passage"][key] for key, _ in metric_specs],
-        "passage-only": [summary["passage-only"][key] for key, _ in metric_specs],
-    }
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
-    x = list(range(len(metric_specs)))
-    width = 0.36
-    axes[0].bar([i - width / 2 for i in x], values["question+passage"], width, label="question+passage", color="#2563eb")
-    axes[0].bar([i + width / 2 for i in x], values["passage-only"], width, label="passage-only", color="#f97316")
-    axes[0].set_xticks(x)
-    axes[0].set_xticklabels([label for _, label in metric_specs], rotation=15)
-    axes[0].set_ylim(0, 1.05)
-    axes[0].set_ylabel("Score")
-    axes[0].set_title("Answer Quality Metrics")
-    axes[0].legend(frameon=False)
-    axes[0].grid(axis="y", alpha=0.25)
-
-    outcomes = summary["pairwise"]
-    outcome_labels = ["QP win", "P-only win", "Tie"]
-    outcome_values = [
-        outcomes.get("question+passage", 0),
-        outcomes.get("passage-only", 0),
-        outcomes.get("tie", 0),
+    loss_specs = [
+        ("avg_loss", "Full CE"),
+        ("avg_phrase_loss", "Phrase CE"),
     ]
-    axes[1].bar(outcome_labels, outcome_values, color=["#2563eb", "#f97316", "#94a3b8"])
-    axes[1].set_title("Pairwise Wins")
-    axes[1].set_ylabel("Cases")
-    axes[1].grid(axis="y", alpha=0.25)
-    for idx, value in enumerate(outcome_values):
-        axes[1].text(idx, value, str(value), ha="center", va="bottom")
 
-    fig.suptitle(f"PRAG Memory Variant Comparison (n={summary['cases']})", fontsize=14, fontweight="bold")
-    fig.tight_layout()
+    def values_for(specs: list[tuple[str, str]], label: str) -> list[float]:
+        return [float(summary[label][key]) for key, _ in specs]
+
+    def style_axis(ax) -> None:
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#9aa3af")
+        ax.spines["bottom"].set_color("#9aa3af")
+        ax.grid(axis="y", color=grid_color, linewidth=0.8, alpha=0.75)
+        ax.set_axisbelow(True)
+
+    def annotate_bars(ax, bars, offset: float = 0.012) -> None:
+        upper = ax.get_ylim()[1]
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height + upper * offset,
+                f"{height:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="#111827",
+            )
+
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(10.8, 4.2),
+        gridspec_kw={"width_ratios": [1.35, 0.85]},
+    )
+    fig.patch.set_facecolor("white")
+
+    width = 0.34
+    quality_x = list(range(len(quality_specs)))
+    qp_quality = values_for(quality_specs, "question+passage")
+    ponly_quality = values_for(quality_specs, "passage-only")
+    bars_qp = axes[0].bar(
+        [i - width / 2 for i in quality_x],
+        qp_quality,
+        width,
+        label="Question + Passage",
+        color=qp_color,
+        edgecolor="#1f2937",
+        linewidth=0.35,
+    )
+    bars_ponly = axes[0].bar(
+        [i + width / 2 for i in quality_x],
+        ponly_quality,
+        width,
+        label="Passage Only",
+        color=ponly_color,
+        edgecolor="#1f2937",
+        linewidth=0.35,
+    )
+    axes[0].set_xticks(quality_x)
+    axes[0].set_xticklabels([label for _, label in quality_specs])
+    axes[0].set_ylim(0, 1.05)
+    axes[0].yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    axes[0].set_ylabel("Score (higher is better)")
+    axes[0].set_title("(a) Generation quality")
+    annotate_bars(axes[0], bars_qp)
+    annotate_bars(axes[0], bars_ponly)
+    style_axis(axes[0])
+
+    loss_x = list(range(len(loss_specs)))
+    qp_loss = values_for(loss_specs, "question+passage")
+    ponly_loss = values_for(loss_specs, "passage-only")
+    loss_upper = max(qp_loss + ponly_loss + [1e-6]) * 1.22
+    bars_qp_loss = axes[1].bar(
+        [i - width / 2 for i in loss_x],
+        qp_loss,
+        width,
+        color=qp_color,
+        edgecolor="#1f2937",
+        linewidth=0.35,
+    )
+    bars_ponly_loss = axes[1].bar(
+        [i + width / 2 for i in loss_x],
+        ponly_loss,
+        width,
+        color=ponly_color,
+        edgecolor="#1f2937",
+        linewidth=0.35,
+    )
+    axes[1].set_xticks(loss_x)
+    axes[1].set_xticklabels([label for _, label in loss_specs])
+    axes[1].set_ylim(0, loss_upper)
+    axes[1].set_ylabel("Cross entropy (lower is better)")
+    axes[1].set_title("(b) Token-level diagnostics")
+    annotate_bars(axes[1], bars_qp_loss, offset=0.018)
+    annotate_bars(axes[1], bars_ponly_loss, offset=0.018)
+    style_axis(axes[1])
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 1.03))
+    fig.suptitle(f"Memory Conditioning Improves Grounded Generation (n={summary['cases']})", y=1.08, fontweight="bold")
+    fig.tight_layout(pad=1.4, w_pad=2.2)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=180, bbox_inches="tight")
+    fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"[PRAG:compare] plot saved: {path}")
 
