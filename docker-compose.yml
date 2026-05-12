@@ -30,15 +30,18 @@ services:
   diart_server:
     build: ./diart_server
     container_name: diart_server
+    gpus: all
     ports:
       - "8003:8003"
     environment:
       - HF_TOKEN=${HF_TOKEN}
+      - DIARIZE_DEVICE=cuda
     restart: always
 
   fastapi_backend:
     build: .
     container_name: fastapi_backend
+    gpus: all
     ports:
       - "8000:8000"
     environment:
@@ -57,12 +60,17 @@ services:
       - LLM_URL=http://shin:8001
       - LLM_MODEL=Qwen/Qwen3.5-4B
       - LLM_API_KEY=test-key
+      - STT_BACKEND=openai-whisper
+      - STT_MODEL=turbo
+      - STT_DEVICE=cuda
+      - KOBART_MODEL_PATH=/models/kobart_correction
     depends_on:
       - db
       - diart_server
     #      - denoise_server
     volumes:
       - .:/app # ?띠룇裕녻?繞??袁⑤?獄??곌떠?????嶺뚯빖留???꾩룇瑗?????洹먮맩夷?????熬곥굥???熬곣뫗??????臾딅ご????쳜???????????? ??⑤슡??
+      - C:/Users/user/Documents/last_project/models/kobart_correction:/models/kobart_correction:ro
 
   frontend:
     build:
