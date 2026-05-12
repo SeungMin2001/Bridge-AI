@@ -94,7 +94,11 @@ def build_completion_prompt(row: dict) -> str:
     rendered = []
     for message in messages:
         rendered.append(f"<|im_start|>{message['role']}\n{message['content']}<|im_end|>")
-    rendered.append("<|im_start|>assistant\n")
+    # Qwen3-style reasoning checkpoints may emit a long <think> block even
+    # when the instruction says "JSON only". Closing the block up front mirrors
+    # enable_thinking=False behavior in Qwen chat templates and leaves the next
+    # tokens for the requested JSON object.
+    rendered.append("<|im_start|>assistant\n<think>\n\n</think>\n\n")
     return "\n".join(rendered)
 
 
