@@ -67,11 +67,13 @@ def build_messages(row: dict) -> list[dict]:
                 "Rewrite this Korean PRAG memory row for data augmentation.\n"
                 "Rules:\n"
                 "1. Keep the same JSON schema and the same number/order of atomic_qas and final_qas.\n"
-                "2. Preserve every answer exactly. Do not change answer strings.\n"
+                "2. Preserve every answer exactly. Do not change answer strings, spacing, dates, numbers, or names.\n"
                 "3. Each atomic sub_passage must be one natural Korean sentence about the same topic and must contain its exact answer.\n"
                 "4. The row should describe related facts about one coherent topic, not unrelated topics.\n"
                 "5. Do not use marker patterns such as A:B or A=B in passage or sub_passage.\n"
                 "6. Questions and full_answer may be naturally paraphrased, but full_answer must contain the exact answer.\n"
+                "7. Do not add, remove, rename, or translate JSON keys.\n"
+                "8. Do not include explanations, comments, arrays outside the requested object, or any text after the JSON.\n"
                 "Return only this JSON object:\n"
                 "{\n"
                 '  "passage": "...",\n'
@@ -86,10 +88,14 @@ def build_messages(row: dict) -> list[dict]:
 
 def build_completion_prompt(row: dict) -> str:
     messages = build_messages(row)
-    return "\n\n".join(
-        f"{message['role'].upper()}:\n{message['content']}"
-        for message in messages
-    ) + "\n\nASSISTANT:\n"
+    # vLLM deployments often expose /v1/completions even when chat completions
+    # are disabled. Qwen models follow the ChatML-style template below, which
+    # makes raw completions much more likely to return a single JSON object.
+    rendered = []
+    for message in messages:
+        rendered.append(f"<|im_start|>{message['role']}\n{message['content']}<|im_end|>")
+    rendered.append("<|im_start|>assistant\n")
+    return "\n".join(rendered)
 
 
 def completion_url_from_chat_url(url: str) -> str:
@@ -153,8 +159,9 @@ def post_text_completion(
     payload = {
         "model": model_name,
         "prompt": build_completion_prompt(row),
-        "temperature": 0.2,
+        "temperature": 0.0,
         "max_tokens": max_tokens,
+        "stop": ["<|im_end|>"],
     }
     response = requests.post(url, json=payload, timeout=timeout)
     response.raise_for_status()
@@ -363,7 +370,7 @@ def main() -> None:
         default="auto",
         help="OpenAI-compatible endpoint mode. auto retries /v1/completions if chat returns 404.",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=1400)
+    parser.add_argument("--max-new-tokens", type=int, default=2400)
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--json-mode", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--limit", type=int, default=0, help="Debug limit per split. 0 means all rows.")
