@@ -10,6 +10,7 @@ import {
 } from './appState/fileTreeState'
 import { useMaterialsState } from './appState/materialsState'
 import { useRecordingState } from './appState/recordingState'
+import { useChat } from './useChat'
 import { useScheduleState } from './useScheduleState'
 import { useSummaryState } from './useSummaryState'
 
@@ -17,6 +18,7 @@ import { useSummaryState } from './useSummaryState'
 export function useAppState() {
   const isRightSidebarVisible = ref(true)
   const scheduleExtractionNotice = ref(null)
+  const { clearHistory, closeCitePopover } = useChat()
   // 녹음 중에는 현재 전사 스냅샷을 8초마다 요약 API로 넘깁니다.
   const LIVE_SUMMARY_REFRESH_MS = 8000
   let liveSummaryTimer = null
@@ -131,8 +133,12 @@ export function useAppState() {
 
   const handleFileSelect = (id, node) => {
     // 신창영 : 파일을 새로 선택할 때마다 이전 실시간 전사 화면을 초기화
-    if (activeFileId.value !== id) {
+    const isDifferentFile = activeFileId.value !== id
+    if (isDifferentFile) {
       transcriptions.value = []
+      clearHistory()
+      closeCitePopover()
+      handleAiInputUpdate('')
     }
     originHandleFileSelect(id, node)
     if (isWorkspaceUuid(id) && node?.type === 'file') {
