@@ -30,7 +30,7 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 # ── 설정 ──
-MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "true").lower() == "true"
+MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "false").lower() == "true"
 
 LLM_URL = os.getenv("LLM_URL", "http://localhost:8001")
 LLM_MODEL = os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ")
