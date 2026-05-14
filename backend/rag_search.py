@@ -14,6 +14,7 @@ from kiwipiepy import Kiwi
 from llama_index.core import Settings, VectorStoreIndex, Document
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
+from materials.material_citation_service import build_material_citation, format_material_citation
 
 # ── 형태소 분석기 (Kiwi) ──
 _kiwi = Kiwi()
@@ -310,6 +311,65 @@ def _get_full_transcript(session_id: str | None) -> str:
             conn.close()
 
 
+def _normalize_source_filter(source_filter: dict | None) -> dict:
+    if not isinstance(source_filter, dict):
+        return {
+            "material_ids": set(),
+            "stored_names": set(),
+            "recording_ids": set(),
+            "transcript_ids": set(),
+        }
+
+    def clean_set(key: str, *, basename: bool = False) -> set[str]:
+        values = source_filter.get(key) or []
+        if not isinstance(values, list):
+            values = [values]
+        cleaned = set()
+        for value in values:
+            text = str(value or "").strip()
+            if not text:
+                continue
+            cleaned.add(os.path.basename(text) if basename else text)
+        return cleaned
+
+    return {
+        "material_ids": clean_set("material_ids"),
+        "stored_names": clean_set("stored_names", basename=True),
+        "recording_ids": clean_set("recording_ids"),
+        "transcript_ids": clean_set("transcript_ids"),
+    }
+
+
+def _has_source_filter(filters: dict) -> bool:
+    return any(filters.get(key) for key in ("material_ids", "stored_names", "recording_ids", "transcript_ids"))
+
+
+def _matches_source_filter(metadata: dict, filters: dict) -> bool:
+    if not _has_source_filter(filters):
+        return True
+
+    source_type = str(metadata.get("source_type") or "transcript")
+    if source_type == "material":
+        if not filters["material_ids"] and not filters["stored_names"]:
+            return False
+        material_id = str(metadata.get("material_id") or "")
+        stored_name = os.path.basename(str(metadata.get("stored_name") or ""))
+        return (
+            (material_id and material_id in filters["material_ids"])
+            or (stored_name and stored_name in filters["stored_names"])
+        )
+
+    if not filters["recording_ids"] and not filters["transcript_ids"]:
+        return False
+
+    recording_id = str(metadata.get("recording_id") or "")
+    transcript_id = str(metadata.get("transcript_id") or "")
+    return (
+        (recording_id and recording_id in filters["recording_ids"])
+        or (transcript_id and transcript_id in filters["transcript_ids"])
+    )
+
+
 def init():
     """서버 시작 시 1회 호출. 임베딩 모델 + vector store 로드."""
     global _embed_model, _vector_store, _index, _initialized, _init_error
@@ -367,8 +427,17 @@ def add_document(text: str, metadata: dict):
 # ── 키워드(BM25 대용) 검색: DB에서 직접 텍스트 매칭 ──
 # 신창영 : 기존에는 session_id 필터 없이 전체 transcripts를 대상으로 키워드 검색
 # def _keyword_search(query: str, top_k: int = 5) -> list[dict]:
-def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -> list[dict]:
+def _keyword_search(
+    query: str,
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+) -> list[dict]:
     """PostgreSQL ts_rank + LIKE 기반 키워드 검색"""
+    filters = _normalize_source_filter(source_filter)
+    if _has_source_filter(filters) and not filters["recording_ids"] and not filters["transcript_ids"]:
+        return []
+
     # 신창영 : DB 접속 정보는 _db_config()에서 환경변수 기반으로 통합
     # conn = psycopg2.connect(
     #     host="localhost", port=5432,
@@ -418,6 +487,12 @@ def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -
     if session_id:
         where_clauses.append("t.session_id = %s")
         values.append(session_id)
+    if filters["recording_ids"]:
+        where_clauses.append("t.recording_id = ANY(%s)")
+        values.append(list(filters["recording_ids"]))
+    if filters["transcript_ids"]:
+        where_clauses.append("t.transcript_id::text = ANY(%s)")
+        values.append(list(filters["transcript_ids"]))
 
     # 신창영 : 기존 SQL은 WHERE {like_conditions}만 사용하여 다른 녹음의 전사문이 섞일 수 있었음
     # WHERE {like_conditions}
@@ -458,6 +533,7 @@ def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -
             "chunk_index": chunk_index,
             "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at or ""),
             "session_id": str(row_session_id) if row_session_id else "",
+            "source_type": "transcript",
             "source": "keyword",
             "match_count": int(match_count or 0),
         })
@@ -467,7 +543,12 @@ def _keyword_search(query: str, top_k: int = 5, session_id: str | None = None) -
 # ── 벡터 검색 ──
 # 신창영 : 기존에는 session_id 필터 없이 벡터 검색 top_k만 조회
 # def _vector_search(query: str, top_k: int = 5) -> list[dict]:
-def _vector_search(query: str, top_k: int = 5, session_id: str | None = None) -> list[dict]:
+def _vector_search(
+    query: str,
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+) -> list[dict]:
     init()
     if _index is None:
         if _init_error is not None:
@@ -475,7 +556,9 @@ def _vector_search(query: str, top_k: int = 5, session_id: str | None = None) ->
         return []
     # 신창영 : session_id 필터 후 결과 부족을 줄이기 위해 후보를 더 넓게 조회
     # retriever = _index.as_retriever(similarity_top_k=top_k)
-    retriever = _index.as_retriever(similarity_top_k=top_k * 4 if session_id else top_k)
+    filters = _normalize_source_filter(source_filter)
+    needs_wide_candidates = bool(session_id) or _has_source_filter(filters)
+    retriever = _index.as_retriever(similarity_top_k=top_k * 8 if needs_wide_candidates else top_k)
     nodes = retriever.retrieve(query)
     session_label_cache = {}
 
@@ -486,11 +569,46 @@ def _vector_search(query: str, top_k: int = 5, session_id: str | None = None) ->
         # 신창영 : 기존에는 이 필터가 없어 다른 세션의 벡터 결과가 섞일 수 있었음
         if session_id and row_session_id != str(session_id):
             continue
+        if not _matches_source_filter(m, filters):
+            continue
 
         # 신창영 : 파일 삭제 후 남은 오래된 벡터 노드는 세션 DB에 존재할 때만 노출
         # 신창영 : citation 제목은 stale metadata가 아니라 최신 sessions/session_voicefile 값으로 보정
         if not row_session_id:
             continue
+        source_type = str(m.get("source_type") or "transcript")
+        if source_type == "material":
+            label_cache_key = ("material", row_session_id)
+            if label_cache_key not in session_label_cache:
+                session_label_cache[label_cache_key] = _get_session_label(row_session_id)
+            session_label = session_label_cache[label_cache_key]
+            if session_label is None:
+                continue
+
+            results.append({
+                "text": node.text,
+                "file_title": session_label.get("file_title") or m.get("session_title", ""),
+                "recording_title": "",
+                "course_title": session_label.get("course_title") or m.get("course_title", ""),
+                "session_title": session_label.get("session_title") or m.get("session_title", ""),
+                "session_date": session_label.get("session_date") or m.get("session_date", ""),
+                "start_time": 0,
+                "end_time": 0,
+                "session_id": row_session_id,
+                "recording_id": "",
+                "transcript_id": "",
+                "material_id": str(m.get("material_id", "")),
+                "material_name": str(m.get("material_name", "")),
+                "stored_name": str(m.get("stored_name", "")),
+                "page": m.get("page", 0),
+                "chunk_index": m.get("chunk_index", None),
+                "created_at": m.get("created_at", ""),
+                "score": node.score,
+                "source_type": "material",
+                "source": "vector",
+            })
+            continue
+
         created_at = m.get("created_at", "")
         recording_id = str(m.get("recording_id", ""))
         label_cache_key = (row_session_id, str(created_at or ""), recording_id)
@@ -515,6 +633,7 @@ def _vector_search(query: str, top_k: int = 5, session_id: str | None = None) ->
             "chunk_index": m.get("chunk_index", None),
             "created_at": created_at,
             "score": node.score,
+            "source_type": "transcript",
             "source": "vector",
         })
     return results
@@ -596,15 +715,73 @@ def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, 
     return [item["data"] for item in ranked[:top_k]]
 
 
-def _run_hybrid_search(queries: list[str], top_k: int = 5, session_id: str | None = None) -> list[dict]:
+def _result_identity(result: dict) -> tuple:
+    source_type = result.get("source_type") or "transcript"
+    if source_type == "material":
+        return (
+            "material",
+            result.get("session_id", ""),
+            result.get("material_id", ""),
+            result.get("stored_name", ""),
+            result.get("page", ""),
+            result.get("chunk_index", ""),
+        )
+
+    return (
+        "transcript",
+        result.get("session_id", ""),
+        result.get("recording_id", ""),
+        result.get("transcript_id", ""),
+        result.get("chunk_index", ""),
+        result.get("start_time", ""),
+        result.get("end_time", ""),
+    )
+
+
+def _dedupe_vector_results(vector_results: list[dict], top_k: int = 5) -> list[dict]:
+    best_by_key = {}
+    for result in vector_results:
+        key = _result_identity(result)
+        score = float(result.get("score") or 0.0)
+        current = best_by_key.get(key)
+        if current is None or score > float(current.get("score") or 0.0):
+            best_by_key[key] = result
+
+    ranked = sorted(
+        best_by_key.values(),
+        key=lambda item: float(item.get("score") or 0.0),
+        reverse=True,
+    )
+    return ranked[:top_k]
+
+
+def _run_vector_similarity_search(
+    queries: list[str],
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+) -> list[dict]:
+    """PDF material chunk와 transcript chunk를 같은 벡터 후보군에서 유사도 순으로 랭킹."""
+    vector_results = []
+    for query in queries:
+        vector_results.extend(_vector_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
+    return _dedupe_vector_results(vector_results, top_k=top_k)
+
+
+def _run_hybrid_search(
+    queries: list[str],
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+) -> list[dict]:
     """여러 검색어에 대해 벡터 검색과 키워드 검색을 실행한 뒤 RRF로 병합."""
     all_vector = []
     all_keyword = []
     query_keywords = extract_keywords(queries[0]) if queries else []
 
     for query in queries:
-        all_vector.extend(_vector_search(query, top_k=top_k, session_id=session_id))
-        all_keyword.extend(_keyword_search(query, top_k=top_k, session_id=session_id))
+        all_vector.extend(_vector_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
+        all_keyword.extend(_keyword_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
 
     return _merge_results(all_vector, all_keyword, top_k=top_k, query_keywords=query_keywords)
 
@@ -612,6 +789,9 @@ def _run_hybrid_search(queries: list[str], top_k: int = 5, session_id: str | Non
 # ── Citation 포맷 ──
 def _format_citation(result: dict) -> str:
     """출처 문자열 생성"""
+    if result.get("source_type") == "material":
+        return format_material_citation(result)
+
     time_range = f"{_format_time(result['start_time'])}~{_format_time(result['end_time'])}"
     return f"{result['session_title']} > {time_range}"
 
@@ -621,7 +801,12 @@ def _format_citation(result: dict) -> str:
 # ══════════════════════════════════════
 # 신창영 : 기존에는 session_id를 받지 않고 전체 자료에서 검색
 # def search(question: str, top_k: int = 5) -> dict:
-def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict:
+def search(
+    question: str,
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+) -> dict:
     """
     Hybrid Search + Multi-query + Citation
 
@@ -641,10 +826,18 @@ def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict
     # 신창영 : 선택 세션 기준 검색 후 결과가 없을 때만 전체 검색으로 fallback
     # all_vector.extend(_vector_search(q, top_k=3))
     # all_keyword.extend(_keyword_search(q, top_k=3))
-    results = _run_hybrid_search(queries, top_k=top_k, session_id=session_id)
+    filters = _normalize_source_filter(source_filter)
+    has_filter = _has_source_filter(filters)
+    results = _run_vector_similarity_search(queries, top_k=top_k, session_id=session_id, source_filter=source_filter)
     search_scope = "current_file" if session_id else "all_files"
-    if session_id and not results:
-        results = _run_hybrid_search(queries, top_k=top_k, session_id=None)
+    if not results:
+        results = _run_hybrid_search(queries, top_k=top_k, session_id=session_id, source_filter=source_filter)
+        if results:
+            search_scope = f"{search_scope}_keyword_fallback"
+    if session_id and not results and not has_filter:
+        results = _run_vector_similarity_search(queries, top_k=top_k, session_id=None, source_filter=None)
+        if not results:
+            results = _run_hybrid_search(queries, top_k=top_k, session_id=None, source_filter=None)
         search_scope = "all_files_fallback"
 
     if not results:
@@ -658,6 +851,16 @@ def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict
     for i, r in enumerate(results, 1):
         citation = _format_citation(r)
         result_session_id = r.get("session_id") or session_id
+        if r.get("source_type") == "material":
+            context_parts.append(f"[{i}] {r['text']} (출처: {citation})")
+            citations.append(build_material_citation(
+                r,
+                citation=citation,
+                session_id=result_session_id,
+                search_scope=search_scope,
+            ))
+            continue
+
         # 신창영 : 참조 패널에는 가능하면 파일 전체 전사보다 해당 녹음본 전사문을 우선 제공
         recording_cache_key = (
             result_session_id,
@@ -690,6 +893,7 @@ def search(question: str, top_k: int = 5, session_id: str | None = None) -> dict
             "created_at": r.get("created_at", ""),
             "session_id": r.get("session_id", ""),
             "search_scope": search_scope,
+            "source_type": "transcript",
             "full_transcript": full_transcript,
         })
 
