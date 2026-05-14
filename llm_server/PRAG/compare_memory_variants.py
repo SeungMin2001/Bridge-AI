@@ -413,6 +413,22 @@ def sync_if_cuda(device) -> None:
         torch.cuda.synchronize()
 
 
+def merged_passages_for_case(case: dict) -> list[str]:
+    candidates = [case.get("main_passage", "")] + list(case.get("merge_passages") or [])
+    passages: list[str] = []
+    seen: set[str] = set()
+    for passage in candidates:
+        text = str(passage or "").strip()
+        if not text:
+            continue
+        key = normalize_eval_text(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        passages.append(text)
+    return passages
+
+
 @torch.no_grad()
 def evaluate_variant(
     *,
@@ -432,9 +448,12 @@ def evaluate_variant(
     question = case["question"]
     main_answer = case["main_answer"]
     full_answer = case.get("full_answer") or main_answer
-    main_passages = [case["main_passage"]] + list(case.get("merge_passages") or [])
+    main_passages = merged_passages_for_case(case)
     sync_if_cuda(device)
     started_at = time.perf_counter()
+    # Each variant may have been trained with a different critical layer. Using
+    # a shared target layer would make one side of the comparison unfair.
+    target_layer = model.model.layers[variant.layer_idx]
     memory = encode_merged_memory(
         model,
         tokenizer,
@@ -771,7 +790,7 @@ def main() -> None:
     records: list[dict] = []
     for case in cases:
         question = case["question"]
-        main_passages = [case["main_passage"]] + list(case.get("merge_passages") or [])
+        main_passages = merged_passages_for_case(case)
         recall_hit = recall_at_k(case, main_passages)
         direct = no_memory = None
         direct_result = no_memory_result = None
