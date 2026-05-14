@@ -574,6 +574,108 @@ def write_csv(path: Path, records: list[dict]) -> None:
         writer.writerows(records)
 
 
+def append_jsonl(path: Path, record: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def read_jsonl_records(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    records: list[dict] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                records.append(value)
+    return records
+
+
+def record_key(record: dict) -> str:
+    return "\u241f".join(
+        str(record.get(key) or "")
+        for key in ("case", "source_id", "question", "expected")
+    )
+
+
+def case_key(case: dict) -> str:
+    return "\u241f".join(
+        str(value or "")
+        for value in (
+            case.get("name"),
+            case.get("source_id"),
+            case.get("question"),
+            case.get("full_answer") or case.get("main_answer"),
+        )
+    )
+
+
+def as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def as_float(value) -> float | None:
+    if value in ("", None):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def apply_record_to_totals(record: dict, totals: dict, pairwise_counts: dict, *, include_baselines: bool, include_loss: bool) -> None:
+    totals["count"] += 1
+    totals["recall_hits"] += int(as_bool(record.get("recall_at_k")))
+    totals["same_source_merges"] += int(as_bool(record.get("same_source_merge")))
+    if include_baselines:
+        direct_em = as_bool(record.get("direct_normalized_em"))
+        no_memory_em = as_bool(record.get("no_memory_normalized_em"))
+        totals["direct_em"] += int(direct_em)
+        totals["no_memory_em"] += int(no_memory_em)
+        direct_f1 = as_float(record.get("direct_answer_token_f1"))
+        no_memory_f1 = as_float(record.get("no_memory_answer_token_f1"))
+        if direct_f1 is not None:
+            totals["direct_token_f1"].append(direct_f1)
+        if no_memory_f1 is not None:
+            totals["no_memory_token_f1"].append(no_memory_f1)
+    totals["qp_em"] += int(as_bool(record.get("qp_normalized_em")))
+    totals["ponly_em"] += int(as_bool(record.get("ponly_normalized_em")))
+    if include_loss:
+        for key, record_key_name in (
+            ("qp_loss", "qp_loss"),
+            ("ponly_loss", "ponly_loss"),
+            ("qp_phrase", "qp_phrase_loss"),
+            ("ponly_phrase", "ponly_phrase_loss"),
+        ):
+            value = as_float(record.get(record_key_name))
+            if value is not None:
+                totals[key].append(value)
+    for total_key, record_key_name in (
+        ("qp_token_f1", "qp_answer_token_f1"),
+        ("ponly_token_f1", "ponly_answer_token_f1"),
+        ("qp_qa_score", "qp_qa_score"),
+        ("ponly_qa_score", "ponly_qa_score"),
+        ("qp_inference_time_s", "qp_inference_time_s"),
+        ("ponly_inference_time_s", "ponly_inference_time_s"),
+    ):
+        value = as_float(record.get(record_key_name))
+        if value is not None:
+            totals[total_key].append(value)
+    winner = str(record.get("pairwise_winner") or "tie")
+    if winner not in pairwise_counts:
+        winner = "tie"
+    pairwise_counts[winner] += 1
+
+
 def plot_report(path: Path, summary: dict) -> None:
     try:
         import matplotlib
@@ -730,6 +832,8 @@ def main() -> None:
     parser.add_argument("--output-csv", default=None, help="Optional path to write per-case CSV metrics.")
     parser.add_argument("--plot-path", default=None, help="Optional path to write a PNG comparison figure.")
     parser.add_argument("--report-dir", default=None, help="Write JSON, CSV, and PNG report files into this directory.")
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=False, help="Resume from the partial JSONL report and skip completed cases.")
+    parser.add_argument("--partial-jsonl", default=None, help="Optional per-case JSONL checkpoint path for resume. Defaults to report-dir/memory_variant_comparison.partial.jsonl.")
     args = parser.parse_args()
 
     qp_state = torch.load(Path(args.qp_weights), map_location="cpu")
@@ -748,6 +852,23 @@ def main() -> None:
         max_cases=args.max_cases,
         merge_max_passages=args.dataset_merge_max_passages,
     )
+
+    report_dir = Path(args.report_dir) if args.report_dir else None
+    json_path = Path(args.output_json) if args.output_json else (report_dir / "memory_variant_comparison.json" if report_dir else None)
+    csv_path = Path(args.output_csv) if args.output_csv else (report_dir / "memory_variant_comparison.csv" if report_dir else None)
+    plot_path = Path(args.plot_path) if args.plot_path else (report_dir / "memory_variant_comparison.png" if report_dir else None)
+    partial_path = (
+        Path(args.partial_jsonl)
+        if args.partial_jsonl
+        else (
+            report_dir / "memory_variant_comparison.partial.jsonl"
+            if report_dir
+            else (json_path.with_suffix(".partial.jsonl") if json_path else None)
+        )
+    )
+    if partial_path and not args.resume:
+        partial_path.parent.mkdir(parents=True, exist_ok=True)
+        partial_path.write_text("", encoding="utf-8")
 
     print("[PRAG:compare-memory-variants]")
     print(f"model={model_name} qp_layer={qp.layer_idx} ponly_layer={ponly.layer_idx} data={data_path}")
@@ -783,7 +904,33 @@ def main() -> None:
     }
     pairwise_counts = {"question+passage": 0, "passage-only": 0, "tie": 0}
     records: list[dict] = []
+    completed_keys: set[str] = set()
+    if args.resume:
+        if partial_path is None:
+            print("[PRAG:compare] --resume requested, but no partial path is available. Use --report-dir or --partial-jsonl.")
+        else:
+            existing_records = read_jsonl_records(partial_path)
+            for record in existing_records:
+                key = record_key(record)
+                if not key or key in completed_keys:
+                    continue
+                completed_keys.add(key)
+                records.append(record)
+                apply_record_to_totals(
+                    record,
+                    totals,
+                    pairwise_counts,
+                    include_baselines=args.include_baselines,
+                    include_loss=args.include_loss,
+                )
+            if existing_records:
+                print(f"[PRAG:compare] resume loaded completed={len(completed_keys)} from {partial_path}")
     for case in cases:
+        key = case_key(case)
+        if key in completed_keys:
+            if not args.quiet_cases:
+                print(f"[PRAG:compare:resume] skip completed case={case['name']}")
+            continue
         question = case["question"]
         main_passages = merged_passages_for_case(case)
         recall_hit = recall_at_k(case, main_passages)
@@ -835,67 +982,51 @@ def main() -> None:
                 args.dataset_merge_max_passages,
             )
 
-        totals["count"] += 1
-        totals["recall_hits"] += int(recall_hit)
-        totals["same_source_merges"] += int(bool(case.get("same_source_merge")))
-        if args.include_baselines and direct_result is not None and no_memory_result is not None:
-            totals["direct_em"] += int(direct_result["normalized_em"])
-            totals["no_memory_em"] += int(no_memory_result["normalized_em"])
-            totals["direct_token_f1"].append(direct_result["answer_token_f1"])
-            totals["no_memory_token_f1"].append(no_memory_result["answer_token_f1"])
-        totals["qp_em"] += int(qp_result["normalized_em"])
-        totals["ponly_em"] += int(ponly_result["normalized_em"])
-        if args.include_loss:
-            for key, result_key, result in (
-                ("qp_loss", "loss", qp_result),
-                ("ponly_loss", "loss", ponly_result),
-                ("qp_phrase", "phrase_loss", qp_result),
-                ("ponly_phrase", "phrase_loss", ponly_result),
-            ):
-                if result[result_key] is not None:
-                    totals[key].append(result[result_key])
-        totals["qp_token_f1"].append(qp_result["answer_token_f1"])
-        totals["ponly_token_f1"].append(ponly_result["answer_token_f1"])
-        totals["qp_qa_score"].append(qp_result["qa_score"])
-        totals["ponly_qa_score"].append(ponly_result["qa_score"])
-        totals["qp_inference_time_s"].append(qp_result["inference_time_s"])
-        totals["ponly_inference_time_s"].append(ponly_result["inference_time_s"])
-        records.append(
-            {
-                "case": case["name"],
-                "source_id": case.get("source_id") or "",
-                "root_source_id": case.get("root_source_id") or "",
-                "merge_group_source_id": case.get("merge_group_source_id") or "",
-                "same_source_merge": bool(case.get("same_source_merge")),
-                "merge_policy": case.get("merge_policy") or "",
-                "merge_group_qas": case.get("merge_group_qas") or "",
-                "merged_passage_count": len(main_passages),
-                "qp_layer": qp.layer_idx,
-                "ponly_layer": ponly.layer_idx,
-                "question": case["question"],
-                "expected": case.get("full_answer") or case["main_answer"],
-                "recall_at_k": recall_hit,
-                "direct_normalized_em": "" if direct_result is None else direct_result["normalized_em"],
-                "no_memory_normalized_em": "" if no_memory_result is None else no_memory_result["normalized_em"],
-                "direct_answer_token_f1": "" if direct_result is None else direct_result["answer_token_f1"],
-                "no_memory_answer_token_f1": "" if no_memory_result is None else no_memory_result["answer_token_f1"],
-                "qp_normalized_em": qp_result["normalized_em"],
-                "ponly_normalized_em": ponly_result["normalized_em"],
-                "qp_answer_token_f1": qp_result["answer_token_f1"],
-                "ponly_answer_token_f1": ponly_result["answer_token_f1"],
-                "qp_qa_score": qp_result["qa_score"],
-                "ponly_qa_score": ponly_result["qa_score"],
-                "qp_inference_time_s": qp_result["inference_time_s"],
-                "ponly_inference_time_s": ponly_result["inference_time_s"],
-                "qp_loss": "" if qp_result["loss"] is None else qp_result["loss"],
-                "ponly_loss": "" if ponly_result["loss"] is None else ponly_result["loss"],
-                "qp_phrase_loss": "" if qp_result["phrase_loss"] is None else qp_result["phrase_loss"],
-                "ponly_phrase_loss": "" if ponly_result["phrase_loss"] is None else ponly_result["phrase_loss"],
-                "pairwise_winner": winner,
-                "qp_answer": qp_result["answer"],
-                "ponly_answer": ponly_result["answer"],
-            }
+        record = {
+            "case": case["name"],
+            "source_id": case.get("source_id") or "",
+            "root_source_id": case.get("root_source_id") or "",
+            "merge_group_source_id": case.get("merge_group_source_id") or "",
+            "same_source_merge": bool(case.get("same_source_merge")),
+            "merge_policy": case.get("merge_policy") or "",
+            "merge_group_qas": case.get("merge_group_qas") or "",
+            "merged_passage_count": len(main_passages),
+            "qp_layer": qp.layer_idx,
+            "ponly_layer": ponly.layer_idx,
+            "question": case["question"],
+            "expected": case.get("full_answer") or case["main_answer"],
+            "recall_at_k": recall_hit,
+            "direct_normalized_em": "" if direct_result is None else direct_result["normalized_em"],
+            "no_memory_normalized_em": "" if no_memory_result is None else no_memory_result["normalized_em"],
+            "direct_answer_token_f1": "" if direct_result is None else direct_result["answer_token_f1"],
+            "no_memory_answer_token_f1": "" if no_memory_result is None else no_memory_result["answer_token_f1"],
+            "qp_normalized_em": qp_result["normalized_em"],
+            "ponly_normalized_em": ponly_result["normalized_em"],
+            "qp_answer_token_f1": qp_result["answer_token_f1"],
+            "ponly_answer_token_f1": ponly_result["answer_token_f1"],
+            "qp_qa_score": qp_result["qa_score"],
+            "ponly_qa_score": ponly_result["qa_score"],
+            "qp_inference_time_s": qp_result["inference_time_s"],
+            "ponly_inference_time_s": ponly_result["inference_time_s"],
+            "qp_loss": "" if qp_result["loss"] is None else qp_result["loss"],
+            "ponly_loss": "" if ponly_result["loss"] is None else ponly_result["loss"],
+            "qp_phrase_loss": "" if qp_result["phrase_loss"] is None else qp_result["phrase_loss"],
+            "ponly_phrase_loss": "" if ponly_result["phrase_loss"] is None else ponly_result["phrase_loss"],
+            "pairwise_winner": winner,
+            "qp_answer": qp_result["answer"],
+            "ponly_answer": ponly_result["answer"],
+        }
+        records.append(record)
+        completed_keys.add(record_key(record))
+        apply_record_to_totals(
+            record,
+            totals,
+            pairwise_counts,
+            include_baselines=args.include_baselines,
+            include_loss=args.include_loss,
         )
+        if partial_path:
+            append_jsonl(partial_path, record)
 
     denom = max(totals["count"], 1)
 
@@ -976,16 +1107,14 @@ def main() -> None:
         "records": records,
     }
 
-    report_dir = Path(args.report_dir) if args.report_dir else None
-    json_path = Path(args.output_json) if args.output_json else (report_dir / "memory_variant_comparison.json" if report_dir else None)
-    csv_path = Path(args.output_csv) if args.output_csv else (report_dir / "memory_variant_comparison.csv" if report_dir else None)
-    plot_path = Path(args.plot_path) if args.plot_path else (report_dir / "memory_variant_comparison.png" if report_dir else None)
     if json_path:
         write_json(json_path, payload)
         print(f"[PRAG:compare] json saved: {json_path}")
     if csv_path:
         write_csv(csv_path, records)
         print(f"[PRAG:compare] csv saved: {csv_path}")
+    if partial_path:
+        print(f"[PRAG:compare] partial jsonl saved: {partial_path}")
     if plot_path:
         plot_report(plot_path, summary)
 
