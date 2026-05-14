@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 from datetime import date, datetime
@@ -9,6 +10,9 @@ from db_api.workspace.common import WorkspaceApiError, required_text, uuid_or_no
 from db_api.workspace.files_api import delete_workspace_material_files
 from db_api.workspace.session_cleanup import delete_recording_related_rows, delete_session_related_rows, delete_transcript_json_files
 from db_api.workspace.serializers import session_node, split_week_resources
+
+
+logger = logging.getLogger(__name__)
 
 
 async def create_session_file(payload: dict) -> dict:
@@ -151,6 +155,12 @@ async def update_session_resources(session_id: str, payload: dict) -> dict:
 
     if row is None:
         raise WorkspaceApiError("Session file not found.", status_code=404)
+
+    try:
+        from materials.material_rag_service import sync_session_materials_to_rag
+        await sync_session_materials_to_rag(str(session_uuid))
+    except Exception as exc:
+        logger.warning("[workspace] PDF RAG 동기화 실패: session=%s, error=%s", session_uuid, exc)
 
     return {
         "ok": True,
