@@ -24,10 +24,10 @@ def _get_int(name: str, default: int) -> int:
     return int(value)
 
 
-MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-3B-Instruct")
+MODEL_NAME = os.getenv("MERGEPRAG_MODEL_NAME", "Qwen/Qwen2.5-3B")
 # num_kv=1은 K가 softmax 선택 역할을 못 해서 V collapse에 취약했다.
 # 현재 기본은 V 분리와 slot 선택을 같이 보기 위해 4로 둔다.
-NUM_KV = _get_int("MERGEPRAG_NUM_KV", 4)
+NUM_KV = _get_int("MERGEPRAG_NUM_KV", 16)
 # 논문: single_layer=9 (Llama-3.1). Qwen의 경우 find_critical_layers.py 결과 사용.
 DEFAULT_CRITICAL_LAYER = _get_int("MERGEPRAG_DEFAULT_LAYER", 9)
 # 현재 Qwen/lecture QA 조건에서는 alpha=1.0가 hidden을 과도하게 덮어쓰는 경우가 많아

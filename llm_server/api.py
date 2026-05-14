@@ -308,7 +308,58 @@ async def memory_clear(req: MemoryClearRequest):
     return {"course_id": req.course_id, "cleared": True}
 
 
+#  과목 메모리 통계 API (검증용)
+@app.get("/memory/stats")
+async def memory_stats():
+    """전체 과목 메모리 상태를 상세 반환한다."""
+    courses = memory_manager.list_courses()
+    detailed = []
+    for course in courses:
+        cid = course["course_id"]
+        mem = memory_manager.memories.get(cid)
+        info = {
+            "course_id": cid,
+            "passage_count": course["passage_count"],
+        }
+        if mem:
+            info["k_shape"] = list(mem["K"].shape)
+            info["v_shape"] = list(mem["V"].shape)
+            info["k_norm"] = round(float(mem["K"].norm()), 4)
+            info["v_norm"] = round(float(mem["V"].norm()), 4)
+            passages = mem.get("passages", [])
+            info["passage_lengths"] = [len(p) for p in passages]
+            info["total_chars"] = sum(len(p) for p in passages)
+        detailed.append(info)
+    return {
+        "total_courses": len(courses),
+        "critical_layer": CRITICAL_LAYER,
+        "courses": detailed,
+    }
+
+
+@app.get("/memory/stats/{course_id}")
+async def memory_stats_course(course_id: str):
+    """특정 과목의 메모리 상태를 상세 반환한다."""
+    mem = memory_manager.memories.get(course_id)
+    if mem is None:
+        return {"course_id": course_id, "error": "no memory found"}
+    passages = mem.get("passages", [])
+    return {
+        "course_id": course_id,
+        "passage_count": mem["count"],
+        "k_shape": list(mem["K"].shape),
+        "v_shape": list(mem["V"].shape),
+        "k_norm": round(float(mem["K"].norm()), 4),
+        "v_norm": round(float(mem["V"].norm()), 4),
+        "total_chars": sum(len(p) for p in passages),
+        "passages": [
+            {"index": i, "length": len(p), "preview": p[:80]}
+            for i, p in enumerate(passages)
+        ],
+    }
+
+
 # ── 헬스체크 ──
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model": "Qwen3.5-4B", "mergeprag": True}
+    return {"status": "ok", "model": "Qwen/Qwen2.5-3B", "mergeprag": True}

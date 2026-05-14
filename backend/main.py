@@ -28,6 +28,7 @@ from quiz.quiz import router as quiz_router
 from summary.summary import router as summary_router
 from summary.test import router as summary_test_router
 from schedule.schedule import router as schedule_router
+from memory_injector import get_injector
 from db_api.workspace.router import router as workspace_router
 import logging
 
@@ -503,6 +504,10 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         print(f"[DB] create_session 실패 (전사는 계속 진행): {e}")
 
+    # 실시간 MergePRAG 메모리 주입 세션 등록
+    memory_injector = get_injector()
+    memory_injector.register_session(session_id)
+
     session_title = "실시간 녹음"
     course_title = "실시간 강의"
     session_date = str(__import__("datetime").date.today())
@@ -652,6 +657,12 @@ async def websocket_endpoint(ws: WebSocket):
             except Exception as e:
                 print(f"[RAG] 임베딩 추가 실패 (전사는 정상): {e}")
 
+            # 실시간 MergePRAG 메모리 주입: 전사문을 HyperNetwork로 보낸다
+            try:
+                await memory_injector.feed_text(session_id, corrected_text)
+            except Exception as e:
+                print(f"[MergePRAG] 메모리 주입 피드 실패 (전사는 정상): {e}")
+
     def build_speaker_updates(segments: list, force: bool = False) -> list[dict]:
         """전사 청크 시간과 화자 구간을 비교해서 speaker_id 보정 목록을 만듭니다."""
         speaker_updates = []
@@ -785,6 +796,13 @@ async def websocket_endpoint(ws: WebSocket):
             await process_pcm_chunk(bytes(audio_buffer))
             audio_buffer.clear()
 
+        # 세션 종료 시 남은 MergePRAG 메모리 버퍼 전송
+        try:
+            inject_stats = await memory_injector.close_session(session_id)
+            print(f"[MergePRAG] 세션 종료 통계: {inject_stats}")
+        except Exception as e:
+            print(f"[MergePRAG] 세션 종료 처리 실패: {e}")
+
         if diarize_tasks:
             await asyncio.gather(*list(diarize_tasks), return_exceptions=True)
 
@@ -908,8 +926,32 @@ async def websocket_endpoint(ws: WebSocket):
 
     except (WebSocketDisconnect, ConnectionResetError):
         print(f"[WS] 클라이언트 연결 종료: session_id={session_id}")
+        # MergePRAG 메모리 세션 정리
+        try:
+            await memory_injector.close_session(session_id)
+        except Exception:
+            pass
         # 신창영: 수정 이유 - 클라이언트가 끊긴 뒤 남은 백그라운드 화자분리 task가 WebSocket으로 보내지 않도록 정리합니다.
         for task in list(diarize_tasks):
             task.cancel()
         if diarize_tasks:
             await asyncio.gather(*diarize_tasks, return_exceptions=True)
+
+
+#  MergePRAG 메모리 주입 통계 API
+@app.get("/memory/inject/stats")
+async def memory_inject_stats():
+    """실시간 메모리 주입 전체 통계를 반환한다."""
+    injector = get_injector()
+    return {
+        "enabled": injector._enabled,
+        "server_url": injector.server_url,
+        "sessions": injector.get_all_stats(),
+    }
+
+
+@app.get("/memory/inject/stats/{session_id}")
+async def memory_inject_stats_session(session_id: str):
+    """특정 세션의 메모리 주입 통계를 반환한다."""
+    injector = get_injector()
+    return injector.get_stats(session_id)
