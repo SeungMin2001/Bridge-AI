@@ -1,0 +1,3011 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>홈 대시보드 초본</title>
+  <style>
+    :root {
+      --bg: #eadfff;
+      --shell: #ffffff;
+      --sidebar: #f1f5ff;
+      --sidebar-border: #d9ddf1;
+      --primary: #7a21e8;
+      --primary-dark: #411179;
+      --text: #231942;
+      --muted: #8a83a5;
+      --line: #ece9f6;
+      --blue-soft: #eef7ff;
+      --pink-soft: #fff0f7;
+      --mint-soft: #ecfbf4;
+      --yellow-soft: #fff9df;
+      --shadow: 0 26px 60px rgba(76, 35, 133, 0.16);
+      font-family: Inter, Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      overflow-x: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, #f7edff 0, transparent 34%),
+        linear-gradient(135deg, var(--bg), #dff2ff);
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button,
+    .month-day,
+    .calendar-event,
+    .recent-item,
+    .simple-file-card,
+    .task {
+      cursor: pointer;
+    }
+
+    .home-frame {
+      width: 100%;
+      min-height: 100vh;
+    }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 272px minmax(0, 1fr);
+      background: transparent;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+      padding: 48px 30px;
+      background: rgba(241, 245, 255, 0.82);
+      border-right: 1px solid var(--sidebar-border);
+      backdrop-filter: blur(22px);
+    }
+
+    .brand {
+      font-size: 28px;
+      font-weight: 900;
+      color: #120a39;
+    }
+
+    .nav {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .nav-button {
+      width: 100%;
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 18px;
+      color: #7a52b4;
+      background: transparent;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: default;
+    }
+
+    .nav-button.is-active {
+      color: #ffffff;
+      background: linear-gradient(135deg, #8d24f4, #6718df);
+      box-shadow: 0 14px 26px rgba(122, 33, 232, 0.28);
+    }
+
+    .nav-icon {
+      width: 30px;
+      height: 30px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 10px;
+      background: rgba(122, 33, 232, 0.1);
+      color: currentColor;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .nav-button.is-active .nav-icon {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .sidebar-card {
+      margin-top: auto;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+    }
+
+    .sidebar-card strong {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 14px;
+    }
+
+    .sidebar-card p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .sidebar-card button {
+      width: 100%;
+      height: 40px;
+      border: 0;
+      border-radius: 14px;
+      color: var(--primary);
+      background: #efe6ff;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 392px);
+      gap: clamp(24px, 3vw, 48px);
+      min-width: 0;
+      padding: 48px clamp(32px, 5vw, 88px);
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
+    }
+
+    .tab-screen {
+      display: none;
+    }
+
+    .tab-screen.is-active {
+      display: contents;
+    }
+
+    .content {
+      min-width: 0;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    h1 {
+      margin: 0;
+      color: #1b1047;
+      font-size: clamp(40px, 4.8vw, 64px);
+      line-height: 1.05;
+    }
+
+    .search {
+      width: min(460px, 100%);
+      height: 54px;
+      display: grid;
+      grid-template-columns: 1fr 58px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #f3f6ff;
+      border: 1px solid #edf0fb;
+    }
+
+    .search input {
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      padding: 0 18px;
+      color: var(--text);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .search button {
+      border: 0;
+      color: #ffffff;
+      background: var(--primary);
+      font-weight: 900;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 18px;
+      margin-bottom: 32px;
+    }
+
+    .metric-card {
+      min-height: 146px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 18px;
+      border-radius: 22px;
+      border: 1px solid rgba(236, 233, 246, 0.85);
+    }
+
+    .metric-card:nth-child(1) { background: var(--pink-soft); }
+    .metric-card:nth-child(2) { background: var(--blue-soft); }
+    .metric-card:nth-child(3) { background: var(--mint-soft); }
+    .metric-card:nth-child(4) { background: var(--yellow-soft); }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .metric-value {
+      color: #1b1047;
+      font-size: 38px;
+      font-weight: 950;
+    }
+
+    .section-row {
+      display: grid;
+      grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+      gap: 24px;
+      margin-bottom: 26px;
+    }
+
+    .panel {
+      min-width: 0;
+      padding: 26px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 38px rgba(35, 25, 66, 0.055);
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .panel-title {
+      margin: 0;
+      color: #1b1047;
+      font-size: 18px;
+      font-weight: 950;
+    }
+
+    .small-action {
+      border: 0;
+      border-radius: 999px;
+      padding: 9px 14px;
+      color: var(--primary);
+      background: #f2eaff;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .chat-preview {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .chat-line {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .chat-avatar {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: #ffffff;
+      background: var(--primary);
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    .chat-bubble {
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: #f7f4ff;
+      border: 1px solid #eee8ff;
+    }
+
+    .chat-bubble strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 13px;
+      color: #1b1047;
+    }
+
+    .chat-bubble p {
+      margin: 0;
+      color: #6f6887;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .workspace-chat-layout {
+      display: grid;
+      grid-template-columns: minmax(540px, 1fr) minmax(300px, 360px);
+      gap: 24px;
+      margin-bottom: 26px;
+      align-items: stretch;
+    }
+
+    .workspace-chat-panel {
+      min-width: 0;
+      min-height: 640px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 24px;
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(236, 106, 166, 0.16), transparent 34%),
+        radial-gradient(circle at 88% 12%, rgba(122, 33, 232, 0.13), transparent 36%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 245, 255, 0.82));
+      border: 1px solid rgba(235, 229, 247, 0.96);
+      box-shadow: 0 24px 48px rgba(74, 34, 132, 0.1);
+    }
+
+    .workspace-chat-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .workspace-chat-panel-title {
+      margin: 0;
+      color: #1b1047;
+      font-size: 19px;
+      font-weight: 950;
+    }
+
+    .workspace-chat-panel-subtitle {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .workspace-chat-history {
+      min-height: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+      padding: 2px 6px 18px 2px;
+    }
+
+    .project-chat-message {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .project-chat-message.is-user {
+      align-items: flex-end;
+    }
+
+    .project-message-sources {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      max-width: 85%;
+    }
+
+    .project-source-chip,
+    .project-cite-chip,
+    .project-source-toggle,
+    .project-source-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 100%;
+      border-radius: 999px;
+      color: #2a1558;
+      background: linear-gradient(135deg, #f2eaff, #ecfbf4);
+      border: 1px solid rgba(214, 199, 246, 0.92);
+      font-size: 12px;
+      font-weight: 850;
+      line-height: 1.3;
+      white-space: nowrap;
+    }
+
+    .project-source-chip {
+      padding: 6px 10px;
+      font-size: 11px;
+    }
+
+    .project-source-chip .material-symbols-outlined,
+    .project-cite-chip .material-symbols-outlined,
+    .project-source-toggle .material-symbols-outlined,
+    .project-source-meta .material-symbols-outlined {
+      color: var(--primary);
+      font-size: 15px;
+      flex: 0 0 auto;
+    }
+
+    .project-user-bubble {
+      width: fit-content;
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: 18px;
+      color: #ffffff;
+      background: linear-gradient(135deg, #34275e, var(--primary));
+      box-shadow: 0 14px 28px rgba(74, 34, 132, 0.2);
+      font-size: 14px;
+      line-height: 1.65;
+      font-weight: 760;
+    }
+
+    .project-ai-doc {
+      color: #211543;
+      font-size: 14px;
+      line-height: 1.75;
+      word-break: keep-all;
+    }
+
+    .project-ai-doc p {
+      margin: 0 0 10px;
+    }
+
+    .project-ai-doc p:last-child {
+      margin-bottom: 0;
+    }
+
+    .project-cite-chip {
+      margin-left: 5px;
+      padding: 4px 10px;
+      vertical-align: middle;
+      cursor: pointer;
+    }
+
+    .project-cite-chip:hover,
+    .project-source-toggle:hover {
+      background: linear-gradient(135deg, #e7d8ff, #e3f7eb);
+      border-color: rgba(122, 33, 232, 0.26);
+      box-shadow: 0 8px 20px rgba(74, 34, 132, 0.1);
+    }
+
+    .project-stream-wait {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      color: #2a1558;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid rgba(231, 216, 255, 0.95);
+      box-shadow: 0 12px 26px rgba(74, 34, 132, 0.1);
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .project-stream-ring {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(122, 33, 232, 0.16);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin-ring 0.78s linear infinite;
+    }
+
+    @keyframes spin-ring {
+      to { transform: rotate(360deg); }
+    }
+
+    .project-source-summary {
+      margin-top: 12px;
+    }
+
+    .project-source-toggle {
+      padding: 7px 13px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .project-source-chevron {
+      transition: transform 0.2s ease;
+    }
+
+    .project-source-chevron.is-open {
+      transform: rotate(180deg);
+    }
+
+    .project-source-panel {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+      padding-top: 15px;
+      border-top: 1px solid rgba(235, 229, 247, 0.95);
+    }
+
+    .project-source-panel.is-hidden {
+      display: none !important;
+    }
+
+    .project-source-panel-head {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: #211543;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .project-source-panel-head .material-symbols-outlined {
+      color: var(--primary);
+      font-size: 17px;
+    }
+
+    .project-source-card {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 18px;
+      gap: 10px;
+      padding: 12px;
+      text-align: left;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(235, 229, 247, 0.96);
+      box-shadow: 0 12px 26px rgba(74, 34, 132, 0.08);
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .project-source-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(122, 33, 232, 0.26);
+      box-shadow: 0 18px 34px rgba(74, 34, 132, 0.13);
+    }
+
+    .project-source-card-arrow {
+      align-self: center;
+      color: var(--primary);
+      font-size: 17px;
+    }
+
+    .pdf-evidence-mini {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .pdf-evidence-mini-top {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 7px;
+      color: #211543;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .pdf-evidence-mini-top .material-symbols-outlined {
+      color: var(--primary);
+      font-size: 17px;
+    }
+
+    .pdf-evidence-mini-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pdf-evidence-mini-page {
+      color: var(--primary);
+      background: #f2eaff;
+      border: 1px solid #e7d8ff;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 11px;
+      font-weight: 950;
+    }
+
+    .pdf-evidence-mini-preview {
+      min-height: 132px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 14px;
+      color: #8b83a6;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(248, 245, 255, 0.86)),
+        repeating-linear-gradient(0deg, transparent 0 21px, rgba(122, 33, 232, 0.08) 22px);
+      border: 1px solid #ebe5f7;
+      font-size: 12px;
+      font-weight: 850;
+      text-align: center;
+    }
+
+    .project-source-card-text {
+      display: grid;
+      grid-template-columns: 6px minmax(0, 1fr);
+      gap: 12px;
+      color: #211543;
+      font-size: 13px;
+      font-weight: 760;
+      line-height: 1.6;
+    }
+
+    .project-source-card-text::before {
+      content: '';
+      width: 6px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, var(--primary), #ec6aa6);
+    }
+
+    .project-source-card-main {
+      display: grid;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .project-source-meta {
+      width: fit-content;
+      padding: 5px 11px;
+    }
+
+    .project-chat-input-glow {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 26px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 245, 255, 0.86)),
+        radial-gradient(circle at top left, rgba(236, 106, 166, 0.12), transparent 42%);
+      border: 1px solid rgba(231, 216, 255, 0.95);
+      box-shadow: 0 20px 40px rgba(74, 34, 132, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    }
+
+    .selected-chat-source-list {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+
+    .selected-chat-source-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 260px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      color: #2a1558;
+      background: linear-gradient(135deg, #f2eaff, #ecfbf4);
+      border: 1px solid rgba(214, 199, 246, 0.92);
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .selected-chat-source-chip .material-symbols-outlined {
+      color: var(--primary);
+      font-size: 15px;
+    }
+
+    .selected-chat-source-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .selected-chat-source-remove {
+      width: 20px;
+      height: 20px;
+      display: inline-grid;
+      place-items: center;
+      border: 0;
+      border-radius: 999px;
+      color: var(--primary);
+      background: rgba(122, 33, 232, 0.1);
+    }
+
+    .selected-chat-source-remove .material-symbols-outlined {
+      font-size: 14px;
+    }
+
+    .project-chat-textarea {
+      width: 100%;
+      min-height: 42px;
+      max-height: 120px;
+      resize: none;
+      border: 0;
+      outline: 0;
+      padding: 0;
+      color: #211543;
+      background: transparent;
+      caret-color: var(--primary);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .project-chat-textarea::placeholder {
+      color: rgba(139, 131, 166, 0.78);
+    }
+
+    .project-chat-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(235, 229, 247, 0.9);
+    }
+
+    .project-tool-button,
+    .project-thinking-button,
+    .project-send-button {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 999px;
+      transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .project-tool-button {
+      width: 32px;
+      color: var(--muted);
+      background: rgba(242, 234, 255, 0.78);
+    }
+
+    .project-thinking-button {
+      gap: 6px;
+      padding: 0 13px;
+      color: var(--muted);
+      background: rgba(242, 234, 255, 0.78);
+      font-size: 11px;
+      font-weight: 950;
+    }
+
+    .project-thinking-button.is-active,
+    .project-tool-button:hover,
+    .project-thinking-button:hover {
+      color: var(--primary);
+      background: #e7d8ff;
+    }
+
+    .project-send-button {
+      width: 32px;
+      color: #ffffff;
+      background: linear-gradient(135deg, var(--primary), #ec6aa6);
+      box-shadow: 0 12px 24px rgba(122, 33, 232, 0.24);
+    }
+
+    .project-send-button:disabled {
+      background: #d8d2e6;
+      box-shadow: none;
+      cursor: not-allowed;
+    }
+
+    .simple-ai-content {
+      grid-column: 1 / -1;
+      min-height: calc(100vh - 96px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: clamp(20px, 3.4vw, 54px);
+    }
+
+    .simple-ai-stage {
+      width: min(920px, 100%);
+      display: grid;
+      gap: 34px;
+      justify-items: center;
+    }
+
+    .simple-ai-hero {
+      display: grid;
+      justify-items: center;
+      gap: 14px;
+      text-align: center;
+    }
+
+    .simple-ai-illust {
+      width: 112px;
+      height: 86px;
+      object-fit: contain;
+      filter: drop-shadow(0 18px 30px rgba(74, 34, 132, 0.12));
+    }
+
+    .simple-ai-hero h1 {
+      margin: 0;
+      color: #25222a;
+      font-size: clamp(34px, 4.2vw, 48px);
+      font-weight: 950;
+      line-height: 1.05;
+    }
+
+    .simple-chat-bar {
+      width: min(760px, 100%);
+      min-height: 104px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 48px;
+      gap: 14px;
+      align-items: end;
+      padding: 20px 20px 18px;
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(236, 106, 166, 0.08), transparent 34%),
+        rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(235, 229, 247, 0.92);
+      box-shadow:
+        0 22px 48px rgba(74, 34, 132, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(22px) saturate(140%);
+    }
+
+    .simple-chat-field {
+      min-width: 0;
+      display: grid;
+      gap: 14px;
+    }
+
+    .simple-chat-input {
+      width: 100%;
+      min-height: 34px;
+      max-height: 120px;
+      border: 0;
+      outline: 0;
+      resize: none;
+      padding: 0;
+      color: #25222a;
+      background: transparent;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.55;
+    }
+
+    .simple-chat-input::placeholder {
+      color: #aaa3ad;
+    }
+
+    .simple-chat-attach {
+      width: 36px;
+      height: 36px;
+      display: inline-grid;
+      place-items: center;
+      border: 0;
+      border-radius: 999px;
+      color: #817b86;
+      background: transparent;
+      transition: color 0.18s ease, background-color 0.18s ease;
+    }
+
+    .simple-chat-attach:hover {
+      color: var(--primary);
+      background: #f2eaff;
+    }
+
+    .simple-chat-send {
+      width: 48px;
+      height: 48px;
+      display: inline-grid;
+      place-items: center;
+      border: 0;
+      border-radius: 999px;
+      color: #ffffff;
+      background: #c7c3c8;
+      box-shadow: 0 10px 20px rgba(35, 25, 66, 0.12);
+      transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .simple-chat-send:hover {
+      transform: translateY(-1px);
+      background: linear-gradient(135deg, var(--primary), #ec6aa6);
+      box-shadow: 0 16px 28px rgba(122, 33, 232, 0.24);
+    }
+
+    .simple-recent-section {
+      width: min(820px, 100%);
+      display: grid;
+      gap: 18px;
+      justify-self: start;
+    }
+
+    .simple-recent-title {
+      margin: 0;
+      color: #42506c;
+      font-size: 18px;
+      font-weight: 950;
+    }
+
+    .simple-recent-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .simple-file-card {
+      min-height: 142px;
+      display: grid;
+      align-content: space-between;
+      overflow: hidden;
+      border: 1px solid #e5e7f0;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 12px 24px rgba(74, 34, 132, 0.08);
+      position: relative;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .simple-file-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 18px 34px rgba(74, 34, 132, 0.13);
+    }
+
+    .simple-file-card::before {
+      content: '';
+      position: absolute;
+      inset: 0 0 auto;
+      height: 8px;
+      background: var(--file-accent, var(--primary));
+    }
+
+    .simple-file-card-top {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 28px 20px 18px;
+    }
+
+    .simple-file-icon {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: var(--file-accent, var(--primary));
+      background: var(--file-soft, #f2eaff);
+    }
+
+    .simple-file-tag {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      color: var(--file-accent, var(--primary));
+      background: var(--file-soft, #f2eaff);
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    .simple-file-bottom {
+      padding: 16px 20px 20px;
+      border-top: 1px solid #f0eef5;
+    }
+
+    .simple-file-name {
+      display: block;
+      margin-bottom: 6px;
+      overflow: hidden;
+      color: #25222a;
+      font-size: 16px;
+      font-weight: 950;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .simple-file-date {
+      color: #8f8b96;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .simple-chat-result {
+      width: min(760px, 100%);
+      display: grid;
+      gap: 14px;
+      padding: 20px;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid rgba(235, 229, 247, 0.94);
+      box-shadow: 0 18px 36px rgba(74, 34, 132, 0.09);
+    }
+
+    .simple-chat-result.is-hidden {
+      display: none !important;
+    }
+
+    .simple-result-question {
+      width: fit-content;
+      max-width: 86%;
+      justify-self: end;
+      padding: 11px 15px;
+      border-radius: 18px;
+      color: #ffffff;
+      background: linear-gradient(135deg, #332758, var(--primary));
+      box-shadow: 0 12px 24px rgba(74, 34, 132, 0.18);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.55;
+    }
+
+    .simple-result-answer {
+      display: grid;
+      gap: 10px;
+      color: #2a2442;
+      font-size: 14px;
+      font-weight: 720;
+      line-height: 1.7;
+    }
+
+    .simple-result-answer p {
+      margin: 0;
+    }
+
+    .simple-evidence-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .simple-evidence-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 12px;
+      border: 1px solid rgba(214, 199, 246, 0.94);
+      border-radius: 999px;
+      color: #2a1558;
+      background: linear-gradient(135deg, #f2eaff, #ecfbf4);
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    .simple-evidence-link .material-symbols-outlined {
+      color: var(--primary);
+      font-size: 15px;
+    }
+
+    .evidence-drawer-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: rgba(34, 24, 62, 0.18);
+      opacity: 1;
+      transition: opacity 0.22s ease;
+    }
+
+    .evidence-drawer-backdrop.is-hidden {
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    .evidence-drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      z-index: 31;
+      width: min(420px, calc(100vw - 22px));
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 28px;
+      background:
+        radial-gradient(circle at top left, rgba(236, 106, 166, 0.14), transparent 36%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(248, 245, 255, 0.94));
+      border-left: 1px solid rgba(235, 229, 247, 0.96);
+      box-shadow: -24px 0 54px rgba(74, 34, 132, 0.16);
+      transform: translateX(0);
+      transition: transform 0.24s ease;
+    }
+
+    .evidence-drawer.is-hidden {
+      pointer-events: none;
+      transform: translateX(104%);
+    }
+
+    .evidence-drawer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .evidence-drawer-kicker {
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .evidence-drawer-title {
+      margin: 0;
+      color: #1b1047;
+      font-size: 22px;
+      font-weight: 950;
+      line-height: 1.25;
+    }
+
+    .evidence-drawer-close {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 999px;
+      color: var(--primary);
+      background: #f2eaff;
+    }
+
+    .evidence-preview-card {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(235, 229, 247, 0.96);
+      box-shadow: 0 14px 28px rgba(74, 34, 132, 0.08);
+    }
+
+    .evidence-preview-meta {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #211543;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .evidence-preview-meta .material-symbols-outlined {
+      color: var(--primary);
+    }
+
+    .evidence-page-mock {
+      min-height: 188px;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      border-radius: 16px;
+      color: #8b83a6;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(248, 245, 255, 0.88)),
+        repeating-linear-gradient(0deg, transparent 0 23px, rgba(122, 33, 232, 0.08) 24px);
+      border: 1px solid #ebe5f7;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 850;
+      line-height: 1.55;
+    }
+
+    .evidence-nav-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .evidence-nav-button {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      min-height: 64px;
+      padding: 12px;
+      border: 1px solid rgba(235, 229, 247, 0.96);
+      border-radius: 18px;
+      color: #2a2442;
+      background: rgba(255, 255, 255, 0.88);
+      text-align: left;
+    }
+
+    .evidence-nav-icon {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: var(--primary);
+      background: #f2eaff;
+    }
+
+    .evidence-nav-main {
+      min-width: 0;
+    }
+
+    .evidence-nav-main strong {
+      display: block;
+      overflow: hidden;
+      color: #1b1047;
+      font-size: 13px;
+      font-weight: 950;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .evidence-nav-main span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .week-calendar {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .day-card {
+      min-height: 160px;
+      padding: 14px;
+      border-radius: 18px;
+      background: #fafbff;
+      border: 1px solid #edf0fb;
+    }
+
+    .day-card.is-today {
+      border-color: rgba(122, 33, 232, 0.35);
+      box-shadow: inset 0 0 0 1px rgba(122, 33, 232, 0.1);
+    }
+
+    .day-name {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      margin-bottom: 9px;
+    }
+
+    .event-pill {
+      display: block;
+      padding: 8px;
+      border-radius: 12px;
+      color: #733154;
+      background: #ffe9f5;
+      font-size: 11px;
+      font-weight: 850;
+      line-height: 1.35;
+    }
+
+    .event-pill.blue {
+      color: #275079;
+      background: #e7f4ff;
+    }
+
+    .event-pill.mint {
+      color: #2f654d;
+      background: #e7f9ef;
+    }
+
+    .recent-list {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .recent-item {
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      min-height: 96px;
+      padding: 16px;
+      border-radius: 20px;
+      background: #fbfbff;
+      border: 1px solid #efedf8;
+    }
+
+    .file-icon {
+      width: 46px;
+      height: 46px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: #efe6ff;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    .recent-item strong {
+      display: block;
+      overflow: hidden;
+      color: #1b1047;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .recent-item span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .open-link {
+      grid-column: 2;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .right-panel {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      position: sticky;
+      top: 48px;
+      align-self: start;
+    }
+
+    .profile-chip {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 18px;
+    }
+
+    .profile {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #ffffff;
+      background: linear-gradient(135deg, #7a21e8, #ec6aa6);
+      font-weight: 950;
+      box-shadow: 0 12px 24px rgba(122, 33, 232, 0.22);
+    }
+
+    .detail-card {
+      padding: 24px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 36px rgba(35, 25, 66, 0.06);
+    }
+
+    .detail-card.highlight {
+      color: #ffffff;
+      background: linear-gradient(135deg, #ee6aa8, #f28ab8);
+      border: 0;
+    }
+
+    .detail-card h3 {
+      margin: 0 0 14px;
+      font-size: 16px;
+      font-weight: 950;
+    }
+
+    .detail-card p {
+      margin: 0;
+      color: inherit;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .task-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .task {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      color: #6f6887;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .task.is-done {
+      color: #aaa3bd;
+      text-decoration: line-through;
+    }
+
+    .check {
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      border: 2px solid #f0a5c7;
+    }
+
+    .check.is-done {
+      background: var(--primary);
+      border-color: var(--primary);
+      box-shadow: inset 0 0 0 4px #ffffff;
+    }
+
+    .mini-source {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      border-radius: 14px;
+      background: #f8f6ff;
+      color: #6f6887;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .mini-source strong {
+      color: #1b1047;
+    }
+
+    .schedule-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .view-switch {
+      display: inline-grid;
+      grid-template-columns: repeat(3, 1fr);
+      padding: 5px;
+      border-radius: 16px;
+      background: #f1f4ff;
+    }
+
+    .view-switch button {
+      min-width: 72px;
+      height: 36px;
+      border: 0;
+      border-radius: 12px;
+      color: #7659a5;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    .view-switch button.is-active {
+      color: #ffffff;
+      background: var(--primary);
+      box-shadow: 0 10px 20px rgba(122, 33, 232, 0.22);
+    }
+
+    .calendar-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .calendar-icon-btn,
+    .calendar-soft-btn {
+      height: 38px;
+      border: 0;
+      border-radius: 13px;
+      color: var(--primary-dark);
+      background: #f2eaff;
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    .calendar-icon-btn {
+      width: 38px;
+    }
+
+    .calendar-soft-btn {
+      padding: 0 13px;
+    }
+
+    .calendar-soft-btn.primary {
+      color: #ffffff;
+      background: var(--primary);
+    }
+
+    .calendar-title-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .calendar-title-row h2 {
+      margin: 0;
+      color: #1b1047;
+      font-size: 28px;
+      font-weight: 950;
+    }
+
+    .calendar-title-row p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      min-height: calc(100vh - 390px);
+      overflow: hidden;
+      border: 1px solid #e8e9f6;
+      border-radius: 22px;
+      background: #ffffff;
+    }
+
+    .month-grid.is-week-view {
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+
+    .month-grid.is-day-view {
+      grid-template-columns: 1fr;
+    }
+
+    .month-grid.is-day-view .month-day {
+      min-height: 420px;
+    }
+
+    .schedule-board {
+      min-width: 0;
+    }
+
+    .schedule-board .schedule-toolbar {
+      margin-bottom: 22px;
+    }
+
+    .schedule-board .calendar-title-row {
+      margin-bottom: 20px;
+    }
+
+    .schedule-board .month-grid {
+      min-height: calc(100vh - 350px);
+      box-shadow: 0 22px 44px rgba(35, 25, 66, 0.07);
+    }
+
+    .weekday {
+      min-height: 44px;
+      display: grid;
+      place-items: center;
+      color: #6d6490;
+      background: #f4f6ff;
+      border-right: 1px solid #e8e9f6;
+      border-bottom: 1px solid #e8e9f6;
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    .weekday:nth-child(7n) {
+      border-right: 0;
+    }
+
+    .month-day {
+      min-height: clamp(120px, 12vh, 172px);
+      padding: 12px;
+      border-right: 1px solid #ececf7;
+      border-bottom: 1px solid #ececf7;
+      background: #ffffff;
+    }
+
+    .month-day:nth-child(7n) {
+      border-right: 0;
+    }
+
+    .month-day:nth-last-child(-n + 7) {
+      border-bottom: 0;
+    }
+
+    .month-day.is-muted {
+      background: #fbfbff;
+      color: #b8b2ca;
+    }
+
+    .month-day.is-selected {
+      background: #faf6ff;
+      box-shadow: inset 0 0 0 2px rgba(122, 33, 232, 0.24);
+    }
+
+    .day-number {
+      display: block;
+      margin-bottom: 8px;
+      color: #3a315c;
+      font-size: 12px;
+      font-weight: 950;
+      text-align: right;
+    }
+
+    .calendar-event {
+      display: block;
+      margin-bottom: 6px;
+      padding: 7px 8px;
+      border-radius: 10px;
+      color: #7a2758;
+      background: #ffe8f4;
+      font-size: 11px;
+      font-weight: 850;
+      line-height: 1.35;
+    }
+
+    .calendar-event.is-highlight {
+      outline: 2px solid rgba(122, 33, 232, 0.32);
+      outline-offset: 2px;
+    }
+
+    .calendar-event.assignment {
+      color: #6d4f05;
+      background: #fff5ce;
+    }
+
+    .calendar-event.exam {
+      color: #6d1e2f;
+      background: #ffe2e7;
+    }
+
+    .calendar-event.lecture {
+      color: #255a81;
+      background: #e7f4ff;
+    }
+
+    .calendar-event.project {
+      color: #2f654d;
+      background: #e6f8ee;
+    }
+
+    .schedule-detail-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .schedule-badge {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      color: #8c3b66;
+      background: #ffe8f4;
+      font-size: 11px;
+      font-weight: 950;
+    }
+
+    .schedule-meta-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .schedule-meta {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      color: #6f6887;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .schedule-meta-icon {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #d84f93;
+      background: #ffe8f4;
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    .pending-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .pending-item {
+      padding: 13px;
+      border-radius: 18px;
+      background: #fbfbff;
+      border: 1px solid #efedf8;
+    }
+
+    .pending-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .pending-title strong {
+      min-width: 0;
+      color: #1b1047;
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    .pending-title span {
+      flex: 0 0 auto;
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 950;
+    }
+
+    .pending-item p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 700;
+    }
+
+    .pending-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .pending-actions button {
+      height: 34px;
+      border: 0;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    .confirm-btn {
+      color: #ffffff;
+      background: var(--primary);
+    }
+
+    .ignore-btn {
+      color: #7659a5;
+      background: #f2eaff;
+    }
+
+    .is-hidden {
+      display: none !important;
+    }
+
+    .empty-state {
+      padding: 20px;
+      border-radius: 18px;
+      color: var(--muted);
+      background: #fbfbff;
+      border: 1px dashed #ddd8ef;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.5;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      z-index: 20;
+      transform: translateX(-50%);
+      max-width: min(420px, calc(100vw - 32px));
+      padding: 13px 18px;
+      border-radius: 999px;
+      color: #ffffff;
+      background: rgba(27, 16, 71, 0.92);
+      box-shadow: 0 18px 34px rgba(35, 25, 66, 0.22);
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    @media (max-width: 1120px) {
+      .app-shell {
+        grid-template-columns: 96px minmax(0, 1fr);
+      }
+
+      .sidebar {
+        position: sticky;
+        padding: 34px 16px;
+        align-items: center;
+      }
+
+      .brand,
+      .nav-button span:last-child,
+      .sidebar-card {
+        display: none;
+      }
+
+      .nav-button {
+        justify-content: center;
+        padding: 0;
+      }
+
+      .main {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .workspace-chat-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .simple-recent-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .right-panel {
+        position: static;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .profile-chip {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        padding: 0;
+      }
+
+      .home-frame {
+        min-height: 100vh;
+      }
+
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+        height: auto;
+        flex-direction: row;
+        justify-content: space-between;
+        padding: 16px;
+        border-right: 0;
+        border-bottom: 1px solid var(--sidebar-border);
+      }
+
+      .brand {
+        display: block;
+        font-size: 20px;
+      }
+
+      .nav {
+        flex-direction: row;
+      }
+
+      .nav-button {
+        width: 48px;
+        min-height: 48px;
+      }
+
+      .main {
+        padding: 24px 18px;
+      }
+
+      .topbar,
+      .section-row,
+      .workspace-chat-layout,
+      .metric-grid,
+      .recent-list,
+      .right-panel {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        display: grid;
+      }
+
+      .week-calendar {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace-chat-panel {
+        min-height: 560px;
+        padding: 18px;
+      }
+
+      .project-user-bubble,
+      .project-message-sources {
+        max-width: 100%;
+      }
+
+      .month-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .simple-ai-content {
+        align-items: start;
+        padding: 54px 18px 28px;
+      }
+
+      .simple-ai-stage {
+        gap: 34px;
+      }
+
+      .simple-chat-bar,
+      .simple-recent-section {
+        width: 100%;
+      }
+
+      .simple-recent-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .weekday {
+        display: none;
+      }
+
+      .month-day,
+      .month-day:nth-child(7n),
+      .month-day:nth-last-child(-n + 7) {
+        border-right: 0;
+        border-bottom: 1px solid #ececf7;
+      }
+    }
+  </style>
+</head>
+<body>
+	  <div class="home-frame">
+	    <div class="app-shell">
+      <aside class="sidebar" aria-label="홈 메뉴">
+        <div class="brand">Learny.</div>
+
+        <nav class="nav">
+          <button class="nav-button is-active" type="button" data-tab-button="chat" aria-pressed="true">
+            <span class="nav-icon">AI</span>
+            <span>채팅 탭</span>
+          </button>
+          <button class="nav-button" type="button" data-tab-button="schedule" aria-pressed="false">
+            <span class="nav-icon">SC</span>
+            <span>스케줄 탭</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-card">
+          <strong>오늘의 학습 흐름</strong>
+          <p>강의 자료, 전사, 일정 추출 결과를 한 화면에서 이어볼 수 있는 홈 초본입니다.</p>
+          <button type="button" data-action="open-workspace">워크스페이스 열기</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="tab-screen is-active" data-tab-panel="chat">
+	        <section class="content simple-ai-content">
+	          <div class="simple-ai-stage">
+	            <div class="simple-ai-hero">
+	              <img src="../frontend/public/images/banner_illust.png" alt="" class="simple-ai-illust" />
+	              <h1>무엇을 도와드릴까요?</h1>
+	            </div>
+	
+	            <div class="simple-chat-bar">
+	              <div class="simple-chat-field">
+	                <textarea class="simple-chat-input" rows="1" data-demo-chat-input placeholder="무엇이든 물어보세요..."></textarea>
+	                <button class="simple-chat-attach" type="button" data-action="html-attach" aria-label="첨부">
+	                  <span class="material-symbols-outlined">attach_file</span>
+	                </button>
+	              </div>
+	              <button class="simple-chat-send" type="button" data-action="send-demo-chat" aria-label="전송">
+	                <span class="material-symbols-outlined">arrow_upward</span>
+	              </button>
+	            </div>
+
+	            <section class="simple-chat-result is-hidden" data-simple-answer aria-live="polite">
+	              <div class="simple-result-question" data-simple-question>이 자료의 학습목표는 뭐야?</div>
+	              <div class="simple-result-answer">
+	                <p data-simple-answer-text>선택한 자료에서 학습목표와 관련된 핵심 문장을 찾아 요약했습니다.</p>
+	                <div class="simple-evidence-links">
+	                  <button class="simple-evidence-link" type="button" data-action="open-evidence-sidebar">
+	                    <span class="material-symbols-outlined">link</span>
+	                    <span>PDF p.12 근거 보기</span>
+	                  </button>
+	                  <button class="simple-evidence-link" type="button" data-action="open-evidence-sidebar">
+	                    <span class="material-symbols-outlined">schedule</span>
+	                    <span>전사 08:20 이동</span>
+	                  </button>
+	                </div>
+	              </div>
+	            </section>
+	
+	            <section class="simple-recent-section" aria-label="최근 연 파일">
+	              <h2 class="simple-recent-title">최근 연 파일</h2>
+	              <div class="simple-recent-grid">
+	                <article class="simple-file-card" style="--file-accent: #3b82f6; --file-soft: #e8f0ff;" data-searchable="강의1 수업" data-action="open-demo-source">
+	                  <div class="simple-file-card-top">
+	                    <div class="simple-file-icon">
+	                      <span class="material-symbols-outlined">article</span>
+	                    </div>
+	                    <span class="simple-file-tag">수업</span>
+	                  </div>
+	                  <div class="simple-file-bottom">
+	                    <strong class="simple-file-name">강의1</strong>
+	                    <span class="simple-file-date">2026. 5. 11. 오후 10:54</span>
+	                  </div>
+	                </article>
+	
+	                <article class="simple-file-card" style="--file-accent: #7a21e8; --file-soft: #f2eaff;" data-searchable="퀴즈 데모 파일 수업" data-action="open-demo-source">
+	                  <div class="simple-file-card-top">
+	                    <div class="simple-file-icon">
+	                      <span class="material-symbols-outlined">description</span>
+	                    </div>
+	                    <span class="simple-file-tag">수업</span>
+	                  </div>
+	                  <div class="simple-file-bottom">
+	                    <strong class="simple-file-name">퀴즈 데모 파일 오후 7:09</strong>
+	                    <span class="simple-file-date">2026. 5. 7. 오후 7:09</span>
+	                  </div>
+	                </article>
+	
+	                <article class="simple-file-card" style="--file-accent: #f59e0b; --file-soft: #fff1dc;" data-searchable="파일2 수업" data-action="open-demo-source">
+	                  <div class="simple-file-card-top">
+	                    <div class="simple-file-icon">
+	                      <span class="material-symbols-outlined">bookmark</span>
+	                    </div>
+	                    <span class="simple-file-tag">수업</span>
+	                  </div>
+	                  <div class="simple-file-bottom">
+	                    <strong class="simple-file-name">파일2</strong>
+	                    <span class="simple-file-date">2026. 5. 11. 오후 10:28</span>
+	                  </div>
+	                </article>
+	              </div>
+	            </section>
+	            <div class="is-hidden" data-chat-preview></div>
+	          </div>
+	        </section>
+        </div>
+
+        <div class="tab-screen" data-tab-panel="schedule">
+        <section class="content">
+          <header class="topbar">
+            <div>
+              <p class="eyebrow">AI가 추출한 일정 관리</p>
+              <h1>스케줄 탭</h1>
+            </div>
+            <form class="search" data-search-form="schedule">
+              <input type="search" placeholder="일정, 과제, 시험 검색..." data-search-input />
+              <button type="submit">검색</button>
+            </form>
+          </header>
+
+          <section class="metric-grid" aria-label="스케줄 요약">
+            <article class="metric-card">
+              <span class="metric-label">확인 필요</span>
+              <strong class="metric-value" data-schedule-metric="pending">3</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">예정 일정</span>
+              <strong class="metric-value" data-schedule-metric="total">9</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">이번 주 마감</span>
+              <strong class="metric-value" data-schedule-metric="week">2</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">AI 감지</span>
+              <strong class="metric-value" data-schedule-metric="detected">6</strong>
+            </article>
+          </section>
+
+          <section class="schedule-board">
+            <div class="schedule-toolbar">
+              <div class="view-switch" aria-label="캘린더 보기 방식">
+                <button class="is-active" type="button" data-calendar-view="month">월</button>
+                <button type="button" data-calendar-view="week">주</button>
+                <button type="button" data-calendar-view="day">일</button>
+              </div>
+              <div class="calendar-controls">
+                <button class="calendar-soft-btn" type="button" data-action="google-calendar">Google 캘린더</button>
+                <button class="calendar-soft-btn" type="button" data-action="today">오늘</button>
+                <button class="calendar-icon-btn" type="button" data-action="prev-month">‹</button>
+                <button class="calendar-icon-btn" type="button" data-action="next-month">›</button>
+                <button class="calendar-soft-btn primary" type="button" data-action="add-event">+ 추가</button>
+              </div>
+            </div>
+
+            <div class="calendar-title-row">
+              <div>
+                <h2 data-calendar-title>2026년 5월</h2>
+                <p data-calendar-subtitle>전사문에서 감지된 과제, 시험, 발표 일정을 확인하고 확정합니다.</p>
+              </div>
+            </div>
+
+            <div class="month-grid" aria-label="월간 캘린더" data-month-grid>
+              <div class="weekday">월</div>
+              <div class="weekday">화</div>
+              <div class="weekday">수</div>
+              <div class="weekday">목</div>
+              <div class="weekday">금</div>
+              <div class="weekday">토</div>
+              <div class="weekday">일</div>
+
+              <div class="month-day is-muted"><span class="day-number">27</span></div>
+              <div class="month-day is-muted"><span class="day-number">28</span></div>
+              <div class="month-day is-muted"><span class="day-number">29</span></div>
+              <div class="month-day is-muted"><span class="day-number">30</span></div>
+              <div class="month-day"><span class="day-number">1</span></div>
+              <div class="month-day"><span class="day-number">2</span></div>
+              <div class="month-day"><span class="day-number">3</span></div>
+
+              <div class="month-day"><span class="day-number">4</span></div>
+              <div class="month-day"><span class="day-number">5</span><span class="calendar-event lecture">자료구조 강의<br />10:00</span></div>
+              <div class="month-day"><span class="day-number">6</span></div>
+              <div class="month-day"><span class="day-number">7</span><span class="calendar-event project">팀 프로젝트 회의<br />14:00</span></div>
+              <div class="month-day"><span class="day-number">8</span></div>
+              <div class="month-day"><span class="day-number">9</span></div>
+              <div class="month-day"><span class="day-number">10</span></div>
+
+              <div class="month-day"><span class="day-number">11</span></div>
+              <div class="month-day"><span class="day-number">12</span><span class="calendar-event">AI 채팅 정리<br />13:00</span></div>
+              <div class="month-day"><span class="day-number">13</span></div>
+              <div class="month-day is-selected"><span class="day-number">14</span><span class="calendar-event assignment">과제 제출<br />18:00</span></div>
+              <div class="month-day"><span class="day-number">15</span></div>
+              <div class="month-day"><span class="day-number">16</span></div>
+              <div class="month-day"><span class="day-number">17</span></div>
+
+              <div class="month-day"><span class="day-number">18</span></div>
+              <div class="month-day"><span class="day-number">19</span></div>
+              <div class="month-day"><span class="day-number">20</span></div>
+              <div class="month-day"><span class="day-number">21</span><span class="calendar-event exam">중간 시험<br />09:00</span></div>
+              <div class="month-day"><span class="day-number">22</span></div>
+              <div class="month-day"><span class="day-number">23</span></div>
+              <div class="month-day"><span class="day-number">24</span></div>
+
+              <div class="month-day"><span class="day-number">25</span></div>
+              <div class="month-day"><span class="day-number">26</span><span class="calendar-event lecture">알고리즘 복습<br />11:00</span></div>
+              <div class="month-day"><span class="day-number">27</span></div>
+              <div class="month-day"><span class="day-number">28</span></div>
+              <div class="month-day"><span class="day-number">29</span></div>
+              <div class="month-day"><span class="day-number">30</span><span class="calendar-event assignment">퀴즈 제출<br />23:59</span></div>
+              <div class="month-day"><span class="day-number">31</span></div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="right-panel" aria-label="스케줄 보조 패널">
+          <div class="profile-chip">
+            <div class="profile">CY</div>
+          </div>
+
+          <section class="detail-card highlight" data-selected-detail>
+            <div class="schedule-detail-top">
+              <h3 data-detail-title>과제 제출</h3>
+              <span class="schedule-badge" data-detail-badge>확인 필요</span>
+            </div>
+            <p data-detail-desc>자료구조 3주차 전사에서 감지된 제출 일정입니다.</p>
+            <div class="schedule-meta-list">
+              <div class="schedule-meta">
+                <span class="schedule-meta-icon">T</span>
+                <span data-detail-time>오후 06:00</span>
+              </div>
+              <div class="schedule-meta">
+                <span class="schedule-meta-icon">D</span>
+                <span data-detail-date>2026년 5월 14일</span>
+              </div>
+              <div class="schedule-meta">
+                <span class="schedule-meta-icon">W</span>
+                <span data-detail-source>워크스페이스 자료구조 강의</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="detail-card">
+            <h3>AI 감지 일정</h3>
+            <div class="pending-list" data-pending-list>
+              <div class="pending-item">
+                <div class="pending-title">
+                  <strong>중간 시험</strong>
+                  <span>시험</span>
+                </div>
+                <p>“다음 주 목요일 오전에 시험을 봅니다.”라는 전사 근거에서 추출됨.</p>
+                <div class="pending-actions">
+                  <button class="confirm-btn" type="button">확정</button>
+                  <button class="ignore-btn" type="button">무시</button>
+                </div>
+              </div>
+              <div class="pending-item">
+                <div class="pending-title">
+                  <strong>퀴즈 제출</strong>
+                  <span>과제</span>
+                </div>
+                <p>강의 녹음에서 제출 마감 표현이 감지되었습니다.</p>
+                <div class="pending-actions">
+                  <button class="confirm-btn" type="button">확정</button>
+                  <button class="ignore-btn" type="button">무시</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="detail-card">
+            <h3>선택 날짜 일정</h3>
+            <div class="task-list" data-selected-tasks>
+              <div class="task">
+                <span class="check"></span>
+                <span>자료구조 과제 제출</span>
+              </div>
+              <div class="task">
+                <span class="check"></span>
+                <span>PDF p.12 근거 다시 확인</span>
+              </div>
+            </div>
+          </section>
+        </aside>
+        </div>
+	      </main>
+	    </div>
+	  </div>
+	  <div class="evidence-drawer-backdrop is-hidden" data-evidence-backdrop data-action="close-evidence-sidebar"></div>
+	  <aside class="evidence-drawer is-hidden" data-evidence-drawer aria-label="근거 파일 이동 사이드바">
+	    <div class="evidence-drawer-top">
+	      <div>
+	        <p class="evidence-drawer-kicker">근거 파일 이동</p>
+	        <h2 class="evidence-drawer-title">ch03_순차 자료구조와 선형 리스트.pdf</h2>
+	      </div>
+	      <button class="evidence-drawer-close" type="button" data-action="close-evidence-sidebar" aria-label="닫기">
+	        <span class="material-symbols-outlined">close</span>
+	      </button>
+	    </div>
+	
+	    <section class="evidence-preview-card">
+	      <div class="evidence-preview-meta">
+	        <span class="material-symbols-outlined">picture_as_pdf</span>
+	        <span>p.12 선형 리스트 연산 설명</span>
+	      </div>
+	      <div class="evidence-page-mock">
+	        선형 리스트의 이해<br />
+	        배열 주소 계산과 탐색 절차가 강조된 페이지 영역
+	      </div>
+	    </section>
+	
+	    <nav class="evidence-nav-list" aria-label="근거 위치">
+	      <button class="evidence-nav-button" type="button" data-action="navigate-evidence">
+	        <span class="evidence-nav-icon material-symbols-outlined">picture_as_pdf</span>
+	        <span class="evidence-nav-main">
+	          <strong>PDF p.12로 이동</strong>
+	          <span>선형 리스트 연산 설명</span>
+	        </span>
+	        <span class="material-symbols-outlined">open_in_new</span>
+	      </button>
+	      <button class="evidence-nav-button" type="button" data-action="navigate-evidence">
+	        <span class="evidence-nav-icon material-symbols-outlined">article</span>
+	        <span class="evidence-nav-main">
+	          <strong>PDF p.8로 이동</strong>
+	          <span>배열 주소 계산 예시</span>
+	        </span>
+	        <span class="material-symbols-outlined">open_in_new</span>
+	      </button>
+	      <button class="evidence-nav-button" type="button" data-action="navigate-evidence">
+	        <span class="evidence-nav-icon material-symbols-outlined">graphic_eq</span>
+	        <span class="evidence-nav-main">
+	          <strong>전사 08:20으로 이동</strong>
+	          <span>“컴퓨터는 이걸 어떻게 찾을까?”</span>
+	        </span>
+	        <span class="material-symbols-outlined">open_in_new</span>
+	      </button>
+	    </nav>
+	  </aside>
+	  <script>
+    const $ = (selector, root = document) => root.querySelector(selector)
+    const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector))
+
+	    const tabButtons = $$('[data-tab-button]')
+	    const tabPanels = $$('[data-tab-panel]')
+	    const chatPreview = $('[data-chat-preview]')
+	    const demoChatInput = $('[data-demo-chat-input]')
+	    const questionCount = $('[data-chat-question-count]')
+	    const simpleAnswer = $('[data-simple-answer]')
+	    const simpleQuestion = $('[data-simple-question]')
+	    const simpleAnswerText = $('[data-simple-answer-text]')
+	    const evidenceDrawer = $('[data-evidence-drawer]')
+	    const evidenceBackdrop = $('[data-evidence-backdrop]')
+	    const monthGrid = $('[data-month-grid]')
+    const calendarTitle = $('[data-calendar-title]')
+    const calendarSubtitle = $('[data-calendar-subtitle]')
+    const pendingList = $('[data-pending-list]')
+    const selectedTasks = $('[data-selected-tasks]')
+
+    const state = {
+      calendarView: 'month',
+      visibleMonth: new Date(2026, 4, 1),
+      selectedDate: new Date(2026, 4, 14),
+      selectedEventId: 'assignment-14',
+      scheduleSearch: '',
+      events: [
+        {
+          id: 'lecture-5',
+          title: '자료구조 강의',
+          date: '2026-05-05',
+          time: '10:00',
+          type: 'lecture',
+          badge: '강의',
+          source: '워크스페이스 자료구조 강의',
+          description: '순차 자료구조와 선형 리스트 개념을 다루는 강의 일정입니다.'
+        },
+        {
+          id: 'project-7',
+          title: '팀 프로젝트 회의',
+          date: '2026-05-07',
+          time: '14:00',
+          type: 'project',
+          badge: '회의',
+          source: '팀 프로젝트 채널',
+          description: '팀 프로젝트 진행 상황과 역할 분담을 확인하는 일정입니다.'
+        },
+        {
+          id: 'chat-12',
+          title: 'AI 채팅 정리',
+          date: '2026-05-12',
+          time: '13:00',
+          type: '',
+          badge: '학습',
+          source: 'AI 채팅',
+          description: 'PDF 근거 페이지와 전사 내용을 정리하는 복습 일정입니다.'
+        },
+        {
+          id: 'assignment-14',
+          title: '과제 제출',
+          date: '2026-05-14',
+          time: '18:00',
+          type: 'assignment',
+          badge: '확인 필요',
+          source: '워크스페이스 자료구조 강의',
+          description: '자료구조 3주차 전사에서 감지된 제출 일정입니다.'
+        },
+        {
+          id: 'study-15',
+          title: '선형 리스트 복습',
+          date: '2026-05-15',
+          time: '20:00',
+          type: 'lecture',
+          badge: '복습',
+          source: 'ch03_순차 자료구조와 선형 리스트.pdf',
+          description: '선형 리스트의 삽입, 삭제, 탐색 연산을 다시 보는 일정입니다.'
+        },
+        {
+          id: 'exam-21',
+          title: '중간 시험',
+          date: '2026-05-21',
+          time: '09:00',
+          type: 'exam',
+          badge: '시험',
+          source: '자료구조 3주차 전사',
+          description: '강의 전사에서 시험 일정으로 감지된 항목입니다.'
+        },
+        {
+          id: 'algorithm-26',
+          title: '알고리즘 복습',
+          date: '2026-05-26',
+          time: '11:00',
+          type: 'lecture',
+          badge: '복습',
+          source: '알고리즘 질문 기록',
+          description: '알고리즘 개념과 PDF 참고 페이지를 이어서 복습합니다.'
+        },
+        {
+          id: 'presentation-28',
+          title: '발표 준비',
+          date: '2026-05-28',
+          time: '16:00',
+          type: 'project',
+          badge: '발표',
+          source: '팀 프로젝트 채널',
+          description: '발표 자료와 근거 문서를 확인하는 일정입니다.'
+        },
+        {
+          id: 'quiz-30',
+          title: '퀴즈 제출',
+          date: '2026-05-30',
+          time: '23:59',
+          type: 'assignment',
+          badge: '과제',
+          source: '강의 녹음',
+          description: '강의 녹음에서 제출 마감 표현이 감지되었습니다.'
+        }
+      ],
+      pending: [
+        {
+          id: 'pending-exam',
+          title: '중간 시험',
+          date: '2026-05-21',
+          time: '09:00',
+          type: 'exam',
+          badge: '시험',
+          source: '자료구조 3주차 전사',
+          description: '“다음 주 목요일 오전에 시험을 봅니다.”라는 전사 근거에서 추출됨.'
+        },
+        {
+          id: 'pending-quiz',
+          title: '퀴즈 제출',
+          date: '2026-05-30',
+          time: '23:59',
+          type: 'assignment',
+          badge: '과제',
+          source: '강의 녹음',
+          description: '강의 녹음에서 제출 마감 표현이 감지되었습니다.'
+        }
+      ]
+    }
+
+    let toastTimer
+
+    const escapeHtml = (value) => String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;')
+
+    const toDate = (dateText) => {
+      const [year, month, day] = dateText.split('-').map(Number)
+      return new Date(year, month - 1, day)
+    }
+
+    const toKey = (date) => {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
+    const formatDate = (date) => `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`
+    const formatMonth = (date) => `${date.getFullYear()}년 ${date.getMonth() + 1}월`
+    const sameDate = (a, b) => toKey(a) === toKey(b)
+    const sameMonth = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()
+
+    const showToast = (message) => {
+      $('.toast')?.remove()
+      const toast = document.createElement('div')
+      toast.className = 'toast'
+      toast.textContent = message
+      document.body.appendChild(toast)
+      clearTimeout(toastTimer)
+      toastTimer = setTimeout(() => toast.remove(), 2200)
+    }
+
+    const switchTab = (target) => {
+      tabButtons.forEach((item) => {
+        const isActive = item.dataset.tabButton === target
+        item.classList.toggle('is-active', isActive)
+        item.setAttribute('aria-pressed', String(isActive))
+      })
+
+      tabPanels.forEach((panel) => {
+        panel.classList.toggle('is-active', panel.dataset.tabPanel === target)
+      })
+    }
+
+    const eventsForDate = (date) => state.events.filter((event) => event.date === toKey(date))
+    const eventMatches = (event, term) => {
+      if (!term) return true
+      return `${event.title} ${event.badge} ${event.source} ${event.description} ${event.time}`
+        .toLowerCase()
+        .includes(term.toLowerCase())
+    }
+
+    const getWeekStart = (date) => {
+      const start = new Date(date)
+      const day = (start.getDay() + 6) % 7
+      start.setDate(start.getDate() - day)
+      return start
+    }
+
+    const renderEvent = (event) => {
+      const isSearchMatch = state.scheduleSearch && eventMatches(event, state.scheduleSearch)
+      const isSearchMiss = state.scheduleSearch && !isSearchMatch
+      return `
+        <span class="calendar-event ${escapeHtml(event.type)} ${isSearchMatch ? 'is-highlight' : ''} ${isSearchMiss ? 'is-hidden' : ''}" data-event-id="${escapeHtml(event.id)}">
+          ${escapeHtml(event.title)}<br />${escapeHtml(event.time)}
+        </span>
+      `
+    }
+
+    const renderDayCell = (date, isMuted = false) => {
+      const dayEvents = eventsForDate(date)
+      const isSelected = sameDate(date, state.selectedDate)
+      const visibleEvents = dayEvents.filter((event) => eventMatches(event, state.scheduleSearch))
+      const emptyMessage = state.calendarView === 'day' && visibleEvents.length === 0
+        ? '<div class="empty-state">이 날짜에는 표시할 일정이 없습니다.</div>'
+        : ''
+
+      return `
+        <div class="month-day ${isMuted ? 'is-muted' : ''} ${isSelected ? 'is-selected' : ''}" data-date="${toKey(date)}">
+          <span class="day-number">${date.getDate()}</span>
+          ${dayEvents.map(renderEvent).join('')}
+          ${emptyMessage}
+        </div>
+      `
+    }
+
+    const renderMonth = () => {
+      const year = state.visibleMonth.getFullYear()
+      const month = state.visibleMonth.getMonth()
+      const firstDay = new Date(year, month, 1)
+      const startOffset = (firstDay.getDay() + 6) % 7
+      const daysInMonth = new Date(year, month + 1, 0).getDate()
+      const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7
+      const weekdays = ['월', '화', '수', '목', '금', '토', '일']
+
+      const cells = weekdays.map((day) => `<div class="weekday">${day}</div>`)
+      for (let index = 0; index < totalCells; index += 1) {
+        const dayNumber = index - startOffset + 1
+        const cellDate = new Date(year, month, dayNumber)
+        cells.push(renderDayCell(cellDate, !sameMonth(cellDate, state.visibleMonth)))
+      }
+
+      monthGrid.className = 'month-grid'
+      monthGrid.innerHTML = cells.join('')
+      calendarTitle.textContent = formatMonth(state.visibleMonth)
+      calendarSubtitle.textContent = '전사문에서 감지된 과제, 시험, 발표 일정을 확인하고 확정합니다.'
+    }
+
+    const renderWeek = () => {
+      const start = getWeekStart(state.selectedDate)
+      const end = new Date(start)
+      end.setDate(start.getDate() + 6)
+      const cells = []
+
+      for (let index = 0; index < 7; index += 1) {
+        const date = new Date(start)
+        date.setDate(start.getDate() + index)
+        cells.push(renderDayCell(date, !sameMonth(date, state.visibleMonth)))
+      }
+
+      monthGrid.className = 'month-grid is-week-view'
+      monthGrid.innerHTML = cells.join('')
+      calendarTitle.textContent = `${formatDate(start)} - ${formatDate(end)}`
+      calendarSubtitle.textContent = '선택된 주의 일정을 한 줄로 확인합니다.'
+    }
+
+    const renderDay = () => {
+      monthGrid.className = 'month-grid is-day-view'
+      monthGrid.innerHTML = renderDayCell(state.selectedDate)
+      calendarTitle.textContent = formatDate(state.selectedDate)
+      calendarSubtitle.textContent = '선택한 날짜의 일정만 크게 확인합니다.'
+    }
+
+    const renderDetail = () => {
+      const dateEvents = eventsForDate(state.selectedDate)
+      const selected = state.events.find((event) => event.id === state.selectedEventId) || dateEvents[0]
+      $('[data-detail-date]').textContent = formatDate(state.selectedDate)
+
+      if (!selected) {
+        $('[data-detail-title]').textContent = '선택한 날짜'
+        $('[data-detail-badge]').textContent = '일정 없음'
+        $('[data-detail-desc]').textContent = '이 날짜에는 확정된 일정이 없습니다. + 추가 버튼으로 새 일정을 넣어볼 수 있습니다.'
+        $('[data-detail-time]').textContent = '-'
+        $('[data-detail-source]').textContent = '새 일정 추가 가능'
+        return
+      }
+
+      $('[data-detail-title]').textContent = selected.title
+      $('[data-detail-badge]').textContent = selected.badge
+      $('[data-detail-desc]').textContent = selected.description
+      $('[data-detail-time]').textContent = selected.time
+      $('[data-detail-source]').textContent = selected.source
+    }
+
+    const renderSelectedTasks = () => {
+      const dateEvents = eventsForDate(state.selectedDate)
+      if (dateEvents.length === 0) {
+        selectedTasks.innerHTML = '<div class="empty-state">선택한 날짜에 연결된 할 일이 없습니다.</div>'
+        return
+      }
+
+      selectedTasks.innerHTML = dateEvents.map((event) => `
+        <div class="task">
+          <span class="check"></span>
+          <span>${escapeHtml(event.title)} 확인</span>
+        </div>
+      `).join('')
+    }
+
+    const renderPending = () => {
+      if (state.pending.length === 0) {
+        pendingList.innerHTML = '<div class="empty-state">확인 대기 중인 AI 감지 일정이 없습니다.</div>'
+        return
+      }
+
+      pendingList.innerHTML = state.pending.map((item) => `
+        <div class="pending-item" data-pending-id="${escapeHtml(item.id)}">
+          <div class="pending-title">
+            <strong>${escapeHtml(item.title)}</strong>
+            <span>${escapeHtml(item.badge)}</span>
+          </div>
+          <p>${escapeHtml(item.description)}</p>
+          <div class="pending-actions">
+            <button class="confirm-btn" type="button" data-pending-action="confirm">확정</button>
+            <button class="ignore-btn" type="button" data-pending-action="ignore">무시</button>
+          </div>
+        </div>
+      `).join('')
+    }
+
+    const renderMetrics = () => {
+      const weekStart = getWeekStart(new Date(2026, 4, 14))
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekStart.getDate() + 6)
+      const weekCount = state.events.filter((event) => {
+        const date = toDate(event.date)
+        return date >= weekStart && date <= weekEnd
+      }).length
+
+      $('[data-schedule-metric="pending"]').textContent = state.pending.length
+      $('[data-schedule-metric="total"]').textContent = state.events.length
+      $('[data-schedule-metric="week"]').textContent = weekCount
+      $('[data-schedule-metric="detected"]').textContent = state.pending.length
+    }
+
+    const renderCalendar = () => {
+      if (state.calendarView === 'week') renderWeek()
+      else if (state.calendarView === 'day') renderDay()
+      else renderMonth()
+
+      renderDetail()
+      renderSelectedTasks()
+      renderPending()
+      renderMetrics()
+    }
+
+    const selectDate = (date, eventId = null) => {
+      state.selectedDate = date
+      state.visibleMonth = new Date(date.getFullYear(), date.getMonth(), 1)
+      state.selectedEventId = eventId || eventsForDate(date)[0]?.id || null
+      renderCalendar()
+    }
+
+    const addChatLine = (role, title, text) => {
+      const isUser = role === 'Q' || role === 'user'
+      const line = document.createElement('div')
+      line.className = `project-chat-message ${isUser ? 'is-user' : 'is-ai'}`
+      line.dataset.searchable = `${title} ${text}`
+      line.innerHTML = isUser
+        ? `
+          <div class="project-message-sources">
+            <span class="project-source-chip">
+              <span class="material-symbols-outlined">picture_as_pdf</span>
+              <span>ch03_순차 자료구조와 선형 리스트.pdf</span>
+            </span>
+          </div>
+          <div class="project-user-bubble">${escapeHtml(text)}</div>
+        `
+        : `
+          <div class="project-ai-doc">
+            <p>${escapeHtml(text)}
+              <span class="project-cite-chip" data-action="toggle-demo-sources">
+                <span class="material-symbols-outlined">link</span>
+                p.12
+              </span>
+            </p>
+          </div>
+          <div class="project-source-summary">
+            <button class="project-source-toggle" type="button" data-action="toggle-demo-sources">
+              <span class="material-symbols-outlined">link</span>
+              <span>참고한 PDF 2개 보기</span>
+              <span class="material-symbols-outlined project-source-chevron" data-source-chevron>expand_more</span>
+            </button>
+          </div>
+          <div class="project-source-panel is-hidden" data-source-panel>
+            <div class="project-source-panel-head">
+              <span class="material-symbols-outlined">format_quote</span>
+              <span>근거 자료</span>
+            </div>
+            <button class="project-source-card" type="button" data-action="open-demo-source">
+              <span class="pdf-evidence-mini">
+                <span class="pdf-evidence-mini-top">
+                  <span class="material-symbols-outlined">picture_as_pdf</span>
+                  <span class="pdf-evidence-mini-title">ch03_순차 자료구조와 선형 리스트.pdf</span>
+                  <span class="pdf-evidence-mini-page">p.12</span>
+                </span>
+                <span class="pdf-evidence-mini-preview">PDF 페이지 미리보기 영역</span>
+              </span>
+              <span class="material-symbols-outlined project-source-card-arrow">open_in_new</span>
+            </button>
+          </div>
+        `
+      chatPreview?.appendChild(line)
+      if (chatPreview) chatPreview.scrollTop = chatPreview.scrollHeight
+    }
+
+	    const answerForQuestion = (question) => {
+	      if (question.includes('알고리즘')) {
+	        return '알고리즘은 문제 해결 절차를 단계적으로 표현하는 방법입니다. 선택한 PDF의 선형 리스트 연산 설명과 전사 08:20 부근의 탐색 절차 설명이 근거로 연결됩니다.'
+	      }
+	      if (question.includes('학습') || question.includes('목표')) {
+	        return '이 자료의 학습목표는 순차 자료구조와 선형 리스트의 개념을 이해하고, 배열 기반 연산과 탐색 흐름을 설명할 수 있게 되는 것입니다.'
+	      }
+	      return '질문과 관련된 PDF 페이지와 전사 구간을 근거로 연결한 뒤, 짧은 답변과 근거 링크를 함께 보여주는 흐름입니다.'
+	    }
+
+	    const openEvidenceSidebar = (label = 'PDF p.12 근거 보기') => {
+	      evidenceDrawer?.classList.remove('is-hidden')
+	      evidenceBackdrop?.classList.remove('is-hidden')
+	      showToast(`${label} 사이드바를 열었습니다.`)
+	    }
+
+	    const closeEvidenceSidebar = () => {
+	      evidenceDrawer?.classList.add('is-hidden')
+	      evidenceBackdrop?.classList.add('is-hidden')
+	    }
+
+    const submitDemoChatQuestion = (question) => {
+      const cleanQuestion = question.trim()
+      if (!cleanQuestion) {
+        showToast('질문을 입력해주세요.')
+        return
+      }
+
+	      if (simpleQuestion) simpleQuestion.textContent = cleanQuestion
+	      if (simpleAnswerText) simpleAnswerText.textContent = answerForQuestion(cleanQuestion)
+	      simpleAnswer?.classList.remove('is-hidden')
+	      simpleAnswer?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+	      if (questionCount) {
+	        questionCount.textContent = String(Number(questionCount.textContent) + 1)
+	      }
+	      showToast('답변과 근거 링크 목업을 표시했습니다.')
+	    }
+
+    const toggleDemoSources = (target) => {
+      const message = target.closest('.project-chat-message')
+      const panel = message?.querySelector('[data-source-panel]') || $('[data-source-panel]')
+      const chevron = message?.querySelector('[data-source-chevron]') || $('[data-source-chevron]')
+      if (!panel) return
+
+      panel.classList.toggle('is-hidden')
+      const isOpen = !panel.classList.contains('is-hidden')
+      chevron?.classList.toggle('is-open', isOpen)
+    }
+
+    tabButtons.forEach((button) => {
+      button.addEventListener('click', () => switchTab(button.dataset.tabButton))
+    })
+
+    $$('[data-tab-jump]').forEach((button) => {
+      button.addEventListener('click', () => switchTab(button.dataset.tabJump))
+    })
+
+    $$('[data-search-form]').forEach((form) => {
+      form.addEventListener('submit', (event) => {
+        event.preventDefault()
+        const input = $('[data-search-input]', form)
+        const term = input.value.trim().toLowerCase()
+
+        if (form.dataset.searchForm === 'chat') {
+          const targets = $$('.recent-item, .simple-file-card, .project-chat-message')
+          let visibleCount = 0
+          targets.forEach((item) => {
+            const text = `${item.dataset.searchable || ''} ${item.textContent}`.toLowerCase()
+            const isVisible = !term || text.includes(term)
+            item.classList.toggle('is-hidden', !isVisible)
+            if (isVisible) visibleCount += 1
+          })
+          showToast(term ? `${visibleCount}개 항목을 찾았습니다.` : '검색 필터를 초기화했습니다.')
+          return
+        }
+
+        state.scheduleSearch = term
+        const firstMatch = term ? state.events.find((item) => eventMatches(item, term)) : null
+        if (firstMatch) {
+          state.selectedDate = toDate(firstMatch.date)
+          state.visibleMonth = new Date(state.selectedDate.getFullYear(), state.selectedDate.getMonth(), 1)
+          state.selectedEventId = firstMatch.id
+        }
+        renderCalendar()
+        showToast(term ? (firstMatch ? '일정 검색 결과를 강조했습니다.' : '일치하는 일정이 없습니다.') : '일정 검색을 초기화했습니다.')
+      })
+    })
+
+    $$('[data-calendar-view]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.calendarView = button.dataset.calendarView
+        $$('[data-calendar-view]').forEach((item) => item.classList.toggle('is-active', item === button))
+        renderCalendar()
+      })
+    })
+
+    monthGrid.addEventListener('click', (event) => {
+      const dayCell = event.target.closest('.month-day')
+      if (!dayCell) return
+
+      const calendarEvent = event.target.closest('.calendar-event')
+      selectDate(toDate(dayCell.dataset.date), calendarEvent?.dataset.eventId || null)
+    })
+
+    pendingList.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-pending-action]')
+      if (!button) return
+
+      const itemEl = button.closest('[data-pending-id]')
+      const pendingItem = state.pending.find((item) => item.id === itemEl.dataset.pendingId)
+      if (!pendingItem) return
+
+      state.pending = state.pending.filter((item) => item.id !== pendingItem.id)
+
+      if (button.dataset.pendingAction === 'confirm') {
+        const alreadyExists = state.events.some((eventItem) => eventItem.title === pendingItem.title && eventItem.date === pendingItem.date)
+        if (!alreadyExists) {
+          state.events.push({ ...pendingItem, id: `event-${Date.now()}` })
+        }
+        selectDate(toDate(pendingItem.date))
+        showToast(`${pendingItem.title} 일정을 확정했습니다.`)
+        return
+      }
+
+      renderCalendar()
+      showToast(`${pendingItem.title} 감지 항목을 무시했습니다.`)
+    })
+
+    demoChatInput?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.shiftKey) return
+      event.preventDefault()
+      submitDemoChatQuestion(demoChatInput.value)
+      demoChatInput.value = ''
+    })
+
+    document.addEventListener('click', (event) => {
+      const task = event.target.closest('.task')
+      if (task) {
+        task.classList.toggle('is-done')
+        $('.check', task)?.classList.toggle('is-done')
+        return
+      }
+
+	      const recentItem = event.target.closest('.recent-item, .simple-file-card')
+	      if (recentItem) {
+	        const fileName = recentItem.querySelector('strong')?.textContent || '자료'
+	        if (recentItem.classList.contains('simple-file-card')) {
+	          openEvidenceSidebar(fileName)
+	        } else {
+	          showToast(`${fileName} 항목을 열었습니다.`)
+	        }
+	        return
+	      }
+
+      const action = event.target.closest('[data-action]')?.dataset.action
+      if (!action) return
+
+      if (action === 'new-chat-question') {
+        const question = prompt('새 질문을 입력하세요.', '알고리즘이 언급된 페이지를 알려줘')
+        if (!question) return
+        submitDemoChatQuestion(question)
+        return
+      }
+
+      if (action === 'send-demo-chat') {
+        submitDemoChatQuestion(demoChatInput?.value || '')
+        if (demoChatInput) demoChatInput.value = ''
+        return
+      }
+
+      if (action === 'toggle-demo-sources') {
+        toggleDemoSources(event.target)
+        return
+      }
+
+	      if (action === 'open-demo-source') {
+	        openEvidenceSidebar('최근 파일')
+	        return
+	      }
+
+	      if (action === 'open-evidence-sidebar') {
+	        openEvidenceSidebar(event.target.closest('button')?.textContent?.trim() || '근거 링크')
+	        return
+	      }
+
+	      if (action === 'close-evidence-sidebar') {
+	        closeEvidenceSidebar()
+	        return
+	      }
+
+	      if (action === 'navigate-evidence') {
+	        showToast('실제 프로젝트에서는 해당 PDF 페이지/전사 위치로 이동합니다.')
+	        return
+	      }
+
+      if (action === 'remove-demo-source') {
+        event.target.closest('.selected-chat-source-chip')?.remove()
+        showToast('선택 자료 칩을 제거했습니다.')
+        return
+      }
+
+      if (action === 'html-attach') {
+        showToast('첨부 버튼 자리입니다.')
+        return
+      }
+
+      if (action === 'toggle-html-thinking') {
+        event.target.closest('.project-thinking-button')?.classList.toggle('is-active')
+        showToast('Thinking 버튼 상태를 변경했습니다.')
+        return
+      }
+
+      if (action === 'open-workspace') showToast('워크스페이스 화면으로 이동하는 버튼 자리입니다.')
+      if (action === 'open-folder') showToast('학습 자료 폴더를 여는 버튼 자리입니다.')
+      if (action === 'google-calendar') showToast('Google 캘린더 연동 버튼 자리입니다.')
+
+      if (action === 'today') {
+        selectDate(new Date(2026, 4, 14))
+        showToast('오늘 날짜로 이동했습니다.')
+      }
+
+      if (action === 'prev-month') {
+        if (state.calendarView === 'month') {
+          state.visibleMonth.setMonth(state.visibleMonth.getMonth() - 1)
+          state.selectedDate = new Date(state.visibleMonth.getFullYear(), state.visibleMonth.getMonth(), 1)
+        } else {
+          state.selectedDate.setDate(state.selectedDate.getDate() - (state.calendarView === 'week' ? 7 : 1))
+          state.visibleMonth = new Date(state.selectedDate.getFullYear(), state.selectedDate.getMonth(), 1)
+        }
+        state.selectedEventId = eventsForDate(state.selectedDate)[0]?.id || null
+        renderCalendar()
+      }
+
+      if (action === 'next-month') {
+        if (state.calendarView === 'month') {
+          state.visibleMonth.setMonth(state.visibleMonth.getMonth() + 1)
+          state.selectedDate = new Date(state.visibleMonth.getFullYear(), state.visibleMonth.getMonth(), 1)
+        } else {
+          state.selectedDate.setDate(state.selectedDate.getDate() + (state.calendarView === 'week' ? 7 : 1))
+          state.visibleMonth = new Date(state.selectedDate.getFullYear(), state.selectedDate.getMonth(), 1)
+        }
+        state.selectedEventId = eventsForDate(state.selectedDate)[0]?.id || null
+        renderCalendar()
+      }
+
+      if (action === 'add-event') {
+        const title = prompt('일정 제목을 입력하세요.', '새 학습 일정')
+        if (!title) return
+        const day = prompt('며칠에 추가할까요?', String(state.selectedDate.getDate()))
+        const dayNumber = Number(day)
+        if (!Number.isInteger(dayNumber) || dayNumber < 1 || dayNumber > 31) {
+          showToast('1부터 31 사이의 날짜를 입력해야 합니다.')
+          return
+        }
+        const time = prompt('시간을 입력하세요.', '09:00') || '09:00'
+        const date = new Date(state.visibleMonth.getFullYear(), state.visibleMonth.getMonth(), dayNumber)
+        const newEvent = {
+          id: `manual-${Date.now()}`,
+          title,
+          date: toKey(date),
+          time,
+          type: 'project',
+          badge: '직접 추가',
+          source: '사용자 추가',
+          description: 'HTML 초본에서 직접 추가한 일정입니다.'
+        }
+        state.events.push(newEvent)
+        selectDate(date, newEvent.id)
+        showToast(`${title} 일정을 추가했습니다.`)
+      }
+	    })
+
+	    document.addEventListener('keydown', (event) => {
+	      if (event.key === 'Escape') closeEvidenceSidebar()
+	    })
+
+	    renderCalendar()
+  </script>
+</body>
+</html>
