@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
     ffmpeg \
+    tesseract-ocr \
+    tesseract-ocr-kor \
     && rm -rf /var/lib/apt/lists/*
 
 # requirements.txt 복사 및 패키지 설치
