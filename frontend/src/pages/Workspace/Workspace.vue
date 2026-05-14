@@ -1,6 +1,6 @@
 <!-- 음성 녹음, 실시간 전사, AI 분석 및 교차 참조가 이루어지는 작업실 페이지 컴포넌트입니다. -->
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
@@ -56,10 +56,16 @@ const emit = defineEmits([
 const isLeftSidebarCollapsed = ref(false)
 const { showCitePopover, currentCite, citePopoverPos, closeCitePopover, clearHistory } = useChat()
 const citationSourceRequest = ref(null)
+const materialEvidenceRequest = ref(null)
 const selectedQuizSource = ref(null)
 
 watch(() => props.activeFileId, () => {
   selectedQuizSource.value = null
+  citationSourceRequest.value = null
+  materialEvidenceRequest.value = null
+  clearHistory()
+  closeCitePopover()
+  emit('update:aiInput', '')
 })
 
 const scheduleNoticeItems = computed(() => props.scheduleExtractionNotice?.items || [])
@@ -125,6 +131,21 @@ function findNodeById(nodes = [], id = '') {
   return null
 }
 
+function findMaterialInNode(node, cite = {}) {
+  const materialId = String(cite?.material_id || '')
+  const storedName = String(cite?.stored_name || '')
+  const weeks = Array.isArray(node?.weeks) ? node.weeks : []
+
+  for (const week of weeks) {
+    const materials = Array.isArray(week?.materials) ? week.materials : []
+    for (const material of materials) {
+      if (materialId && String(material?.id || '') === materialId) return material
+      if (storedName && String(material?.storedName || '') === storedName) return material
+    }
+  }
+  return null
+}
+
 function openCitationSource(cite) {
   const sessionId = cite?.session_id
   if (!sessionId) return
@@ -134,6 +155,16 @@ function openCitationSource(cite) {
 
   emit('fileSelect', sessionId, node)
   isLeftSidebarCollapsed.value = false
+  if (cite?.source_type === 'material') {
+    const material = findMaterialInNode(node, cite)
+    const materialId = material?.id || cite?.material_id
+    if (materialId) {
+      emit('openStoredMaterial', materialId)
+    }
+    closeCitePopover()
+    return
+  }
+
   citationSourceRequest.value = {
     id: `${sessionId}-${cite?.transcript_id || cite?.citation || Date.now()}`,
     cite,
@@ -144,8 +175,71 @@ function openCitationSource(cite) {
   closeCitePopover()
 }
 
+async function openEvidenceSource(cite) {
+  if (!cite) return
+
+  if (cite.source_type !== 'material') {
+    openCitationSource(cite)
+    return
+  }
+
+  const sessionId = cite.session_id
+  if (!sessionId) return
+
+  const node = findNodeById(props.fileTree, sessionId)
+  if (!node) return
+
+  emit('fileSelect', sessionId, node)
+  isLeftSidebarCollapsed.value = false
+
+  const material = findMaterialInNode(node, cite)
+  const materialId = material?.id || cite.material_id
+  if (materialId) {
+    emit('openStoredMaterial', materialId)
+  }
+
+  await nextTick()
+
+  materialEvidenceRequest.value = {
+    id: `${sessionId}-${materialId || cite.stored_name || cite.citation}-${cite.page || 0}-${Date.now()}`,
+    cite,
+    materialId,
+    page: Number(cite.page || 1),
+    text: cite.text || ''
+  }
+}
+
 function handleQuizSourceSelect(source) {
   selectedQuizSource.value = source
+}
+
+function chatSourceKey(source = {}) {
+  return `${source.type || 'source'}-${source.id || source.materialId || source.recordingId || source.title || ''}`
+}
+
+function handleRemoveChatSource(source) {
+  if (!selectedQuizSource.value || !source) return
+
+  const current = selectedQuizSource.value
+  const currentSources = Array.isArray(current.sources) ? current.sources : [current]
+  const removeKey = chatSourceKey(source)
+  const nextSources = currentSources.filter((item) => chatSourceKey(item) !== removeKey)
+
+  if (!nextSources.length) {
+    selectedQuizSource.value = null
+    return
+  }
+
+  const transcriptIds = Array.from(new Set(nextSources.flatMap((item) => item.transcriptIds || [])))
+  selectedQuizSource.value = {
+    ...current,
+    type: nextSources.every((item) => item.type === 'recording') ? 'recording' : 'mixed',
+    title: nextSources.length === 1 ? nextSources[0].title : `${nextSources[0].title} 외 ${nextSources.length - 1}개`,
+    sourceCount: nextSources.length,
+    sources: nextSources,
+    recordings: [],
+    transcriptIds
+  }
 }
 
 function escapeHtml(value = '') {
@@ -175,13 +269,25 @@ const highlightedTranscript = computed(() => {
 })
 
 const currentCitationTitle = computed(() => (
-  currentCite.value?.recording_title
+  currentCite.value?.source_type === 'material'
+    ? (currentCite.value?.material_name || currentCite.value?.file_title || '강의자료')
+    : currentCite.value?.recording_title
   || currentCite.value?.session_title
   || currentCite.value?.file_title
   || 'AI 분석 결과'
 ))
 
-const currentCitationLabel = computed(() => currentCite.value?.citation || '연결된 전사')
+const currentCitationLabel = computed(() => currentCite.value?.citation || (
+  currentCite.value?.source_type === 'material' ? '연결된 PDF' : '연결된 전사'
+))
+
+const currentCitationSourceIcon = computed(() => (
+  currentCite.value?.source_type === 'material' ? 'picture_as_pdf' : 'folder_open'
+))
+
+const currentCitationSourceCaption = computed(() => (
+  currentCite.value?.source_type === 'material' ? 'PDF 자료' : '출처'
+))
 </script>
 
 <template>
@@ -281,6 +387,7 @@ const currentCitationLabel = computed(() => currentCite.value?.citation || '연�
       :currentRecordings="currentRecordings"
       :transcriptions="transcriptions"
       :currentPreviewMaterial="currentPreviewMaterial"
+      :materialEvidenceRequest="materialEvidenceRequest"
       :summaryState="summaryState"
       :summaryNotes="summaryNotes"
       :quizSource="selectedQuizSource"
@@ -303,7 +410,10 @@ const currentCitationLabel = computed(() => currentCite.value?.citation || '연�
       :visible="isRightSidebarVisible" 
       :aiInput="aiInput"
       :activeFileId="activeFileId"
+      :chatSource="selectedQuizSource"
       @update:aiInput="emit('update:aiInput', $event)"
+      @openEvidenceSource="openEvidenceSource"
+      @removeChatSource="handleRemoveChatSource"
     />
   </div>
 
@@ -349,9 +459,9 @@ const currentCitationLabel = computed(() => currentCite.value?.citation || '연�
               @click="openCitationSource(currentCite)"
               :title="currentCite?.file_title || currentCite?.session_title || ''"
             >
-              <span class="material-symbols-outlined">folder_open</span>
+              <span class="material-symbols-outlined">{{ currentCitationSourceIcon }}</span>
               <span>
-                <small>출처</small>
+                <small>{{ currentCitationSourceCaption }}</small>
                 <strong>{{ currentCitationTitle }}</strong>
               </span>
               <span class="material-symbols-outlined cite-source-arrow">open_in_new</span>
