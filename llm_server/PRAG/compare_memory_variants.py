@@ -435,7 +435,6 @@ def evaluate_variant(
     variant: Variant,
     model,
     tokenizer,
-    target_layer,
     device,
     case: dict,
     max_new_tokens: int,
@@ -451,8 +450,7 @@ def evaluate_variant(
     main_passages = merged_passages_for_case(case)
     sync_if_cuda(device)
     started_at = time.perf_counter()
-    # Each variant may have been trained with a different critical layer. Using
-    # a shared target layer would make one side of the comparison unfair.
+    # Each variant may have been trained with a different critical layer.
     target_layer = model.model.layers[variant.layer_idx]
     memory = encode_merged_memory(
         model,
@@ -516,7 +514,7 @@ def print_case_report(
     recall_hit: bool,
     recall_k: int,
 ) -> None:
-    main_passages = [case["main_passage"]] + list(case.get("merge_passages") or [])
+    main_passages = merged_passages_for_case(case)
     print("\n" + "=" * 96)
     print(f"[case:{case['name']}]")
     if case.get("source_id"):
@@ -742,9 +740,6 @@ def main() -> None:
     device = next(model.parameters()).device
     qp = load_variant("question+passage", args.qp_weights, model, device)
     ponly = load_variant("passage-only", args.ponly_weights, model, device)
-    if qp.layer_idx != ponly.layer_idx:
-        raise ValueError(f"Critical layer mismatch: qp={qp.layer_idx}, ponly={ponly.layer_idx}")
-    target_layer = model.model.layers[qp.layer_idx]
 
     data_path = args.data or default_mixed_data(args.split)
     cases = load_dataset_cases(
@@ -755,14 +750,14 @@ def main() -> None:
     )
 
     print("[PRAG:compare-memory-variants]")
-    print(f"model={model_name} layer={qp.layer_idx} data={data_path}")
+    print(f"model={model_name} qp_layer={qp.layer_idx} ponly_layer={ponly.layer_idx} data={data_path}")
     print(
         f"question+passage weights={qp.path} step={qp.step} best_val={fmt(qp.best_val)} "
-        f"q_cond={qp.question_conditioned}"
+        f"layer={qp.layer_idx} q_cond={qp.question_conditioned}"
     )
     print(
         f"passage-only     weights={ponly.path} step={ponly.step} best_val={fmt(ponly.best_val)} "
-        f"q_cond={ponly.question_conditioned}"
+        f"layer={ponly.layer_idx} q_cond={ponly.question_conditioned}"
     )
 
     totals = {
@@ -804,7 +799,6 @@ def main() -> None:
             variant=qp,
             model=model,
             tokenizer=tokenizer,
-            target_layer=target_layer,
             device=device,
             case=case,
             max_new_tokens=args.max_new_tokens,
@@ -818,7 +812,6 @@ def main() -> None:
             variant=ponly,
             model=model,
             tokenizer=tokenizer,
-            target_layer=target_layer,
             device=device,
             case=case,
             max_new_tokens=args.max_new_tokens,
@@ -877,6 +870,8 @@ def main() -> None:
                 "merge_policy": case.get("merge_policy") or "",
                 "merge_group_qas": case.get("merge_group_qas") or "",
                 "merged_passage_count": len(main_passages),
+                "qp_layer": qp.layer_idx,
+                "ponly_layer": ponly.layer_idx,
                 "question": case["question"],
                 "expected": case.get("full_answer") or case["main_answer"],
                 "recall_at_k": recall_hit,
