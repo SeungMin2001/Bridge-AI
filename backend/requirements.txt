@@ -101,6 +101,8 @@ pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
 Pygments==2.19.2
+PyMuPDF
+pytesseract
 pypdf==6.10.1
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
