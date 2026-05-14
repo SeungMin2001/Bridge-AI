@@ -101,14 +101,14 @@ def load_model(model_name: str):
     return model, tokenizer
 
 
-def make_scan_hypernet(model, device, *, legacy_hypernet: bool = False) -> HyperKVGenerator:
+def make_scan_hypernet(model, device, *, num_kv: int = NUM_KV, legacy_hypernet: bool = False) -> HyperKVGenerator:
     d_model = int(model.config.hidden_size)
     feature_dim = d_model * (2 if USE_CONTEXTUAL_MEMORY else 1)
     if legacy_hypernet and feature_dim != d_model:
         raise ValueError("Author-style legacy hypernet requires PRAG_USE_CONTEXTUAL_MEMORY=0.")
     return HyperKVGenerator(
         d_model=d_model,
-        num_kv=NUM_KV,
+        num_kv=num_kv,
         hidden_dim=HIDDEN_DIM,
         feature_dim=feature_dim,
         legacy=legacy_hypernet,
@@ -213,10 +213,11 @@ def train_and_score_layer(
     final_weight: float,
     injection_mode: str,
     question_conditioned_memory: bool,
+    num_kv: int,
     legacy_hypernet: bool,
 ):
     target_layer = model.model.layers[layer_idx]
-    hypernet = make_scan_hypernet(model, device, legacy_hypernet=legacy_hypernet)
+    hypernet = make_scan_hypernet(model, device, num_kv=num_kv, legacy_hypernet=legacy_hypernet)
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=lr, weight_decay=0.0)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
@@ -347,6 +348,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--layers", default="all", help="Layer list/range, e.g. all, 0-27, or 7,8,9,10.")
     parser.add_argument("--output", default=str(CRITICAL_LAYERS_PATH))
+    parser.add_argument("--num-kv", type=int, default=NUM_KV, help="Number of generated K/V memory slots for the scan.")
     parser.add_argument("--answer-target", choices=("answer", "full_answer"), default="full_answer")
     parser.add_argument("--final-weight", type=float, default=0.25)
     parser.add_argument("--injection-mode", choices=("attention", "add_all", "add_last", "hybrid"), default="attention")
@@ -385,6 +387,7 @@ def main():
                     model_name=args.model,
                     korquad_service=True,
                     question_conditioned_memory=question_conditioned_memory,
+                    num_kv=args.num_kv,
                 )
             )
     if args.mixed_kor_service:
@@ -397,6 +400,7 @@ def main():
                     model_name=args.model,
                     mixed_kor_service=True,
                     question_conditioned_memory=question_conditioned_memory,
+                    num_kv=args.num_kv,
                 )
             )
     if args.clean_ko_only:
@@ -446,7 +450,7 @@ def main():
         "injection_mode": args.injection_mode,
         "legacy_hypernet": bool(args.legacy_hypernet),
         "seed": args.seed,
-        "num_kv": NUM_KV,
+        "num_kv": args.num_kv,
         "hidden_dim": HIDDEN_DIM,
         "alpha": ALPHA,
         "use_contextual_memory": USE_CONTEXTUAL_MEMORY,
@@ -463,7 +467,7 @@ def main():
     )
     print(
         "[PRAG:layer-scan] "
-        f"num_kv={NUM_KV} alpha={ALPHA} contextual={USE_CONTEXTUAL_MEMORY} "
+        f"num_kv={args.num_kv} alpha={ALPHA} contextual={USE_CONTEXTUAL_MEMORY} "
         f"question_conditioned={question_conditioned_memory} legacy_hypernet={args.legacy_hypernet}"
     )
     if existing:
@@ -489,6 +493,7 @@ def main():
             final_weight=args.final_weight,
             injection_mode=args.injection_mode,
             question_conditioned_memory=question_conditioned_memory,
+            num_kv=args.num_kv,
             legacy_hypernet=args.legacy_hypernet,
         )
         metrics = {

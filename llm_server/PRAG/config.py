@@ -170,6 +170,7 @@ def critical_layers_path_for_run(
     korquad_service: bool = False,
     mixed_kor_service: bool = False,
     question_conditioned_memory: bool = QUESTION_CONDITIONED_MEMORY,
+    num_kv: int | None = None,
 ) -> Path:
     """Return the condition-specific layer-scan path used by train/scan."""
     if mixed_kor_service:
@@ -179,6 +180,8 @@ def critical_layers_path_for_run(
     else:
         stem = "critical_layers"
     memory_tag = "qp" if question_conditioned_memory else "ponly"
+    if num_kv is not None and int(num_kv) != 16:
+        memory_tag = f"{memory_tag}_kv{int(num_kv)}"
     return BASE_DIR / f"{stem}_{model_path_tag(model_name)}_{memory_tag}.json"
 
 

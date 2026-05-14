@@ -113,11 +113,11 @@ def load_model(model_name: str = MODEL_NAME):
     return model, tokenizer
 
 
-def make_hypernet(model, device):
+def make_hypernet(model, device, *, num_kv: int = NUM_KV):
     feature_dim = model.config.hidden_size * (2 if USE_CONTEXTUAL_MEMORY else 1)
     return HyperKVGenerator(
         d_model=model.config.hidden_size,
-        num_kv=NUM_KV,
+        num_kv=num_kv,
         hidden_dim=HIDDEN_DIM,
         feature_dim=feature_dim,
         legacy=False,
@@ -1606,7 +1606,7 @@ def tagged_output_path(path, suffix: str):
     return path.with_name(name)
 
 
-def read_critical_layer_file(path, model_name: str) -> int | None:
+def read_critical_layer_file(path, model_name: str, *, num_kv: int | None = None) -> int | None:
     path = Path(path)
     if not path.exists():
         return None
@@ -1619,6 +1619,10 @@ def read_critical_layer_file(path, model_name: str) -> int | None:
     if stored_model and str(stored_model) != str(model_name):
         print(f"[PRAG:train] skip critical layer file={path}: model={stored_model!r} != {model_name!r}")
         return None
+    stored_num_kv = data.get("num_kv")
+    if num_kv is not None and stored_num_kv is not None and int(stored_num_kv) != int(num_kv):
+        print(f"[PRAG:train] skip critical layer file={path}: num_kv={stored_num_kv!r} != {num_kv!r}")
+        return None
     layers = data.get("critical_layers") or []
     if not layers:
         print(f"[PRAG:train] skip critical layer file={path}: no critical_layers")
@@ -1626,14 +1630,17 @@ def read_critical_layer_file(path, model_name: str) -> int | None:
     return int(layers[0])
 
 
-def auto_critical_layer(args, model_name: str, question_conditioned_memory: bool) -> int:
+def auto_critical_layer(args, model_name: str, question_conditioned_memory: bool, *, num_kv: int) -> int:
     candidates = []
+    if getattr(args, "critical_layers_file", ""):
+        candidates.append(Path(args.critical_layers_file))
     if args.mixed_kor_service:
         candidates.append(
             critical_layers_path_for_run(
                 model_name=model_name,
                 mixed_kor_service=True,
                 question_conditioned_memory=question_conditioned_memory,
+                num_kv=num_kv,
             )
         )
         candidates.append(KORQUAD_SERVICE_CRITICAL_LAYERS_PATH.with_name("critical_layers_mixed_kor_service.json"))
@@ -1643,11 +1650,12 @@ def auto_critical_layer(args, model_name: str, question_conditioned_memory: bool
                 model_name=model_name,
                 korquad_service=True,
                 question_conditioned_memory=question_conditioned_memory,
+                num_kv=num_kv,
             )
         )
         candidates.append(KORQUAD_SERVICE_CRITICAL_LAYERS_PATH)
     for path in candidates:
-        layer = read_critical_layer_file(path, model_name)
+        layer = read_critical_layer_file(path, model_name, num_kv=num_kv)
         if layer is not None:
             print(f"[PRAG:train] auto critical_layer={layer} from {path}")
             return layer
@@ -1682,6 +1690,20 @@ def main() -> None:
         help=(
             "Override the injection layer for a fresh run. Existing checkpoints "
             "still resume with the layer stored in their config."
+        ),
+    )
+    parser.add_argument(
+        "--critical-layers-file",
+        default="",
+        help="Layer-scan JSON file to use for automatic --critical-layer selection on custom train/valid runs.",
+    )
+    parser.add_argument(
+        "--num-kv",
+        type=int,
+        default=None,
+        help=(
+            "Number of generated K/V memory slots. If omitted, resume/init configs "
+            f"or PRAG_NUM_KV/default {NUM_KV} are used."
         ),
     )
     parser.add_argument(
@@ -1985,6 +2007,11 @@ def main() -> None:
         if args.question_conditioned_memory is None and "question_conditioned_memory" in effective_source_config
         else (QUESTION_CONDITIONED_MEMORY if args.question_conditioned_memory is None else bool(args.question_conditioned_memory))
     )
+    effective_num_kv = int(
+        args.num_kv
+        if args.num_kv is not None
+        else effective_source_config.get("num_kv", NUM_KV)
+    )
     model, tokenizer = load_model(effective_model_name)
     device = next(model.parameters()).device
     layer_idx = int(
@@ -1992,7 +2019,7 @@ def main() -> None:
             "critical_layer",
             args.critical_layer
             if args.critical_layer >= 0
-            else auto_critical_layer(args, effective_model_name, question_conditioned_memory),
+            else auto_critical_layer(args, effective_model_name, question_conditioned_memory, num_kv=effective_num_kv),
         )
     )
     target_layer = model.model.layers[layer_idx]
@@ -2103,7 +2130,7 @@ def main() -> None:
     if valid_generation_examples:
         print_eval_subset_summary("generation", valid_generation_examples, len(valid_examples))
 
-    hypernet = make_hypernet(model, device)
+    hypernet = make_hypernet(model, device, num_kv=effective_num_kv)
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=args.lr, weight_decay=0.0)
     train_units = [("example", item) for item in train_examples] if args.example_weight > 0 else []
     if args.group_weight > 0:
@@ -2117,7 +2144,7 @@ def main() -> None:
     run_config = {
         "model": effective_model_name,
         "critical_layer": layer_idx,
-        "num_kv": NUM_KV,
+        "num_kv": effective_num_kv,
         "hidden_dim": HIDDEN_DIM,
         "feature_dim": model.config.hidden_size * (2 if USE_CONTEXTUAL_MEMORY else 1),
         "use_contextual_memory": USE_CONTEXTUAL_MEMORY,
