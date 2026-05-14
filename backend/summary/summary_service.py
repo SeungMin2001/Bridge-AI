@@ -16,7 +16,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # ── 설정 ──
-MOCK_MODE = os.getenv("SUMMARY_MOCK_MODE", "true").lower() == "true"
+MOCK_MODE = os.getenv("SUMMARY_MOCK_MODE", "false").lower() == "true"
 LLM_URL = os.getenv("SUMMARY_LLM_URL", os.getenv("LLM_URL", "http://localhost:8001"))
 LLM_MODEL = os.getenv("SUMMARY_LLM_MODEL", os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ"))
 LLM_API_KEY = os.getenv("SUMMARY_LLM_API_KEY", os.getenv("LLM_API_KEY", "test-key"))
