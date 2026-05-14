@@ -1,8 +1,9 @@
 <!-- 워크스페이스 내에서 AI와 실시간으로 채팅하며 노트를 정리할 수 있는 오른쪽 채팅 패널입니다. -->
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useChat } from '../../composables/useChat'
 import { marked } from 'marked'
+import PdfEvidencePreview from './PdfEvidencePreview.vue'
 
 marked.setOptions({
   breaks: true,
@@ -12,10 +13,11 @@ marked.setOptions({
 const props = defineProps({
   visible: { type: Boolean, default: true },
   aiInput: { type: String, default: '' },
-  activeFileId: { type: String, default: '' }
+  activeFileId: { type: String, default: '' },
+  chatSource: { type: Object, default: null }
 })
 
-const emit = defineEmits(['update:aiInput'])
+const emit = defineEmits(['update:aiInput', 'openEvidenceSource', 'removeChatSource'])
 
 const { 
   messages, 
@@ -40,13 +42,99 @@ function getChatSessionId() {
   return null
 }
 
+const selectedChatSources = computed(() => {
+  if (!props.chatSource) return []
+  if (Array.isArray(props.chatSource.sources)) return props.chatSource.sources
+  return [props.chatSource]
+})
+
+const hasSelectedChatSource = computed(() => selectedChatSources.value.length > 0)
+
+const selectedChatSourceTitle = computed(() => {
+  if (!hasSelectedChatSource.value) return ''
+  if (selectedChatSources.value.length === 1) return sourceTitle(selectedChatSources.value[0])
+  return `${sourceTitle(selectedChatSources.value[0])} 외 ${selectedChatSources.value.length - 1}개`
+})
+
+function sourceTitle(source = {}) {
+  return source.title || source.material?.name || source.recording?.title || '선택한 자료'
+}
+
+function sourceIcon(source = {}) {
+  if (source.type === 'material') return 'picture_as_pdf'
+  if (source.type === 'recording') return 'graphic_eq'
+  return 'library_books'
+}
+
+function snapshotChatSources() {
+  if (!hasSelectedChatSource.value) return []
+
+  return selectedChatSources.value.map((source) => ({
+    type: source.type || (source.material ? 'material' : source.recording ? 'recording' : 'source'),
+    id: source.id || source.materialId || source.recordingId || source.material?.id || source.material?.storedName || sourceTitle(source),
+    title: sourceTitle(source),
+    icon: sourceIcon(source),
+  }))
+}
+
+function messageSources(msg) {
+  return Array.isArray(msg?.sources) ? msg.sources : []
+}
+
+function sourceKey(source = {}) {
+  return `${source.type || 'source'}-${source.id || source.materialId || source.recordingId || sourceTitle(source)}`
+}
+
+function unique(values = []) {
+  return Array.from(new Set(values.filter(Boolean).map((item) => String(item))))
+}
+
+function buildSourceFilter() {
+  if (!hasSelectedChatSource.value) return null
+
+  const materialIds = []
+  const storedNames = []
+  const recordingIds = []
+  const transcriptIds = []
+
+  selectedChatSources.value.forEach((source) => {
+    const material = source.material || {}
+    if (source.type === 'material' || material.id || material.storedName) {
+      if (material.id || source.materialId) materialIds.push(material.id || source.materialId)
+      if (material.storedName || source.storedName) storedNames.push(material.storedName || source.storedName)
+      if (source.id && String(source.id).toLowerCase().endsWith('.pdf')) storedNames.push(source.id)
+      else if (source.id && !material.id && !source.materialId) materialIds.push(source.id)
+    }
+
+    if (source.type === 'recording' || source.recordingId) {
+      recordingIds.push(source.recordingId || source.id)
+    }
+
+    ;(source.transcriptIds || []).forEach((id) => transcriptIds.push(id))
+  })
+
+  ;(props.chatSource?.transcriptIds || []).forEach((id) => transcriptIds.push(id))
+  ;(props.chatSource?.recordings || []).forEach((recording) => {
+    recordingIds.push(recording?.id || recording?.recordingId)
+  })
+
+  const filter = {
+    material_ids: unique(materialIds),
+    stored_names: unique(storedNames),
+    recording_ids: unique(recordingIds),
+    transcript_ids: unique(transcriptIds),
+  }
+
+  return Object.values(filter).some((items) => items.length) ? filter : null
+}
+
 async function sendMessage() {
   const question = props.aiInput.trim()
   if (!question || isSending.value) return // 전송 중이거나 빈 메시지면 무시
   
   isSending.value = true
 
-  addMessage({ role: 'user', text: question })
+  addMessage({ role: 'user', text: question, sources: snapshotChatSources() })
   emit('update:aiInput', '')
   isLoading.value = true
 
@@ -97,7 +185,12 @@ async function sendMessage() {
       body: JSON.stringify({
         question,
         is_thinking: isThinkingMode.value,
+<<<<<<< HEAD
         session_id: getChatSessionId()
+=======
+        session_id: props.chatSource?.sessionId || getActiveSessionId(),
+        source_filter: buildSourceFilter()
+>>>>>>> 1e8f9935 (feat: AI 채팅 자료 선택과 근거 표시 개선)
       }),
     })
 
@@ -211,6 +304,15 @@ function getSourceChips(msg) {
   })
 }
 
+function sourceGroupLabel(msg) {
+  const citations = Array.isArray(msg?.citations) ? msg.citations : []
+  const hasMaterial = citations.some((cite) => cite?.source_type === 'material')
+  const hasTranscript = citations.some((cite) => cite?.source_type !== 'material')
+  if (hasMaterial && hasTranscript) return '참고한 자료'
+  if (hasMaterial) return '참고한 PDF'
+  return '참고한 전사'
+}
+
 function toggleCitationMessage(index) {
   const next = new Set(expandedCitationMessages.value)
   if (next.has(index)) next.delete(index)
@@ -222,8 +324,17 @@ function isCitationMessageExpanded(index) {
   return expandedCitationMessages.value.has(index)
 }
 
+function isMaterialCitation(cite = {}) {
+  return cite?.source_type === 'material'
+}
+
 function handleCitationClick(event, cite) {
   if (!cite) return
+
+  if (isMaterialCitation(cite)) {
+    emit('openEvidenceSource', cite)
+    return
+  }
   
   // 🎯 중앙 메인 컨텐츠 카드의 위치를 찾습니다.
   const mainCard = document.getElementById('tab-contents-container')
@@ -337,11 +448,24 @@ watch(messages, () => {
             <div
               v-for="(msg, i) in messages"
               :key="i"
-              :class="msg.role === 'ai' ? 'w-full flex flex-col' : 'user-bubble px-4 py-2.5 rounded-[18px] text-white text-[14px] leading-relaxed self-end w-fit max-w-[85%]'"
+              :class="msg.role === 'ai' ? 'w-full flex flex-col' : 'w-full flex flex-col items-end gap-1.5'"
             >
               <!-- 사용자 말풍선 -->
               <template v-if="msg.role === 'user'">
-                {{ msg.text }}
+                <div v-if="messageSources(msg).length" class="user-message-sources">
+                  <span
+                    v-for="source in messageSources(msg)"
+                    :key="`${source.type || 'source'}-${source.id || source.title}`"
+                    class="user-message-source-chip"
+                    :title="source.title"
+                  >
+                    <span class="material-symbols-outlined">{{ source.icon || sourceIcon(source) }}</span>
+                    <span>{{ source.title }}</span>
+                  </span>
+                </div>
+                <div class="user-bubble px-4 py-2.5 rounded-[18px] text-white text-[14px] leading-relaxed w-fit max-w-[85%]">
+                  {{ msg.text }}
+                </div>
               </template>
 
               <!-- AI 답변 (문서 스타일) -->
@@ -355,6 +479,16 @@ watch(messages, () => {
                 >
                 </div>
 
+                <div
+                  v-if="msg.phase === 'streaming' && !msg.text"
+                  class="ai-stream-wait"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span class="ai-stream-ring" aria-hidden="true"></span>
+                  <span class="ai-stream-wait-text">답변 생성 중...</span>
+                </div>
+
                 <div v-if="msg.phase === 'done' && getSourceChips(msg).length" class="answer-source-summary">
                   <button
                     class="answer-source-toggle"
@@ -362,7 +496,7 @@ watch(messages, () => {
                     @click="toggleCitationMessage(i)"
                   >
                     <span class="material-symbols-outlined text-[15px]">link</span>
-                    <span>참고한 전사 {{ getSourceChips(msg).length }}개 보기</span>
+                    <span>{{ sourceGroupLabel(msg) }} {{ getSourceChips(msg).length }}개 보기</span>
                     <span
                       class="material-symbols-outlined answer-source-chevron"
                       :class="{ 'is-open': isCitationMessageExpanded(i) }"
@@ -375,7 +509,7 @@ watch(messages, () => {
                 <div v-if="msg.phase === 'done' && getSourceChips(msg).length && isCitationMessageExpanded(i)" class="answer-source-panel">
                   <div class="answer-source-panel-head">
                     <span class="material-symbols-outlined">format_quote</span>
-                    <span>근거 전사</span>
+                    <span>근거 자료</span>
                   </div>
                   <div class="answer-source-list">
                     <button
@@ -383,17 +517,23 @@ watch(messages, () => {
                       :key="cite.citation"
                       type="button"
                       class="answer-source-card"
+                      :class="{ 'is-material-preview': isMaterialCitation(cite) }"
                       @click="handleCitationClick($event, cite)"
                       :title="cite.citation"
                     >
-                      <span class="answer-source-card-index"></span>
-                      <span class="answer-source-card-main">
-                        <span class="answer-source-card-text">{{ cite.text }}</span>
-                        <span class="answer-source-card-meta">
-                          <span class="material-symbols-outlined">link</span>
-                          <span>{{ cite.citation }}</span>
+                      <template v-if="isMaterialCitation(cite)">
+                        <PdfEvidencePreview :cite="cite" />
+                      </template>
+                      <template v-else>
+                        <span class="answer-source-card-index"></span>
+                        <span class="answer-source-card-main">
+                          <span class="answer-source-card-text">{{ cite.text }}</span>
+                          <span class="answer-source-card-meta">
+                            <span class="material-symbols-outlined">link</span>
+                            <span>{{ cite.citation }}</span>
+                          </span>
                         </span>
-                      </span>
+                      </template>
                       <span class="material-symbols-outlined answer-source-card-arrow">open_in_new</span>
                     </button>
                   </div>
@@ -412,6 +552,27 @@ watch(messages, () => {
         <div class="mt-auto px-1 pb-2">
           <!-- 🎨 다듬어진 프리미엄 입력창 디자인 -->
           <div class="chat-input-glow rounded-[26px] p-3.5 transition-all">
+            <div v-if="hasSelectedChatSource" class="selected-chat-source-strip">
+              <div class="selected-chat-source-list custom-scrollbar">
+                <span
+                  v-for="source in selectedChatSources"
+                  :key="sourceKey(source)"
+                  class="selected-chat-source-chip"
+                  :title="sourceTitle(source)"
+                >
+                  <span class="material-symbols-outlined">{{ sourceIcon(source) }}</span>
+                  <span class="selected-chat-source-title">{{ sourceTitle(source) }}</span>
+                  <button
+                    type="button"
+                    class="selected-chat-source-remove"
+                    :aria-label="`${sourceTitle(source)} 선택 해제`"
+                    @click.stop="emit('removeChatSource', source)"
+                  >
+                    <span class="material-symbols-outlined">close</span>
+                  </button>
+                </span>
+              </div>
+            </div>
             <textarea
               class="w-full bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] min-h-[24px] max-h-[120px] resize-none leading-relaxed custom-scrollbar"
               placeholder="무엇이든 물어보세요..."
@@ -502,6 +663,51 @@ watch(messages, () => {
   transition: transform 0.4s ease;
 }
 
+.ai-stream-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 8px 13px;
+  border: 1px solid rgba(220, 232, 211, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #4b6a4e;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+}
+
+.ai-stream-ring {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(75, 106, 78, 0.18);
+  border-top-color: #4b6a4e;
+  border-radius: 50%;
+  animation: ai-stream-ring-spin 0.78s linear infinite;
+}
+
+.ai-stream-wait-text {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@keyframes ai-stream-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-stream-ring {
+    animation: none;
+  }
+}
+
 /* ═══════════════════════════════════════
    전역 근거 배지(팝오버 트리거) 스타일
    ═══════════════════════════════════════ */
@@ -538,6 +744,135 @@ watch(messages, () => {
   font-size: 10px;
   color: #7a9a7c;
   font-weight: 600;
+}
+
+.selected-chat-source-strip {
+  margin: 0 0 10px;
+  padding: 0 2px 5px;
+  background: transparent;
+  border: 0;
+}
+
+.selected-chat-source-list {
+  display: flex;
+  gap: 8px;
+  margin-top: 0;
+  overflow-x: auto;
+  padding: 0 2px 7px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.7) transparent;
+}
+
+.selected-chat-source-list::-webkit-scrollbar {
+  height: 6px;
+}
+
+.selected-chat-source-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.selected-chat-source-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.58);
+}
+
+.selected-chat-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 210px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  color: #4b6a4e;
+  background: #eef4e8;
+  border: 1px solid #dce8d3;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.selected-chat-source-chip .material-symbols-outlined {
+  font-size: 14px;
+  color: #4b6a4e;
+  flex: 0 0 auto;
+}
+
+.selected-chat-source-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selected-chat-source-remove {
+  width: 0;
+  height: 20px;
+  margin-left: -2px;
+  border: 0;
+  border-radius: 999px;
+  color: #4b6a4e;
+  background: rgba(75, 106, 78, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  overflow: hidden;
+  cursor: pointer;
+  transition: width 0.18s ease, opacity 0.18s ease, margin-left 0.18s ease, background-color 0.18s ease;
+}
+
+.selected-chat-source-chip:hover .selected-chat-source-remove,
+.selected-chat-source-remove:focus-visible {
+  width: 20px;
+  margin-left: 2px;
+  opacity: 1;
+}
+
+.selected-chat-source-remove:hover {
+  background: rgba(75, 106, 78, 0.18);
+}
+
+.selected-chat-source-remove .material-symbols-outlined {
+  font-size: 14px;
+  color: inherit;
+}
+
+.user-message-sources {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 85%;
+}
+
+.user-message-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(238, 244, 232, 0.9);
+  border: 1px solid rgba(220, 232, 211, 0.95);
+  color: #4b6a4e;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.user-message-source-chip .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: #4b6a4e;
+  font-size: 14px;
+}
+
+.user-message-source-chip span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .answer-source-summary {
@@ -623,6 +958,12 @@ watch(messages, () => {
   border-color: #cbd5e1;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
   transform: translateY(-1px);
+}
+
+.answer-source-card.is-material-preview {
+  grid-template-columns: minmax(0, 1fr) 18px;
+  gap: 10px;
+  padding: 12px;
 }
 
 .answer-source-card-index {
