@@ -21,8 +21,8 @@ quiz_data JSONB 구조:
 ]
 
 LLM이 아직 연결되지 않은 경우:
-  - generate_quiz()는 목업 데이터를 반환 (MOCK_MODE=True)
-  - 프론트/LLM 연결 시 MOCK_MODE=False로 전환하면 즉시 실서비스 전환
+  - QUIZ_MOCK_MODE=true로 실행하면 generate_quiz()는 목업 데이터를 반환
+  - 기본값은 MOCK_MODE=False이며 실제 LLM 서버를 호출
 """
 import json
 import re
@@ -34,8 +34,7 @@ import os
 logger = logging.getLogger(__name__)
 
 # ── 설정 ──
-# LLM 서버가 준비되면 False로 변경
-MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "true").lower() == "true"
+MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "false").lower() == "true"
 
 # vLLM OpenAI 호환 API
 LLM_URL = os.getenv("LLM_URL", "http://localhost:8001")
