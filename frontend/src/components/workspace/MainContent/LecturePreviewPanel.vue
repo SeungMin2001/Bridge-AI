@@ -9,7 +9,8 @@ import PptPreviewToolbar from './PptPreviewToolbar.vue'
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const props = defineProps({
-  material: { type: Object, default: null }
+  material: { type: Object, default: null },
+  evidenceRequest: { type: Object, default: null }
 })
 
 const pptCanvasRef = ref(null)
@@ -28,6 +29,7 @@ let activePdfTask = null
 let activePdfDocument = null
 let pdfRenderToken = 0
 let activePdfTextLayers = []
+let activePdfPageShells = []
 
 const PDF_ZOOM_MIN = 0.7
 const PDF_ZOOM_MAX = 1.8
@@ -77,9 +79,53 @@ const clearPdfPreview = () => {
   pdfPageCount.value = 0
   pdfLoading.value = false
   pdfError.value = ''
+  activePdfPageShells = []
   if (pdfContainerRef.value) {
     pdfContainerRef.value.innerHTML = ''
   }
+}
+
+const clearEvidenceTarget = () => {
+  activePdfPageShells.forEach((pageShell) => {
+    pageShell?.classList?.remove('is-evidence-target')
+    pageShell?.querySelector?.('.pdf-evidence-banner')?.remove()
+  })
+}
+
+const addEvidenceBanner = (pageShell, request) => {
+  pageShell.querySelector('.pdf-evidence-banner')?.remove()
+
+  const banner = document.createElement('div')
+  banner.className = 'pdf-evidence-banner'
+
+  const label = document.createElement('span')
+  label.textContent = 'AI가 참조한 PDF 페이지'
+
+  const page = document.createElement('strong')
+  page.textContent = `p.${Number(request?.page || 1)}`
+
+  banner.appendChild(label)
+  banner.appendChild(page)
+  pageShell.prepend(banner)
+}
+
+const scrollToEvidencePage = async (request, attempt = 0) => {
+  if (!request || !pdfContainerRef.value) return
+
+  const targetPage = Number(request.page || 1)
+  const pageShell = activePdfPageShells[targetPage]
+  if (!pageShell) {
+    if (attempt < 8) {
+      window.setTimeout(() => scrollToEvidencePage(request, attempt + 1), 120)
+    }
+    return
+  }
+
+  await nextTick()
+  clearEvidenceTarget()
+  pageShell.classList.add('is-evidence-target')
+  addEvidenceBanner(pageShell, request)
+  pageShell.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 const destroyPdfPreview = async ({ incrementToken = true } = {}) => {
@@ -169,6 +215,8 @@ const renderPdfPreview = async (file) => {
 
       const pageShell = document.createElement('div')
       pageShell.className = 'pdf-page-shell'
+      pageShell.dataset.pageNumber = String(pageNumber)
+      activePdfPageShells[pageNumber] = pageShell
 
       const pageMeta = document.createElement('div')
       pageMeta.className = 'pdf-page-meta'
@@ -230,6 +278,9 @@ const renderPdfPreview = async (file) => {
 
     if (renderToken === pdfRenderToken) {
       console.log('PDF JSON 추출 결과:', extractedPdfJson)
+      if (props.evidenceRequest) {
+        await scrollToEvidencePage(props.evidenceRequest)
+      }
     }
   } catch (error) {
     console.error(error)
@@ -324,6 +375,15 @@ watch(
     await loadPptPreview(file)
   },
   { immediate: true }
+)
+
+watch(
+  () => props.evidenceRequest,
+  async (request) => {
+    if (!request) return
+    await scrollToEvidencePage(request)
+  },
+  { deep: true }
 )
 
 onBeforeUnmount(() => {
@@ -511,6 +571,31 @@ onBeforeUnmount(() => {
   transition: width 0.18s ease;
 }
 
+:deep(.pdf-page-shell.is-evidence-target .pdf-preview-canvas) {
+  border-color: rgba(245, 158, 11, 0.78);
+  box-shadow: none;
+}
+
+:deep(.pdf-evidence-banner) {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px 6px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  color: #854d0e;
+  background: rgba(254, 249, 195, 0.95);
+  border: 1px solid rgba(250, 204, 21, 0.55);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+:deep(.pdf-evidence-banner strong) {
+  color: #713f12;
+  font-size: 12px;
+}
+
 :deep(.pdf-page-meta) {
   margin-bottom: 10px;
   padding-left: 6px;
@@ -528,9 +613,7 @@ onBeforeUnmount(() => {
   border-radius: 30px;
   background: #ffffff;
   border: 1px solid rgba(226, 232, 240, 0.7);
-  box-shadow:
-    0 20px 42px rgba(148, 163, 184, 0.12),
-    0 8px 22px rgba(255, 255, 255, 0.65);
+  box-shadow: none;
 }
 
 :deep(.pdf-page-stage) {
