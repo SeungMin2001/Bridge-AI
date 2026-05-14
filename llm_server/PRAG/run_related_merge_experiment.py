@@ -4,7 +4,8 @@ One command performs:
 1. critical-layer scan for question+passage memory,
 2. critical-layer scan for passage-only memory,
 3. question+passage orthogonal-merge training,
-4. passage-only orthogonal-merge training.
+4. passage-only orthogonal-merge training,
+5. comparison evaluation of the two trained memories.
 
 The script intentionally launches the existing modules as subprocesses instead
 of duplicating training logic, so the saved logs/checkpoints remain identical to
@@ -22,11 +23,13 @@ from pathlib import Path
 
 DEFAULT_TRAIN = "data/PRAG_related_merge_augmented_train.jsonl"
 DEFAULT_VALID = "data/PRAG_related_merge_augmented_valid.jsonl"
+DEFAULT_TEST = "data/PRAG_related_merge_augmented_hard_test400_v2.jsonl"
 DEFAULT_MODEL = "Qwen/Qwen2.5-3B"
 DEFAULT_QP_SUFFIX = "related_qwen25_3b_qp"
 DEFAULT_PONLY_SUFFIX = "related_qwen25_3b_ponly"
 DEFAULT_QP_SCAN = "llm_server/PRAG/critical_layers_related_merge_qwen25_3b_qp.json"
 DEFAULT_PONLY_SCAN = "llm_server/PRAG/critical_layers_related_merge_qwen25_3b_ponly.json"
+DEFAULT_REPORT_DIR = "llm_server/PRAG/reports/related_qp_vs_ponly_hard400_v2_500_tok32"
 
 
 def run_command(cmd: list[str], *, dry_run: bool = False) -> None:
@@ -45,6 +48,32 @@ def read_best_layer(path: str | Path, *, label: str) -> int:
     layer = int(layers[0])
     print(f"[PRAG:related-experiment] {label} critical_layer={layer} from {path}", flush=True)
     return layer
+
+
+def orthomerge_output_path(path: Path) -> Path:
+    name = path.name
+    if "_memory_" in name:
+        name = name.replace("_memory_", "_orthomerge_memory_", 1)
+    else:
+        name = f"{path.stem}_orthomerge{path.suffix}"
+    return path.with_name(name)
+
+
+def tagged_output_path(path: Path, suffix: str) -> Path:
+    suffix = str(suffix or "").strip().strip("_")
+    if not suffix:
+        return path
+    name = path.name
+    if "_memory_" in name:
+        name = name.replace("_memory_", f"_{suffix}_memory_", 1)
+    else:
+        name = f"{path.stem}_{suffix}{path.suffix}"
+    return path.with_name(name)
+
+
+def checkpoint_path_for_suffix(output_suffix: str) -> Path:
+    base = Path("llm_server/PRAG/prag_memory_checkpoint.pt")
+    return tagged_output_path(orthomerge_output_path(base), output_suffix)
 
 
 def scan_command(args: argparse.Namespace, *, output: str, question_conditioned: bool) -> list[str]:
@@ -74,6 +103,8 @@ def scan_command(args: argparse.Namespace, *, output: str, question_conditioned:
         args.injection_mode,
         "--output",
         output,
+        "--num-kv",
+        str(args.num_kv),
     ]
     cmd.append("--question-conditioned-memory" if question_conditioned else "--no-question-conditioned-memory")
     cmd.append("--resume" if args.resume_scan else "--no-resume")
@@ -95,6 +126,8 @@ def train_command(
         args.model,
         "--output-suffix",
         output_suffix,
+        "--num-kv",
+        str(args.num_kv),
         "--train",
         args.train,
         "--valid",
@@ -139,13 +172,53 @@ def train_command(
     return cmd
 
 
+def eval_command(args: argparse.Namespace) -> list[str]:
+    cmd = [
+        sys.executable,
+        "-m",
+        "llm_server.PRAG.compare_memory_variants",
+        "--qp-weights",
+        str(checkpoint_path_for_suffix(args.qp_output_suffix)),
+        "--ponly-weights",
+        str(checkpoint_path_for_suffix(args.ponly_output_suffix)),
+        "--data",
+        args.test_data,
+        "--case-index",
+        str(args.test_case_index),
+        "--max-cases",
+        str(args.test_max_cases),
+        "--dataset-merge-max-passages",
+        str(args.merge_max_passages),
+        "--max-new-tokens",
+        str(args.test_max_new_tokens),
+        "--prompt-style",
+        args.test_prompt_style,
+        "--injection-mode",
+        args.injection_mode,
+        "--alpha",
+        str(args.test_alpha),
+        "--report-dir",
+        args.report_dir,
+    ]
+    if args.include_loss:
+        cmd.append("--include-loss")
+    if args.include_baselines:
+        cmd.append("--include-baselines")
+    if args.quiet_eval:
+        cmd.append("--quiet-cases")
+    cmd.append("--resume" if args.resume_eval else "--no-resume")
+    return cmd
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Find QP/P-only critical layers, then train both related-merge PRAG variants."
     )
     parser.add_argument("--train", default=DEFAULT_TRAIN)
     parser.add_argument("--valid", default=DEFAULT_VALID)
+    parser.add_argument("--test-data", default=DEFAULT_TEST)
     parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--num-kv", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--scan-lr", type=float, default=1e-4)
@@ -165,22 +238,55 @@ def main() -> None:
     parser.add_argument("--eval-generation-every", type=int, default=1000)
     parser.add_argument("--eval-generation-max-new-tokens", type=int, default=64)
     parser.add_argument("--injection-mode", choices=("attention", "add_all", "add_last", "hybrid"), default="attention")
+    parser.add_argument("--test-case-index", type=int, default=0)
+    parser.add_argument("--test-max-cases", type=int, default=500)
+    parser.add_argument("--test-max-new-tokens", type=int, default=32)
+    parser.add_argument("--test-prompt-style", choices=("service", "short-chat", "memory-cued", "paper"), default="service")
+    parser.add_argument("--test-alpha", type=float, default=1.0)
+    parser.add_argument("--report-dir", default=DEFAULT_REPORT_DIR)
+    parser.add_argument("--include-loss", action="store_true")
+    parser.add_argument("--include-baselines", action="store_true")
+    parser.add_argument("--quiet-eval", action="store_true")
     parser.add_argument("--qp-output-suffix", default=DEFAULT_QP_SUFFIX)
     parser.add_argument("--ponly-output-suffix", default=DEFAULT_PONLY_SUFFIX)
     parser.add_argument("--qp-scan-output", default=DEFAULT_QP_SCAN)
     parser.add_argument("--ponly-scan-output", default=DEFAULT_PONLY_SCAN)
     parser.add_argument("--resume-scan", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--resume-train", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--resume-eval", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--resume", action="store_true", help="Resume scan, train, and evaluation stages with one flag.")
+    parser.add_argument("--skip-eval", action="store_true", help="Run only scan and training stages.")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    if args.resume:
+        args.resume_scan = True
+        args.resume_train = True
+        args.resume_eval = True
+
+    if args.num_kv != 16:
+        kv_tag = f"kv{args.num_kv}"
+        if args.qp_output_suffix == DEFAULT_QP_SUFFIX:
+            args.qp_output_suffix = f"{DEFAULT_QP_SUFFIX}_{kv_tag}"
+        if args.ponly_output_suffix == DEFAULT_PONLY_SUFFIX:
+            args.ponly_output_suffix = f"{DEFAULT_PONLY_SUFFIX}_{kv_tag}"
+        if args.qp_scan_output == DEFAULT_QP_SCAN:
+            args.qp_scan_output = f"llm_server/PRAG/critical_layers_related_merge_qwen25_3b_qp_{kv_tag}.json"
+        if args.ponly_scan_output == DEFAULT_PONLY_SCAN:
+            args.ponly_scan_output = f"llm_server/PRAG/critical_layers_related_merge_qwen25_3b_ponly_{kv_tag}.json"
+        if args.report_dir == DEFAULT_REPORT_DIR:
+            args.report_dir = f"{DEFAULT_REPORT_DIR}_{kv_tag}"
+
     train_path = Path(args.train)
     valid_path = Path(args.valid)
+    test_path = Path(args.test_data)
     if not args.dry_run:
         if not train_path.exists():
             raise FileNotFoundError(f"Train file not found: {train_path}")
         if not valid_path.exists():
             raise FileNotFoundError(f"Valid file not found: {valid_path}")
+        if not args.skip_eval and not test_path.exists():
+            raise FileNotFoundError(f"Test file not found: {test_path}")
 
     run_command(scan_command(args, output=args.qp_scan_output, question_conditioned=True), dry_run=args.dry_run)
     run_command(scan_command(args, output=args.ponly_scan_output, question_conditioned=False), dry_run=args.dry_run)
@@ -206,6 +312,8 @@ def main() -> None:
         ),
         dry_run=args.dry_run,
     )
+    if not args.skip_eval:
+        run_command(eval_command(args), dry_run=args.dry_run)
     print("\n[PRAG:related-experiment] done", flush=True)
 
 
