@@ -49,6 +49,7 @@ Jinja2==3.1.6
 jiter==0.13.0
 joblib==1.5.3
 kiwisolver==1.5.0
+textrankr
 lazy-loader==0.5
 librosa==0.11.0
 llama-index==0.14.18
@@ -100,6 +101,7 @@ pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
 Pygments==2.19.2
+pypdf==6.10.1
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
@@ -140,7 +142,9 @@ urllib3==2.6.3
 uvicorn==0.35.0
 watchfiles==1.1.1
 websockets==16.0
-whisper==1.1.10
+# 신창영: 수정 이유 - openai-whisper도 import 이름이 whisper라서, 이름이 겹치는 별도 whisper 패키지는 설치하지 않습니다.
+# whisper==1.1.10
 wrapt==2.1.2
 xxhash==3.6.0
 yarl==1.23.0
+pypdf

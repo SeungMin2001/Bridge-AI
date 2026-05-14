@@ -14,18 +14,32 @@
 @import './assets/styles/workspace/workspace-layout.css';
 
 /* ── Base ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
 body {
   font-family: 'Pretendard Variable', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
   background-color: #f1f5f9;
   /* Neomorphic light background */
   color: #1e293b;
-  height: 100vh;
+  min-width: 0;
   overflow: hidden;
 }
 
 #root {
-  height: 100%;
-  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* ── Neomorphic Utilities ── */

@@ -74,3 +74,5 @@ pgvector/.git/
 vector.control
 postgres/
 pgvector/
+backend/data/transcripts/
+backend/uploads/

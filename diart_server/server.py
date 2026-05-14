@@ -34,6 +34,96 @@ app = FastAPI(title="diart Server")
 # 글로벌 파이프라인 변수
 pipeline = None
 PIPELINE_SAMPLE_RATE = 16000
+PIPELINE_DEVICE = "cpu"
+
+
+def resolve_diarize_device() -> str:
+    """DIARIZE_DEVICE 환경변수를 실제로 사용할 torch device 이름으로 정리합니다."""
+    requested = os.getenv("DIARIZE_DEVICE", "cpu").strip().lower()
+
+    if requested in {"", "cpu"}:
+        return "cpu"
+    if requested == "auto":
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+    if requested == "mps":
+        if torch.backends.mps.is_available():
+            return "mps"
+        logger.warning("DIARIZE_DEVICE=mps를 요청했지만 MPS를 사용할 수 없어 CPU로 실행합니다.")
+        return "cpu"
+    if requested == "cuda":
+        if torch.cuda.is_available():
+            return "cuda"
+        logger.warning("DIARIZE_DEVICE=cuda를 요청했지만 CUDA를 사용할 수 없어 CPU로 실행합니다.")
+        return "cpu"
+
+    logger.warning(f"알 수 없는 DIARIZE_DEVICE={requested!r} 값입니다. CPU로 실행합니다.")
+    return "cpu"
+
+
+def move_pipeline_to_device(loaded_pipeline):
+    """로드된 화자분리 파이프라인을 요청한 장치로 이동합니다."""
+    global PIPELINE_DEVICE
+
+    device_name = resolve_diarize_device()
+    if device_name == "cpu":
+        PIPELINE_DEVICE = "cpu"
+        logger.info("화자분리 파이프라인 장치: cpu")
+        return loaded_pipeline
+
+    if not hasattr(loaded_pipeline, "to"):
+        logger.warning(
+            f"현재 파이프라인은 .to(...)를 지원하지 않아 DIARIZE_DEVICE={device_name} 적용을 건너뜁니다."
+        )
+        PIPELINE_DEVICE = "cpu"
+        return loaded_pipeline
+
+    try:
+        # 신창영: 수정 이유 - 녹음 종료 후 전체 오디오 화자분리처럼 긴 작업에서 CPU 대신 MPS/CUDA를 실험할 수 있게 합니다.
+        loaded_pipeline.to(torch.device(device_name))
+        PIPELINE_DEVICE = device_name
+        logger.info(f"화자분리 파이프라인 장치: {device_name}")
+        return loaded_pipeline
+    except Exception as e:
+        logger.warning(f"DIARIZE_DEVICE={device_name} 적용 실패, CPU로 계속 실행합니다: {e}")
+        try:
+            loaded_pipeline.to(torch.device("cpu"))
+        except Exception:
+            pass
+        PIPELINE_DEVICE = "cpu"
+        return loaded_pipeline
+
+
+def patch_huggingface_hub_auth_arg():
+    """pyannote.audio 3.1.x의 use_auth_token 호출을 최신 huggingface_hub에 맞춥니다."""
+    try:
+        import inspect
+        import huggingface_hub
+    except Exception:
+        return
+
+    original_download = getattr(huggingface_hub, "hf_hub_download", None)
+    if original_download is None or getattr(original_download, "_diart_auth_arg_patch", False):
+        return
+
+    try:
+        parameters = inspect.signature(original_download).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+
+    if "use_auth_token" in parameters:
+        return
+
+    def hf_hub_download_compat(*args, use_auth_token=None, token=None, **kwargs):
+        if token is None and use_auth_token is not None:
+            token = use_auth_token
+        return original_download(*args, token=token, **kwargs)
+
+    hf_hub_download_compat._diart_auth_arg_patch = True
+    huggingface_hub.hf_hub_download = hf_hub_download_compat
 
 
 @app.on_event("startup")
@@ -46,6 +136,7 @@ async def startup_event():
         logger.warning("HF_TOKEN이 설정되지 않았습니다! pyannote 모델 다운로드가 실패할 수 있습니다.")
 
     logger.info("화자 분리 파이프라인 로딩 중...")
+    patch_huggingface_hub_auth_arg()
 
     # 1차: pyannote.audio Pipeline 직접 사용 (더 안정적)
     try:
@@ -55,6 +146,7 @@ async def startup_event():
             "pyannote/speaker-diarization-3.1",
             use_auth_token=hf_token if hf_token else True
         )
+        pipeline = move_pipeline_to_device(pipeline)
         PIPELINE_SAMPLE_RATE = 16000
         logger.info("pyannote.audio 파이프라인 로딩 완료.")
         return
@@ -69,17 +161,18 @@ async def startup_event():
 
         segmentation = SegmentationModel.from_pretrained(
             "pyannote/segmentation-3.0",
-            use_auth_token=hf_token if hf_token else True
+            use_hf_token=hf_token if hf_token else True
         )
         embedding = EmbeddingModel.from_pretrained(
             "pyannote/embedding",
-            use_auth_token=hf_token if hf_token else True
+            use_hf_token=hf_token if hf_token else True
         )
 
         pipeline = SpeakerDiarization(
             segmentation=segmentation,
             embedding=embedding,
         )
+        pipeline = move_pipeline_to_device(pipeline)
         PIPELINE_SAMPLE_RATE = pipeline.config.sample_rate
         logger.info(f"diart 파이프라인 로딩 완료. (SR: {PIPELINE_SAMPLE_RATE}Hz)")
 
@@ -95,11 +188,13 @@ async def health():
         "status": "ok",
         "pipeline_loaded": pipeline is not None,
         "sample_rate": PIPELINE_SAMPLE_RATE,
+        "device": PIPELINE_DEVICE,
         "pipeline_type": type(pipeline).__name__ if pipeline else None
     }
 
 
-def run_diarization(audio_np: np.ndarray, sample_rate: int) -> list:
+def run_diarization(audio_np: np.ndarray, sample_rate: int,
+                    min_speakers: int = None, max_speakers: int = None) -> list:
     """
     오디오 numpy 배열에 대해 화자 분리를 수행합니다.
 
@@ -113,11 +208,19 @@ def run_diarization(audio_np: np.ndarray, sample_rate: int) -> list:
         sample_rate = PIPELINE_SAMPLE_RATE
 
     # pyannote 형식: {"waveform": [1, T] tensor, "sample_rate": int}
-    waveform = torch.from_numpy(audio_np).unsqueeze(0)
+    audio_np_copy = audio_np.copy()  # writable 복사 (PyTorch 경고 방지)
+    waveform = torch.from_numpy(audio_np_copy).unsqueeze(0)
     audio_input = {"waveform": waveform, "sample_rate": sample_rate}
 
-    # 화자 분리 실행
-    diarization = pipeline(audio_input)
+    # 화자 분리 실행 (min/max speakers 힌트 전달)
+    kwargs = {}
+    if min_speakers is not None:
+        kwargs["min_speakers"] = min_speakers
+    if max_speakers is not None:
+        kwargs["max_speakers"] = max_speakers
+
+    logger.info(f"[diarize] pipeline 호출 (kwargs={kwargs})")
+    diarization = pipeline(audio_input, **kwargs)
 
     # 결과 변환
     segments = []
@@ -129,11 +232,21 @@ def run_diarization(audio_np: np.ndarray, sample_rate: int) -> list:
             "duration": round(turn.end - turn.start, 3)
         })
 
+    # 상세 로깅
+    unique_speakers = set(s["speaker"] for s in segments)
+    logger.info(f"[diarize] 결과: {len(segments)} segments, 화자: {unique_speakers}")
+    for seg in segments:
+        logger.info(f"  → {seg['speaker']}: {seg['start']:.1f}s ~ {seg['end']:.1f}s ({seg['duration']:.1f}s)")
+
     return segments
 
 
 @app.post("/diart")
-async def diarize_wav(file: UploadFile = File(...)):
+async def diarize_wav(
+    file: UploadFile = File(...),
+    min_speakers: int = Query(default=None, description="최소 화자 수"),
+    max_speakers: int = Query(default=None, description="최대 화자 수"),
+):
     """WAV 파일 → 화자 분리 JSON"""
     if pipeline is None:
         return JSONResponse(content={"error": "Pipeline not loaded"}, status_code=503)
@@ -146,7 +259,7 @@ async def diarize_wav(file: UploadFile = File(...)):
     if audio_np.ndim == 2:
         audio_np = audio_np.mean(axis=1)
 
-    segments = run_diarization(audio_np, int(original_sr))
+    segments = run_diarization(audio_np, int(original_sr), min_speakers, max_speakers)
     unique_speakers = set(s["speaker"] for s in segments)
 
     return JSONResponse(content={
@@ -160,6 +273,8 @@ async def diarize_wav(file: UploadFile = File(...)):
 async def diarize_raw(
     request: Request,
     sample_rate: int = Query(default=16000, description="입력 오디오 sample rate"),
+    min_speakers: int = Query(default=None, description="최소 화자 수"),
+    max_speakers: int = Query(default=None, description="최대 화자 수"),
 ):
     """float32 PCM raw bytes → 화자 분리 JSON"""
     if pipeline is None:
@@ -174,7 +289,7 @@ async def diarize_raw(
     logger.info(f"[diart/raw] sr={sample_rate}Hz, samples={len(audio_np)}, "
                 f"duration={len(audio_np)/sample_rate:.2f}s")
 
-    segments = run_diarization(audio_np, sample_rate)
+    segments = run_diarization(audio_np, sample_rate, min_speakers, max_speakers)
     unique_speakers = set(s["speaker"] for s in segments)
 
     return JSONResponse(content={

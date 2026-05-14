@@ -1,6 +1,7 @@
 <!-- 홈 화면의 왼쪽 사이드바 컴포넌트로, 앱 메뉴와 캘린더 기능을 포함합니다. -->
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useScheduleState } from '../../composables/useScheduleState'
 
 const props = defineProps({
   isCollapsed: Boolean,
@@ -8,12 +9,40 @@ const props = defineProps({
   favorites: { type: Set, default: () => new Set() }
 })
 
-const emit = defineEmits(['toggle', 'navigate'])
+const emit = defineEmits(['toggle', 'navigate', 'openScheduleSource', 'openFileCreate'])
+
+const expandedSidebarWidth = 370
+const collapsedSidebarWidth = 56
 
 const weekLabels = ['일', '월', '화', '수', '목', '금', '토']
 const meridiemOptions = ['오전', '오후']
 const hourOptions = Array.from({ length: 12 }, (_, index) => `${index + 1}`.padStart(2, '0'))
 const minuteOptions = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
+const scheduleTypeOptions = [
+  { value: 'lecture', label: '수업' },
+  { value: 'meeting', label: '회의' },
+  { value: 'assignment', label: '과제' },
+  { value: 'exam', label: '시험' },
+  { value: 'etc', label: '기타' }
+]
+
+const {
+  pendingSchedules,
+  hydrateSchedules,
+  addManualSchedule,
+  confirmSchedule,
+  ignoreSchedule,
+  getSchedulesForDate,
+  getScheduleDayFlags,
+  formatDateKey,
+  formatDateLabel,
+  getWeekKeyFromDateKey,
+  getTypeLabel,
+  getTypeIcon,
+  getStatusLabel,
+  getConfidenceLabel
+} = useScheduleState()
+
 const today = new Date()
 const currentMonthLabel = computed(() => `${today.getMonth() + 1}월`)
 const calendarCardRef = ref(null)
@@ -21,6 +50,7 @@ const isScheduleModalOpen = ref(false)
 const scheduleModalPos = ref({ x: 0, y: 0 })
 const selectedDateKey = ref(formatDateKey(today))
 const scheduleForm = ref({
+  type: 'meeting',
   title: '',
   startMeridiem: '오전',
   startHour: '09',
@@ -30,39 +60,10 @@ const scheduleForm = ref({
   endMinute: '00',
   note: '',
 })
-const scheduleItems = ref([])
 
-function formatDateKey(date) {
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function formatDateLabel(dateKey) {
-  const [year, month, day] = dateKey.split('-').map(Number)
-  return `${year}년 ${month}월 ${day}일`
-}
-
-function loadSchedules() {
-  const raw = localStorage.getItem('lecto_home_calendar_schedules')
-  if (!raw) return
-  try {
-    scheduleItems.value = JSON.parse(raw)
-  } catch {
-    scheduleItems.value = []
-  }
-}
-
-function saveSchedules(items) {
-  scheduleItems.value = items
-  localStorage.setItem('lecto_home_calendar_schedules', JSON.stringify(items))
-}
-
-function openScheduleModal(day) {
-  if (day.muted) return
-  selectedDateKey.value = day.dateKey
-  scheduleForm.value = {
+function createEmptyScheduleForm() {
+  return {
+    type: 'meeting',
     title: '',
     startMeridiem: '오전',
     startHour: '09',
@@ -72,6 +73,15 @@ function openScheduleModal(day) {
     endMinute: '00',
     note: '',
   }
+}
+
+function selectCalendarDay(day) {
+  if (!day?.dateKey) return
+  selectedDateKey.value = day.dateKey
+}
+
+function openScheduleModal() {
+  scheduleForm.value = createEmptyScheduleForm()
   isScheduleModalOpen.value = true
 
   nextTick(() => {
@@ -107,22 +117,94 @@ function submitSchedule() {
   )
   const timeRange = `${startTime} - ${endTime}`
 
-  const nextItems = [
-    ...scheduleItems.value,
-    {
-      id: `${selectedDateKey.value}-${Date.now()}`,
-      dateKey: selectedDateKey.value,
-      title: scheduleForm.value.title.trim(),
-      startTime,
-      endTime,
-      time: timeRange,
-      note: scheduleForm.value.note.trim(),
-      status: '예정',
-    },
-  ]
+  addManualSchedule({
+    dateKey: selectedDateKey.value,
+    weekKey: getWeekKeyFromDateKey(selectedDateKey.value),
+    type: scheduleForm.value.type,
+    title: scheduleForm.value.title.trim(),
+    startTime,
+    endTime,
+    time: timeRange,
+    note: scheduleForm.value.note.trim()
+  })
 
-  saveSchedules(nextItems)
   closeScheduleModal()
+}
+
+function handleConfirmSchedule(item) {
+  confirmSchedule(item.id)
+  selectedDateKey.value = item.dateKey
+}
+
+function handleIgnoreSchedule(item) {
+  ignoreSchedule(item.id)
+}
+
+function openScheduleManagement(item) {
+  if (item?.dateKey) selectedDateKey.value = item.dateKey
+  emit('navigate', 'schedule')
+}
+
+function findNodeById(nodes = [], id = '') {
+  for (const node of nodes) {
+    if (node?.id === id) return node
+    if (Array.isArray(node?.children)) {
+      const found = findNodeById(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+function getNodeRecordings(node) {
+  if (!node) return []
+  const weekRecordings = Array.isArray(node.weeks)
+    ? node.weeks.flatMap((week) => Array.isArray(week?.recordings) ? week.recordings : [])
+    : []
+  const directRecordings = Array.isArray(node.recordings) ? node.recordings : []
+  return [...weekRecordings, ...directRecordings]
+}
+
+function getScheduleSourceRecording(item) {
+  const node = findNodeById(props.fileTree, item?.workspaceFileId)
+  return getNodeRecordings(node)[0] || null
+}
+
+function getScheduleSourceTitle(item) {
+  return getScheduleSourceRecording(item)?.title || item?.sourceSessionTitle || ''
+}
+
+function getRecordingTranscriptText(recording) {
+  if (!recording || !Array.isArray(recording.transcriptions)) return ''
+  return recording.transcriptions
+    .map((entry) => entry?.text || '')
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function openScheduleSource(item) {
+  if (!item?.sourceText) return
+
+  const node = findNodeById(props.fileTree, item.workspaceFileId)
+  const recording = getScheduleSourceRecording(item)
+  const fullTranscript = getRecordingTranscriptText(recording) || item.sourceText
+  const sourceTitle = getScheduleSourceTitle(item) || '연결된 녹음'
+
+  emit('openScheduleSource', {
+    id: item.transcriptId || item.id,
+    title: sourceTitle,
+    script: fullTranscript,
+    raw: {
+      session_id: item.workspaceFileId,
+      transcript_id: item.transcriptId,
+      text: item.sourceText,
+      full_transcript: fullTranscript,
+      recording_title: sourceTitle,
+      session_title: node?.name || item.sourceSessionTitle,
+      source_start_time: item.sourceStartTime,
+      source_end_time: item.sourceEndTime
+    }
+  })
 }
 
 function handleWindowResize() {
@@ -149,19 +231,19 @@ const calendarDays = computed(() => {
   for (let i = leadingCount - 1; i >= 0; i -= 1) {
     const date = new Date(year, month - 1, prevLastDay.getDate() - i)
     const dateKey = formatDateKey(date)
-    days.push({ label: prevLastDay.getDate() - i, muted: true, isToday: false, dateKey, hasSchedule: scheduleItems.value.some((item) => item.dateKey === dateKey) })
+    days.push({ label: prevLastDay.getDate() - i, muted: true, isToday: false, dateKey, ...getScheduleDayFlags(dateKey) })
   }
 
   for (let date = 1; date <= lastDay.getDate(); date += 1) {
     const currentDate = new Date(year, month, date)
     const dateKey = formatDateKey(currentDate)
-    days.push({ label: date, muted: false, isToday: date === today.getDate(), dateKey, hasSchedule: scheduleItems.value.some((item) => item.dateKey === dateKey) })
+    days.push({ label: date, muted: false, isToday: date === today.getDate(), dateKey, ...getScheduleDayFlags(dateKey) })
   }
 
   for (let date = 1; date <= trailingCount; date += 1) {
     const nextDate = new Date(year, month + 1, date)
     const dateKey = formatDateKey(nextDate)
-    days.push({ label: date, muted: true, isToday: false, dateKey, hasSchedule: scheduleItems.value.some((item) => item.dateKey === dateKey) })
+    days.push({ label: date, muted: true, isToday: false, dateKey, ...getScheduleDayFlags(dateKey) })
   }
 
   return days
@@ -170,12 +252,17 @@ const calendarDays = computed(() => {
 const selectedDateLabel = computed(() => formatDateLabel(selectedDateKey.value))
 
 const selectedSchedules = computed(() => {
-  return scheduleItems.value.filter((item) => item.dateKey === selectedDateKey.value)
+  return getSchedulesForDate(selectedDateKey.value)
 })
 
 function getFavoriteIcon(item) {
   if (item.type === 'folder') return 'folder'
-  return item.fileKind === 'meeting' ? 'groups_2' : 'description'
+  if (item.fileIcon) return item.fileIcon
+  if (item.tag === '회의' || item.fileKind === 'meeting') return 'groups_2'
+  if (item.tag === '프로젝트') return 'workspaces'
+  if (item.tag === '개인') return 'person'
+  if (item.tag === '중요') return 'priority_high'
+  return 'description'
 }
 
 function getFavoriteIconStyle(item) {
@@ -183,19 +270,49 @@ function getFavoriteIconStyle(item) {
     return { color: item.color, fontVariationSettings: "'FILL' 1" }
   }
 
-  if (item.fileKind === 'meeting') {
+  if (item.fileIcon || item.fileKind === 'meeting') {
     return { color: item.color || '#ec4899', fontVariationSettings: "'FILL' 1" }
   }
 
   return { color: item.color, fontVariationSettings: "'FILL' 0" }
 }
 
+function colorWithAlpha(color = '#6366f1', alpha = 0.12) {
+  const hex = String(color).trim()
+  const fullHex = /^#[0-9a-fA-F]{6}$/.test(hex)
+    ? hex
+    : (/^#[0-9a-fA-F]{3}$/.test(hex)
+        ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+        : '#6366f1')
+  const value = fullHex.slice(1)
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+function getFavoriteTag(item) {
+  if (item.type === 'folder') return ''
+  return item.tag || (item.fileKind === 'meeting' ? '회의' : '수업')
+}
+
+function getFavoriteTagStyle(item) {
+  const color = item.color || '#6366f1'
+  return {
+    color,
+    background: colorWithAlpha(color, 0.12)
+  }
+}
+
 watch(() => props.isCollapsed, (collapsed) => {
   if (collapsed) closeScheduleModal()
 })
 
-onMounted(() => {
-  loadSchedules()
+onMounted(async () => {
+  await hydrateSchedules()
+  if (pendingSchedules.value.length > 0) {
+    selectedDateKey.value = pendingSchedules.value[0].dateKey
+  }
   window.addEventListener('resize', handleWindowResize)
 })
 
@@ -208,10 +325,14 @@ onUnmounted(() => {
   <aside
     id="sidebar"
     :class="[
-      isCollapsed ? 'w-16' : 'w-[340px]',
       'home-sidebar flex flex-col h-full shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] relative z-10 rounded-[24px]',
       { 'sidebar-collapsed': isCollapsed }
     ]"
+    :style="{
+      width: `${isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth}px`,
+      minWidth: `${isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth}px`,
+      maxWidth: `${isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth}px`
+    }"
   >
     <div class="sidebar-main-card card flex flex-col h-full p-5 overflow-hidden min-w-[280px] home-left-sidebar-card">
       <div class="sidebar-header transition-all">
@@ -229,9 +350,12 @@ onUnmounted(() => {
           </button>
           <button
             class="sidebar-icon-btn home-sidebar-icon-btn"
-            @click="emit('navigate', 'workspace')"
+            type="button"
+            aria-label="새 파일 생성"
+            title="새 파일 생성"
+            @click="emit('openFileCreate')"
           >
-            <span class="material-symbols-outlined">edit_note</span>
+            <span class="material-symbols-outlined">note_add</span>
           </button>
         </div>
       </div>
@@ -242,12 +366,24 @@ onUnmounted(() => {
       </div>
 
       <div class="sidebar-content collapsible-content-container custom-scrollbar">
-        <section ref="calendarCardRef" class="home-calendar-card collapsible-content">
+        <section ref="calendarCardRef" class="home-calendar-card home-calendar-section-card collapsible-content">
           <div class="home-calendar-header">
             <span class="home-calendar-month">{{ currentMonthLabel }}</span>
-            <button class="home-calendar-icon-btn">
-              <span class="material-symbols-outlined text-[18px]">menu</span>
-            </button>
+            <div class="home-calendar-header-actions">
+              <button class="home-calendar-add-btn" @click="openScheduleModal">
+                <span class="material-symbols-outlined text-[15px]">add</span>
+                <span>일정 추가</span>
+              </button>
+              <button
+                class="home-calendar-icon-btn"
+                type="button"
+                aria-label="일정관리로 이동"
+                title="일정관리"
+                @click="emit('navigate', 'schedule')"
+              >
+                <span class="material-symbols-outlined text-[18px]">calendar_month</span>
+              </button>
+            </div>
           </div>
 
           <div class="home-calendar-weekdays">
@@ -259,8 +395,8 @@ onUnmounted(() => {
               v-for="(day, index) in calendarDays"
               :key="`${day.label}-${index}`"
               class="home-calendar-day"
-              :class="{ 'is-muted': day.muted, 'is-today': day.isToday, 'is-selected': day.dateKey === selectedDateKey, 'has-schedule': day.hasSchedule }"
-              @click="openScheduleModal(day)"
+              :class="{ 'is-muted': day.muted, 'is-today': day.isToday, 'is-selected': day.dateKey === selectedDateKey, 'has-schedule': day.hasSchedule, 'has-pending': day.hasPendingSchedule, 'has-confirmed': day.hasConfirmedSchedule }"
+              @click="selectCalendarDay(day)"
             >
               {{ day.label }}
               <span v-if="day.hasSchedule" class="home-calendar-day-dot"></span>
@@ -272,12 +408,20 @@ onUnmounted(() => {
           <div class="home-calendar-schedule-list">
             <div class="home-calendar-schedule-heading">{{ selectedDateLabel }}</div>
             <template v-if="selectedSchedules.length > 0">
-              <article v-for="item in selectedSchedules" :key="item.id" class="home-calendar-schedule-item">
+              <article
+                v-for="item in selectedSchedules"
+                :key="item.id"
+                class="home-calendar-schedule-item"
+                :class="{ 'is-pending': item.status === 'pending', 'is-ai': item.origin === 'ai' }"
+              >
                 <div class="home-calendar-schedule-rail"></div>
                 <div class="home-calendar-schedule-content">
                   <div class="home-calendar-schedule-top">
-                    <span class="home-calendar-schedule-day">{{ selectedDateLabel }}</span>
-                    <span class="home-calendar-schedule-status">{{ item.status }}</span>
+                    <span class="home-calendar-type-chip">
+                      <span class="material-symbols-outlined text-[13px]">{{ getTypeIcon(item.type) }}</span>
+                      {{ getTypeLabel(item.type) }}
+                    </span>
+                    <span class="home-calendar-schedule-status">{{ getStatusLabel(item.status) }}</span>
                   </div>
                   <div class="home-calendar-schedule-title">{{ item.title }}</div>
                   <div class="home-calendar-schedule-meta">
@@ -285,6 +429,29 @@ onUnmounted(() => {
                     <span>{{ item.time }}</span>
                   </div>
                   <div v-if="item.note" class="home-calendar-schedule-note">{{ item.note }}</div>
+                  <div v-if="item.sourceText" class="home-calendar-source-text">{{ item.sourceText }}</div>
+                  <div class="home-calendar-schedule-actions">
+                    <template v-if="item.status === 'pending'">
+                      <button class="home-calendar-action-btn confirm" @click="handleConfirmSchedule(item)">확정</button>
+                      <button class="home-calendar-action-btn ghost" @click="handleIgnoreSchedule(item)">무시</button>
+                    </template>
+                    <button
+                      v-else
+                      class="home-calendar-action-btn open"
+                      @click="openScheduleManagement(item)"
+                    >
+                      일정관리
+                    </button>
+                    <button
+                      v-if="item.sourceText && getScheduleSourceTitle(item)"
+                      type="button"
+                      class="home-calendar-source-link-btn"
+                      @click="openScheduleSource(item)"
+                    >
+                      <span class="material-symbols-outlined text-[13px]">link</span>
+                      <span>{{ getScheduleSourceTitle(item) }}</span>
+                    </button>
+                  </div>
                 </div>
               </article>
             </template>
@@ -292,6 +459,37 @@ onUnmounted(() => {
               날짜를 눌러 일정을 추가해보세요.
             </div>
           </div>
+        </section>
+
+        <section v-if="pendingSchedules.length" class="home-calendar-ai-panel home-calendar-section-card collapsible-content">
+          <div class="home-calendar-section-heading">
+            <div class="home-calendar-ai-heading">
+              <span class="material-symbols-outlined text-[15px]">auto_awesome</span>
+              <span>AI 감지 일정</span>
+              <span class="home-calendar-ai-count">{{ pendingSchedules.length }}</span>
+            </div>
+          </div>
+          <article
+            v-for="item in pendingSchedules.slice(0, 3)"
+            :key="`pending-${item.id}`"
+            class="home-calendar-ai-card"
+            @click="selectedDateKey = item.dateKey"
+          >
+            <div class="home-calendar-ai-card-top">
+              <span class="home-calendar-type-chip">
+                <span class="material-symbols-outlined text-[13px]">{{ getTypeIcon(item.type) }}</span>
+                {{ getTypeLabel(item.type) }}
+              </span>
+              <span class="home-calendar-confidence">{{ getConfidenceLabel(item.confidence) }}</span>
+            </div>
+            <div class="home-calendar-ai-title">{{ item.title }}</div>
+            <div class="home-calendar-ai-meta">{{ formatDateLabel(item.dateKey) }} · {{ item.time }}</div>
+            <div class="home-calendar-source-text">{{ item.sourceText }}</div>
+            <div class="home-calendar-schedule-actions">
+              <button class="home-calendar-action-btn confirm" @click.stop="handleConfirmSchedule(item)">확정</button>
+              <button class="home-calendar-action-btn ghost" @click.stop="handleIgnoreSchedule(item)">무시</button>
+            </div>
+          </article>
         </section>
 
         <div class="sidebar-section-title">즐겨찾기</div>
@@ -306,7 +504,13 @@ onUnmounted(() => {
               {{ getFavoriteIcon(fav) }}
             </span>
             <span class="nav-text truncate collapsible-content">{{ fav.name }}</span>
-            <span v-if="fav.fileKind === 'meeting'" class="home-sidebar-kind-badge collapsible-content">회의</span>
+            <span
+              v-if="getFavoriteTag(fav)"
+              class="home-sidebar-kind-badge collapsible-content"
+              :style="getFavoriteTagStyle(fav)"
+            >
+              {{ getFavoriteTag(fav) }}
+            </span>
             <span v-if="fav.type === 'folder'" class="material-symbols-outlined text-[#8e8e93] text-[18px] collapsible-content">expand_more</span>
           </div>
         </div>
@@ -333,6 +537,13 @@ onUnmounted(() => {
               <span class="material-symbols-outlined text-[18px]">close</span>
             </button>
           </div>
+
+          <label class="home-calendar-field">
+            <span>종류</span>
+            <select v-model="scheduleForm.type" class="home-calendar-type-select">
+              <option v-for="option in scheduleTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
 
           <label class="home-calendar-field">
             <span>제목</span>

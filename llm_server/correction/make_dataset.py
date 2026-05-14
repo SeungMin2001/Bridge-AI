@@ -8,3 +8,5 @@ data_files = {
 
 dataset = load_dataset("csv", data_files=data_files)
 
+print(dataset)
+print(dataset["train"][0])

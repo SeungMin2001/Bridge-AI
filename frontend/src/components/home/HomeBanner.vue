@@ -3,12 +3,17 @@
 import { ref, defineEmits, nextTick } from 'vue'
 import MultimodalInput from './MultimodalInput.vue'
 
-const emit = defineEmits(['sendMessage', 'openReference'])
+const props = defineProps({
+  recentFiles: { type: Array, default: () => [] }
+})
+
+const emit = defineEmits(['sendMessage', 'openReference', 'openRecentFile'])
 
 const messages = ref([])
 const isGenerating = ref(false)
 const chatScrollRef = ref(null)
 const abortController = ref(null)
+const expandedReferenceMessages = ref(new Set())
 
 // true: 백엔드 없이 홈 AI 채팅에서 데모 응답을 표시합니다.
 // false: 실제 /chat/stream 엔드포인트를 호출합니다.
@@ -22,19 +27,58 @@ const scrollToBottom = () => {
   })
 }
 
-const recentFiles = ref([
-  { id: '1', name: '자료구조 강의 노트.pdf', type: 'pdf', date: '오늘' },
-  { id: '2', name: 'AI 프로젝트 기획서.docx', type: 'doc', date: '어제' },
-  { id: '3', name: '중간고사 요약본.pptx', type: 'ppt', date: '2일 전' }
-])
-
 const getFileIcon = (type) => {
   switch (type) {
     case 'pdf': return 'picture_as_pdf'
     case 'ppt': return 'slideshow'
     case 'doc': return 'description'
+    case 'meeting': return 'groups_2'
+    case 'lecture': return 'article'
     default: return 'insert_drive_file'
   }
+}
+
+const colorWithAlpha = (color = '#6366f1', alpha = 0.12) => {
+  const hex = String(color || '').trim()
+  const fullHex = /^#[0-9a-fA-F]{6}$/.test(hex)
+    ? hex
+    : (/^#[0-9a-fA-F]{3}$/.test(hex)
+        ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+        : '#6366f1')
+  const value = fullHex.slice(1)
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+const getRecentFileNode = (file = {}) => file.node || file
+const getRecentFileColor = (file = {}) => getRecentFileNode(file)?.color || '#6366f1'
+const isRecentMeetingFile = (file = {}) => {
+  const node = getRecentFileNode(file)
+  return node?.fileKind === 'meeting' || node?.tag === '회의' || file?.type === 'meeting'
+}
+const getRecentFileIcon = (file = {}) => {
+  const node = getRecentFileNode(file)
+  if (node?.fileIcon) return node.fileIcon
+  if (node?.tag === '프로젝트') return 'workspaces'
+  if (node?.tag === '개인') return 'person'
+  if (node?.tag === '중요') return 'priority_high'
+  return isRecentMeetingFile(file) ? 'groups_2' : getFileIcon(file?.type || node?.type)
+}
+const getRecentFileTag = (file = {}) => {
+  const node = getRecentFileNode(file)
+  return node?.tag || (isRecentMeetingFile(file) ? '회의' : '강의')
+}
+
+const cleanAssistantContent = (content = '') => {
+  return String(content)
+    .split('\n')
+    .filter((line) => !/^\s*(\[?\s*(출처|참고\s*출처)\s*\]?|출처\s*\d+)\s*[:：]/i.test(line.trim()))
+    .join('\n')
+    .replace(/\s*\[출처\s*\d+\]/g, '')
+    .replace(/\s*\[출처[:：]?[^\]]*\]\s*$/i, '')
+    .trim()
 }
 
 const mapCitationsToReferences = (citations = []) => {
@@ -45,6 +89,15 @@ const mapCitationsToReferences = (citations = []) => {
     raw: cite,
   }))
 }
+
+const toggleReferenceMessage = (index) => {
+  const next = new Set(expandedReferenceMessages.value)
+  if (next.has(index)) next.delete(index)
+  else next.add(index)
+  expandedReferenceMessages.value = next
+}
+
+const isReferenceMessageExpanded = (index) => expandedReferenceMessages.value.has(index)
 
 const demoResponse = {
   content: 'CPU(중앙 처리 장치)는 컴퓨터의 두뇌 역할을 하며, 프로그램의 명령어를 해석하고 실행하는 핵심 하드웨어입니다. CPU 내부에는 초고속 임시 저장 공간인 레지스터가 있어 연산 과정에 필요한 데이터를 매우 빠르게 처리할 수 있습니다.',
@@ -202,7 +255,7 @@ const onStopGenerating = () => {
             <!-- AI Avatar (Animating when it's the latest message being generated) -->
             <div v-if="msg.role === 'assistant'" class="flex-shrink-0 mt-1">
               <div :class="[
-                'w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm border border-white/20 overflow-hidden',
+                'w-8 h-8 rounded-full bg-[#4f46e5] flex items-center justify-center border border-indigo-200/70 overflow-hidden',
                 isGenerating && idx === messages.length - 1 ? 'ring-2 ring-indigo-400/30' : ''
               ]">
                 <span :class="[
@@ -214,10 +267,10 @@ const onStopGenerating = () => {
 
             <!-- Message Bubble -->
             <div :class="[
-              'max-w-[85%] rounded-[24px] px-5 py-4 text-[15px] leading-relaxed break-words',
+              'home-chat-bubble max-w-[85%] rounded-[24px] px-5 py-4 text-[15px] leading-relaxed break-words',
               msg.role === 'user' 
-                ? 'neo-active-btn text-white rounded-tr-none' 
-                : 'neo-card text-[#1e293b] rounded-tl-none',
+                ? 'home-chat-bubble-user text-white rounded-tr-none' 
+                : 'home-chat-bubble-assistant text-[#1e293b] rounded-tl-none',
               msg.role === 'assistant' && msg.isRevealing ? 'reveal-message' : ''
             ]">
               <div v-if="msg.attachments?.length" class="flex gap-2 mb-3">
@@ -225,19 +278,39 @@ const onStopGenerating = () => {
                   <img :src="att.url" class="w-full h-full object-cover" />
                 </div>
               </div>
-              <div :class="['whitespace-pre-wrap', msg.isRevealing ? 'reveal-content' : '']">{{ msg.content }}</div>
+              <div :class="['whitespace-pre-wrap', msg.isRevealing ? 'reveal-content' : '']">{{ msg.role === 'assistant' ? cleanAssistantContent(msg.content) : msg.content }}</div>
               
               <!-- Reference Links -->
-              <div v-if="msg.phase === 'done' && msg.references && msg.references.length > 0" :class="['flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/10', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
-                <button 
-                  v-for="ref in msg.references" 
-                  :key="ref.id" 
-                  @click="emit('openReference', ref)"
-                  class="flex items-center gap-1 text-[13px] bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full border border-indigo-200/50 transition-colors shadow-sm font-medium"
+              <div v-if="msg.phase === 'done' && msg.references && msg.references.length > 0" :class="['mt-4 pt-4 border-t border-black/10', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
+                <button
+                  type="button"
+                  class="home-reference-toggle"
+                  @click="toggleReferenceMessage(idx)"
                 >
-                  <span class="material-symbols-outlined text-[14px]">link</span>
-                  {{ ref.title }}
+                  <span class="material-symbols-outlined text-[15px]">link</span>
+                  <span>참고한 전사 {{ msg.references.length }}개 보기</span>
+                  <span
+                    class="material-symbols-outlined home-reference-chevron"
+                    :class="{ 'is-open': isReferenceMessageExpanded(idx) }"
+                  >
+                    expand_more
+                  </span>
                 </button>
+
+                <div
+                  v-if="isReferenceMessageExpanded(idx)"
+                  class="home-reference-dropdown flex flex-wrap gap-2 mt-3"
+                >
+                  <button 
+                    v-for="ref in msg.references" 
+                    :key="ref.id" 
+                    @click="emit('openReference', ref)"
+                    class="home-reference-chip"
+                  >
+                    <span class="material-symbols-outlined text-[14px]">link</span>
+                    {{ ref.title }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -247,11 +320,11 @@ const onStopGenerating = () => {
             <div v-if="isGenerating && messages.length > 0 && messages[messages.length-1].role === 'user'" 
                  class="flex w-full gap-3 flex-row items-start">
               <div class="flex-shrink-0 mt-1">
-                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm border border-white/20 ring-2 ring-indigo-400/30 overflow-hidden animate-pulse-slow">
+                <div class="w-8 h-8 rounded-full bg-[#4f46e5] flex items-center justify-center border border-indigo-200/70 ring-2 ring-indigo-400/30 overflow-hidden animate-pulse-slow">
                   <span class="material-symbols-outlined text-[18px] text-white animate-spin-slow" style="font-variation-settings: 'FILL' 1">auto_awesome</span>
                 </div>
               </div>
-              <div class="bg-white/80 backdrop-blur-xl border border-black/5 rounded-2xl rounded-tl-none px-6 py-4 shadow-sm flex items-center gap-1.5">
+              <div class="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl rounded-tl-none px-6 py-4 flex items-center gap-1.5">
                 <div class="thinking-dot w-1.5 h-1.5 bg-indigo-400 rounded-full animate-thinking-dot"></div>
                 <div class="thinking-dot w-1.5 h-1.5 bg-indigo-500 rounded-full animate-thinking-dot [animation-delay:0.2s]"></div>
                 <div class="thinking-dot w-1.5 h-1.5 bg-indigo-600 rounded-full animate-thinking-dot [animation-delay:0.4s]"></div>
@@ -292,19 +365,52 @@ const onStopGenerating = () => {
       </div>
 
       <!-- Recent Files Section -->
-      <div v-if="messages.length === 0" class="w-full max-w-[600px] pointer-events-auto flex flex-col gap-4 mt-12 opacity-80 animate-fade-in-up shrink-0" style="animation-duration: 0.6s; animation-delay: 0.2s; animation-fill-mode: both;">
-        <h3 class="text-sm font-semibold text-[#64748b] px-2 uppercase tracking-wider font-sans">최근 연 파일</h3>
-        <div class="flex gap-4">
-          <div v-for="file in recentFiles" :key="file.id" 
-               class="flex-1 neo-card p-5 flex flex-col gap-3 cursor-pointer hover:-translate-y-1 hover:brightness-105 transition-all duration-300">
-            <div class="w-10 h-10 rounded-xl neo-inner flex items-center justify-center text-gray-500">
-              <span class="material-symbols-outlined text-[20px]">{{ getFileIcon(file.type) }}</span>
+      <div v-if="messages.length === 0 && props.recentFiles.length" class="home-recent-files animate-fade-in-up" style="animation-duration: 0.6s; animation-delay: 0.2s; animation-fill-mode: both;">
+        <h3>최근 연 파일</h3>
+        <div class="home-recent-file-grid">
+          <button
+            v-for="file in props.recentFiles"
+            :key="file.id"
+            type="button"
+            class="home-recent-file-card"
+            @click="emit('openRecentFile', file)"
+          >
+            <div class="home-recent-file-paper">
+              <div
+                class="home-recent-file-strip"
+                :style="{ background: getRecentFileColor(file) }"
+              ></div>
+              <div class="home-recent-file-lines"></div>
+              <div class="home-recent-file-content">
+                <div class="home-recent-file-meta">
+                  <div
+                    class="home-recent-file-icon"
+                    :style="{ background: colorWithAlpha(getRecentFileColor(file), 0.14) }"
+                  >
+                    <span
+                      class="material-symbols-outlined"
+                      :style="{ color: getRecentFileColor(file) }"
+                    >
+                      {{ getRecentFileIcon(file) }}
+                    </span>
+                  </div>
+                  <span
+                    class="home-recent-file-tag"
+                    :style="{
+                      color: getRecentFileColor(file),
+                      background: colorWithAlpha(getRecentFileColor(file), 0.12)
+                    }"
+                  >
+                    {{ getRecentFileTag(file) }}
+                  </span>
+                </div>
+                <div class="home-recent-file-bottom">
+                  <strong>{{ file.name }}</strong>
+                  <span>{{ file.date }}</span>
+                </div>
+              </div>
             </div>
-            <div class="flex flex-col">
-              <span class="text-[14px] font-bold text-[#1e293b] truncate leading-tight">{{ file.name }}</span>
-              <span class="text-[12px] text-[#64748b] mt-0.5">{{ file.date }}</span>
-            </div>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -434,4 +540,229 @@ const onStopGenerating = () => {
   opacity: 0;
   animation-delay: 0.3s;
 }
+
+.home-chat-bubble {
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  box-shadow: none;
+}
+
+.home-chat-bubble-assistant {
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.home-chat-bubble-user {
+  background: #1f2937;
+  border-color: #1f2937;
+}
+
+.home-recent-files {
+  width: 100%;
+  max-width: 700px;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 48px;
+  flex-shrink: 0;
+}
+
+.home-recent-files h3 {
+  padding: 0 2px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.home-recent-file-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.home-recent-file-card {
+  min-width: 0;
+  height: 160px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.home-recent-file-card:hover {
+  transform: translateY(-3px);
+  filter: brightness(1.02);
+}
+
+.home-recent-file-paper {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1.5px solid #e5e5ea;
+  border-radius: 16px;
+  box-shadow: 2px 3px 0 #e0e0e8;
+}
+
+.home-recent-file-strip {
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 16px 16px 0 0;
+}
+
+.home-recent-file-lines {
+  position: absolute;
+  top: 58px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 22px,
+    #f0f0f5 22px,
+    #f0f0f5 23px
+  );
+  opacity: 0.58;
+}
+
+.home-recent-file-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+}
+
+.home-recent-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.home-recent-file-icon {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.home-recent-file-icon .material-symbols-outlined {
+  font-size: 20px;
+  font-variation-settings: 'FILL' 1;
+}
+
+.home-recent-file-tag {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.home-recent-file-bottom {
+  margin-top: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-recent-file-bottom strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.home-recent-file-bottom span {
+  margin-top: 4px;
+  color: #8e8e93;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.home-reference-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  color: #4b6a4e;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #dce8d3;
+  background: #eef4e8;
+  border-radius: 999px;
+  padding: 5px 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.home-reference-toggle:hover {
+  background: #dce8d3;
+  border-color: #b8cfae;
+  box-shadow: 0 1px 4px rgba(72, 101, 74, 0.15);
+}
+
+.home-reference-chevron {
+  font-size: 17px;
+  transition: transform 0.18s ease;
+}
+
+.home-reference-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.home-reference-dropdown {
+  animation: revealContent 0.22s ease forwards;
+}
+
+.home-reference-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 12px;
+  color: #4b6a4e;
+  background: #eef4e8;
+  border: 1px solid #dce8d3;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.home-reference-chip:hover {
+  background: #dce8d3;
+  border-color: #b8cfae;
+  box-shadow: 0 1px 4px rgba(72, 101, 74, 0.15);
+}
+
+.home-reference-chip .material-symbols-outlined {
+  color: #4b6a4e;
+  flex: 0 0 auto;
+}
+
 </style>

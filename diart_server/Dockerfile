@@ -23,12 +23,11 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-# CPU 전용 torch (이미지 크기 최소화)
-# 2.5.1 안정 버전 사용
+# CUDA torch. docker-compose.yml에서 gpus: all과 DIARIZE_DEVICE=cuda를 함께 사용합니다.
 RUN pip install --no-cache-dir \
-    torch==2.5.1+cpu \
-    torchaudio==2.5.1+cpu \
-    --index-url https://download.pytorch.org/whl/cpu
+    torch==2.5.1+cu121 \
+    torchaudio==2.5.1+cu121 \
+    --index-url https://download.pytorch.org/whl/cu121
 
 # pandas 1.4.4 빌드 에러 방지를 위해 setuptools 버전 낮추기 및 wheel 설치
 RUN pip install --no-cache-dir "setuptools<70.0.0" wheel

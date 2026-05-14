@@ -18,9 +18,10 @@ const {
   isSidebarCollapsed,
   isFolderModalOpen,
   isFileModalOpen,
-  isMeetingFileModalOpen,
   isEditItemModalOpen,
   selectedColor,
+  selectedTag,
+  selectedFileIcon,
   navigationStack,
   editingItemType,
   editingFileKind,
@@ -29,7 +30,11 @@ const {
   FOLDER_COLORS,
   LECTURE_FILE_COLORS,
   MEETING_FILE_COLORS,
+  FILE_TAGS,
+  FILE_ICONS,
   toggleStar,
+  openFileCreateModal,
+  handleFileTagChange,
   handleCreateFolder,
   handleCreateFile,
   openItemEditModal,
@@ -86,8 +91,7 @@ const currentItems = computed(() => {
         @goBack="handleGoBack"
         @enterFolder="handleEnterFolder"
         @openFolderModal="isFolderModalOpen = true"
-        @openFileModal="isFileModalOpen = true"
-        @openMeetingFileModal="isMeetingFileModalOpen = true"
+        @openFileModal="openFileCreateModal"
         @toggleStar="toggleStar"
         @openItemEditModal="openItemEditModal"
         @navigate="emit('navigate', $event)"
@@ -98,9 +102,10 @@ const currentItems = computed(() => {
     <HomeModals 
       :isFolderModalOpen="isFolderModalOpen"
       :isFileModalOpen="isFileModalOpen"
-      :isMeetingFileModalOpen="isMeetingFileModalOpen"
       :isEditItemModalOpen="isEditItemModalOpen"
       :selectedColor="selectedColor"
+      :selectedTag="selectedTag"
+      :selectedFileIcon="selectedFileIcon"
       :newFolderName="newFolderName"
       :newFileName="newFileName"
       :editingItemType="editingItemType"
@@ -108,16 +113,18 @@ const currentItems = computed(() => {
       :folderColors="FOLDER_COLORS"
       :lectureFileColors="LECTURE_FILE_COLORS"
       :meetingFileColors="MEETING_FILE_COLORS"
+      :fileTags="FILE_TAGS"
+      :fileIcons="FILE_ICONS"
       @update:isFolderModalOpen="isFolderModalOpen = $event"
       @update:isFileModalOpen="isFileModalOpen = $event"
-      @update:isMeetingFileModalOpen="isMeetingFileModalOpen = $event"
       @update:isEditItemModalOpen="!$event && closeEditItemModal()"
       @update:selectedColor="selectedColor = $event"
+      @update:selectedTag="handleFileTagChange"
+      @update:selectedFileIcon="selectedFileIcon = $event"
       @update:newFolderName="newFolderName = $event"
       @update:newFileName="newFileName = $event"
       @createFolder="handleCreateFolder"
-      @createFile="handleCreateFile('lecture')"
-      @createMeetingFile="handleCreateFile('meeting')"
+      @createFile="handleCreateFile()"
       @updateItem="handleUpdateItem"
       @deleteEditingItem="handleDeleteEditingItem"
     />

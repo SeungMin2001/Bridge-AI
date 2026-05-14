@@ -41,6 +41,7 @@ MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "true").lower() == "true"
 LLM_URL = os.getenv("LLM_URL", "http://localhost:8001")
 LLM_MODEL = os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
+LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "4096"))
 
 #  LLM 프롬프트 템플릿
 QUIZ_SYSTEM_PROMPT = """당신은 대학 강의 내용을 기반으로 학습 퀴즈를 만드는 AI 교수입니다.
@@ -99,15 +100,63 @@ def _calculate_type_distribution(num_questions: int) -> tuple[int, int, int]:
     return mc_count, ox_count, sa_count
 
 
-def _build_quiz_prompt(transcript_text: str, num_questions: int = 5) -> list[dict]:
+QUIZ_TYPE_KEYS = ("MULTIPLE_CHOICE", "OX", "SHORT_ANSWER")
+
+
+def _normalize_type_counts(
+    num_questions: int = 5,
+    type_counts: dict[str, int] | None = None,
+) -> dict[str, int]:
+    if type_counts is None:
+        mc, ox, sa = _calculate_type_distribution(num_questions)
+        return {
+            "MULTIPLE_CHOICE": mc,
+            "OX": ox,
+            "SHORT_ANSWER": sa,
+        }
+
+    counts = {}
+    for key in QUIZ_TYPE_KEYS:
+        raw_value = type_counts.get(key, 0)
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} 문항 수가 올바르지 않습니다.")
+        if value < 0:
+            raise ValueError(f"{key} 문항 수는 0 이상이어야 합니다.")
+        counts[key] = value
+
+    total = sum(counts.values())
+    if total < 1:
+        raise ValueError("퀴즈 문항 수는 1개 이상이어야 합니다.")
+    if total > 20:
+        raise ValueError("퀴즈 문항 수는 최대 20개까지 생성할 수 있습니다.")
+    return counts
+
+
+def count_quiz_types(quiz_data: list[dict]) -> dict[str, int]:
+    counts = {key: 0 for key in QUIZ_TYPE_KEYS}
+    for question in quiz_data:
+        question_type = question.get("type")
+        if question_type in counts:
+            counts[question_type] += 1
+    return counts
+
+
+def _build_quiz_prompt(
+    transcript_text: str,
+    num_questions: int = 5,
+    type_counts: dict[str, int] | None = None,
+) -> list[dict]:
     """LLM에 보낼 messages 배열 구성"""
-    mc, ox, sa = _calculate_type_distribution(num_questions)
+    counts = _normalize_type_counts(num_questions, type_counts)
+    total_questions = sum(counts.values())
     user_prompt = QUIZ_USER_PROMPT_TEMPLATE.format(
         transcript_text=transcript_text[:6000],  # 토큰 제한 고려
-        num_questions=num_questions,
-        mc_count=mc,
-        ox_count=ox,
-        sa_count=sa,
+        num_questions=total_questions,
+        mc_count=counts["MULTIPLE_CHOICE"],
+        ox_count=counts["OX"],
+        sa_count=counts["SHORT_ANSWER"],
     )
     return [
         {"role": "system", "content": QUIZ_SYSTEM_PROMPT},
@@ -115,47 +164,137 @@ def _build_quiz_prompt(transcript_text: str, num_questions: int = 5) -> list[dic
     ]
 
 
+def _remove_thinking_blocks(raw_text: str) -> str:
+    text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL | re.IGNORECASE)
+    lower_text = text.lower()
+    if '<think>' in lower_text:
+        text = text[:lower_text.index('<think>')]
+    return text
+
+
+def _strip_json_code_fences(text: str) -> str:
+    text = re.sub(r'```(?:json)?\s*', '', text, flags=re.IGNORECASE)
+    return re.sub(r'```\s*', '', text).strip()
+
+
+def _extract_balanced_json_candidates(text: str) -> list[str]:
+    candidates = []
+    stack = []
+    start = None
+    in_string = False
+    escaped = False
+    pairs = {"]": "[", "}": "{"}
+
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+
+        if char in "[{":
+            if not stack:
+                start = index
+            stack.append(char)
+            continue
+
+        if char in "]}":
+            if not stack or stack[-1] != pairs[char]:
+                stack = []
+                start = None
+                continue
+            stack.pop()
+            if not stack and start is not None:
+                candidates.append(text[start:index + 1])
+                start = None
+
+    return candidates
+
+
+def _normalize_json_candidate(candidate: str) -> str:
+    candidate = _strip_json_code_fences(candidate)
+    return re.sub(r",\s*([}\]])", r"\1", candidate)
+
+
+def _coerce_quiz_questions(parsed: object) -> list[dict]:
+    if isinstance(parsed, list):
+        questions = parsed
+    elif isinstance(parsed, dict):
+        questions = None
+        for key in ("quiz_data", "questions", "quizzes", "items", "data", "result"):
+            value = parsed.get(key)
+            if isinstance(value, list):
+                questions = value
+                break
+        if questions is None:
+            raise ValueError("LLM 응답이 퀴즈 JSON 배열을 포함하지 않습니다")
+    else:
+        raise ValueError("LLM 응답이 JSON 배열이 아닙니다")
+
+    normalized_questions = []
+    for index, question in enumerate(questions, start=1):
+        if not isinstance(question, dict):
+            raise ValueError("LLM 응답의 문항 형식이 올바르지 않습니다")
+        next_question = dict(question)
+        next_question.setdefault("question_index", index)
+        next_question.setdefault("type", "MULTIPLE_CHOICE")
+        next_question.setdefault("question", "")
+        next_question.setdefault("correct_answer", "")
+        next_question.setdefault("user_answer", None)
+        next_question.setdefault("is_correct", None)
+        next_question.setdefault("explanation", "")
+
+        options = next_question.get("options")
+        if isinstance(options, str):
+            options = [options]
+        elif not isinstance(options, list):
+            options = []
+        if next_question["type"] == "OX" and not options:
+            options = ["O", "X"]
+        if next_question["type"] == "SHORT_ANSWER":
+            options = []
+        next_question["options"] = options
+        normalized_questions.append(next_question)
+
+    return normalized_questions
+
+
 def _parse_quiz_json(raw_text: str) -> list[dict]:
     """
     LLM 응답에서 JSON 배열만 추출하여 파싱.
     <think>...</think> 태그, 마크다운 코드블록 등을 제거한 후 파싱 시도.
     """
-    # <think>...</think> 제거
-    text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL)
-    # 마크다운 코드블록 제거
-    text = re.sub(r'```json\s*', '', text)
-    text = re.sub(r'```\s*', '', text)
-    text = text.strip()
+    text = _strip_json_code_fences(_remove_thinking_blocks(raw_text))
+    candidates = [text, *_extract_balanced_json_candidates(text)]
+    last_error = None
 
-    # JSON 배열 추출: 가장 바깥쪽 [ ... ] 를 찾음
-    match = re.search(r'\[.*\]', text, re.DOTALL)
-    if match:
-        text = match.group(0)
+    for candidate in candidates:
+        candidate = _normalize_json_candidate(candidate)
+        if not candidate:
+            continue
+        try:
+            return _coerce_quiz_questions(json.loads(candidate))
+        except json.JSONDecodeError as exc:
+            last_error = exc
+        except ValueError as exc:
+            last_error = exc
 
-    try:
-        questions = json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.error(f"퀴즈 JSON 파싱 실패: {e}\n원본: {raw_text[:500]}")
-        raise ValueError(f"LLM 응답을 JSON으로 파싱할 수 없습니다: {e}")
-
-    if not isinstance(questions, list):
-        raise ValueError("LLM 응답이 JSON 배열이 아닙니다")
-
-    # 각 문제에 user_answer, is_correct 기본값 추가
-    for q in questions:
-        q.setdefault("user_answer", None)
-        q.setdefault("is_correct", None)
-        # options가 없으면 빈 배열로
-        q.setdefault("options", [])
-        q.setdefault("explanation", "")
-
-    return questions
+    logger.error(f"퀴즈 JSON 파싱 실패: {last_error}\n원본: {raw_text[:500]}")
+    raise ValueError(f"LLM 응답을 JSON으로 파싱할 수 없습니다: {last_error}")
 
 
 #  퀴즈 생성 (LLM 호출)
 async def generate_quiz(
     transcript_text: str,
     num_questions: int = 5,
+    type_counts: dict[str, int] | None = None,
 ) -> list[dict]:
     """
     전사문 텍스트를 기반으로 퀴즈를 생성합니다.
@@ -163,24 +302,29 @@ async def generate_quiz(
     Args:
         transcript_text: 강의 전사문 전체 텍스트
         num_questions: 생성할 문제 수 (기본 5)
+        type_counts: 문제 유형별 개수. 없으면 기본 배분을 사용.
 
     Returns:
         quiz_data: 퀴즈 JSON 배열 (JSONB에 저장될 형태)
     """
+    normalized_counts = _normalize_type_counts(num_questions, type_counts)
+    total_questions = sum(normalized_counts.values())
+
     if MOCK_MODE:
         logger.info("[QUIZ] MOCK_MODE: 목업 퀴즈 데이터 반환")
-        return _generate_mock_quiz(num_questions)
+        return _generate_mock_quiz(total_questions, normalized_counts)
 
-    messages = _build_quiz_prompt(transcript_text, num_questions)
+    messages = _build_quiz_prompt(transcript_text, total_questions, normalized_counts)
 
     try:
+        max_tokens = min(LLM_MAX_TOKENS, max(1400, 400 + (total_questions * 350)))
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
             res = await client.post(
                 f"{LLM_URL}/v1/chat/completions",
                 json={
                     "model": LLM_MODEL,
                     "messages": messages,
-                    "max_tokens": 2048,
+                    "max_tokens": max_tokens,
                     "temperature": 0.3,  # 정확한 JSON 생성을 위해 낮은 temperature
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
@@ -188,11 +332,44 @@ async def generate_quiz(
             )
             res.raise_for_status()
 
-        data = res.json()
-        raw_answer = data["choices"][0]["message"]["content"]
-        logger.info(f"[QUIZ] LLM 응답 수신: {len(raw_answer)} chars")
+            data = res.json()
+            raw_answer = data["choices"][0]["message"]["content"]
+            logger.info(f"[QUIZ] LLM 응답 수신: {len(raw_answer)} chars")
 
-        quiz_data = _parse_quiz_json(raw_answer)
+            try:
+                quiz_data = _parse_quiz_json(raw_answer)
+            except ValueError as first_error:
+                logger.warning(f"[QUIZ] LLM 응답 JSON 파싱 실패, 복구 요청 시도: {first_error}")
+                repair_res = await client.post(
+                    f"{LLM_URL}/v1/chat/completions",
+                    json={
+                        "model": LLM_MODEL,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "입력 텍스트에서 퀴즈 문항만 추출해 유효한 JSON 배열로만 응답하세요.",
+                            },
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"아래 응답을 {total_questions}개 이하의 퀴즈 JSON 배열로 고쳐주세요. "
+                                    "JSON 외 텍스트는 쓰지 마세요.\n\n"
+                                    f"{raw_answer[:8000]}"
+                                ),
+                            },
+                        ],
+                        "max_tokens": max_tokens,
+                        "temperature": 0.0,
+                        "chat_template_kwargs": {"enable_thinking": False},
+                    },
+                    headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+                )
+                repair_res.raise_for_status()
+                repair_data = repair_res.json()
+                raw_answer = repair_data["choices"][0]["message"]["content"]
+                logger.info(f"[QUIZ] LLM 복구 응답 수신: {len(raw_answer)} chars")
+                quiz_data = _parse_quiz_json(raw_answer)
+
         logger.info(f"[QUIZ] {len(quiz_data)}개 문제 파싱 완료")
         return quiz_data
 
@@ -271,9 +448,15 @@ def _fuzzy_match(correct: str, submitted: str) -> bool:
 
 
 #  목업 데이터 (LLM 미연결 시)
-def _generate_mock_quiz(num_questions: int = 5) -> list[dict]:
+def _generate_mock_quiz(
+    num_questions: int = 5,
+    type_counts: dict[str, int] | None = None,
+) -> list[dict]:
     """프론트엔드 개발/테스트용 목업 퀴즈 데이터"""
-    mc, ox, sa = _calculate_type_distribution(num_questions)
+    counts = _normalize_type_counts(num_questions, type_counts)
+    mc = counts["MULTIPLE_CHOICE"]
+    ox = counts["OX"]
+    sa = counts["SHORT_ANSWER"]
     questions = []
     idx = 1
 

@@ -5,9 +5,10 @@ import { useChat } from '../../composables/useChat'
 import WorkspaceWordCard from './MainContent/WorkspaceWordCard.vue'
 import WorkspaceHeader from './MainContent/WorkspaceHeader.vue'
 import WorkspaceFloatingTabs from './MainContent/WorkspaceFloatingTabs.vue'
-import LectureMaterialList from './MainContent/LectureMaterialList.vue'
 import LecturePreviewPanel from './MainContent/LecturePreviewPanel.vue'
-import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
+import WorkspaceQuizPanel from './Quiz/WorkspaceQuizPanel.vue'
+import WorkspaceSummaryNotesPanel from './Summary/WorkspaceSummaryNotesPanel.vue'
+import WorkspaceSummaryPanel from './Summary/WorkspaceSummaryPanel.vue'
 
 const {
   selectedWordData,
@@ -22,13 +23,18 @@ const props = defineProps({
   isRecordingPaused: Boolean,
   recordingMode: { type: String, default: 'lecture' },
   recordingTimeText: String,
+  recordingAudioLevel: { type: Number, default: 0 },
+  diarizationEnabled: { type: Boolean, default: false },
+  diarizationStatus: { type: String, default: 'idle' },
   activeFileName: String,
   activeFileId: String,
   activeFileType: { type: String, default: 'lecture' },
+  currentRecordings: { type: Array, default: () => [] },
   transcriptions: { type: Array, default: () => [] },
-  materialAttachments: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
-  summaryNotes: { type: Array, default: () => [] }
+  summaryState: { type: Object, default: () => ({}) },
+  summaryNotes: { type: Array, default: () => [] },
+  quizSource: { type: Object, default: null }
 })
 
 const emit = defineEmits([
@@ -36,41 +42,43 @@ const emit = defineEmits([
   'pauseRecording',
   'resumeRecording',
   'stopRecording',
+  'generateMaterialSummary',
+  'deleteSummary',
   'mainSidebarToggle',
   'rightSidebarToggle',
   'askAi',
   'addToNote',
   'uploadLectureMaterials',
-  'closePreviewMaterial',
-  'openStoredMaterial',
-  'deleteStoredMaterial'
+  'closePreviewMaterial'
 ])
 
 const activeTab = ref('note')
-const activeSummaryTab = ref('ai-summary')
+const activeSummaryTab = ref('summary')
 const noteContent = ref('')
 const isNoteFocused = ref(false)
 const tabAnim = ref('tab-slide-right')
 const isNoteDragOver = ref(false)
+const showDiarizationChoice = ref(false)
 let prevTab = 'note'
 
-const TAB_ORDER = ['note', 'summary-note', 'material', 'summary', 'quiz']
+const TAB_ORDER = ['note', 'summary-note', 'summary', 'quiz']
 
 const tabs = computed(() => [
   { key: 'note', label: '메모' },
   { key: 'summary-note', label: '정리' },
-  { key: 'material', label: '자료' },
   { key: 'summary', label: '요약' },
   { key: 'quiz', label: '퀴즈' }
 ])
 
-const noteTitle = computed(() => props.activeFileName || '강의1')
+const noteTitle = computed(() => props.activeFileName || '파일을 선택하세요')
 
 const allowedMaterialTypes = [
   'application/pdf',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 ]
+
+const getDefaultTabByFileType = () => 'note'
 
 const handleTabChange = (newTab) => {
   const prevIdx = TAB_ORDER.indexOf(prevTab)
@@ -85,6 +93,26 @@ watch(activeTab, (newVal) => {
     handleTabChange(newVal)
   }
 })
+
+watch(
+  () => [props.activeFileId, props.activeFileType],
+  ([nextFileId, nextFileType], [prevFileId, prevFileType] = []) => {
+    if (nextFileId === prevFileId && nextFileType === prevFileType) return
+
+    const defaultTab = getDefaultTabByFileType(nextFileType)
+    prevTab = defaultTab
+    activeTab.value = defaultTab
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.currentPreviewMaterial,
+  (nextMaterial, prevMaterial) => {
+    if (!nextMaterial || nextMaterial.id === prevMaterial?.id) return
+    handleTabChange('note')
+  }
+)
 
 const isLectureMaterialFile = (file) => {
   if (!file) return false
@@ -130,15 +158,6 @@ const handleAddToNote = () => {
   }
 }
 
-const handleOpenStoredMaterial = (fileId) => {
-  emit('openStoredMaterial', fileId)
-  handleTabChange('note')
-}
-
-const handleDeleteStoredMaterial = (fileId) => {
-  emit('deleteStoredMaterial', fileId)
-}
-
 const handleWordInsightButtonClick = () => {
   if (selectedWordData.value) {
     if (isWordCardVisible.value) {
@@ -149,9 +168,46 @@ const handleWordInsightButtonClick = () => {
   }
 }
 
+const getRecordingModeForActiveFile = () => (
+  props.activeFileType === 'meeting' ? 'meeting' : 'lecture'
+)
+
 const handleStartRecording = () => {
-  emit('startRecording', props.activeFileType === 'meeting' ? 'meeting' : 'lecture')
+  showDiarizationChoice.value = true
 }
+
+const startRecordingWithDiarization = (enabled) => {
+  showDiarizationChoice.value = false
+  emit('startRecording', {
+    mode: getRecordingModeForActiveFile(),
+    diarizationEnabled: enabled
+  })
+}
+
+const postRecordingProcessing = computed(() => {
+  if (props.diarizationEnabled && props.diarizationStatus === 'finalizing') {
+    return {
+      icon: 'graphic_eq',
+      title: '전체 녹음 화자분리 중',
+      description: '녹음 전체를 다시 분석해 화자 구간을 정리하고 있습니다.',
+      tone: 'speaker'
+    }
+  }
+
+  if (!props.isRecording && props.summaryState?.status === 'generating') {
+    const isSpeakerSummary = props.summaryState?.diarizationEnabled ?? props.diarizationEnabled
+    return {
+      icon: 'auto_awesome',
+      title: '최종 요약 생성 중',
+      description: isSpeakerSummary
+        ? '전체 녹음 요약과 화자별 요약을 함께 생성하고 있습니다.'
+        : '전체 전사문을 기준으로 녹음 요약을 생성하고 있습니다.',
+      tone: 'summary'
+    }
+  }
+
+  return null
+})
 </script>
 
 <template>
@@ -170,8 +226,8 @@ const handleStartRecording = () => {
       <WorkspaceHeader
         :is-recording="isRecording"
         :is-recording-paused="isRecordingPaused"
-        :recording-mode="recordingMode"
         :recording-time-text="recordingTimeText"
+        :recording-audio-level="recordingAudioLevel"
         :show-close-preview="!!currentPreviewMaterial"
         :has-word-insight="!!selectedWordData"
         :word-insight-visible="!!selectedWordData && isWordCardVisible"
@@ -185,6 +241,30 @@ const handleStartRecording = () => {
         @word-insight-click="handleWordInsightButtonClick"
         @close-preview-material="emit('closePreviewMaterial')"
       />
+
+      <transition name="post-processing">
+        <section
+          v-if="postRecordingProcessing"
+          class="post-processing-band"
+          :class="`is-${postRecordingProcessing.tone}`"
+          role="status"
+          aria-live="polite"
+        >
+          <div class="post-processing-icon">
+            <span class="material-symbols-outlined">{{ postRecordingProcessing.icon }}</span>
+          </div>
+          <div class="post-processing-copy">
+            <strong>{{ postRecordingProcessing.title }}</strong>
+            <span>{{ postRecordingProcessing.description }}</span>
+          </div>
+          <div class="post-processing-meter" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </section>
+      </transition>
 
       <div class="flex-1 flex flex-col relative min-h-0 min-w-0">
         <section
@@ -203,7 +283,7 @@ const handleStartRecording = () => {
           <div :class="[currentPreviewMaterial ? 'w-full h-full flex flex-col' : 'max-w-4xl mx-auto w-full h-full']">
             <h1 v-if="!currentPreviewMaterial" class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">{{ noteTitle }}</h1>
 
-            <div v-if="activeFileId === 'lecture-1' && currentPreviewMaterial" class="preview-panel-wrap">
+            <div v-if="currentPreviewMaterial" class="preview-panel-wrap">
               <LecturePreviewPanel
                 :material="currentPreviewMaterial"
               />
@@ -224,83 +304,76 @@ const handleStartRecording = () => {
           </div>
         </section>
 
-        <section v-else-if="activeTab === 'summary-note'" :key="'tab-summary-note'" :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
-          <div class="max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
-            <h1 class="text-[32px] font-heavy-heading text-[#8e8e93] mb-5">정리 노트</h1>
-            <div class="flex flex-col gap-4">
-              <div v-if="summaryNotes.length === 0" class="text-[16px] text-[#aeaeb2] leading-relaxed italic">아직 추가된 내용이 없습니다. 전사 내용에서 '노트에 추가'를 눌러보세요.</div>
-              <div v-else v-for="note in summaryNotes" :key="note.id" class="workspace-subpanel p-5 rounded-[24px] flex flex-col gap-2 transcription-item-enter">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <span class="material-symbols-outlined text-[18px] text-[#2563eb]">auto_stories</span>
-                    <span class="text-[13px] font-bold text-[#1d1d1f]">추가된 내용</span>
-                  </div>
-                  <span class="text-[11px] font-bold text-[#6b7280]">{{ note.time }}</span>
-                </div>
-                <p class="text-[15px] leading-[1.6] text-[#1f2937] font-semibold">{{ note.text }}</p>
-                <div class="flex items-center gap-1.5 mt-1 border-t border-slate-200 pt-3">
-                  <span class="material-symbols-outlined text-[14px] text-[#64748b]">link</span>
-                  <span class="text-[11px] font-bold text-[#64748b] uppercase tracking-wider">Source:</span>
-                  <span class="text-[11px] font-bold text-[#2563eb] cursor-pointer hover:underline decoration-blue-500/50 underline-offset-2">{{ note.source || 'AI 분석 결과' }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+        <WorkspaceSummaryNotesPanel
+          v-else-if="activeTab === 'summary-note'"
+          :key="'tab-summary-note'"
+          :tab-anim="tabAnim"
+          :summary-notes="summaryNotes"
+        />
 
-        <section v-else-if="activeTab === 'material'" :key="'tab-material'" :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
-          <div class="max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
-            <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">자료</h1>
-            <LectureMaterialList
-              :material-attachments="materialAttachments"
-              @open="handleOpenStoredMaterial"
-              @delete="handleDeleteStoredMaterial"
-            />
-          </div>
-        </section>
+        <WorkspaceSummaryPanel
+          v-else-if="activeTab === 'summary'"
+          :key="'tab-summary'"
+          v-model:active-summary-tab="activeSummaryTab"
+          :tab-anim="tabAnim"
+          :is-recording="isRecording"
+          :is-recording-paused="isRecordingPaused"
+          :recording-mode="recordingMode"
+          :diarization-enabled="diarizationEnabled"
+          :transcriptions="transcriptions"
+          :summary-state="summaryState"
+          :current-recordings="currentRecordings"
+          :active-file-id="activeFileId"
+          :current-preview-material="currentPreviewMaterial"
+          :quiz-source="quizSource"
+          @generateMaterialSummary="emit('generateMaterialSummary', $event)"
+          @deleteSummary="emit('deleteSummary', $event)"
+          @askAi="emit('askAi', $event)"
+          @addToNote="(text, source) => emit('addToNote', text, source)"
+        />
 
-        <section v-else-if="activeTab === 'summary'" :key="'tab-summary'" :class="['tab-content flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar pt-4', tabAnim]">
-          <div class="max-w-5xl mx-auto w-full h-full flex flex-col min-h-0">
-            <div class="flex items-center justify-between border-b border-[#e5e5ea] mb-5 pb-0">
-              <nav class="flex gap-8">
-                <div class="relative cursor-pointer summary-subtab-btn group" @click="activeSummaryTab = 'transcript'">
-                  <button :class="['text-[15px] py-3 pointer-events-none transition-colors', activeSummaryTab === 'transcript' ? 'text-[#1d1d1f] font-bold' : 'text-[#8e8e93] font-medium group-hover:text-[#1d1d1f]']">실시간 전사&nbsp;&nbsp;</button>
-                  <div :class="['summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] transition-colors', activeSummaryTab === 'transcript' ? 'bg-[#1d1d1f]' : 'bg-transparent group-hover:bg-[#1d1d1f]']"></div>
-                </div>
-                <div class="relative cursor-pointer summary-subtab-btn group" @click="activeSummaryTab = 'ai-summary'">
-                  <button :class="['text-[15px] py-3 pointer-events-none transition-colors', activeSummaryTab === 'ai-summary' ? 'text-[#1d1d1f] font-bold' : 'text-[#8e8e93] font-medium group-hover:text-[#1d1d1f]']">AI 요약&nbsp;&nbsp;</button>
-                  <div :class="['summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] transition-colors', activeSummaryTab === 'ai-summary' ? 'bg-[#1d1d1f]' : 'bg-transparent group-hover:bg-[#1d1d1f]']"></div>
-                </div>
-                <div class="relative cursor-pointer summary-subtab-btn group" @click="activeSummaryTab = 'history'">
-                  <button :class="['text-[15px] py-3 pointer-events-none transition-colors', activeSummaryTab === 'history' ? 'text-[#1d1d1f] font-bold' : 'text-[#8e8e93] font-medium group-hover:text-[#1d1d1f]']">대화기록&nbsp;&nbsp;</button>
-                  <div :class="['summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] transition-colors', activeSummaryTab === 'history' ? 'bg-[#1d1d1f]' : 'bg-transparent group-hover:bg-[#1d1d1f]']"></div>
-                </div>
-              </nav>
-            </div>
-            <div v-show="activeSummaryTab === 'transcript'" class="summary-subcontent summary-transcript-wrap flex-1 min-h-0">
-              <VoiceTransferSideTab
-                :transcriptions="transcriptions"
-                :recording-mode="recordingMode"
-                variant="content"
-                @askAi="emit('askAi', $event)"
-                @addToNote="(text, source) => emit('addToNote', text, source)"
-              />
-            </div>
-            <div v-show="activeSummaryTab === 'ai-summary'" class="summary-subcontent space-y-10"></div>
-            <div v-show="activeSummaryTab === 'history'" class="summary-subcontent space-y-10"></div>
-          </div>
-        </section>
-
-        <section v-else-if="activeTab === 'quiz'" :key="'tab-quiz'" :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
-          <div class="max-w-4xl mx-auto w-full h-full">
-            <h1 class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">퀴즈</h1>
-            <div class="text-[16px] text-[#aeaeb2] leading-relaxed">생성된 퀴즈와 테스트가 여기에 표시됩니다.</div>
-          </div>
-        </section>
+        <WorkspaceQuizPanel
+          v-else-if="activeTab === 'quiz'"
+          :key="'tab-quiz'"
+          :tab-anim="tabAnim"
+          :active-file-name="activeFileName"
+          :active-file-id="activeFileId"
+          :current-preview-material="currentPreviewMaterial"
+          :quiz-source="quizSource"
+        />
 
         <WorkspaceFloatingTabs :tabs="tabs" :active-tab="activeTab" @change="handleTabChange" />
       </div>
     </div>
+
+    <Teleport to="body">
+      <transition name="recording-choice-fade">
+        <div
+          v-if="showDiarizationChoice"
+          class="recording-choice-overlay"
+          @click.self="showDiarizationChoice = false"
+        >
+          <section class="recording-choice-dialog" role="dialog" aria-modal="true" aria-label="녹음 방식 선택">
+            <div class="recording-choice-icon">
+              <span class="material-symbols-outlined">graphic_eq</span>
+            </div>
+            <h2>화자분리를 사용할까요?</h2>
+            <p>
+              화자분리를 사용하면 시작 직후 몇 초 동안 화자를 분석한 뒤 전사가 표시됩니다.
+              사용하지 않으면 바로 전사하고 전체 녹음 요약만 생성합니다.
+            </p>
+            <div class="recording-choice-actions">
+              <button type="button" class="recording-choice-secondary" @click="startRecordingWithDiarization(false)">
+                바로 녹음
+              </button>
+              <button type="button" class="recording-choice-primary" @click="startRecordingWithDiarization(true)">
+                화자분리 사용
+              </button>
+            </div>
+          </section>
+        </div>
+      </transition>
+    </Teleport>
   </main>
 </template>
 
@@ -321,6 +394,124 @@ const handleStartRecording = () => {
   display: none;
 }
 
+.post-processing-band {
+  width: 100%;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 22px;
+  border-top: 1px solid rgba(226, 232, 240, 0.75);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+  background: #f8fafc;
+}
+
+.post-processing-band.is-speaker {
+  background: #f8fbff;
+}
+
+.post-processing-band.is-summary {
+  background: #fbfaf7;
+}
+
+.post-processing-icon {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #1d4ed8;
+  background: #eaf2ff;
+}
+
+.post-processing-band.is-summary .post-processing-icon {
+  color: #9a3412;
+  background: #fff3e7;
+}
+
+.post-processing-icon .material-symbols-outlined {
+  font-size: 22px;
+}
+
+.post-processing-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.post-processing-copy strong {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.post-processing-copy span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+.post-processing-meter {
+  width: 58px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.post-processing-meter span {
+  width: 5px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2563eb;
+  opacity: 0.36;
+  animation: post-processing-pulse 1s ease-in-out infinite;
+}
+
+.post-processing-band.is-summary .post-processing-meter span {
+  background: #c2410c;
+}
+
+.post-processing-meter span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.post-processing-meter span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.post-processing-meter span:nth-child(4) {
+  animation-delay: 0.36s;
+}
+
+@keyframes post-processing-pulse {
+  0%, 100% {
+    height: 8px;
+    opacity: 0.35;
+  }
+  50% {
+    height: 22px;
+    opacity: 0.95;
+  }
+}
+
+.post-processing-enter-active,
+.post-processing-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.post-processing-enter-from,
+.post-processing-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
 .note-drop-target {
   border-radius: 24px;
   background: rgba(239, 246, 255, 0.5);
@@ -333,8 +524,113 @@ const handleStartRecording = () => {
   min-height: 0;
 }
 
-.summary-transcript-wrap {
-  padding-bottom: 120px;
+.recording-choice-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.recording-choice-dialog {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.18);
+}
+
+.recording-choice-icon {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #2563eb;
+  background: #eef4ff;
+  border: 1px solid #dbe7ff;
+}
+
+.recording-choice-icon .material-symbols-outlined {
+  font-size: 23px;
+}
+
+.recording-choice-dialog h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.recording-choice-dialog p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+.recording-choice-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.recording-choice-primary,
+.recording-choice-secondary {
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 900;
+  transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.recording-choice-primary {
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.recording-choice-secondary {
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+}
+
+.recording-choice-primary:hover {
+  background: #1d4ed8;
+}
+
+.recording-choice-secondary:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.recording-choice-primary:active,
+.recording-choice-secondary:active {
+  transform: scale(0.98);
+}
+
+.recording-choice-fade-enter-active,
+.recording-choice-fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.recording-choice-fade-enter-from,
+.recording-choice-fade-leave-to {
+  opacity: 0;
 }
 
 .word-card-enter-active {
