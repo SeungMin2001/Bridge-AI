@@ -91,36 +91,99 @@ CONNECTORS = [
     "회의록에는 서로 다른 항목이 연속으로 정리되었고",
 ]
 
+TOPIC_PREFIXES = [
+    "1차",
+    "2차",
+    "3차",
+    "긴급",
+    "정기",
+    "오전",
+    "오후",
+    "월간",
+    "주간",
+    "최종",
+    "중간",
+    "파일럿",
+]
+
+GROUP_NOUNS = [
+    "검토",
+    "정리",
+    "점검",
+    "운영",
+    "개선",
+    "실험",
+    "리허설",
+    "공유",
+]
+
+KOREAN_NUMBERS = [
+    "첫 번째",
+    "두 번째",
+    "세 번째",
+    "네 번째",
+    "다섯 번째",
+    "여섯 번째",
+    "일곱 번째",
+    "여덟 번째",
+    "아홉 번째",
+    "열 번째",
+]
+
+QUESTION_OPENERS = [
+    "{topic}에서 {key}은 무엇이었어?",
+    "{topic}에서 말한 {key}을 알려줘.",
+    "교수님이 {topic}에서 {key}을 뭐라고 했어?",
+    "{topic} 내용 중 {key}에 해당하는 답은 뭐야?",
+    "{topic} 메모에서 {key}으로 적힌 내용은 뭐야?",
+    "{topic} 설명을 기준으로 {key}에 맞는 값은 뭐야?",
+    "{topic}에서 다른 항목 말고 {key}만 물으면 답이 뭐야?",
+    "{topic}에서 {key} 항목의 정답만 말해줘.",
+]
+
+DATE_QUESTION_OPENERS = [
+    "{topic}에서 {key}은 언제였어?",
+    "{topic}에서 말한 {key} 날짜를 알려줘.",
+    "교수님이 {topic}에서 {key}을 언제라고 했어?",
+    "{topic} 내용 중 {key}에 해당하는 시점은 언제야?",
+    "{topic} 기록에서 {key}으로 적힌 날짜는 언제야?",
+    "{topic}에서 다른 일정 말고 {key}만 보면 언제야?",
+    "{topic} 메모 기준 {key}의 시간만 답해줘.",
+    "{topic}에서 {key} 항목의 날짜는 뭐야?",
+]
+
+OWNER_QUESTION_OPENERS = [
+    "{topic}에서 {key}은 누구였어?",
+    "{topic}에서 말한 {key} 주체를 알려줘.",
+    "교수님이 {topic}에서 {key}을 누구라고 했어?",
+    "{topic} 내용 중 {key}에 해당하는 팀은 어디야?",
+    "{topic} 기록에서 {key}으로 적힌 담당은 누구야?",
+    "{topic}에서 다른 담당 말고 {key}만 보면 누구야?",
+    "{topic} 메모 기준 {key}의 담당자만 답해줘.",
+    "{topic}에서 {key} 항목의 주체는 누구야?",
+]
+
+LOCATION_QUESTION_OPENERS = [
+    "{topic}에서 {key}은 어디였어?",
+    "{topic}에서 말한 {key} 장소를 알려줘.",
+    "교수님이 {topic}에서 {key}을 어디라고 했어?",
+    "{topic} 내용 중 {key}에 해당하는 위치는 어디야?",
+    "{topic} 기록에서 {key}으로 적힌 장소는 어디야?",
+    "{topic}에서 다른 위치 말고 {key}만 보면 어디야?",
+    "{topic} 메모 기준 {key}의 위치만 답해줘.",
+    "{topic}에서 {key} 항목의 장소는 어디야?",
+]
+
 
 def question_for(topic: str, key: str, *, paraphrase_idx: int) -> str:
-    variants = [
-        f"{topic}에서 {key}은 무엇이었어?",
-        f"{topic}에서 말한 {key}을 알려줘.",
-        f"교수님이 {topic}에서 {key}을 뭐라고 했어?",
-        f"{topic} 내용 중 {key}에 해당하는 답은 뭐야?",
-    ]
+    variants = QUESTION_OPENERS
     if "일정" in key or "기한" in key:
-        variants = [
-            f"{topic}에서 {key}은 언제였어?",
-            f"{topic}에서 말한 {key} 날짜를 알려줘.",
-            f"교수님이 {key}을 언제라고 했어?",
-            f"{topic} 내용 중 {key}에 해당하는 시점은 언제야?",
-        ]
+        variants = DATE_QUESTION_OPENERS
     elif "담당" in key or "고객" in key or "대상" in key:
-        variants = [
-            f"{topic}에서 {key}은 누구였어?",
-            f"{topic}에서 말한 {key} 주체를 알려줘.",
-            f"교수님이 {key}을 누구라고 했어?",
-            f"{topic} 내용 중 {key}에 해당하는 팀은 어디야?",
-        ]
+        variants = OWNER_QUESTION_OPENERS
     elif "위치" in key:
-        variants = [
-            f"{topic}에서 {key}은 어디였어?",
-            f"{topic}에서 말한 {key} 장소를 알려줘.",
-            f"교수님이 {key}을 어디라고 했어?",
-            f"{topic} 내용 중 {key}에 해당하는 위치는 어디야?",
-        ]
-    return variants[paraphrase_idx % len(variants)]
+        variants = LOCATION_QUESTION_OPENERS
+    return variants[paraphrase_idx % len(variants)].format(topic=topic, key=key)
 
 
 def sentence_for(topic: str, key: str, value: str, rng: random.Random) -> str:
@@ -140,16 +203,20 @@ def full_answer(key: str, value: str) -> str:
 
 def build_row(index: int, rng: random.Random, source_prefix: str) -> dict:
     scenario = rng.choice(SCENARIOS)
-    topic = scenario["topic"]
+    topic_prefix = TOPIC_PREFIXES[index % len(TOPIC_PREFIXES)]
+    group_noun = GROUP_NOUNS[(index // len(TOPIC_PREFIXES)) % len(GROUP_NOUNS)]
+    round_name = KOREAN_NUMBERS[index % len(KOREAN_NUMBERS)]
+    topic = f"{topic_prefix} {scenario['topic']} {group_noun}"
     facts = list(scenario["facts"])
     rng.shuffle(facts)
     selected = facts[:4]
     atomic_qas = []
     for fact_idx, (key, value) in enumerate(selected):
         sub_passage = sentence_for(topic, key, value, rng)
+        question_index = index * len(selected) + fact_idx
         atomic_qas.append({
             "sub_passage": sub_passage,
-            "question": question_for(topic, key, paraphrase_idx=index + fact_idx),
+            "question": f"{round_name}로 정리된 {question_for(topic, key, paraphrase_idx=question_index)}",
             "answer": value,
             "full_answer": full_answer(key, value),
         })
