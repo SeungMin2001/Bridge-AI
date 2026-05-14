@@ -451,7 +451,8 @@ def build_memory_cued_prompt(tokenizer, question: str) -> str:
                 "content": (
                     system_prompt(question)
                     + " 지금 이 질문에 필요한 수업 내용은 텍스트로 보이지 않지만 모델 내부 K/V 메모리로 이미 주입되어 있습니다. "
-                    "일반 지식이나 추측을 쓰지 말고, 주입된 메모리가 떠올리는 핵심 구절만 답하세요."
+                    "일반 지식이나 추측을 쓰지 말고, 주입된 메모리가 떠올리는 핵심 구절만 답하세요. "
+                    "반드시 한국어로만 답하고 중국어, 영어, 한자, 번역문을 절대 쓰지 마세요."
                 ),
             },
             {
@@ -459,7 +460,8 @@ def build_memory_cued_prompt(tokenizer, question: str) -> str:
                 "content": (
                     f"질문: {question}\n"
                     "내부에 주입된 메모리에서 이 질문의 답이 되는 장소, 날짜, 이름, 용어 같은 핵심 구절을 먼저 찾으세요. "
-                    "답을 찾으면 그 핵심 구절만 출력하고, 없으면 '모름'이라고만 답하세요.\n"
+                    "답을 찾으면 한국어 핵심 구절만 출력하고, 없으면 '모름'이라고만 답하세요. "
+                    "외국어와 부가 설명은 금지입니다.\n"
                     "정답:"
                 ),
             },
@@ -498,8 +500,14 @@ def build_short_chat_prompt(tokenizer, question: str) -> str:
 
     if contains_hangul(question):
         messages = [
-            {"role": "system", "content": "주입된 메모리만 근거로 정답 구절만 짧게 답하세요. 없으면 '모름'이라고 답하세요."},
-            {"role": "user", "content": f"질문: {question}\n답변:"},
+            {
+                "role": "system",
+                "content": (
+                    "주입된 메모리만 근거로 한국어 정답 구절만 짧게 답하세요. "
+                    "중국어, 영어, 한자, 번역문, 부가 설명은 쓰지 마세요. 없으면 '모름'이라고 답하세요."
+                ),
+            },
+            {"role": "user", "content": f"질문: {question}\n한국어 답변:"},
         ]
     else:
         messages = [
@@ -516,7 +524,7 @@ def build_short_chat_prompt(tokenizer, question: str) -> str:
 
 def build_paper_prompt(question: str) -> str:
     if contains_hangul(question):
-        return f"질문: {question}\n답변:"
+        return f"질문: {question}\n반드시 한국어로만 정답을 짧게 답하세요. 외국어와 부가 설명은 금지입니다.\n답변:"
     return f"Question: {question}\nAnswer:"
 
 
