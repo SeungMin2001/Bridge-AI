@@ -32,6 +32,7 @@ const props = defineProps({
   currentRecordings: { type: Array, default: () => [] },
   transcriptions: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
+  materialEvidenceRequest: { type: Object, default: null },
   summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] },
   quizSource: { type: Object, default: null }
@@ -110,6 +111,14 @@ watch(
   () => props.currentPreviewMaterial,
   (nextMaterial, prevMaterial) => {
     if (!nextMaterial || nextMaterial.id === prevMaterial?.id) return
+    handleTabChange('note')
+  }
+)
+
+watch(
+  () => props.materialEvidenceRequest,
+  (request) => {
+    if (!request) return
     handleTabChange('note')
   }
 )
@@ -286,6 +295,7 @@ const postRecordingProcessing = computed(() => {
             <div v-if="currentPreviewMaterial" class="preview-panel-wrap">
               <LecturePreviewPanel
                 :material="currentPreviewMaterial"
+                :evidence-request="materialEvidenceRequest"
               />
             </div>
 
