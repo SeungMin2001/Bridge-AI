@@ -163,6 +163,10 @@ app.include_router(workspace_router)
 llm_server_url = os.getenv("LLM_URL", "http://localhost:8001")
 llm_model_name = os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ")
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
+CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "512"))
+CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "768"))
+CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "5"))
+CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 
 # 화자분리 서버
 DIARIZE_URL = os.getenv("DIARIZE_URL", "http://localhost:8003/diart/raw")
@@ -172,10 +176,12 @@ DIARIZE_ENABLED = os.getenv("DIARIZE_ENABLED", "true").lower() == "true"
 
 class ChatRequest(BaseModel):
     question: str
-    is_thinking: bool = True
+    is_thinking: bool = False
     # 신창영 : 선택 파일 기준 RAG 검색을 위해 session_id를 추가
     # 신창영 : 기존 구조는 session_id 없이 전체 전사문을 검색
     session_id: str | None = None
+    # 신창영 : 왼쪽 사이드바에서 고른 PDF/녹음본만 AI 채팅 근거로 쓰기 위한 필터
+    source_filter: dict | None = None
 
 
 class RegisterRequest(BaseModel):
@@ -200,18 +206,57 @@ def remove_thinking(text: str) -> str:
     return text.strip()
 
 
-def _build_prompt_and_citations(question: str, session_id: str | None = None):
+async def _build_material_context_fallback(
+    question: str,
+    session_id: str | None,
+    source_filter: dict | None,
+) -> tuple[str, list[dict]]:
+    if not session_id or not _source_filter_has_material(source_filter):
+        return "", []
+
+    try:
+        from materials.material_page_search_service import build_material_page_context
+        return await build_material_page_context(question, session_id, source_filter)
+    except Exception as exc:
+        logger.warning("[CHAT] PDF 페이지 검색 fallback 실패: session=%s, error=%s", session_id, exc)
+        return "", []
+
+
+async def _build_prompt_and_citations(
+    question: str,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+):
     """RAG 검색 후 prompt와 citations 반환"""
+    has_selected_material = _source_filter_has_material(source_filter)
     # 신창영 : 선택 파일 기준 검색을 위해 session_id를 RAG 검색 함수에 전달
     # rag_result = rag_search(question, top_k=5)
-    rag_result = rag_search(question, top_k=5, session_id=session_id)
+    rag_result = rag_search(question, top_k=CHAT_EVIDENCE_TOP_K, session_id=session_id, source_filter=source_filter)
     context = rag_result["context"]
     citations = rag_result["citations"]
+    if has_selected_material and not citations:
+        material_context, material_citations = await _build_material_context_fallback(
+            question,
+            session_id,
+            source_filter,
+        )
+        if material_context:
+            context = material_context
+            citations = material_citations[:CHAT_EVIDENCE_TOP_K]
 
     if context:
         prompt = (
             f"다음은 강의 내용에서 검색된 참고자료입니다:\n\n{context}\n\n"
-            f"위 참고자료를 바탕으로 답변하고, 답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
+            f"위 참고자료를 바탕으로 답변하세요. 선택된 PDF/녹음본 밖의 내용은 추측하지 마세요. "
+            f"PDF 근거가 있으면 자료명과 p.페이지 번호를 답변 본문에 반드시 포함하세요. "
+            f"페이지 위치를 묻는 질문이면 관련 페이지 번호를 먼저 답하세요. "
+            f"답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
+            f"질문: {question}"
+        )
+    elif has_selected_material:
+        prompt = (
+            "사용자가 PDF 자료를 선택했지만, 선택된 PDF 안에서 질문과 직접 관련된 근거 페이지를 찾지 못했습니다. "
+            "외부 웹사이트나 일반 지식으로 대체하지 말고, 선택된 PDF에서 근거를 찾지 못했다고 짧게 답하세요.\n\n"
             f"질문: {question}"
         )
     else:
@@ -220,35 +265,135 @@ def _build_prompt_and_citations(question: str, session_id: str | None = None):
     return prompt, citations
 
 
+def _merge_citations(primary: list[dict], secondary: list[dict]) -> list[dict]:
+    merged = []
+    seen = set()
+    for item in [*(primary or []), *(secondary or [])]:
+        key = (
+            item.get("source_type", ""),
+            item.get("material_id", ""),
+            item.get("stored_name", ""),
+            item.get("recording_id", ""),
+            item.get("transcript_id", ""),
+            item.get("page", ""),
+            item.get("citation", ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return merged
+
+
+def _source_filter_has_material(source_filter: dict | None) -> bool:
+    if not isinstance(source_filter, dict):
+        return False
+    return bool(source_filter.get("material_ids") or source_filter.get("stored_names"))
+
+
+def _source_filter_has_any_source(source_filter: dict | None) -> bool:
+    if not isinstance(source_filter, dict):
+        return False
+    return any(
+        source_filter.get(key)
+        for key in ("material_ids", "stored_names", "recording_ids", "transcript_ids")
+    )
+
+
+def _chat_max_tokens(source_filter: dict | None) -> int:
+    return CHAT_SOURCE_MAX_TOKENS if _source_filter_has_any_source(source_filter) else CHAT_MAX_TOKENS
+
+
+def _llm_url(path: str) -> str:
+    return f"{llm_server_url.rstrip('/')}{path}"
+
+
+def _use_ollama_native_chat() -> bool:
+    if CHAT_OLLAMA_NATIVE in {"1", "true", "yes", "on"}:
+        return True
+    if CHAT_OLLAMA_NATIVE in {"0", "false", "no", "off"}:
+        return False
+    return ":11434" in llm_server_url or "ollama" in llm_server_url.lower()
+
+
+def _ollama_chat_payload(messages: list[dict], source_filter: dict | None, *, stream: bool, thinking: bool = False) -> dict:
+    return {
+        "model": llm_model_name,
+        "messages": messages,
+        "stream": stream,
+        "think": bool(thinking),
+        "options": {
+            "num_predict": _chat_max_tokens(source_filter),
+            "temperature": 0.7,
+        },
+    }
+
+
+def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, stream: bool, thinking: bool = False) -> dict:
+    return {
+        "model": llm_model_name,
+        "messages": messages,
+        "max_tokens": _chat_max_tokens(source_filter),
+        "temperature": 0.7,
+        "stream": stream,
+        "chat_template_kwargs": {"enable_thinking": bool(thinking)},
+    }
+
+
+async def _raise_for_llm_stream_error(stream):
+    if stream.status_code < 400:
+        return
+    raw = await stream.aread()
+    detail = raw.decode("utf-8", errors="replace").strip()
+    if len(detail) > 500:
+        detail = f"{detail[:500]}..."
+    raise RuntimeError(f"LLM 서버 오류 {stream.status_code}: {detail or '응답 본문 없음'}")
+
+
+async def _ensure_material_rag_for_chat(session_id: str | None, source_filter: dict | None):
+    if not session_id or not _source_filter_has_material(source_filter):
+        return
+    try:
+        from materials.material_rag_service import ensure_session_materials_indexed
+        await ensure_session_materials_indexed(session_id)
+    except Exception as exc:
+        logger.warning("[CHAT] PDF RAG 인덱싱 확인 실패: session=%s, error=%s", session_id, exc)
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
     """기존 비스트리밍 엔드포인트 (호환용)"""
     print(f"[CHAT] 요청 수신: {req.question}")
     try:
+        await _ensure_material_rag_for_chat(req.session_id, req.source_filter)
         # 신창영 : 기존에는 req.session_id 없이 전체 전사문을 대상으로 RAG 검색
         # prompt, citations = _build_prompt_and_citations(req.question)
-        prompt, citations = _build_prompt_and_citations(req.question, req.session_id)
+        prompt, citations = await _build_prompt_and_citations(req.question, req.session_id, req.source_filter)
         messages = [
             {"role": "system", "content": "You are a helpful lecture assistant. Answer in Korean. 반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."},
             {"role": "user", "content": prompt},
         ]
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
-            res = await client.post(
-
-                f"{llm_server_url}/v1/chat/completions",
-                json={
-                    "model": llm_model_name,
-                    "messages": messages,
-                    "max_tokens": 128,
-                    "temperature": 0.7,
-                    "chat_template_kwargs": {"enable_thinking": False},
-                },
-                headers={"Authorization": f"Bearer {llm_api_key}"},
-
-            )
+            if _use_ollama_native_chat():
+                res = await client.post(
+                    _llm_url("/api/chat"),
+                    json=_ollama_chat_payload(messages, req.source_filter, stream=False, thinking=False),
+                )
+            else:
+                res = await client.post(
+                    _llm_url("/v1/chat/completions"),
+                    json=_openai_chat_payload(messages, req.source_filter, stream=False, thinking=False),
+                    headers={"Authorization": f"Bearer {llm_api_key}"},
+                )
+        res.raise_for_status()
         data = res.json()
-        raw_answer = data["choices"][0]["message"]["content"]
+        if _use_ollama_native_chat():
+            raw_answer = (data.get("message") or {}).get("content", "")
+        else:
+            raw_answer = data["choices"][0]["message"]["content"]
         answer = remove_thinking(raw_answer)
+        if not answer:
+            answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
         return {"thinking": "", "answer": answer, "citations": citations}
     except Exception as e:
         print(f"[CHAT] 에러: {e}")
@@ -263,7 +408,8 @@ async def chat_stream(req: ChatRequest):
 
     # 신창영 : 스트리밍 채팅도 session_id를 전달하여 선택 파일 검색을 지원
     # prompt, citations = _build_prompt_and_citations(req.question)
-    prompt, citations = _build_prompt_and_citations(req.question, req.session_id)
+    await _ensure_material_rag_for_chat(req.session_id, req.source_filter)
+    prompt, citations = await _build_prompt_and_citations(req.question, req.session_id, req.source_filter)
     t_rag = time.perf_counter()
     print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
 
@@ -277,47 +423,96 @@ async def chat_stream(req: ChatRequest):
     async def generate():
         first_token_logged = False
         first_token_elapsed = None
+        emitted_content = False
+        emitted_error = False
+        saw_thinking_only = False
 
         # 먼저 citations 전송
         yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
 
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
-                async with client.stream(
-                    "POST",
-                    f"{llm_server_url}/v1/chat/completions",
-                    json={
-                        "model": llm_model_name,
-                        "messages": messages,
-                        "max_tokens": 128,
-                        "temperature": 0.7,
-                        "stream": True,
-                        "chat_template_kwargs": {"enable_thinking": req.is_thinking},
-                    },
-                    headers={"Authorization": f"Bearer {llm_api_key}"},
-                ) as stream:
-                    async for line in stream.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        payload = line[6:]
-                        if payload == "[DONE]":
-                            break
-                        chunk = json.loads(payload)
-                        delta = chunk["choices"][0].get("delta", {})
-                        content = delta.get("content", "")
-                        if content:
-                            if not first_token_logged:
-                                first_token_logged = True
-                                first_token_elapsed = time.perf_counter() - request_started_at
-                                print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
-                            yield f"data: {json.dumps({'type': 'token', 'token': content}, ensure_ascii=False)}\n\n"
+                if _use_ollama_native_chat():
+                    async with client.stream(
+                        "POST",
+                        _llm_url("/api/chat"),
+                        json=_ollama_chat_payload(
+                            messages,
+                            req.source_filter,
+                            stream=True,
+                            thinking=req.is_thinking,
+                        ),
+                    ) as stream:
+                        await _raise_for_llm_stream_error(stream)
+                        async for line in stream.aiter_lines():
+                            if not line.strip():
+                                continue
+                            chunk = json.loads(line)
+                            if chunk.get("error"):
+                                raise RuntimeError(str(chunk["error"]))
+                            message = chunk.get("message") or {}
+                            if message.get("thinking"):
+                                saw_thinking_only = True
+                            content = message.get("content") or ""
+                            if content:
+                                emitted_content = True
+                                if not first_token_logged:
+                                    first_token_logged = True
+                                    first_token_elapsed = time.perf_counter() - request_started_at
+                                    print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
+                                yield f"data: {json.dumps({'type': 'token', 'token': content}, ensure_ascii=False)}\n\n"
+                            if chunk.get("done"):
+                                break
+                else:
+                    async with client.stream(
+                        "POST",
+                        _llm_url("/v1/chat/completions"),
+                        json=_openai_chat_payload(
+                            messages,
+                            req.source_filter,
+                            stream=True,
+                            thinking=req.is_thinking,
+                        ),
+                        headers={"Authorization": f"Bearer {llm_api_key}"},
+                    ) as stream:
+                        await _raise_for_llm_stream_error(stream)
+                        async for line in stream.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            payload = line[6:]
+                            if payload == "[DONE]":
+                                break
+                            chunk = json.loads(payload)
+                            choice = chunk["choices"][0]
+                            delta = choice.get("delta", {})
+                            if delta.get("thinking") or delta.get("reasoning_content"):
+                                saw_thinking_only = True
+                            content = delta.get("content") or (choice.get("message") or {}).get("content") or ""
+                            if content:
+                                emitted_content = True
+                                if not first_token_logged:
+                                    first_token_logged = True
+                                    first_token_elapsed = time.perf_counter() - request_started_at
+                                    print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
+                                yield f"data: {json.dumps({'type': 'token', 'token': content}, ensure_ascii=False)}\n\n"
+            if not emitted_content:
+                emitted_error = True
+                if saw_thinking_only:
+                    message = "모델이 thinking 출력만 반환하고 최종 답변을 반환하지 않았습니다. 다시 질문해 주세요."
+                else:
+                    message = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
+                yield f"data: {json.dumps({'type': 'error', 'error': message}, ensure_ascii=False)}\n\n"
         except Exception as e:
             print(f"[CHAT STREAM] 에러: {e}")
+            emitted_error = True
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
         finally:
             total_elapsed = time.perf_counter() - request_started_at
             first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
-            print(f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, total={total_elapsed:.3f}s")
+            print(
+                f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, "
+                f"content={emitted_content}, error={emitted_error}, total={total_elapsed:.3f}s"
+            )
 
         yield "data: [DONE]\n\n"
 
