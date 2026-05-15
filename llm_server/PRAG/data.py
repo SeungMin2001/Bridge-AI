@@ -199,11 +199,16 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
         atomic_qas = normalize_qas(row.get("atomic_qas"))
         final_qas = normalize_qas(row.get("final_qas"))
         use_row_passage_for_examples = row.get("task") == "korquad_service_transcript_memory"
+        atomic_qas_as_evidence_only = bool(
+            row.get("atomic_qas_as_evidence_only")
+            or row.get("evidence_only_atomic_qas")
+            or row.get("entity_multifact")
+        )
 
         qas = []
         qas.extend(
             (qa, "atomic", passage if use_row_passage_for_examples else qa.get("sub_passage") or passage)
-            for qa in atomic_qas
+            for qa in ([] if atomic_qas_as_evidence_only else atomic_qas)
         )
         qas.extend(
             (
@@ -285,8 +290,14 @@ def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> l
         atomic_qas = normalize_qas(row.get("atomic_qas"))
         final_qas = normalize_qas(row.get("final_qas"))
         use_row_passage_for_examples = row.get("task") == "korquad_service_transcript_memory"
+        atomic_qas_as_evidence_only = bool(
+            row.get("atomic_qas_as_evidence_only")
+            or row.get("evidence_only_atomic_qas")
+            or row.get("entity_multifact")
+        )
         qas = []
-        qas.extend((idx, qa, "atomic") for idx, qa in enumerate(atomic_qas))
+        if not atomic_qas_as_evidence_only:
+            qas.extend((idx, qa, "atomic") for idx, qa in enumerate(atomic_qas))
         qas.extend((idx, qa, "final") for idx, qa in enumerate(final_qas))
         if not qas and row.get("question") and row.get("answer"):
             qas.append((0, {"question": str(row["question"]), "answer": str(row["answer"])}, "direct"))
