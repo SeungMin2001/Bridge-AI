@@ -368,6 +368,42 @@ def score_answer(answer: str, case: dict) -> dict:
     }
 
 
+def mergeprag_first_answer_line(text: str) -> str:
+    text = str(text or "").replace("</think>", "\n").strip()
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return text
+
+
+def mergeprag_normalize_text(text: str) -> str:
+    return "".join(str(text or "").lower().split())
+
+
+def mergeprag_answer_hit(generated: str, expected: str) -> bool:
+    """Legacy mergePRAG-style generation hit: expected phrase in first answer line."""
+
+    return mergeprag_normalize_text(expected) in mergeprag_normalize_text(mergeprag_first_answer_line(generated))
+
+
+def max_mergeprag_hit(prediction: str, references: list[str]) -> bool:
+    return any(mergeprag_answer_hit(prediction, reference) for reference in references)
+
+
+def score_generated_answer(answer: str, case: dict, scoring_style: str) -> dict:
+    scores = score_answer(answer, case)
+    mergeprag_hit = max_mergeprag_hit(answer, accepted_answers(case))
+    scores["mergeprag_hit"] = mergeprag_hit
+    if scoring_style == "mergeprag":
+        # Match mergePRAG's pass/fail-oriented free-generation diagnostic while
+        # still reporting EM/F1 for transparency in the CSV/JSON output.
+        scores["qa_score"] = float(mergeprag_hit)
+    elif scoring_style != "prag":
+        raise ValueError(f"Unsupported scoring style: {scoring_style}")
+    return scores
+
+
 def recall_references(case: dict) -> list[str]:
     """Gold answer values for Recall@K over merged passages.
 
@@ -443,6 +479,7 @@ def evaluate_variant(
     injection_mode: str,
     answer_prefix_tokens: int,
     include_loss: bool,
+    scoring_style: str,
 ) -> dict:
     question = case["question"]
     main_answer = case["main_answer"]
@@ -492,7 +529,7 @@ def evaluate_variant(
         kv_loss = compute_answer_loss(logits, target["labels"])
         prefix_loss = compute_prefix_answer_loss(logits, target["labels"], answer_prefix_tokens)
         phrase_loss = compute_answer_phrase_loss(logits, target["labels"], tokenizer, full_answer, main_answer)
-    scores = score_answer(generated, case)
+    scores = score_generated_answer(generated, case, scoring_style)
     return {
         "loss": None if kv_loss is None else float(kv_loss.item()),
         "prefix_loss": None if prefix_loss is None else float(prefix_loss.item()),
@@ -546,13 +583,15 @@ def print_case_report(
     print(
         "question+passage | "
         f"em={qp['normalized_em']} | f1={fmt(qp['answer_token_f1'])} | "
-        f"qa_score={fmt(qp['qa_score'])} | time={fmt(qp['inference_time_s'])}s"
+        f"qa_score={fmt(qp['qa_score'])} | mergeprag_hit={qp.get('mergeprag_hit')} | "
+        f"time={fmt(qp['inference_time_s'])}s"
     )
     print(f"  answer: {qp['answer']}")
     print(
         "passage-only     | "
         f"em={ponly['normalized_em']} | f1={fmt(ponly['answer_token_f1'])} | "
-        f"qa_score={fmt(ponly['qa_score'])} | time={fmt(ponly['inference_time_s'])}s"
+        f"qa_score={fmt(ponly['qa_score'])} | mergeprag_hit={ponly.get('mergeprag_hit')} | "
+        f"time={fmt(ponly['inference_time_s'])}s"
     )
     print(f"  answer: {ponly['answer']}")
     print(f"pairwise_winner: {winner}")
@@ -649,6 +688,8 @@ def apply_record_to_totals(record: dict, totals: dict, pairwise_counts: dict, *,
             totals["no_memory_token_f1"].append(no_memory_f1)
     totals["qp_em"] += int(as_bool(record.get("qp_normalized_em")))
     totals["ponly_em"] += int(as_bool(record.get("ponly_normalized_em")))
+    totals["qp_mergeprag_hit"] += int(as_bool(record.get("qp_mergeprag_hit")))
+    totals["ponly_mergeprag_hit"] += int(as_bool(record.get("ponly_mergeprag_hit")))
     if include_loss:
         for key, record_key_name in (
             ("qp_loss", "qp_loss"),
@@ -705,8 +746,11 @@ def plot_report(path: Path, summary: dict) -> None:
     metric_specs = [
         ("normalized_em_rate", "EM"),
         ("avg_answer_token_f1", "Token F1"),
+        ("avg_qa_score", "QA Score"),
         ("recall_at_k", "Recall@K"),
     ]
+    if summary.get("scoring_style") == "mergeprag":
+        metric_specs.insert(0, ("mergeprag_hit_rate", "MergePRAG Hit"))
 
     def values_for(specs: list[tuple[str, str]], label: str) -> list[float]:
         return [float(summary[label][key]) for key, _ in specs]
@@ -821,7 +865,13 @@ def main() -> None:
     parser.add_argument("--dataset-merge-max-passages", type=int, default=4)
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--alpha", type=float, default=ALPHA)
-    parser.add_argument("--prompt-style", choices=("service", "short-chat", "memory-cued", "paper"), default="service")
+    parser.add_argument("--prompt-style", choices=("service", "short-chat", "memory-cued", "paper", "mergeprag"), default="service")
+    parser.add_argument(
+        "--scoring-style",
+        choices=("prag", "mergeprag"),
+        default="prag",
+        help="prag: Korean-adapted EM/F1 QA score. mergeprag: first-line short-answer hit used as qa_score.",
+    )
     parser.add_argument("--injection-mode", choices=("attention", "add_all", "add_last", "hybrid"), default="attention")
     parser.add_argument("--answer-prefix-tokens", type=int, default=3)
     parser.add_argument("--quality-tie-threshold", type=float, default=0.025)
@@ -897,6 +947,8 @@ def main() -> None:
         "ponly_token_f1": [],
         "qp_qa_score": [],
         "ponly_qa_score": [],
+        "qp_mergeprag_hit": 0,
+        "ponly_mergeprag_hit": 0,
         "qp_inference_time_s": [],
         "ponly_inference_time_s": [],
         "recall_hits": 0,
@@ -954,6 +1006,7 @@ def main() -> None:
             injection_mode=args.injection_mode,
             answer_prefix_tokens=args.answer_prefix_tokens,
             include_loss=args.include_loss,
+            scoring_style=args.scoring_style,
         )
         ponly_result = evaluate_variant(
             variant=ponly,
@@ -967,9 +1020,9 @@ def main() -> None:
             injection_mode=args.injection_mode,
             answer_prefix_tokens=args.answer_prefix_tokens,
             include_loss=args.include_loss,
+            scoring_style=args.scoring_style,
         )
         winner = compare_quality(qp_result["qa_score"], ponly_result["qa_score"], args.quality_tie_threshold)
-        pairwise_counts[winner] += 1
         if not args.quiet_cases:
             print_case_report(
                 case,
@@ -1006,6 +1059,8 @@ def main() -> None:
             "ponly_answer_token_f1": ponly_result["answer_token_f1"],
             "qp_qa_score": qp_result["qa_score"],
             "ponly_qa_score": ponly_result["qa_score"],
+            "qp_mergeprag_hit": qp_result["mergeprag_hit"],
+            "ponly_mergeprag_hit": ponly_result["mergeprag_hit"],
             "qp_inference_time_s": qp_result["inference_time_s"],
             "ponly_inference_time_s": ponly_result["inference_time_s"],
             "qp_loss": "" if qp_result["loss"] is None else qp_result["loss"],
@@ -1036,6 +1091,7 @@ def main() -> None:
     print("\n" + "=" * 96)
     print("[summary]")
     print(f"cases={totals['count']}")
+    print(f"scoring_style={args.scoring_style}")
     print(f"same_source_merge_rate={totals['same_source_merges'] / denom:.3f}")
     print(f"recall_at_{args.dataset_merge_max_passages}={totals['recall_hits'] / denom:.3f}")
     if args.include_baselines:
@@ -1043,12 +1099,14 @@ def main() -> None:
         print(f"no_memory_em_rate={totals['no_memory_em'] / denom:.3f} avg_token_f1={avg(totals['no_memory_token_f1'])}")
     print(
         f"question+passage_em_rate={totals['qp_em'] / denom:.3f} "
+        f"mergeprag_hit_rate={totals['qp_mergeprag_hit'] / denom:.3f} "
         f"avg_token_f1={avg(totals['qp_token_f1'])} "
         f"avg_qa_score={avg(totals['qp_qa_score'])} "
         f"avg_inference_time_s={avg(totals['qp_inference_time_s'])}"
     )
     print(
         f"passage-only_em_rate={totals['ponly_em'] / denom:.3f} "
+        f"mergeprag_hit_rate={totals['ponly_mergeprag_hit'] / denom:.3f} "
         f"avg_token_f1={avg(totals['ponly_token_f1'])} "
         f"avg_qa_score={avg(totals['ponly_qa_score'])} "
         f"avg_inference_time_s={avg(totals['ponly_inference_time_s'])}"
@@ -1064,11 +1122,13 @@ def main() -> None:
 
     summary = {
         "cases": totals["count"],
+        "scoring_style": args.scoring_style,
         "same_source_merge_rate": totals["same_source_merges"] / denom,
         "recall_k": args.dataset_merge_max_passages,
         "recall_at_k": totals["recall_hits"] / denom,
         "question+passage": {
             "normalized_em_rate": totals["qp_em"] / denom,
+            "mergeprag_hit_rate": totals["qp_mergeprag_hit"] / denom,
             "avg_answer_token_f1": avg_float(totals["qp_token_f1"]),
             "avg_qa_score": avg_float(totals["qp_qa_score"]),
             "recall_at_k": totals["recall_hits"] / denom,
@@ -1076,6 +1136,7 @@ def main() -> None:
         },
         "passage-only": {
             "normalized_em_rate": totals["ponly_em"] / denom,
+            "mergeprag_hit_rate": totals["ponly_mergeprag_hit"] / denom,
             "avg_answer_token_f1": avg_float(totals["ponly_token_f1"]),
             "avg_qa_score": avg_float(totals["ponly_qa_score"]),
             "recall_at_k": totals["recall_hits"] / denom,

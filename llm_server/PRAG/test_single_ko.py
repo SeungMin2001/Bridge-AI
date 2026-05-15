@@ -528,6 +528,48 @@ def build_paper_prompt(question: str) -> str:
     return f"Question: {question}\nAnswer:"
 
 
+def build_mergeprag_prompt(tokenizer, question: str) -> str:
+    """Mirror the legacy mergePRAG service-memory free-generation prompt."""
+
+    if not uses_chat_prompt(tokenizer):
+        return build_paper_prompt(question)
+
+    if contains_hangul(question):
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "당신은 엄격한 수업 메모리 질의응답 조교입니다. "
+                    "주입된 강의 메모리 또는 제공된 강의 내용만 근거로 답하세요. "
+                    "정답 근거가 명시적으로 없으면 정확히 '모름'이라고만 답하세요. "
+                    "추측하지 마세요. 추론 과정을 쓰지 마세요. "
+                    "최종 답만 짧은 구로 출력하세요."
+                ),
+            },
+            {"role": "user", "content": f"질문: {question}\n정답만 짧게 답하세요."},
+        ]
+    else:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a strict lecture-memory QA assistant. "
+                    "Use only the injected lecture memory or the provided lecture content. "
+                    "If the answer is not explicitly supported, answer exactly: Unknown. "
+                    "Do not guess. Do not explain your reasoning. "
+                    "Return only the final answer, preferably a short phrase."
+                ),
+            },
+            {"role": "user", "content": f"Question: {question}\nAnswer with only the short final answer."},
+        ]
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+
+
 def build_generation_prompt(tokenizer, question: str, prompt_style: str) -> str:
     if prompt_style == "service":
         return build_chat_prompt(tokenizer, question)
@@ -537,6 +579,8 @@ def build_generation_prompt(tokenizer, question: str, prompt_style: str) -> str:
         return build_memory_cued_prompt(tokenizer, question)
     if prompt_style == "paper":
         return build_paper_prompt(question)
+    if prompt_style == "mergeprag":
+        return build_mergeprag_prompt(tokenizer, question)
     raise ValueError(f"Unsupported prompt style: {prompt_style}")
 
 
@@ -1132,9 +1176,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--prompt-style",
-        choices=("service", "short-chat", "memory-cued", "paper", "all"),
+        choices=("service", "short-chat", "memory-cued", "paper", "mergeprag", "all"),
         default="service",
-        help="Prompt used for K/V free generation. 'all' compares service, short-chat, memory-cued, and paper prompts.",
+        help="Prompt used for K/V free generation. 'all' compares service, short-chat, memory-cued, paper, and mergeprag prompts.",
     )
     parser.add_argument(
         "--injection-mode",
@@ -1212,7 +1256,7 @@ def main() -> None:
     ).to(device).float()
     hypernet.load_state_dict(state["hypernet"])
     hypernet.eval()
-    prompt_styles = ["service", "short-chat", "memory-cued", "paper"] if args.prompt_style == "all" else [args.prompt_style]
+    prompt_styles = ["service", "short-chat", "memory-cued", "paper", "mergeprag"] if args.prompt_style == "all" else [args.prompt_style]
     injection_modes = (
         ["attention", "add_all", "add_last", "hybrid"]
         if args.injection_mode == "all"
