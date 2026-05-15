@@ -378,7 +378,7 @@ def main():
     )
     parser.add_argument(
         "--question-fusion",
-        choices=("auto", "none", "text_concat", "feature_concat"),
+        choices=("auto", "none", "text_concat", "feature_concat", "kv_adapter"),
         default="auto",
         help="Fusion mode for question-conditioned memory during layer scan.",
     )

@@ -225,8 +225,8 @@ def main() -> None:
     parser.add_argument("--test-data", default=DEFAULT_TEST)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--num-kv", type=int, default=16)
-    parser.add_argument("--qp-question-fusion", choices=("auto", "none", "text_concat", "feature_concat"), default="feature_concat")
-    parser.add_argument("--ponly-question-fusion", choices=("auto", "none", "text_concat", "feature_concat"), default="none")
+    parser.add_argument("--qp-question-fusion", choices=("auto", "none", "text_concat", "feature_concat", "kv_adapter"), default="kv_adapter")
+    parser.add_argument("--ponly-question-fusion", choices=("auto", "none", "text_concat", "feature_concat", "kv_adapter"), default="none")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--scan-lr", type=float, default=1e-4)
@@ -295,6 +295,14 @@ def main() -> None:
             args.qp_scan_output = str(scan_path.with_name(f"{scan_path.stem}_fconcat{scan_path.suffix}"))
         if default_report_requested and not args.report_dir.endswith("_fconcat"):
             args.report_dir = f"{args.report_dir}_fconcat"
+    if args.qp_question_fusion == "kv_adapter":
+        if default_qp_suffix_requested and not args.qp_output_suffix.endswith("_kvadapt"):
+            args.qp_output_suffix = f"{args.qp_output_suffix}_kvadapt"
+        if default_qp_scan_requested:
+            scan_path = Path(args.qp_scan_output)
+            args.qp_scan_output = str(scan_path.with_name(f"{scan_path.stem}_kvadapt{scan_path.suffix}"))
+        if default_report_requested and not args.report_dir.endswith("_kvadapt"):
+            args.report_dir = f"{args.report_dir}_kvadapt"
 
     train_path = Path(args.train)
     valid_path = Path(args.valid)

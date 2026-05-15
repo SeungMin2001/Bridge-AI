@@ -67,10 +67,10 @@ class HyperKVGenerator(nn.Module):
         self.num_kv = num_kv
         self.question_fusion = question_fusion or "none"
         self.legacy = legacy
-        if self.question_fusion not in {"none", "text_concat", "feature_concat"}:
+        if self.question_fusion not in {"none", "text_concat", "feature_concat", "kv_adapter"}:
             raise ValueError(f"Unsupported question_fusion={self.question_fusion!r}")
-        if legacy and self.question_fusion == "feature_concat":
-            raise ValueError("feature_concat question fusion is not supported with legacy HyperKV.")
+        if legacy and self.question_fusion in {"feature_concat", "kv_adapter"}:
+            raise ValueError(f"{self.question_fusion} question fusion is not supported with legacy HyperKV.")
         if legacy:
             self.att_pool = nn.Linear(d_model, 1)
         else:
@@ -81,6 +81,15 @@ class HyperKVGenerator(nn.Module):
                     nn.GELU(),
                     nn.LayerNorm(self.feature_dim),
                 )
+            if self.question_fusion == "kv_adapter":
+                self.k_adapter = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model))
+                self.v_adapter = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model))
+                # Start as the previous text-concat HyperKV path, then learn a
+                # small memory-space correction before orthogonal merge.
+                nn.init.zeros_(self.k_adapter[1].weight)
+                nn.init.zeros_(self.k_adapter[1].bias)
+                nn.init.zeros_(self.v_adapter[1].weight)
+                nn.init.zeros_(self.v_adapter[1].bias)
             self.input_norm = nn.LayerNorm(self.feature_dim)
             self.input_proj = nn.Sequential(
                 nn.Linear(self.feature_dim, d_model),
@@ -149,7 +158,21 @@ class HyperKVGenerator(nn.Module):
         
         K = self.linear_K(hidden)
         V = self.linear_V(hidden)
-        return {"encoded": encoded, "pooled": pooled, "hidden": hidden, "K": K, "V": V, "att_weights": weights}
+        result = {"encoded": encoded, "pooled": pooled, "hidden": hidden, "K": K, "V": V, "att_weights": weights}
+        if self.question_fusion == "kv_adapter":
+            k_delta = self.k_adapter(K)
+            v_delta = self.v_adapter(V)
+            result.update(
+                {
+                    "K_pre_adapter": K,
+                    "V_pre_adapter": V,
+                    "K_adapter_delta": k_delta,
+                    "V_adapter_delta": v_delta,
+                    "K": K + k_delta,
+                    "V": V + v_delta,
+                }
+            )
+        return result
 
 
 def build_memory_text(passage: str, question: str | None = None, question_conditioned: bool = QUESTION_CONDITIONED_MEMORY) -> str:
@@ -161,7 +184,7 @@ def build_memory_text(passage: str, question: str | None = None, question_condit
 
 
 def should_text_condition(question_conditioned: bool, question_fusion: str) -> bool:
-    return bool(question_conditioned and question_fusion == "text_concat")
+    return bool(question_conditioned and question_fusion in {"text_concat", "kv_adapter"})
 
 
 def tokenize_passage(tokenizer, passage: str, device):

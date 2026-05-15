@@ -1741,12 +1741,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--question-fusion",
-        choices=("auto", "none", "text_concat", "feature_concat"),
+        choices=("auto", "none", "text_concat", "feature_concat", "kv_adapter"),
         default="auto",
         help=(
             "How question-conditioned memory is fused. feature_concat encodes "
             "question and passage separately, concatenates their features, then "
-            "projects back to the passage feature size before HyperKV pooling."
+            "projects back to the passage feature size before HyperKV pooling. "
+            "kv_adapter first builds a text-concat question+passage K/V memory, "
+            "then applies a residual K/V adapter before orthogonal merge."
         ),
     )
     parser.add_argument("--train", default=str(AUGMENTED_TRAIN_PATH))
