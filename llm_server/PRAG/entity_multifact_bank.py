@@ -77,6 +77,6 @@ def context_for_index(index: int) -> str:
 
 
 def build_full_answer(entity: str, facts: list[tuple[str, str]]) -> str:
-    parts = [f"{slot}{topic_particle(slot)} {value}" for slot, value in facts]
+    parts = [f"{slot}{topic_particle(slot)} {quoted(value)}" for slot, value in facts]
     body = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f", 그리고 {parts[-1]}"
-    return f"{entity} 설명은 {body}입니다."
+    return f"{entity}에 대해 {body} 설명했습니다."
