@@ -1,0 +1,1956 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LectoAI Front Demo</title>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --ink: #1e293b;
+      --ink-strong: #111827;
+      --muted: #64748b;
+      --soft-muted: #94a3b8;
+      --line: rgba(226, 232, 240, 0.86);
+      --glass: rgba(255, 255, 255, 0.78);
+      --glass-strong: rgba(255, 255, 255, 0.92);
+      --cream: #f4ede4;
+      --cream-deep: #e8dac6;
+      --indigo: #4f46e5;
+      --blue: #2563eb;
+      --green: #2fc07a;
+      --amber: #f59e0b;
+      --rose: #ec4899;
+      --rail: #f8fafc;
+      --shadow: 0 24px 48px rgba(148, 163, 184, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+      --shadow-soft: 0 14px 32px rgba(148, 163, 184, 0.12);
+      --rail-width: 82px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      min-width: 1180px;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(214, 236, 255, 0.42), transparent 30%),
+        radial-gradient(circle at 82% 10%, rgba(232, 218, 198, 0.42), transparent 28%),
+        linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+      color: var(--ink);
+      font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+      overflow: hidden;
+      letter-spacing: 0;
+    }
+
+    button,
+    textarea,
+    input {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      background: none;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .app {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .grid-bg {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(148, 163, 184, 0.12) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: linear-gradient(90deg, transparent 0, black 12%, black 88%, transparent 100%);
+      opacity: 0.52;
+    }
+
+    .rail {
+      width: var(--rail-width);
+      min-width: var(--rail-width);
+      height: 100vh;
+      position: relative;
+      z-index: 10;
+      background: rgba(248, 250, 252, 0.88);
+      border-right: 1px solid rgba(226, 232, 240, 0.72);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 18px 0;
+      box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .logo {
+      width: 54px;
+      height: 54px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      background: #111827;
+      color: white;
+      font-size: 19px;
+      font-weight: 950;
+      letter-spacing: -0.06em;
+      box-shadow: 0 12px 24px rgba(17, 24, 39, 0.16);
+      margin-bottom: 30px;
+    }
+
+    .rail-nav {
+      width: 100%;
+      display: grid;
+      gap: 14px;
+    }
+
+    .rail-item {
+      width: 100%;
+      min-height: 64px;
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      gap: 7px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 850;
+      position: relative;
+      transition: color 0.2s ease;
+    }
+
+    .rail-item::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 0 auto;
+      width: 3px;
+      background: transparent;
+      border-radius: 999px 0 0 999px;
+    }
+
+    .rail-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.52);
+      border: 1px solid rgba(226, 232, 240, 0.78);
+      color: #334155;
+      font-size: 14px;
+      font-weight: 950;
+      transition: all 0.2s ease;
+    }
+
+    .rail-item:hover .rail-icon,
+    .rail-item.is-active .rail-icon,
+    .rail-item.is-open .rail-icon {
+      background: #111827;
+      border-color: #111827;
+      color: white;
+      transform: translateY(-1px);
+    }
+
+    .rail-item.is-active::before,
+    .rail-item.is-open::before {
+      background: var(--blue);
+    }
+
+    .rail-bottom {
+      margin-top: auto;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .plan-badge {
+      height: 23px;
+      padding: 0 9px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      color: #2563eb;
+      background: white;
+      border: 1px solid #dbe7ff;
+      box-shadow: 0 6px 16px rgba(148, 163, 184, 0.14);
+    }
+
+    .main {
+      flex: 1;
+      min-width: 0;
+      height: 100vh;
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+    }
+
+    .topbar {
+      position: absolute;
+      top: 18px;
+      right: 26px;
+      z-index: 12;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-pill,
+    .soft-pill {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 15px;
+      border-radius: 999px;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      background: rgba(255, 255, 255, 0.78);
+      color: #334155;
+      font-size: 12px;
+      font-weight: 900;
+      box-shadow: 0 12px 26px rgba(148, 163, 184, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(18px);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 5px rgba(47, 192, 122, 0.12);
+    }
+
+    .bell {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      color: #111827;
+      font-size: 17px;
+      font-weight: 950;
+    }
+
+    .page {
+      position: absolute;
+      inset: 0;
+      padding: 86px 42px 34px;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .page.is-active {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .home-page {
+      display: grid;
+      grid-template-columns: 320px minmax(620px, 1fr) 330px;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .glass-card {
+      background: var(--glass);
+      border: 1px solid rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(22px) saturate(140%);
+      -webkit-backdrop-filter: blur(22px) saturate(140%);
+      border-radius: 24px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .glass-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.88), transparent 36%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent);
+      pointer-events: none;
+    }
+
+    .panel-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    .home-sidebar {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      min-height: 0;
+    }
+
+    .brand-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink-strong);
+      font-size: 20px;
+      font-weight: 950;
+      letter-spacing: -0.03em;
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: #111827;
+      color: white;
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    .search {
+      height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      border-radius: 18px;
+      background: var(--cream);
+      border: 1px solid rgba(255, 255, 255, 0.82);
+      color: #8e8e93;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 950;
+      letter-spacing: 0.01em;
+      margin: 2px 0;
+    }
+
+    .calendar-mini {
+      padding: 15px;
+      border-radius: 22px;
+      background: var(--cream);
+      border: 1px solid rgba(255, 255, 255, 0.82);
+    }
+
+    .calendar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .calendar-head strong {
+      color: #111827;
+      font-size: 21px;
+      font-weight: 950;
+      letter-spacing: -0.04em;
+    }
+
+    .tiny-btn {
+      min-height: 30px;
+      padding: 0 9px;
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.88);
+      color: #1e293b;
+      font-size: 11px;
+      font-weight: 950;
+    }
+
+    .week-row,
+    .day-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+
+    .week-row {
+      color: #6b7280;
+      font-size: 10px;
+      font-weight: 900;
+      text-align: center;
+      margin-bottom: 7px;
+    }
+
+    .day {
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      color: #1d1d1f;
+      font-size: 12px;
+      font-weight: 850;
+      position: relative;
+    }
+
+    .day.muted {
+      color: #b3b3b7;
+    }
+
+    .day.today,
+    .day.selected {
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.96);
+    }
+
+    .day.has-dot::after {
+      content: "";
+      position: absolute;
+      bottom: 3px;
+      left: 50%;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--green);
+      transform: translateX(-50%);
+    }
+
+    .schedule-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .schedule-item {
+      display: grid;
+      gap: 7px;
+      padding: 11px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(255, 255, 255, 0.78);
+    }
+
+    .chip {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 950;
+      color: #2563eb;
+      background: rgba(37, 99, 235, 0.1);
+    }
+
+    .chip.green {
+      color: #047857;
+      background: rgba(47, 192, 122, 0.12);
+    }
+
+    .chip.amber {
+      color: #b45309;
+      background: rgba(245, 158, 11, 0.13);
+    }
+
+    .chip.dark {
+      color: white;
+      background: #111827;
+    }
+
+    .schedule-item strong {
+      color: #111827;
+      font-size: 13px;
+      font-weight: 950;
+      line-height: 1.35;
+    }
+
+    .schedule-item p {
+      margin: 0;
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 750;
+      line-height: 1.45;
+    }
+
+    .hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+      padding: 12px 24px 80px;
+    }
+
+    .hero-illust {
+      width: 122px;
+      height: 88px;
+      border-radius: 28px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 16px;
+      color: var(--indigo);
+      font-size: 42px;
+      font-weight: 950;
+      background:
+        radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.9), transparent 38%),
+        linear-gradient(145deg, rgba(219, 234, 254, 0.96), rgba(244, 237, 228, 0.78));
+      border: 1px solid rgba(255, 255, 255, 0.82);
+      box-shadow: var(--shadow-soft);
+      transform: rotate(-4deg);
+    }
+
+    .headline {
+      margin: 0 0 28px;
+      color: #1d1d1f;
+      font-size: 33px;
+      line-height: 1.18;
+      font-weight: 950;
+      letter-spacing: -0.04em;
+      text-align: center;
+    }
+
+    .headline span {
+      color: var(--blue);
+    }
+
+    .composer {
+      width: min(760px, 100%);
+      padding: 14px;
+      border-radius: 26px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(255, 255, 255, 0.86);
+      box-shadow:
+        inset 5px 5px 12px rgba(203, 213, 225, 0.48),
+        inset -6px -6px 14px rgba(255, 255, 255, 0.92),
+        0 20px 48px rgba(148, 163, 184, 0.12);
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 76px;
+      resize: none;
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: #1d1d1f;
+      padding: 10px 12px;
+      font-size: 15px;
+      font-weight: 760;
+      line-height: 1.55;
+    }
+
+    .composer textarea::placeholder {
+      color: rgba(29, 29, 31, 0.42);
+    }
+
+    .composer-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4px 2px;
+    }
+
+    .model-select {
+      height: 38px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 13px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      color: #111827;
+      font-size: 14px;
+      font-weight: 950;
+    }
+
+    .composer-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .round-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: #111827;
+      color: white;
+      font-size: 16px;
+      font-weight: 950;
+      box-shadow: 0 12px 24px rgba(17, 24, 39, 0.16);
+    }
+
+    .ghost-round {
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      color: #475569;
+      box-shadow: none;
+    }
+
+    .demo-answer {
+      width: min(760px, 100%);
+      display: none;
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(226, 232, 240, 0.92);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .demo-answer.is-visible {
+      display: block;
+      animation: rise 0.2s ease;
+    }
+
+    .demo-answer strong {
+      display: block;
+      margin-bottom: 7px;
+      color: #111827;
+      font-size: 14px;
+      font-weight: 950;
+    }
+
+    .demo-answer p {
+      margin: 0;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.65;
+    }
+
+    .demo-answer .sources {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 12px;
+    }
+
+    .home-right {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .stats-card,
+    .recent-card,
+    .ai-card {
+      padding: 16px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .stat {
+      min-height: 82px;
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(226, 232, 240, 0.72);
+    }
+
+    .stat strong {
+      color: #111827;
+      font-size: 23px;
+      font-weight: 950;
+      letter-spacing: -0.03em;
+    }
+
+    .stat span {
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 850;
+    }
+
+    .recent-files {
+      display: grid;
+      gap: 10px;
+    }
+
+    .file-card {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      padding: 10px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(226, 232, 240, 0.72);
+      text-align: left;
+    }
+
+    .file-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 13px;
+      color: #2563eb;
+      background: rgba(37, 99, 235, 0.11);
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    .file-card strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #111827;
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    .file-card span {
+      display: block;
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 760;
+      margin-top: 3px;
+    }
+
+    .quick-panel {
+      position: absolute;
+      left: var(--rail-width);
+      top: 78px;
+      z-index: 30;
+      width: 462px;
+      padding: 22px;
+      border-radius: 24px;
+      background: var(--glass-strong);
+      border: 1px solid rgba(255, 255, 255, 0.92);
+      box-shadow: 0 26px 54px rgba(15, 23, 42, 0.14);
+      backdrop-filter: blur(22px) saturate(150%);
+      opacity: 0;
+      transform: translateX(-12px) scale(0.98);
+      pointer-events: none;
+      transition: 0.18s ease;
+    }
+
+    .quick-panel::before {
+      content: "";
+      position: absolute;
+      left: -9px;
+      top: 28px;
+      width: 18px;
+      height: 18px;
+      background: var(--glass-strong);
+      transform: rotate(45deg);
+      border-left: 1px solid rgba(255, 255, 255, 0.92);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.92);
+    }
+
+    .app.is-panel-open .quick-panel {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .quick-panel h2 {
+      margin: 0 0 18px;
+      color: #111827;
+      font-size: 18px;
+      font-weight: 950;
+      letter-spacing: -0.02em;
+    }
+
+    .quick-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 11px;
+    }
+
+    .quick-action {
+      min-height: 92px;
+      display: grid;
+      justify-items: start;
+      align-content: space-between;
+      padding: 12px;
+      border-radius: 18px;
+      background: #f8fafc;
+      border: 1px solid rgba(226, 232, 240, 0.86);
+      text-align: left;
+      transition: transform 0.18s ease, background 0.18s ease;
+    }
+
+    .quick-action:hover {
+      transform: translateY(-2px);
+      background: white;
+    }
+
+    .quick-action .mini {
+      width: 31px;
+      height: 31px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: rgba(79, 70, 229, 0.12);
+      color: var(--indigo);
+      font-size: 11px;
+      font-weight: 950;
+    }
+
+    .quick-action strong {
+      color: #111827;
+      font-size: 12px;
+      font-weight: 950;
+      line-height: 1.35;
+    }
+
+    .workspace-page {
+      display: grid;
+      grid-template-columns: 284px minmax(560px, 1fr) 330px;
+      gap: 14px;
+    }
+
+    .project-sidebar {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .folder-tree {
+      display: grid;
+      gap: 8px;
+      overflow: hidden auto;
+      padding-right: 3px;
+    }
+
+    .tree-item {
+      min-height: 43px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 11px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.48);
+      border: 1px solid rgba(226, 232, 240, 0.68);
+      color: #334155;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .tree-item.is-active {
+      background: var(--cream);
+      border-color: rgba(226, 213, 195, 0.9);
+      color: #111827;
+    }
+
+    .tree-icon {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: white;
+      color: var(--blue);
+      font-size: 10px;
+      font-weight: 950;
+    }
+
+    .workspace-shell {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      box-shadow: 0 26px 52px rgba(148, 163, 184, 0.1);
+      border-radius: 24px;
+      overflow: hidden;
+    }
+
+    .workspace-header {
+      min-height: 74px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+      background: rgba(248, 250, 252, 0.8);
+    }
+
+    .workspace-title {
+      min-width: 0;
+    }
+
+    .workspace-title strong {
+      display: block;
+      color: #111827;
+      font-size: 20px;
+      font-weight: 950;
+      letter-spacing: -0.03em;
+    }
+
+    .workspace-title span {
+      display: block;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 780;
+      margin-top: 3px;
+    }
+
+    .record-controls {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .record-btn,
+    .tool-btn {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 13px;
+      border-radius: 14px;
+      color: #334155;
+      background: white;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      font-size: 12px;
+      font-weight: 950;
+    }
+
+    .record-btn {
+      color: white;
+      background: #111827;
+      border-color: #111827;
+    }
+
+    .record-btn.is-on {
+      background: #dc2626;
+      border-color: #dc2626;
+    }
+
+    .audio-bars {
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: rgba(241, 245, 249, 0.9);
+    }
+
+    .audio-bars i {
+      width: 4px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--blue);
+      opacity: 0.35;
+    }
+
+    .app.is-recording .audio-bars i {
+      animation: pulse-bar 0.9s ease-in-out infinite;
+      opacity: 0.85;
+    }
+
+    .audio-bars i:nth-child(2) { animation-delay: 0.1s; height: 15px; }
+    .audio-bars i:nth-child(3) { animation-delay: 0.2s; height: 22px; }
+    .audio-bars i:nth-child(4) { animation-delay: 0.3s; height: 12px; }
+
+    .workspace-body {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 282px;
+      gap: 0;
+    }
+
+    .note-area {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.78), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.46));
+    }
+
+    .tabbar {
+      height: 54px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.72);
+    }
+
+    .tab-btn {
+      height: 34px;
+      padding: 0 13px;
+      border-radius: 999px;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 950;
+      transition: all 0.18s ease;
+    }
+
+    .tab-btn.is-active {
+      color: #111827;
+      background: var(--cream-deep);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+    }
+
+    .tab-panel {
+      display: none;
+      flex: 1;
+      min-height: 0;
+      padding: 24px;
+      overflow: auto;
+    }
+
+    .tab-panel.is-active {
+      display: block;
+    }
+
+    .note-title {
+      margin: 0 0 14px;
+      color: #cbd5e1;
+      font-size: 28px;
+      font-weight: 950;
+      letter-spacing: -0.04em;
+    }
+
+    .note-text {
+      min-height: 160px;
+      color: #334155;
+      font-size: 15px;
+      line-height: 1.7;
+      font-weight: 700;
+      outline: none;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .summary-card,
+    .quiz-card {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(248, 250, 252, 0.9);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+    }
+
+    .summary-card h3,
+    .quiz-card h3 {
+      margin: 0 0 9px;
+      color: #111827;
+      font-size: 15px;
+      font-weight: 950;
+    }
+
+    .summary-card p,
+    .quiz-card p,
+    .quiz-card li {
+      color: #475569;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.6;
+    }
+
+    .quiz-card ol {
+      margin: 8px 0 0;
+      padding-left: 20px;
+    }
+
+    .transcript-panel {
+      border-left: 1px solid rgba(226, 232, 240, 0.86);
+      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .transcript-head {
+      padding: 16px;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.86);
+    }
+
+    .transcript-head strong {
+      display: block;
+      color: #111827;
+      font-size: 14px;
+      font-weight: 950;
+    }
+
+    .transcript-head span {
+      display: block;
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 760;
+      margin-top: 3px;
+    }
+
+    .transcripts {
+      flex: 1;
+      overflow: auto;
+      padding: 14px;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .transcript {
+      padding: 11px;
+      border-radius: 15px;
+      background: white;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+    }
+
+    .transcript b {
+      color: #111827;
+      font-size: 11px;
+      font-weight: 950;
+    }
+
+    .transcript p {
+      margin: 5px 0 0;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    .ai-side {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .ai-messages {
+      flex: 1;
+      overflow: auto;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .bubble {
+      padding: 12px;
+      border-radius: 17px;
+      font-size: 12px;
+      font-weight: 720;
+      line-height: 1.58;
+    }
+
+    .bubble.ai {
+      background: rgba(248, 250, 252, 0.95);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      color: #334155;
+      border-top-left-radius: 5px;
+    }
+
+    .bubble.user {
+      justify-self: end;
+      max-width: 88%;
+      background: #111827;
+      color: white;
+      border-top-right-radius: 5px;
+    }
+
+    .source-list {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(226, 232, 240, 0.9);
+      display: grid;
+      gap: 6px;
+    }
+
+    .source {
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .ai-input {
+      display: flex;
+      gap: 8px;
+      padding: 9px;
+      border-radius: 17px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+    }
+
+    .ai-input input {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: #111827;
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .send-small {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      color: white;
+      background: #111827;
+      font-size: 13px;
+      font-weight: 950;
+    }
+
+    .library-page {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .library-main,
+    .schedule-main {
+      padding: 22px;
+      overflow: hidden;
+    }
+
+    .page-title {
+      margin: 0 0 18px;
+      color: #111827;
+      font-size: 26px;
+      font-weight: 950;
+      letter-spacing: -0.04em;
+    }
+
+    .library-table {
+      display: grid;
+      gap: 9px;
+    }
+
+    .library-row {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) 110px 110px;
+      align-items: center;
+      gap: 12px;
+      min-height: 62px;
+      padding: 0 14px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+    }
+
+    .library-row strong {
+      color: #111827;
+      font-size: 14px;
+      font-weight: 950;
+    }
+
+    .library-row span {
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .schedule-page {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 16px;
+    }
+
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .month-day {
+      min-height: 86px;
+      padding: 9px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.64);
+      border: 1px solid rgba(226, 232, 240, 0.78);
+      color: #334155;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .month-day.is-today {
+      background: var(--cream);
+      border-color: rgba(226, 213, 195, 0.9);
+    }
+
+    .event-pill {
+      display: block;
+      margin-top: 7px;
+      padding: 5px 7px;
+      border-radius: 9px;
+      background: rgba(37, 99, 235, 0.1);
+      color: #2563eb;
+      font-size: 10px;
+      font-weight: 950;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .event-pill.pending {
+      background: rgba(245, 158, 11, 0.14);
+      color: #b45309;
+    }
+
+    .toast {
+      position: absolute;
+      left: 50%;
+      bottom: 24px;
+      z-index: 80;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      border-radius: 999px;
+      background: #111827;
+      color: white;
+      font-size: 13px;
+      font-weight: 900;
+      box-shadow: 0 18px 34px rgba(15, 23, 42, 0.2);
+      transform: translate(-50%, 18px);
+      opacity: 0;
+      pointer-events: none;
+      transition: 0.2s ease;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    @keyframes pulse-bar {
+      0%, 100% { transform: scaleY(0.55); opacity: 0.35; }
+      50% { transform: scaleY(1.3); opacity: 1; }
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app" data-page="home">
+    <div class="grid-bg"></div>
+
+    <aside class="rail" aria-label="주 메뉴">
+      <button class="logo" data-nav="home" type="button" aria-label="홈">Le</button>
+      <nav class="rail-nav">
+        <button class="rail-item" id="newTaskButton" type="button">
+          <span class="rail-icon">+</span>
+          <span>새 작업</span>
+        </button>
+        <button class="rail-item is-active" data-nav="home" type="button">
+          <span class="rail-icon">AI</span>
+          <span>AI 채팅</span>
+        </button>
+        <button class="rail-item" data-nav="workspace" type="button">
+          <span class="rail-icon">REC</span>
+          <span>작업실</span>
+        </button>
+        <button class="rail-item" data-nav="library" type="button">
+          <span class="rail-icon">LIB</span>
+          <span>내 자료</span>
+        </button>
+        <button class="rail-item" data-nav="schedule" type="button">
+          <span class="rail-icon">CAL</span>
+          <span>일정</span>
+        </button>
+      </nav>
+      <div class="rail-bottom">
+        <span>DEMO</span>
+        <span class="plan-badge">Frontend</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <span class="status-pill"><i class="status-dot"></i>백엔드 없이 데모 데이터</span>
+        <button class="soft-pill" data-nav="workspace" type="button">작업실 열기</button>
+        <button class="bell" type="button" aria-label="알림">!</button>
+      </header>
+
+      <section class="page home-page is-active" data-page-panel="home" aria-label="홈">
+        <aside class="home-sidebar glass-card">
+          <div class="panel-content brand-line">
+            <div class="brand">
+              <span class="brand-mark">Le</span>
+              <span>LectoAI</span>
+            </div>
+            <button class="tiny-btn" type="button">새 파일</button>
+          </div>
+
+          <div class="panel-content search">검색  강의명, 회의록, 자료</div>
+
+          <section class="panel-content calendar-mini">
+            <div class="calendar-head">
+              <strong>5월</strong>
+              <button class="tiny-btn" data-nav="schedule" type="button">일정관리</button>
+            </div>
+            <div class="week-row">
+              <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+            </div>
+            <div class="day-grid">
+              <span class="day muted">26</span><span class="day muted">27</span><span class="day muted">28</span><span class="day muted">29</span><span class="day muted">30</span><span class="day">1</span><span class="day">2</span>
+              <span class="day">3</span><span class="day">4</span><span class="day has-dot">5</span><span class="day">6</span><span class="day has-dot">7</span><span class="day">8</span><span class="day">9</span>
+              <span class="day">10</span><span class="day">11</span><span class="day">12</span><span class="day has-dot">13</span><span class="day">14</span><span class="day today selected has-dot">15</span><span class="day">16</span>
+              <span class="day">17</span><span class="day">18</span><span class="day">19</span><span class="day">20</span><span class="day has-dot">21</span><span class="day">22</span><span class="day">23</span>
+              <span class="day">24</span><span class="day">25</span><span class="day">26</span><span class="day">27</span><span class="day">28</span><span class="day">29</span><span class="day">30</span>
+            </div>
+          </section>
+
+          <div class="panel-content section-title">AI 감지 일정 <span class="chip amber">2</span></div>
+          <div class="panel-content schedule-list">
+            <article class="schedule-item">
+              <span class="chip amber">확인 필요</span>
+              <strong>운영체제 과제 제출</strong>
+              <p>전사에서 "다음 주 금요일까지 제출" 문장을 감지했습니다.</p>
+            </article>
+            <article class="schedule-item">
+              <span class="chip green">예정</span>
+              <strong>팀 미팅 리허설</strong>
+              <p>오후 3:00 - 4:00 · 프로젝트 회의록 연결됨</p>
+            </article>
+          </div>
+        </aside>
+
+        <section class="hero">
+          <div class="hero-illust">AI</div>
+          <h1 class="headline">강의와 회의를 <span>전사, 요약, 일정화</span>하세요</h1>
+          <div class="composer" role="search">
+            <textarea id="homeInput" placeholder="예: CPU와 레지스터 내용을 강의 전사 기준으로 요약해줘"></textarea>
+            <div class="composer-footer">
+              <button class="model-select" type="button"><span class="chip dark">RAG</span> Lecto 검색 모델</button>
+              <div class="composer-actions">
+                <button class="round-btn ghost-round" id="attachButton" type="button">+</button>
+                <button class="round-btn" id="homeSendButton" type="button">↑</button>
+              </div>
+            </div>
+          </div>
+          <article class="demo-answer" id="homeAnswer">
+            <strong>데모 응답</strong>
+            <p>CPU는 명령어를 해석하고 실행하는 핵심 장치이며, 레지스터는 연산 중 필요한 값을 아주 빠르게 저장하는 임시 공간입니다. LectoAI는 전사 텍스트와 업로드 자료를 함께 검색해 답변과 출처를 제공합니다.</p>
+            <div class="sources">
+              <span class="chip">1주차 전사 06:00</span>
+              <span class="chip">컴퓨터구조.pdf p.12</span>
+            </div>
+          </article>
+        </section>
+
+        <aside class="home-right">
+          <section class="stats-card glass-card">
+            <div class="panel-content section-title">프로젝트 상태</div>
+            <div class="panel-content stats-grid">
+              <div class="stat"><strong>18</strong><span>저장된 전사</span></div>
+              <div class="stat"><strong>6</strong><span>AI 요약</span></div>
+              <div class="stat"><strong>4</strong><span>업로드 자료</span></div>
+              <div class="stat"><strong>9</strong><span>추출 일정</span></div>
+            </div>
+          </section>
+
+          <section class="recent-card glass-card">
+            <div class="panel-content section-title">최근 연 파일</div>
+            <div class="panel-content recent-files">
+              <button class="file-card" data-nav="workspace" type="button">
+                <span class="file-icon">REC</span>
+                <span><strong>컴퓨터구조 1주차</strong><span>강의 · 오늘 오후 3:20</span></span>
+                <span class="chip">강의</span>
+              </button>
+              <button class="file-card" data-nav="workspace" type="button">
+                <span class="file-icon" style="color:#ec4899;background:rgba(236,72,153,.12)">MTG</span>
+                <span><strong>캡스톤 회의록</strong><span>회의 · 어제 오후 8:10</span></span>
+                <span class="chip">회의</span>
+              </button>
+              <button class="file-card" data-nav="workspace" type="button">
+                <span class="file-icon" style="color:#047857;background:rgba(47,192,122,.12)">PDF</span>
+                <span><strong>운영체제_ch02.pdf</strong><span>자료 · 5월 14일</span></span>
+                <span class="chip">자료</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="ai-card glass-card">
+            <div class="panel-content section-title">가능한 프론트 기능</div>
+            <div class="panel-content schedule-list">
+              <article class="schedule-item">
+                <span class="chip">녹음 UI</span>
+                <strong>실시간 전사 화면</strong>
+                <p>데모 문장, 화자 구분, 오디오 레벨 애니메이션을 표시합니다.</p>
+              </article>
+              <article class="schedule-item">
+                <span class="chip">AI UI</span>
+                <strong>요약·퀴즈·출처 답변</strong>
+                <p>백엔드 없이 고정 응답과 출처 칩으로 흐름을 확인합니다.</p>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="page workspace-page" data-page-panel="workspace" aria-label="작업실">
+        <aside class="project-sidebar glass-card">
+          <div class="panel-content brand-line">
+            <div class="brand"><span class="brand-mark">W</span><span>작업실</span></div>
+            <button class="tiny-btn" type="button">접기</button>
+          </div>
+          <div class="panel-content search">자료와 녹음 검색</div>
+          <div class="panel-content section-title">즐겨찾기</div>
+          <div class="panel-content folder-tree">
+            <button class="tree-item is-active" type="button"><span class="tree-icon">F</span>컴퓨터구조</button>
+            <button class="tree-item" type="button"><span class="tree-icon">F</span>캡스톤 프로젝트</button>
+            <button class="tree-item" type="button"><span class="tree-icon">R</span>1주차 CPU와 레지스터</button>
+            <button class="tree-item" type="button"><span class="tree-icon">P</span>운영체제_ch02.pdf</button>
+          </div>
+          <div class="panel-content section-title">이번 주</div>
+          <div class="panel-content schedule-list">
+            <article class="schedule-item">
+              <span class="chip">녹음 2개</span>
+              <strong>2026. 5. 15. 금요일</strong>
+              <p>강의 자료 1개, 화자분리 회의록 1개</p>
+            </article>
+          </div>
+        </aside>
+
+        <section class="workspace-shell">
+          <header class="workspace-header">
+            <div class="workspace-title">
+              <strong>컴퓨터구조 1주차</strong>
+              <span>자료 기반 노트 · 실시간 전사 · AI 요약</span>
+            </div>
+            <div class="record-controls">
+              <span class="audio-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              <button class="record-btn" id="recordButton" type="button">녹음 시작</button>
+              <button class="tool-btn" type="button">자료 업로드</button>
+            </div>
+          </header>
+          <div class="workspace-body">
+            <section class="note-area">
+              <nav class="tabbar">
+                <button class="tab-btn is-active" data-tab="note" type="button">메모</button>
+                <button class="tab-btn" data-tab="summary" type="button">요약</button>
+                <button class="tab-btn" data-tab="quiz" type="button">퀴즈</button>
+              </nav>
+              <div class="tab-panel is-active" data-tab-panel="note">
+                <h2 class="note-title">컴퓨터구조 1주차</h2>
+                <div class="note-text" contenteditable="true">
+                  CPU는 명령어를 해석하고 실행하는 장치다. 레지스터는 연산 과정에서 사용하는 초고속 임시 저장 공간이며, 메모리보다 빠르게 접근할 수 있다.
+                  <br><br>
+                  여기에 수업 중 메모를 직접 작성하거나 PDF/PPT 자료를 드래그해 연결하는 흐름을 데모로 표현했다.
+                </div>
+              </div>
+              <div class="tab-panel" data-tab-panel="summary">
+                <div class="summary-grid">
+                  <article class="summary-card">
+                    <h3>전체 요약</h3>
+                    <p>CPU, 레지스터, 메모리 계층 구조의 차이를 설명했고, 프로그램 실행 과정에서 명령어 인출과 해석이 어떻게 연결되는지 다뤘습니다.</p>
+                  </article>
+                  <article class="summary-card">
+                    <h3>핵심 키워드</h3>
+                    <p>CPU · 레지스터 · ALU · 제어장치 · 메모리 계층 · 명령어 사이클</p>
+                  </article>
+                  <article class="summary-card">
+                    <h3>화자별 요약</h3>
+                    <p>교수: 개념 설명 중심. 학생: 레지스터와 캐시의 차이를 질문함.</p>
+                  </article>
+                  <article class="summary-card">
+                    <h3>노트에 추가됨</h3>
+                    <p>시험 대비 문장 3개와 참고 출처 2개가 정리 노트에 저장된 상태로 표시됩니다.</p>
+                  </article>
+                </div>
+              </div>
+              <div class="tab-panel" data-tab-panel="quiz">
+                <article class="quiz-card">
+                  <h3>AI 퀴즈 데모</h3>
+                  <ol>
+                    <li>CPU의 주요 구성 요소 두 가지를 쓰시오.</li>
+                    <li>레지스터가 일반 메모리보다 빠르게 사용되는 이유를 설명하시오.</li>
+                    <li>명령어 사이클의 순서를 간단히 정리하시오.</li>
+                  </ol>
+                </article>
+              </div>
+            </section>
+
+            <aside class="transcript-panel">
+              <div class="transcript-head">
+                <strong>실시간 전사</strong>
+                <span id="recordingTime">00:00:00 · 대기 중</span>
+              </div>
+              <div class="transcripts">
+                <article class="transcript">
+                  <b>교수 · 00:06</b>
+                  <p>컴퓨터의 구조에서 가장 핵심이 되는 부품은 CPU입니다.</p>
+                </article>
+                <article class="transcript">
+                  <b>교수 · 00:42</b>
+                  <p>레지스터는 초고속 임시 저장 공간이라 명령 실행 중 필요한 값을 빠르게 보관합니다.</p>
+                </article>
+                <article class="transcript">
+                  <b>학생 · 01:18</b>
+                  <p>캐시 메모리와 레지스터는 어떤 차이가 있나요?</p>
+                </article>
+                <article class="transcript">
+                  <b>교수 · 01:47</b>
+                  <p>레지스터는 CPU 내부에 있고 캐시는 메모리 접근 속도를 보완하는 계층입니다.</p>
+                </article>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <aside class="ai-side glass-card">
+          <div class="panel-content section-title">Lecto AI Assistant <span class="chip dark">출처 검색</span></div>
+          <div class="panel-content ai-messages" id="workspaceMessages">
+            <div class="bubble ai">
+              선택한 자료와 전사 범위 안에서 답변합니다.
+              <div class="source-list">
+                <span class="source">현재 소스: 1주차 전사, 운영체제_ch02.pdf</span>
+              </div>
+            </div>
+            <div class="bubble user">레지스터를 쉽게 설명해줘</div>
+            <div class="bubble ai">
+              레지스터는 CPU가 바로 꺼내 쓰는 작은 작업대입니다. 계산 중인 값이나 다음 명령 주소를 아주 빠르게 저장합니다.
+              <div class="source-list">
+                <span class="source">1. 1주차 CPU와 레지스터 · 06:00</span>
+                <span class="source">2. 컴퓨터구조.pdf · p.12</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel-content ai-input">
+            <input id="workspaceAiInput" placeholder="선택한 자료에 질문하기">
+            <button class="send-small" id="workspaceSendButton" type="button">↑</button>
+          </div>
+        </aside>
+      </section>
+
+      <section class="page library-page" data-page-panel="library" aria-label="내 자료">
+        <aside class="project-sidebar glass-card">
+          <div class="panel-content brand-line">
+            <div class="brand"><span class="brand-mark">L</span><span>라이브러리</span></div>
+          </div>
+          <div class="panel-content search">폴더 검색</div>
+          <div class="panel-content folder-tree">
+            <button class="tree-item is-active" type="button"><span class="tree-icon">F</span>전체 자료</button>
+            <button class="tree-item" type="button"><span class="tree-icon">F</span>컴퓨터구조</button>
+            <button class="tree-item" type="button"><span class="tree-icon">F</span>데이터베이스</button>
+            <button class="tree-item" type="button"><span class="tree-icon">F</span>캡스톤</button>
+          </div>
+        </aside>
+        <section class="library-main glass-card">
+          <div class="panel-content">
+            <h1 class="page-title">내 자료</h1>
+            <div class="library-table">
+              <div class="library-row">
+                <span class="file-icon">REC</span>
+                <div><strong>컴퓨터구조 1주차 녹음</strong><br><span>화자분리 전사 · 요약 생성 완료</span></div>
+                <span>2026. 5. 15</span>
+                <span class="chip green">완료</span>
+              </div>
+              <div class="library-row">
+                <span class="file-icon">PDF</span>
+                <div><strong>운영체제_ch02.pdf</strong><br><span>PDF 근거 검색 가능 · 22페이지</span></div>
+                <span>2026. 5. 14</span>
+                <span class="chip">자료</span>
+              </div>
+              <div class="library-row">
+                <span class="file-icon">MTG</span>
+                <div><strong>캡스톤 회의록</strong><br><span>일정 2개 추출 · 담당자별 할 일 정리</span></div>
+                <span>2026. 5. 13</span>
+                <span class="chip amber">확인</span>
+              </div>
+              <div class="library-row">
+                <span class="file-icon">QUIZ</span>
+                <div><strong>컴퓨터구조 중간 대비 퀴즈</strong><br><span>전사와 자료 기반 객관식 12문항</span></div>
+                <span>2026. 5. 12</span>
+                <span class="chip">퀴즈</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="page schedule-page" data-page-panel="schedule" aria-label="일정관리">
+        <section class="schedule-main glass-card">
+          <div class="panel-content">
+            <h1 class="page-title">일정관리</h1>
+            <div class="week-row" style="margin-bottom: 8px">
+              <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+            </div>
+            <div class="month-grid">
+              <div class="month-day">10</div>
+              <div class="month-day">11</div>
+              <div class="month-day">12<span class="event-pill">데이터베이스 수업</span></div>
+              <div class="month-day">13<span class="event-pill pending">캡스톤 회의 확인</span></div>
+              <div class="month-day">14</div>
+              <div class="month-day is-today">15<span class="event-pill">팀 미팅</span><span class="event-pill pending">과제 제출 감지</span></div>
+              <div class="month-day">16</div>
+              <div class="month-day">17</div>
+              <div class="month-day">18</div>
+              <div class="month-day">19<span class="event-pill">운영체제 퀴즈</span></div>
+              <div class="month-day">20</div>
+              <div class="month-day">21<span class="event-pill">발표 리허설</span></div>
+              <div class="month-day">22</div>
+              <div class="month-day">23</div>
+            </div>
+          </div>
+        </section>
+        <aside class="home-right">
+          <section class="ai-card glass-card">
+            <div class="panel-content section-title">확인 필요한 일정</div>
+            <div class="panel-content schedule-list">
+              <article class="schedule-item" data-confirm-card>
+                <span class="chip amber" data-status-chip>확인 필요</span>
+                <strong>운영체제 과제 제출</strong>
+                <p>전사: "다음 주 금요일까지 ch02 과제 제출"</p>
+                <button class="tiny-btn confirm-schedule" type="button">확정</button>
+              </article>
+              <article class="schedule-item">
+                <span class="chip green">예정</span>
+                <strong>팀 미팅</strong>
+                <p>오늘 오후 3:00 - 4:00</p>
+              </article>
+            </div>
+          </section>
+          <section class="ai-card glass-card">
+            <div class="panel-content section-title">캘린더 내보내기</div>
+            <div class="panel-content schedule-list">
+              <article class="schedule-item">
+                <span class="chip">ICS</span>
+                <strong>Google 캘린더 연동</strong>
+                <p>현재 프로젝트는 확정 일정을 `.ics` 파일로 내보내는 프론트 흐름을 가지고 있습니다.</p>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <section class="quick-panel" aria-label="새 작업">
+      <h2>새 작업</h2>
+      <div class="quick-grid">
+        <button class="quick-action" data-quick="record" type="button"><span class="mini">REC</span><strong>강의 녹음 시작</strong></button>
+        <button class="quick-action" data-quick="meeting" type="button"><span class="mini">MTG</span><strong>회의 화자분리</strong></button>
+        <button class="quick-action" data-quick="upload" type="button"><span class="mini">PDF</span><strong>자료 업로드</strong></button>
+        <button class="quick-action" data-quick="summary" type="button"><span class="mini">SUM</span><strong>요약 생성</strong></button>
+        <button class="quick-action" data-quick="quiz" type="button"><span class="mini">QZ</span><strong>퀴즈 만들기</strong></button>
+        <button class="quick-action" data-quick="schedule" type="button"><span class="mini">CAL</span><strong>일정 추가</strong></button>
+      </div>
+    </section>
+
+    <div class="toast" id="toast">데모 동작이 실행되었습니다.</div>
+  </div>
+
+  <script>
+    const app = document.getElementById('app');
+    const toast = document.getElementById('toast');
+    const navButtons = Array.from(document.querySelectorAll('[data-nav]'));
+    const pagePanels = Array.from(document.querySelectorAll('[data-page-panel]'));
+    const newTaskButton = document.getElementById('newTaskButton');
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('show');
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 1600);
+    }
+
+    function setPage(page) {
+      app.dataset.page = page;
+      app.classList.remove('is-panel-open');
+
+      pagePanels.forEach((panel) => {
+        panel.classList.toggle('is-active', panel.dataset.pagePanel === page);
+      });
+
+      navButtons.forEach((button) => {
+        button.classList.toggle('is-active', button.dataset.nav === page);
+      });
+
+      newTaskButton.classList.remove('is-open');
+    }
+
+    navButtons.forEach((button) => {
+      button.addEventListener('click', () => setPage(button.dataset.nav));
+    });
+
+    newTaskButton.addEventListener('click', () => {
+      app.classList.toggle('is-panel-open');
+      newTaskButton.classList.toggle('is-open', app.classList.contains('is-panel-open'));
+    });
+
+    document.querySelectorAll('[data-quick]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const action = button.dataset.quick;
+        app.classList.remove('is-panel-open');
+        newTaskButton.classList.remove('is-open');
+
+        if (action === 'schedule') {
+          setPage('schedule');
+          showToast('일정 추가 화면을 데모로 열었습니다.');
+          return;
+        }
+
+        setPage('workspace');
+        if (action === 'record' || action === 'meeting') {
+          startRecording();
+          showToast(action === 'meeting' ? '회의 화자분리 녹음 데모를 시작했습니다.' : '강의 녹음 데모를 시작했습니다.');
+        } else if (action === 'quiz') {
+          activateTab('quiz');
+          showToast('전사 기반 퀴즈 데모를 열었습니다.');
+        } else if (action === 'summary') {
+          activateTab('summary');
+          showToast('요약 생성 결과를 데모로 표시했습니다.');
+        } else {
+          showToast('자료 업로드 데모 카드가 준비되었습니다.');
+        }
+      });
+    });
+
+    const homeAnswer = document.getElementById('homeAnswer');
+    const homeInput = document.getElementById('homeInput');
+    document.getElementById('homeSendButton').addEventListener('click', () => {
+      homeAnswer.classList.add('is-visible');
+      if (!homeInput.value.trim()) {
+        homeInput.value = 'CPU와 레지스터 내용을 강의 전사 기준으로 요약해줘';
+      }
+      showToast('AI 답변과 출처 칩을 데모로 표시했습니다.');
+    });
+
+    document.getElementById('attachButton').addEventListener('click', () => {
+      showToast('파일 첨부 미리보기는 데모 데이터로 처리됩니다.');
+    });
+
+    function activateTab(tabName) {
+      document.querySelectorAll('[data-tab]').forEach((button) => {
+        button.classList.toggle('is-active', button.dataset.tab === tabName);
+      });
+      document.querySelectorAll('[data-tab-panel]').forEach((panel) => {
+        panel.classList.toggle('is-active', panel.dataset.tabPanel === tabName);
+      });
+    }
+
+    document.querySelectorAll('[data-tab]').forEach((button) => {
+      button.addEventListener('click', () => activateTab(button.dataset.tab));
+    });
+
+    const recordButton = document.getElementById('recordButton');
+    const recordingTime = document.getElementById('recordingTime');
+    let recording = false;
+    let recordingTimer = null;
+    let recordingSeconds = 0;
+
+    function formatTime(seconds) {
+      const hh = String(Math.floor(seconds / 3600)).padStart(2, '0');
+      const mm = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+      const ss = String(seconds % 60).padStart(2, '0');
+      return `${hh}:${mm}:${ss}`;
+    }
+
+    function startRecording() {
+      if (recording) return;
+      recording = true;
+      app.classList.add('is-recording');
+      recordButton.classList.add('is-on');
+      recordButton.textContent = '녹음 중지';
+      recordingSeconds = Math.max(recordingSeconds, 118);
+      recordingTime.textContent = `${formatTime(recordingSeconds)} · 실시간 전사 중`;
+      recordingTimer = window.setInterval(() => {
+        recordingSeconds += 1;
+        recordingTime.textContent = `${formatTime(recordingSeconds)} · 실시간 전사 중`;
+      }, 1000);
+    }
+
+    function stopRecording() {
+      recording = false;
+      app.classList.remove('is-recording');
+      recordButton.classList.remove('is-on');
+      recordButton.textContent = '녹음 시작';
+      recordingTime.textContent = `${formatTime(recordingSeconds)} · 최종 요약 생성 완료`;
+      window.clearInterval(recordingTimer);
+      showToast('녹음 종료 후 요약 생성 완료 상태를 표시했습니다.');
+    }
+
+    recordButton.addEventListener('click', () => {
+      if (recording) stopRecording();
+      else startRecording();
+    });
+
+    document.getElementById('workspaceSendButton').addEventListener('click', () => {
+      const input = document.getElementById('workspaceAiInput');
+      const messages = document.getElementById('workspaceMessages');
+      const question = input.value.trim() || '시험 대비 핵심만 정리해줘';
+      const user = document.createElement('div');
+      user.className = 'bubble user';
+      user.textContent = question;
+      messages.appendChild(user);
+
+      const ai = document.createElement('div');
+      ai.className = 'bubble ai';
+      ai.innerHTML = '시험 대비 핵심은 CPU 구성요소, 레지스터 역할, 메모리 계층 차이입니다. 답변은 현재 선택된 전사와 PDF 자료만 기준으로 구성했습니다.<div class="source-list"><span class="source">1. 1주차 CPU와 레지스터 · 06:00</span><span class="source">2. 운영체제_ch02.pdf · p.7</span></div>';
+      messages.appendChild(ai);
+      input.value = '';
+      messages.scrollTop = messages.scrollHeight;
+    });
+
+    document.querySelectorAll('.confirm-schedule').forEach((button) => {
+      button.addEventListener('click', () => {
+        const card = button.closest('[data-confirm-card]');
+        const chip = card.querySelector('[data-status-chip]');
+        chip.textContent = '예정';
+        chip.classList.remove('amber');
+        chip.classList.add('green');
+        button.textContent = '확정됨';
+        showToast('AI 감지 일정을 확정 상태로 바꿨습니다.');
+      });
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        app.classList.remove('is-panel-open');
+        newTaskButton.classList.remove('is-open');
+      }
+    });
+  </script>
+</body>
+</html>
