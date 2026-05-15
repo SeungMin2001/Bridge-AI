@@ -1252,6 +1252,7 @@ def main() -> None:
         num_kv=int(config.get("num_kv", 8)),
         hidden_dim=int(config.get("hidden_dim", 1024)),
         feature_dim=int(config.get("feature_dim", model.config.hidden_size)),
+        question_fusion=str(config.get("question_fusion") or ("text_concat" if config.get("question_conditioned_memory") else "none")),
         legacy=legacy_hypernet,
     ).to(device).float()
     hypernet.load_state_dict(state["hypernet"])
@@ -1303,7 +1304,7 @@ def main() -> None:
     print(
         f"case_mode={args.case_mode} | weights={args.weights} | data={args.data} | "
         f"synthetic_case={args.synthetic_case} | injection_mode={args.injection_mode} | "
-        f"question_conditioned={question_conditioned}"
+        f"question_conditioned={question_conditioned} | question_fusion={config.get('question_fusion', 'text_concat' if question_conditioned else 'none')}"
     )
     print(
         f"state_step={state_step} | critical_layer={layer_idx} | "

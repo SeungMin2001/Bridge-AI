@@ -77,6 +77,7 @@ def checkpoint_path_for_suffix(output_suffix: str) -> Path:
 
 
 def scan_command(args: argparse.Namespace, *, output: str, question_conditioned: bool) -> list[str]:
+    question_fusion = args.qp_question_fusion if question_conditioned else args.ponly_question_fusion
     cmd = [
         sys.executable,
         "-m",
@@ -105,6 +106,8 @@ def scan_command(args: argparse.Namespace, *, output: str, question_conditioned:
         output,
         "--num-kv",
         str(args.num_kv),
+        "--question-fusion",
+        question_fusion,
     ]
     cmd.append("--question-conditioned-memory" if question_conditioned else "--no-question-conditioned-memory")
     cmd.append("--resume" if args.resume_scan else "--no-resume")
@@ -118,6 +121,7 @@ def train_command(
     critical_layer: int,
     question_conditioned: bool,
 ) -> list[str]:
+    question_fusion = args.qp_question_fusion if question_conditioned else args.ponly_question_fusion
     cmd = [
         sys.executable,
         "-m",
@@ -166,6 +170,8 @@ def train_command(
         args.injection_mode,
         "--critical-layer",
         str(critical_layer),
+        "--question-fusion",
+        question_fusion,
     ]
     cmd.append("--question-conditioned-memory" if question_conditioned else "--no-question-conditioned-memory")
     cmd.append("--resume" if args.resume_train else "--no-resume")
@@ -219,6 +225,8 @@ def main() -> None:
     parser.add_argument("--test-data", default=DEFAULT_TEST)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--num-kv", type=int, default=16)
+    parser.add_argument("--qp-question-fusion", choices=("auto", "none", "text_concat", "feature_concat"), default="feature_concat")
+    parser.add_argument("--ponly-question-fusion", choices=("auto", "none", "text_concat", "feature_concat"), default="none")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--scan-lr", type=float, default=1e-4)
@@ -264,18 +272,29 @@ def main() -> None:
         args.resume_train = True
         args.resume_eval = True
 
+    default_qp_suffix_requested = args.qp_output_suffix == DEFAULT_QP_SUFFIX
+    default_qp_scan_requested = args.qp_scan_output == DEFAULT_QP_SCAN
+    default_report_requested = args.report_dir == DEFAULT_REPORT_DIR
     if args.num_kv != 16:
         kv_tag = f"kv{args.num_kv}"
-        if args.qp_output_suffix == DEFAULT_QP_SUFFIX:
+        if default_qp_suffix_requested:
             args.qp_output_suffix = f"{DEFAULT_QP_SUFFIX}_{kv_tag}"
         if args.ponly_output_suffix == DEFAULT_PONLY_SUFFIX:
             args.ponly_output_suffix = f"{DEFAULT_PONLY_SUFFIX}_{kv_tag}"
-        if args.qp_scan_output == DEFAULT_QP_SCAN:
+        if default_qp_scan_requested:
             args.qp_scan_output = f"llm_server/PRAG/critical_layers_related_merge_qwen25_3b_qp_{kv_tag}.json"
         if args.ponly_scan_output == DEFAULT_PONLY_SCAN:
             args.ponly_scan_output = f"llm_server/PRAG/critical_layers_related_merge_qwen25_3b_ponly_{kv_tag}.json"
-        if args.report_dir == DEFAULT_REPORT_DIR:
+        if default_report_requested:
             args.report_dir = f"{DEFAULT_REPORT_DIR}_{kv_tag}"
+    if args.qp_question_fusion == "feature_concat":
+        if default_qp_suffix_requested and not args.qp_output_suffix.endswith("_fconcat"):
+            args.qp_output_suffix = f"{args.qp_output_suffix}_fconcat"
+        if default_qp_scan_requested:
+            scan_path = Path(args.qp_scan_output)
+            args.qp_scan_output = str(scan_path.with_name(f"{scan_path.stem}_fconcat{scan_path.suffix}"))
+        if default_report_requested and not args.report_dir.endswith("_fconcat"):
+            args.report_dir = f"{args.report_dir}_fconcat"
 
     train_path = Path(args.train)
     valid_path = Path(args.valid)

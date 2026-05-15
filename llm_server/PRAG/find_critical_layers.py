@@ -101,7 +101,14 @@ def load_model(model_name: str):
     return model, tokenizer
 
 
-def make_scan_hypernet(model, device, *, num_kv: int = NUM_KV, legacy_hypernet: bool = False) -> HyperKVGenerator:
+def make_scan_hypernet(
+    model,
+    device,
+    *,
+    num_kv: int = NUM_KV,
+    legacy_hypernet: bool = False,
+    question_fusion: str = "none",
+) -> HyperKVGenerator:
     d_model = int(model.config.hidden_size)
     feature_dim = d_model * (2 if USE_CONTEXTUAL_MEMORY else 1)
     if legacy_hypernet and feature_dim != d_model:
@@ -111,6 +118,7 @@ def make_scan_hypernet(model, device, *, num_kv: int = NUM_KV, legacy_hypernet: 
         num_kv=num_kv,
         hidden_dim=HIDDEN_DIM,
         feature_dim=feature_dim,
+        question_fusion=question_fusion,
         legacy=legacy_hypernet,
     ).to(device).float()
 
@@ -215,9 +223,16 @@ def train_and_score_layer(
     question_conditioned_memory: bool,
     num_kv: int,
     legacy_hypernet: bool,
+    question_fusion: str,
 ):
     target_layer = model.model.layers[layer_idx]
-    hypernet = make_scan_hypernet(model, device, num_kv=num_kv, legacy_hypernet=legacy_hypernet)
+    hypernet = make_scan_hypernet(
+        model,
+        device,
+        num_kv=num_kv,
+        legacy_hypernet=legacy_hypernet,
+        question_fusion=question_fusion,
+    )
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=lr, weight_decay=0.0)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
@@ -362,6 +377,12 @@ def main():
         ),
     )
     parser.add_argument(
+        "--question-fusion",
+        choices=("auto", "none", "text_concat", "feature_concat"),
+        default="auto",
+        help="Fusion mode for question-conditioned memory during layer scan.",
+    )
+    parser.add_argument(
         "--legacy-hypernet",
         action="store_true",
         help="Use the author-code style single-pool HyperKV head for the scan.",
@@ -374,6 +395,15 @@ def main():
         if args.question_conditioned_memory is None
         else bool(args.question_conditioned_memory)
     )
+    question_fusion = (
+        "feature_concat"
+        if args.question_fusion == "auto" and question_conditioned_memory
+        else "none"
+        if args.question_fusion == "auto"
+        else args.question_fusion
+    )
+    if not question_conditioned_memory:
+        question_fusion = "none"
 
     if args.multifact:
         args.train = str(MULTIFACT_AUGMENTED_TRAIN_PATH)
@@ -455,6 +485,7 @@ def main():
         "alpha": ALPHA,
         "use_contextual_memory": USE_CONTEXTUAL_MEMORY,
         "question_conditioned_memory": question_conditioned_memory,
+        "question_fusion": question_fusion,
     }
     existing = load_existing_results(output_path, scan_config, args.resume, args.model)
     results: dict[int, dict] = dict(existing)
@@ -468,7 +499,8 @@ def main():
     print(
         "[PRAG:layer-scan] "
         f"num_kv={args.num_kv} alpha={ALPHA} contextual={USE_CONTEXTUAL_MEMORY} "
-        f"question_conditioned={question_conditioned_memory} legacy_hypernet={args.legacy_hypernet}"
+        f"question_conditioned={question_conditioned_memory} question_fusion={question_fusion} "
+        f"legacy_hypernet={args.legacy_hypernet}"
     )
     if existing:
         print(f"[PRAG:layer-scan] resume: found {len(existing)} existing layer results in {output_path}")
@@ -495,6 +527,7 @@ def main():
             question_conditioned_memory=question_conditioned_memory,
             num_kv=args.num_kv,
             legacy_hypernet=args.legacy_hypernet,
+            question_fusion=question_fusion,
         )
         metrics = {
             "layer": metrics["layer"],

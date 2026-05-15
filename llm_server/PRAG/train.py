@@ -113,13 +113,14 @@ def load_model(model_name: str = MODEL_NAME):
     return model, tokenizer
 
 
-def make_hypernet(model, device, *, num_kv: int = NUM_KV):
+def make_hypernet(model, device, *, num_kv: int = NUM_KV, question_fusion: str = "none"):
     feature_dim = model.config.hidden_size * (2 if USE_CONTEXTUAL_MEMORY else 1)
     return HyperKVGenerator(
         d_model=model.config.hidden_size,
         num_kv=num_kv,
         hidden_dim=HIDDEN_DIM,
         feature_dim=feature_dim,
+        question_fusion=question_fusion,
         legacy=False,
     ).to(device).float()
 
@@ -290,12 +291,27 @@ def answer_phrase_candidates(answer_phrase: str) -> list[str]:
 
     candidates: list[str] = []
     for piece in pieces or [text]:
-        value = piece
-        if re.search(r"[:：=]", piece):
-            value = re.split(r"[:：=]", piece)[-1]
-        value = clean_answer_phrase(value)
-        if len(value) >= 2:
-            candidates.append(value)
+        natural_parts = re.split(r"\s*,\s*(?:그리고\s*)?", piece)
+        for natural_part in natural_parts or [piece]:
+            value = natural_part
+            if re.search(r"[:：=]", value):
+                value = re.split(r"[:：=]", value)[-1]
+            else:
+                # Natural multi-fact answers use patterns like
+                # "색깔은 검정색이라고, 맛은 달콤하다고".  For phrase
+                # supervision, target the value spans rather than the whole
+                # generated sentence.
+                match = re.search(r"(?:은|는)\s+(.+)$", value)
+                if match:
+                    value = match.group(1)
+            value = clean_answer_phrase(value)
+            value = re.sub(r"\s*설명했습니다$", "", value).strip()
+            if value.endswith("이라고") or value.endswith("라고"):
+                value = re.sub(r"(?:이라고|라고)$", "", value).strip()
+            elif value.endswith("다고"):
+                value = value[:-2].strip() + "다"
+            if len(value) >= 2:
+                candidates.append(value)
 
     if not candidates:
         candidates = [text]
@@ -1665,6 +1681,14 @@ def auto_critical_layer(args, model_name: str, question_conditioned_memory: bool
     return fallback
 
 
+def resolve_question_fusion(mode: str, question_conditioned_memory: bool) -> str:
+    if mode == "auto":
+        return "feature_concat" if question_conditioned_memory else "none"
+    if not question_conditioned_memory:
+        return "none"
+    return mode
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -1713,6 +1737,16 @@ def main() -> None:
         help=(
             "Include the question text in the HyperKV memory input. "
             "--no-question-conditioned-memory gives the passage-token-only baseline."
+        ),
+    )
+    parser.add_argument(
+        "--question-fusion",
+        choices=("auto", "none", "text_concat", "feature_concat"),
+        default="auto",
+        help=(
+            "How question-conditioned memory is fused. feature_concat encodes "
+            "question and passage separately, concatenates their features, then "
+            "projects back to the passage feature size before HyperKV pooling."
         ),
     )
     parser.add_argument("--train", default=str(AUGMENTED_TRAIN_PATH))
@@ -2007,6 +2041,7 @@ def main() -> None:
         if args.question_conditioned_memory is None and "question_conditioned_memory" in effective_source_config
         else (QUESTION_CONDITIONED_MEMORY if args.question_conditioned_memory is None else bool(args.question_conditioned_memory))
     )
+    effective_question_fusion = resolve_question_fusion(args.question_fusion, question_conditioned_memory)
     effective_num_kv = int(
         args.num_kv
         if args.num_kv is not None
@@ -2130,7 +2165,7 @@ def main() -> None:
     if valid_generation_examples:
         print_eval_subset_summary("generation", valid_generation_examples, len(valid_examples))
 
-    hypernet = make_hypernet(model, device, num_kv=effective_num_kv)
+    hypernet = make_hypernet(model, device, num_kv=effective_num_kv, question_fusion=effective_question_fusion)
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=args.lr, weight_decay=0.0)
     train_units = [("example", item) for item in train_examples] if args.example_weight > 0 else []
     if args.group_weight > 0:
@@ -2149,6 +2184,7 @@ def main() -> None:
         "feature_dim": model.config.hidden_size * (2 if USE_CONTEXTUAL_MEMORY else 1),
         "use_contextual_memory": USE_CONTEXTUAL_MEMORY,
         "question_conditioned_memory": question_conditioned_memory,
+        "question_fusion": effective_question_fusion,
         "injection_mode": args.injection_mode,
         "alpha": ALPHA,
         "objective": "atomic_final_ce_plus_negative_flip",
@@ -2254,6 +2290,7 @@ def main() -> None:
         "alpha": ALPHA,
         "injection_mode": args.injection_mode,
         "question_conditioned_memory": question_conditioned_memory,
+        "question_fusion": effective_question_fusion,
         "note": "Free-generation probe is intentionally outside checkpoint config so resume compatibility is stable.",
     }
     previous_runtime_sec = round(

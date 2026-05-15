@@ -76,6 +76,7 @@ def load_variant(label: str, path: str | Path, model, device) -> Variant:
         num_kv=int(config.get("num_kv", 8)),
         hidden_dim=int(config.get("hidden_dim", 1024)),
         feature_dim=int(config.get("feature_dim", model.config.hidden_size)),
+        question_fusion=str(config.get("question_fusion") or ("text_concat" if config.get("question_conditioned_memory") else "none")),
         legacy=legacy_hypernet,
     ).to(device).float()
     hypernet.load_state_dict(state["hypernet"])
@@ -924,11 +925,11 @@ def main() -> None:
     print(f"model={model_name} qp_layer={qp.layer_idx} ponly_layer={ponly.layer_idx} data={data_path}")
     print(
         f"question+passage weights={qp.path} step={qp.step} best_val={fmt(qp.best_val)} "
-        f"layer={qp.layer_idx} q_cond={qp.question_conditioned}"
+        f"layer={qp.layer_idx} q_cond={qp.question_conditioned} fusion={qp.config.get('question_fusion', 'text_concat')}"
     )
     print(
         f"passage-only     weights={ponly.path} step={ponly.step} best_val={fmt(ponly.best_val)} "
-        f"layer={ponly.layer_idx} q_cond={ponly.question_conditioned}"
+        f"layer={ponly.layer_idx} q_cond={ponly.question_conditioned} fusion={ponly.config.get('question_fusion', 'none')}"
     )
 
     totals = {

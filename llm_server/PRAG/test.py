@@ -285,6 +285,7 @@ def main() -> None:
         num_kv=int(config.get("num_kv", 8)),
         hidden_dim=int(config.get("hidden_dim", 1024)),
         feature_dim=int(config.get("feature_dim", model.config.hidden_size)),
+        question_fusion=str(config.get("question_fusion") or ("text_concat" if config.get("question_conditioned_memory") else "none")),
         legacy=legacy_hypernet,
     ).to(device).float()
     hypernet.load_state_dict(state["hypernet"])
