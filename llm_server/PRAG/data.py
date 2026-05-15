@@ -84,6 +84,11 @@ def jsonl_snapshot(path: str | Path) -> dict:
 
 
 def get_passage(row: dict) -> str:
+    passages = row.get("passages")
+    if isinstance(passages, list):
+        chunks = [str(item).strip() for item in passages if str(item or "").strip()]
+        if chunks:
+            return "\n".join(chunks)
     for key in ("passage", "utterance", "text", "content"):
         value = row.get(key)
         if isinstance(value, str) and value.strip():
@@ -196,8 +201,9 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
         if not passage:
             continue
 
-        atomic_qas = normalize_qas(row.get("atomic_qas"))
-        final_qas = normalize_qas(row.get("final_qas"))
+        simple_multifact_row = isinstance(row.get("passages"), list) and row.get("question") and row.get("answer")
+        atomic_qas = [] if simple_multifact_row else normalize_qas(row.get("atomic_qas"))
+        final_qas = [] if simple_multifact_row else normalize_qas(row.get("final_qas"))
         use_row_passage_for_examples = row.get("task") == "korquad_service_transcript_memory"
         atomic_qas_as_evidence_only = bool(
             row.get("atomic_qas_as_evidence_only")
@@ -206,18 +212,26 @@ def load_augmented_examples(path: str | Path, max_samples: int | None = None) ->
         )
 
         qas = []
-        qas.extend(
-            (qa, "atomic", passage if use_row_passage_for_examples else qa.get("sub_passage") or passage)
-            for qa in ([] if atomic_qas_as_evidence_only else atomic_qas)
-        )
-        qas.extend(
-            (
-                qa,
-                "final",
-                passage if use_row_passage_for_examples else select_evidence_passage(qa, atomic_qas, passage),
+        if simple_multifact_row:
+            qa = {
+                "question": str(row["question"]).strip(),
+                "answer": str(row["answer"]).strip(),
+                "full_answer": str(row.get("full_answer") or row["answer"]).strip(),
+            }
+            qas.append((qa, "final", passage))
+        else:
+            qas.extend(
+                (qa, "atomic", passage if use_row_passage_for_examples else qa.get("sub_passage") or passage)
+                for qa in ([] if atomic_qas_as_evidence_only else atomic_qas)
             )
-            for qa in final_qas
-        )
+            qas.extend(
+                (
+                    qa,
+                    "final",
+                    passage if use_row_passage_for_examples else select_evidence_passage(qa, atomic_qas, passage),
+                )
+                for qa in final_qas
+            )
         if not qas and row.get("question") and row.get("answer"):
             qas.append(({"question": str(row["question"]), "answer": str(row["answer"])}, "direct", passage))
 
@@ -287,8 +301,9 @@ def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> l
         if not passage:
             continue
 
-        atomic_qas = normalize_qas(row.get("atomic_qas"))
-        final_qas = normalize_qas(row.get("final_qas"))
+        simple_multifact_row = isinstance(row.get("passages"), list) and row.get("question") and row.get("answer")
+        atomic_qas = [] if simple_multifact_row else normalize_qas(row.get("atomic_qas"))
+        final_qas = [] if simple_multifact_row else normalize_qas(row.get("final_qas"))
         use_row_passage_for_examples = row.get("task") == "korquad_service_transcript_memory"
         atomic_qas_as_evidence_only = bool(
             row.get("atomic_qas_as_evidence_only")
@@ -296,9 +311,22 @@ def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> l
             or row.get("entity_multifact")
         )
         qas = []
-        if not atomic_qas_as_evidence_only:
-            qas.extend((idx, qa, "atomic") for idx, qa in enumerate(atomic_qas))
-        qas.extend((idx, qa, "final") for idx, qa in enumerate(final_qas))
+        if simple_multifact_row:
+            qas.append(
+                (
+                    0,
+                    {
+                        "question": str(row["question"]).strip(),
+                        "answer": str(row["answer"]).strip(),
+                        "full_answer": str(row.get("full_answer") or row["answer"]).strip(),
+                    },
+                    "final",
+                )
+            )
+        else:
+            if not atomic_qas_as_evidence_only:
+                qas.extend((idx, qa, "atomic") for idx, qa in enumerate(atomic_qas))
+            qas.extend((idx, qa, "final") for idx, qa in enumerate(final_qas))
         if not qas and row.get("question") and row.get("answer"):
             qas.append((0, {"question": str(row["question"]), "answer": str(row["answer"])}, "direct"))
 
@@ -359,7 +387,7 @@ def load_augmented_groups(path: str | Path, max_samples: int | None = None) -> l
                 )
             )
 
-        if len(group_qas) >= 2:
+        if len(group_qas) >= 2 or (simple_multifact_row and group_qas):
             groups.append(
                 MemoryGroup(
                     source_id=source_id,

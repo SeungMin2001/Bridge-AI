@@ -40,7 +40,12 @@ def print_qa_list(title: str, qas: list[dict], max_items: int, width: int) -> No
 
 
 def row_text(row: dict) -> str:
-    fields = [get_passage(row), str(row.get("rewrite") or "")]
+    fields = [
+        get_passage(row),
+        str(row.get("rewrite") or ""),
+        str(row.get("question") or ""),
+        str(row.get("answer") or ""),
+    ]
     for key in ("atomic_qas", "final_qas"):
         for qa in normalize_qas(row.get(key)):
             fields.extend([
@@ -180,6 +185,12 @@ def main() -> None:
         print(f"passage: {clip(get_passage(row), args.width)}")
         if row.get("rewrite"):
             print(f"rewrite: {clip(row.get('rewrite'), args.width)}")
+        if row.get("question") and isinstance(row.get("passages"), list):
+            print("\n  [simple_multifact]")
+            print(f"       Q: {clip(row.get('question'), args.width)}")
+            for passage_idx, passage in enumerate(row.get("passages", [])[: args.max_qas], start=1):
+                print(f"       passage[{passage_idx}]: {clip(passage, args.width)}")
+            print(f"       A: {clip(row.get('answer'), args.width)}")
 
         print_qa_list("atomic_qas", normalize_qas(row.get("atomic_qas")), args.max_qas, args.width)
         print_qa_list("final_qas", normalize_qas(row.get("final_qas")), args.max_qas, args.width)

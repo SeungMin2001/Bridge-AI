@@ -170,8 +170,40 @@ def contains_artifact(text: str) -> bool:
     return bool(re.search(r"[A-Za-z]\s*[=:]\s*[A-Za-z가-힣0-9]|[가-힣0-9]\s*[=:]\s*[A-Za-z가-힣0-9]", str(text or "")))
 
 
+def word_count(text: str) -> int:
+    return len(str(text or "").split())
+
+
 def get_atomic_answers(row: dict[str, Any]) -> list[str]:
     return [str(qa.get("answer", "")).strip() for qa in row.get("atomic_qas", []) if str(qa.get("answer", "")).strip()]
+
+
+def extract_support_terms(answer: str) -> list[str]:
+    text = str(answer or "").strip()
+    if "설명은" in text:
+        text = text.split("설명은", 1)[1]
+    text = text.replace("입니다.", "").replace("입니다", "").strip()
+    parts = [part.strip() for part in re.split(r",\s*그리고\s*|,\s*", text) if part.strip()]
+    terms = []
+    for part in parts:
+        if "은 " in part:
+            terms.append(part.split("은 ", 1)[1].strip())
+        elif "는 " in part:
+            terms.append(part.split("는 ", 1)[1].strip())
+    return [term for term in terms if term]
+
+
+def term_in_text(term: str, text: str) -> bool:
+    term = str(term or "").strip()
+    text = str(text or "")
+    if not term:
+        return True
+    variants = {term}
+    if term.endswith("다"):
+        variants.add(term[:-1])
+    if term.endswith("것"):
+        variants.add(term[:-1])
+    return any(variant and variant in text for variant in variants)
 
 
 def fallback_final_answer(row: dict[str, Any]) -> str:
@@ -187,6 +219,29 @@ def fallback_final_answer(row: dict[str, Any]) -> str:
 
 
 def build_prompt(row: dict[str, Any]) -> str:
+    if isinstance(row.get("passages"), list) and row.get("question") and row.get("answer"):
+        compact = {
+            "source_id": row.get("source_id"),
+            "root_source_id": row.get("root_source_id", row.get("source_id")),
+            "entity": row.get("entity"),
+            "question": row.get("question"),
+            "passages": row.get("passages", []),
+            "answer": row.get("answer"),
+        }
+        return (
+            "다음 한국어 PRAG entity-multifact JSON row를 짧고 자연스럽게 다듬으세요.\n"
+            "반드시 raw JSON 객체 하나만 출력하세요. 설명, markdown, <think>를 출력하지 마세요.\n\n"
+            "규칙:\n"
+            "1. 출력 스키마는 source_id, root_source_id, entity, question, passages, answer만 유지합니다.\n"
+            "2. entity 문자열과 answer 문자열은 글자, 띄어쓰기, 숫자를 정확히 보존합니다.\n"
+            "3. passages 개수와 순서를 유지합니다.\n"
+            "4. 각 passage는 entity 문자열을 포함하는 짧은 한국어 한 문장이어야 합니다.\n"
+            "5. 각 passage는 하나의 관련 사실만 말하고, 18어절 이하로 작성합니다.\n"
+            "6. question은 entity 전체 설명을 묻는 넓은 질문으로 유지합니다.\n"
+            "7. A:B, A=B, bullet, 영어/중국어, 장황한 설명을 쓰지 않습니다.\n\n"
+            "입력 JSON:\n"
+            f"{json.dumps(compact, ensure_ascii=False)}"
+        )
     compact = {
         "source_id": row.get("source_id"),
         "root_source_id": row.get("root_source_id", row.get("source_id")),
@@ -201,17 +256,22 @@ def build_prompt(row: dict[str, Any]) -> str:
         "규칙:\n"
         "1. 같은 JSON 스키마와 atomic_qas/final_qas 개수 및 순서를 유지합니다.\n"
         "2. entity 문자열과 모든 atomic_qas.answer 문자열은 글자, 띄어쓰기, 숫자를 정확히 보존합니다.\n"
-        "3. 각 atomic_qas.sub_passage는 자연스러운 한국어 한 문장이어야 하며 해당 answer 문자열을 그대로 포함해야 합니다.\n"
-        "4. final_qas 질문은 특정 한 항목만 묻지 말고 entity 전체 설명을 묻는 넓은 질문으로 둡니다.\n"
-        "5. final_qas.answer와 full_answer는 모든 atomic answer 문자열을 정확히 포함하며, 여러 사실을 자연스럽게 통합한 답변이어야 합니다.\n"
-        "6. passage는 atomic sub_passage들을 자연스럽게 이어 붙인 문단으로 만듭니다.\n"
-        "7. A:B, A=B, 번호만 바꾼 문장, 영어/중국어 답변, 목록형 bullet을 피하고 한국어 서술문으로 작성합니다.\n\n"
+        "3. 각 atomic_qas.sub_passage는 자연스러운 한국어 한 문장이어야 하며 entity 문자열과 해당 answer 문자열을 그대로 포함해야 합니다.\n"
+        "4. 하나의 atomic_qas.sub_passage에는 해당 atomic answer 하나만 설명하고, 다른 atomic answer를 함께 섞지 않습니다.\n"
+        "5. 문장은 짧게 씁니다. atomic sub_passage는 18어절 이하, final answer는 35어절 이하로 작성합니다.\n"
+        "6. final_qas 질문은 특정 한 항목만 묻지 말고 entity 전체 설명을 묻는 넓은 질문으로 둡니다.\n"
+        "7. final_qas.answer와 full_answer는 모든 atomic answer 문자열을 정확히 포함하며, 여러 사실을 한 문장으로 통합합니다.\n"
+        "8. passage는 atomic sub_passage들을 짧게 이어 붙인 문단으로 만듭니다.\n"
+        "9. A:B, A=B, 번호만 바꾼 문장, 영어/중국어 답변, 목록형 bullet을 피하고 한국어 서술문으로 작성합니다.\n\n"
         "입력 JSON:\n"
         f"{json.dumps(compact, ensure_ascii=False)}"
     )
 
 
 def normalize_augmented(original: dict[str, Any], generated: dict[str, Any] | None, source_id: str) -> tuple[dict[str, Any], str]:
+    if isinstance(original.get("passages"), list) and original.get("question") and original.get("answer"):
+        return normalize_simple_augmented(original, generated, source_id)
+
     fallback_count = 0
     row = dict(original if generated is None else generated)
     status = "ok"
@@ -237,23 +297,41 @@ def normalize_augmented(original: dict[str, Any], generated: dict[str, Any] | No
         gen_atomic = orig_atomic
         fallback_count += 1
 
+    entity = str(original.get("entity") or "").strip()
+    original_answers = [str(qa.get("answer", "")).strip() for qa in orig_atomic]
     fixed_atomic = []
+    used_sub_passages: set[str] = set()
     for orig_qa, gen_qa in zip(orig_atomic, gen_atomic):
         qa = dict(gen_qa if isinstance(gen_qa, dict) else orig_qa)
         answer = str(orig_qa.get("answer", "")).strip()
         sub_passage = str(qa.get("sub_passage", "")).strip()
         full_answer = str(qa.get("full_answer", "")).strip()
-        if not sub_passage or answer not in sub_passage or contains_artifact(sub_passage):
+        other_answers = [target for target in original_answers if target and target != answer]
+        sub_passage_has_other_answer = any(target in sub_passage for target in other_answers)
+        if (
+            not sub_passage
+            or answer not in sub_passage
+            or (entity and entity not in sub_passage)
+            or sub_passage_has_other_answer
+            or sub_passage in used_sub_passages
+            or word_count(sub_passage) > 18
+            or contains_artifact(sub_passage)
+        ):
             sub_passage = str(orig_qa.get("sub_passage", "")).strip()
             fallback_count += 1
-        if not full_answer or answer not in full_answer or contains_artifact(full_answer):
+        if not full_answer or answer not in full_answer or word_count(full_answer) > 18 or contains_artifact(full_answer):
             full_answer = str(orig_qa.get("full_answer", "")).strip()
             fallback_count += 1
+        question = str(qa.get("question") or orig_qa.get("question") or "").strip()
+        if entity and entity not in question:
+            question = str(orig_qa.get("question") or question).strip()
+            fallback_count += 1
         qa["sub_passage"] = sub_passage
-        qa["question"] = str(qa.get("question") or orig_qa.get("question") or "").strip()
+        qa["question"] = question
         qa["answer"] = answer
         qa["full_answer"] = full_answer
         fixed_atomic.append(qa)
+        used_sub_passages.add(sub_passage)
     row["atomic_qas"] = fixed_atomic
 
     atomic_answers = get_atomic_answers(row)
@@ -270,11 +348,11 @@ def normalize_augmented(original: dict[str, Any], generated: dict[str, Any] | No
         qa = dict(gen_qa)
         question = str(qa.get("question") or orig_qa.get("question") or "").strip()
         answer = str(qa.get("answer") or qa.get("full_answer") or "").strip()
-        if not answer or any(target not in answer for target in atomic_answers) or contains_artifact(answer):
+        if not answer or any(target not in answer for target in atomic_answers) or word_count(answer) > 35 or contains_artifact(answer):
             answer = str(orig_qa.get("answer") or orig_qa.get("full_answer") or default_final).strip()
             fallback_count += 1
         full_answer = str(qa.get("full_answer") or answer).strip()
-        if any(target not in full_answer for target in atomic_answers) or contains_artifact(full_answer):
+        if any(target not in full_answer for target in atomic_answers) or word_count(full_answer) > 35 or contains_artifact(full_answer):
             full_answer = answer
             fallback_count += 1
         qa["question"] = question
@@ -294,6 +372,70 @@ def normalize_augmented(original: dict[str, Any], generated: dict[str, Any] | No
     if status == "ok" and fallback_count:
         status = "ok_with_fallbacks"
     return row, status
+
+
+def normalize_simple_augmented(original: dict[str, Any], generated: dict[str, Any] | None, source_id: str) -> tuple[dict[str, Any], str]:
+    fallback_count = 0
+    status = "ok"
+    row = dict(original if generated is None else generated)
+    if generated is None:
+        row = dict(original)
+        status = "fallback_invalid_json"
+        fallback_count += 1
+
+    entity = str(original.get("entity") or "").strip()
+    orig_passages = [str(item).strip() for item in original.get("passages", []) if str(item or "").strip()]
+    gen_passages = row.get("passages")
+    if not isinstance(gen_passages, list) or len(gen_passages) != len(orig_passages):
+        gen_passages = orig_passages
+        fallback_count += 1
+
+    support_terms = extract_support_terms(str(original.get("answer", "")))
+    fixed_passages = []
+    for idx, orig_passage in enumerate(orig_passages):
+        passage = str(gen_passages[idx]).strip() if idx < len(gen_passages) else ""
+        term = support_terms[idx] if idx < len(support_terms) else ""
+        if (
+            not passage
+            or (entity and entity not in passage)
+            or not term_in_text(term, passage)
+            or word_count(passage) > 18
+            or contains_artifact(passage)
+        ):
+            passage = orig_passage
+            fallback_count += 1
+        fixed_passages.append(passage)
+
+    question = str(row.get("question") or original.get("question") or "").strip()
+    if not question or (entity and entity not in question) or word_count(question) > 12:
+        question = str(original.get("question") or "").strip()
+        fallback_count += 1
+
+    answer = str(original.get("answer") or "").strip()
+    if str(row.get("answer") or "").strip() != answer:
+        fallback_count += 1
+
+    fixed = {
+        "source_id": source_id,
+        "root_source_id": original.get("root_source_id", original.get("source_id")),
+        "language": "ko",
+        "clean_ko": True,
+        "entity_multifact_simple": True,
+        "entity": entity,
+        "domain": original.get("domain"),
+        "base_entity": original.get("base_entity"),
+        "question": question,
+        "passages": fixed_passages,
+        "answer": answer,
+        "augmentation_meta": {
+            "source": original.get("source_id"),
+            "status": status,
+            "fallback_count": fallback_count,
+        },
+    }
+    if status == "ok" and fallback_count:
+        status = "ok_with_fallbacks"
+    return fixed, status
 
 
 def source_id_for_variant(row: dict[str, Any], variant_idx: int, variants_per_row: int) -> str:

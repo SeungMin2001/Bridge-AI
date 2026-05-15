@@ -31,22 +31,22 @@ ENTITY_BANK = [
 ]
 
 SPEAKERS = ["김 교수님", "박 교수님", "이 조교", "한 강사", "정 매니저", "최 팀장", "서 연구원"]
-CONTEXT_TERMS = ["봄학기", "여름 워크숍", "가을학기", "겨울 특강", "캡스톤", "파일럿", "정규반", "심화반", "실습반", "세미나"]
-CONTEXT_GROUPS = ["A분반", "B분반", "C분반", "D분반", "1팀", "2팀", "3팀", "4팀", "오전반", "오후반"]
-CONTEXT_WEEKS = [f"{idx}주차" for idx in range(1, 41)]
+CONTEXT_TERMS = ["봄", "여름", "가을", "겨울", "캡스톤", "파일럿", "정규", "심화", "실습", "세미나"]
+CONTEXT_GROUPS = ["A반", "B반", "C반", "D반", "1팀", "2팀", "3팀", "4팀", "오전반", "오후반"]
+CONTEXT_WEEKS = [f"{idx}차" for idx in range(1, 41)]
 
 QUESTION_TEMPLATES = [
-    "{entity}에 대해 뭐라고 설명하셨어?",
-    "교수님이 {entity}에 대해 정리한 내용을 말해줘.",
-    "{entity} 설명에서 기억해야 할 내용은 뭐야?",
-    "{entity}의 특징을 어떻게 설명했어?",
+    "{entity}{topic} 뭐라고 설명했어?",
+    "{entity} 정리 내용은 뭐야?",
+    "{entity}에서 기억할 점은 뭐야?",
+    "{entity}{topic} 어떤 특징이 있어?",
 ]
 
 SENTENCE_TEMPLATES = [
-    "{speaker} 설명에 따르면 {entity} 설명에서 {slot} 관련 내용을 {quoted_value} 정리했습니다.",
-    "{entity} 설명 수업에서는 {slot} 관련 표현을 {quoted_value} 강조했습니다.",
-    "학생들이 헷갈리지 않도록 {entity} 설명의 {slot} 부분을 {quoted_value} 풀어 말했습니다.",
-    "회의 기록에는 {entity} 설명에서 {slot} 관련 내용이 {quoted_value} 남아 있었습니다.",
+    "{speaker}{speaker_topic} {entity} 설명에서 {slot}{slot_topic} {quoted_value} 했습니다.",
+    "{entity} 설명에서 {slot}{slot_topic} {quoted_value} 했습니다.",
+    "수업에서는 {entity} 설명에서 {slot}{slot_topic} {quoted_value} 했습니다.",
+    "회의록에는 {entity} 설명에서 {slot}{slot_topic} {quoted_value} 남았습니다.",
 ]
 
 
@@ -65,6 +65,10 @@ def quoted(value: str) -> str:
     return f"{value}{'이라고' if has_batchim(value) else '라고'}"
 
 
+def topic_particle(text: str) -> str:
+    return "은" if has_batchim(text) else "는"
+
+
 def context_for_index(index: int) -> str:
     term = CONTEXT_TERMS[index % len(CONTEXT_TERMS)]
     group = CONTEXT_GROUPS[(index // len(CONTEXT_TERMS)) % len(CONTEXT_GROUPS)]
@@ -73,6 +77,6 @@ def context_for_index(index: int) -> str:
 
 
 def build_full_answer(entity: str, facts: list[tuple[str, str]]) -> str:
-    parts = [f"{slot} 관련 내용은 {quoted(value)}" for slot, value in facts]
+    parts = [f"{slot}{topic_particle(slot)} {value}" for slot, value in facts]
     body = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f", 그리고 {parts[-1]}"
-    return f"{entity}에 대해 {body} 설명했습니다."
+    return f"{entity} 설명은 {body}입니다."

@@ -38,6 +38,8 @@ def group_by_root(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]
 def qa_pairs(rows: list[dict[str, Any]]) -> set[tuple[str, str]]:
     pairs = set()
     for row in rows:
+        if row.get("question") and row.get("answer"):
+            pairs.add((str(row["question"]).strip(), str(row["answer"]).strip()))
         for qa in row.get("final_qas", []):
             question = str(qa.get("question", "")).strip()
             answer = str(qa.get("answer") or qa.get("full_answer") or "").strip()
@@ -73,10 +75,15 @@ def split_roots(
 
 
 def print_stats(name: str, rows: list[dict[str, Any]]) -> None:
-    final_qas = sum(len(row.get("final_qas", [])) for row in rows)
+    simple_qas = sum(1 for row in rows if row.get("question") and row.get("answer"))
+    final_qas = simple_qas + sum(len(row.get("final_qas", [])) for row in rows)
     atomic_qas = sum(len(row.get("atomic_qas", [])) for row in rows)
+    passages = sum(len(row.get("passages", [])) for row in rows if isinstance(row.get("passages"), list))
     roots = {str(row.get("root_source_id") or row.get("source_id")) for row in rows}
-    print(f"[PRAG:entity-split] {name}: rows={len(rows)} roots={len(roots)} atomic_qas={atomic_qas} final_qas={final_qas}")
+    print(
+        f"[PRAG:entity-split] {name}: rows={len(rows)} roots={len(roots)} "
+        f"passages={passages} atomic_qas={atomic_qas} qas={final_qas}"
+    )
 
 
 def main() -> None:

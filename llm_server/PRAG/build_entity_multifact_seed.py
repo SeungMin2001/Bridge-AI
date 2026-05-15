@@ -23,6 +23,7 @@ try:
         build_full_answer,
         context_for_index,
         quoted,
+        topic_particle,
     )
 except ModuleNotFoundError:
     from llm_server.PRAG.entity_multifact_bank import (
@@ -33,6 +34,7 @@ except ModuleNotFoundError:
         build_full_answer,
         context_for_index,
         quoted,
+        topic_particle,
     )
 
 
@@ -48,7 +50,7 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def fact_answer(entity: str, slot: str, value: str) -> str:
-    return f"{entity} 설명에서 {slot} 관련 내용은 {quoted(value)} 설명했습니다."
+    return f"{entity} 설명에서 {slot}{topic_particle(slot)} {quoted(value)} 했습니다."
 
 
 def build_entity_name(base_entity: str, index: int) -> str:
@@ -68,58 +70,37 @@ def build_row(index: int, source_prefix: str, facts_per_row: int, final_variants
     selected_facts = rotate_facts(facts, index // len(ENTITY_BANK), facts_per_row)
     source_id = f"{source_prefix}_{domain}_{index:05d}"
 
-    atomic_qas: list[dict[str, str]] = []
     sub_passages: list[str] = []
     for fact_idx, (slot, value) in enumerate(selected_facts):
         speaker = SPEAKERS[(index + fact_idx) % len(SPEAKERS)]
         template = SENTENCE_TEMPLATES[(index + fact_idx) % len(SENTENCE_TEMPLATES)]
         sub_passage = template.format(
             speaker=speaker,
+            speaker_topic=topic_particle(speaker),
             entity=entity,
             slot=slot,
+            slot_topic=topic_particle(slot),
             quoted_value=quoted(value),
         )
         sub_passages.append(sub_passage)
-        atomic_qas.append(
-            {
-                "sub_passage": sub_passage,
-                "question": f"{entity} 설명에서 {slot} 관련 내용은 무엇이라고 했어?",
-                "answer": value,
-                "full_answer": fact_answer(entity, slot, value),
-            }
-        )
 
     full_answer = build_full_answer(entity, selected_facts)
-    final_qas = []
-    for q_idx in range(final_variants):
-        question = QUESTION_TEMPLATES[q_idx % len(QUESTION_TEMPLATES)].format(entity=entity)
-        final_qas.append(
-            {
-                "question": question,
-                "answer": full_answer,
-                "full_answer": full_answer,
-            }
-        )
-
-    passage = " ".join(sub_passages)
+    question = QUESTION_TEMPLATES[index % len(QUESTION_TEMPLATES)].format(entity=entity, topic=topic_particle(entity))
     return {
         "source_id": source_id,
         "root_source_id": source_id,
         "language": "ko",
         "clean_ko": True,
-        "entity_multifact": True,
-        "atomic_qas_as_evidence_only": True,
+        "entity_multifact_simple": True,
         "entity": entity,
         "domain": domain,
         "base_entity": base_entity,
-        "passage": passage,
-        "rewrite": passage,
-        "atomic_qas": atomic_qas,
-        "final_qas": final_qas,
-        "hard_negatives": [],
+        "question": question,
+        "passages": sub_passages,
+        "answer": full_answer,
         "seed_meta": {
             "facts_per_row": len(selected_facts),
-            "final_variants": len(final_qas),
+            "final_variants": 1,
             "selected_slots": [slot for slot, _ in selected_facts],
         },
     }
@@ -139,7 +120,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("data/PRAG_entity_multifact_seed.jsonl"))
     parser.add_argument("--seed", type=int, default=20260515)
     parser.add_argument("--facts-per-row", type=int, default=3)
-    parser.add_argument("--final-variants", type=int, default=2)
+    parser.add_argument("--final-variants", type=int, default=1)
     parser.add_argument("--source-prefix", default="entity_multifact_seed")
     args = parser.parse_args()
 
@@ -156,9 +137,8 @@ def main() -> None:
         seed=args.seed,
     )
     write_jsonl(args.output, rows)
-    final_qas = sum(len(row.get("final_qas", [])) for row in rows)
-    atomic_qas = sum(len(row.get("atomic_qas", [])) for row in rows)
-    print(f"[PRAG:entity-seed] rows={len(rows)} atomic_qas={atomic_qas} final_qas={final_qas} output={args.output}")
+    passages = sum(len(row.get("passages", [])) for row in rows)
+    print(f"[PRAG:entity-seed] rows={len(rows)} passages={passages} qas={len(rows)} output={args.output}")
 
 
 if __name__ == "__main__":
