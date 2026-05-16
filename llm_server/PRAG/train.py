@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import re
 import time
@@ -1512,6 +1513,14 @@ def save_checkpoint(path, hypernet, optimizer, scheduler, step, best_val, run_co
     )
 
 
+def epoch_checkpoint_path(base_checkpoint_path: Path, epoch_checkpoint_dir: str, epoch_number: int) -> Path:
+    if epoch_checkpoint_dir:
+        out_dir = Path(epoch_checkpoint_dir)
+    else:
+        out_dir = base_checkpoint_path.with_name(f"{base_checkpoint_path.stem}_epochs")
+    return out_dir / f"epoch_{epoch_number:03d}.pt"
+
+
 def normalize_resume_config(config: dict) -> dict:
     """Normalize config keys that should not block a safe resume.
 
@@ -1939,6 +1948,23 @@ def main() -> None:
         help="Maximum generated tokens for the optional free-generation validation probe.",
     )
     parser.add_argument(
+        "--save-epoch-checkpoints",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Save an additional checkpoint at each completed epoch. "
+            "Use this for paper-style epoch-vs-performance curves."
+        ),
+    )
+    parser.add_argument(
+        "--epoch-checkpoint-dir",
+        default="",
+        help=(
+            "Directory for --save-epoch-checkpoints. Defaults to a sibling "
+            "'<checkpoint_stem>_epochs' directory."
+        ),
+    )
+    parser.add_argument(
         "--injection-mode",
         choices=("attention", "add_all", "add_last", "hybrid"),
         default="attention",
@@ -2302,7 +2328,10 @@ def main() -> None:
     log["previous_logged_runtime_sec"] = previous_runtime_sec
     start = time.time()
     hypernet.train()
+    steps_per_epoch = max(len(train_units), 1)
+    saved_epoch_checkpoints: set[int] = set()
     for _epoch in range(args.epochs):
+        epoch_start_step = step
         indices = list(range(len(train_units)))
         random.shuffle(indices)
         running = []
@@ -2579,6 +2608,15 @@ def main() -> None:
                     log["sessions"][-1]["last_eval_step"] = step
                     log["sessions"][-1]["elapsed_sec"] = round(time.time() - start, 3)
                 write_training_log(log_path, log)
+        if step == epoch_start_step and step >= total_steps:
+            break
+        if args.save_epoch_checkpoints and step > 0:
+            epoch_number = min(args.epochs, max(1, math.ceil(step / steps_per_epoch)))
+            if epoch_number not in saved_epoch_checkpoints:
+                epoch_path = epoch_checkpoint_path(checkpoint_path, args.epoch_checkpoint_dir, epoch_number)
+                save_checkpoint(epoch_path, hypernet, optimizer, scheduler, step, best_val, run_config)
+                saved_epoch_checkpoints.add(epoch_number)
+                print(f"  [PRAG:epoch-checkpoint] saved epoch {epoch_number} step {step}: {epoch_path}")
 
     metrics = evaluate(
         model,

@@ -76,6 +76,15 @@ def checkpoint_path_for_suffix(output_suffix: str) -> Path:
     return tagged_output_path(orthomerge_output_path(base), output_suffix)
 
 
+def train_log_path_for_suffix(output_suffix: str) -> Path:
+    base = Path("llm_server/PRAG/prag_train_log.json")
+    return tagged_output_path(orthomerge_output_path(base), output_suffix)
+
+
+def epoch_dir_for_suffix(output_suffix: str, root: str) -> Path:
+    return Path(root) / output_suffix
+
+
 def scan_command(args: argparse.Namespace, *, output: str, question_conditioned: bool) -> list[str]:
     question_fusion = args.qp_question_fusion if question_conditioned else args.ponly_question_fusion
     cmd = [
@@ -173,6 +182,14 @@ def train_command(
         "--question-fusion",
         question_fusion,
     ]
+    if args.save_epoch_checkpoints:
+        cmd.extend(
+            [
+                "--save-epoch-checkpoints",
+                "--epoch-checkpoint-dir",
+                str(epoch_dir_for_suffix(output_suffix, args.epoch_checkpoint_root)),
+            ]
+        )
     cmd.append("--question-conditioned-memory" if question_conditioned else "--no-question-conditioned-memory")
     cmd.append("--resume" if args.resume_train else "--no-resume")
     return cmd
@@ -216,6 +233,46 @@ def eval_command(args: argparse.Namespace) -> list[str]:
     return cmd
 
 
+def epoch_eval_command(args: argparse.Namespace) -> list[str]:
+    cmd = [
+        sys.executable,
+        "-m",
+        "llm_server.PRAG.plot_epoch_performance",
+        "--qp-epoch-dir",
+        str(epoch_dir_for_suffix(args.qp_output_suffix, args.epoch_checkpoint_root)),
+        "--ponly-epoch-dir",
+        str(epoch_dir_for_suffix(args.ponly_output_suffix, args.epoch_checkpoint_root)),
+        "--data",
+        args.test_data,
+        "--case-index",
+        str(args.test_case_index),
+        "--max-cases",
+        str(args.test_max_cases),
+        "--dataset-merge-max-passages",
+        str(args.merge_max_passages),
+        "--max-new-tokens",
+        str(args.test_max_new_tokens),
+        "--prompt-style",
+        args.test_prompt_style,
+        "--injection-mode",
+        args.injection_mode,
+        "--alpha",
+        str(args.test_alpha),
+        "--report-dir",
+        str(Path(args.report_dir) / "epoch_performance"),
+        "--qp-log",
+        str(train_log_path_for_suffix(args.qp_output_suffix)),
+        "--ponly-log",
+        str(train_log_path_for_suffix(args.ponly_output_suffix)),
+    ]
+    if args.include_loss:
+        cmd.append("--include-loss")
+    if args.quiet_eval:
+        cmd.append("--quiet-cases")
+    cmd.append("--resume" if args.resume_epoch_eval else "--no-resume")
+    return cmd
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Find QP/P-only critical layers, then train both related-merge PRAG variants."
@@ -255,6 +312,24 @@ def main() -> None:
     parser.add_argument("--include-loss", action="store_true")
     parser.add_argument("--include-baselines", action="store_true")
     parser.add_argument("--quiet-eval", action="store_true")
+    parser.add_argument(
+        "--save-epoch-checkpoints",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save per-epoch checkpoints during both QP and passage-only training.",
+    )
+    parser.add_argument(
+        "--epoch-checkpoint-root",
+        default="llm_server/PRAG/epoch_checkpoints",
+        help="Root directory for per-epoch checkpoints.",
+    )
+    parser.add_argument(
+        "--eval-epoch-performance",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="After final evaluation, evaluate each epoch checkpoint pair and plot paper-style epoch performance.",
+    )
+    parser.add_argument("--resume-epoch-eval", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--qp-output-suffix", default=DEFAULT_QP_SUFFIX)
     parser.add_argument("--ponly-output-suffix", default=DEFAULT_PONLY_SUFFIX)
     parser.add_argument("--qp-scan-output", default=DEFAULT_QP_SCAN)
@@ -271,6 +346,9 @@ def main() -> None:
         args.resume_scan = True
         args.resume_train = True
         args.resume_eval = True
+        args.resume_epoch_eval = True
+    if args.eval_epoch_performance:
+        args.save_epoch_checkpoints = True
 
     default_qp_suffix_requested = args.qp_output_suffix == DEFAULT_QP_SUFFIX
     default_qp_scan_requested = args.qp_scan_output == DEFAULT_QP_SCAN
@@ -341,6 +419,8 @@ def main() -> None:
     )
     if not args.skip_eval:
         run_command(eval_command(args), dry_run=args.dry_run)
+        if args.eval_epoch_performance:
+            run_command(epoch_eval_command(args), dry_run=args.dry_run)
     print("\n[PRAG:related-experiment] done", flush=True)
 
 
