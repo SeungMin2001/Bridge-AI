@@ -225,6 +225,8 @@ def compare_against_fixed_baseline(args: argparse.Namespace, *, qp_weights: Path
 def prepare_fixed_ponly_baseline(args: argparse.Namespace) -> Path:
     if args.fixed_ponly_weights:
         path = Path(args.fixed_ponly_weights)
+        if not args.dry_run and not path.exists():
+            raise FileNotFoundError(f"Fixed passage-only baseline checkpoint not found: {path}")
         print(f"[PRAG:kv-ablation] fixed passage-only baseline={path}", flush=True)
         return path
 

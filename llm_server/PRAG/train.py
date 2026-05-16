@@ -1521,6 +1521,35 @@ def epoch_checkpoint_path(base_checkpoint_path: Path, epoch_checkpoint_dir: str,
     return out_dir / f"epoch_{epoch_number:03d}.pt"
 
 
+def maybe_save_epoch_checkpoint(
+    *,
+    enabled: bool,
+    checkpoint_path: Path,
+    epoch_checkpoint_dir: str,
+    hypernet,
+    optimizer,
+    scheduler,
+    step: int,
+    best_val: float,
+    run_config: dict,
+    steps_per_epoch: int,
+    total_steps: int,
+    max_epochs: int,
+    saved_epochs: set[int],
+) -> None:
+    if not enabled or step <= 0:
+        return
+    if step % max(steps_per_epoch, 1) != 0 and step < total_steps:
+        return
+    epoch_number = min(max_epochs, max(1, math.ceil(step / max(steps_per_epoch, 1))))
+    if epoch_number in saved_epochs:
+        return
+    epoch_path = epoch_checkpoint_path(checkpoint_path, epoch_checkpoint_dir, epoch_number)
+    save_checkpoint(epoch_path, hypernet, optimizer, scheduler, step, best_val, run_config)
+    saved_epochs.add(epoch_number)
+    print(f"  [PRAG:epoch-checkpoint] saved epoch {epoch_number} step {step}: {epoch_path}")
+
+
 def normalize_resume_config(config: dict) -> dict:
     """Normalize config keys that should not block a safe resume.
 
@@ -2415,6 +2444,21 @@ def main() -> None:
             optimizer.step()
             scheduler.step()
             step += 1
+            maybe_save_epoch_checkpoint(
+                enabled=args.save_epoch_checkpoints,
+                checkpoint_path=checkpoint_path,
+                epoch_checkpoint_dir=args.epoch_checkpoint_dir,
+                hypernet=hypernet,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                step=step,
+                best_val=best_val,
+                run_config=run_config,
+                steps_per_epoch=steps_per_epoch,
+                total_steps=total_steps,
+                max_epochs=args.epochs,
+                saved_epochs=saved_epoch_checkpoints,
+            )
             obj = out["objective"].item()
             elapsed_sec = time.time() - start
             cumulative_elapsed_sec = previous_runtime_sec + elapsed_sec
@@ -2610,13 +2654,21 @@ def main() -> None:
                 write_training_log(log_path, log)
         if step == epoch_start_step and step >= total_steps:
             break
-        if args.save_epoch_checkpoints and step > 0:
-            epoch_number = min(args.epochs, max(1, math.ceil(step / steps_per_epoch)))
-            if epoch_number not in saved_epoch_checkpoints:
-                epoch_path = epoch_checkpoint_path(checkpoint_path, args.epoch_checkpoint_dir, epoch_number)
-                save_checkpoint(epoch_path, hypernet, optimizer, scheduler, step, best_val, run_config)
-                saved_epoch_checkpoints.add(epoch_number)
-                print(f"  [PRAG:epoch-checkpoint] saved epoch {epoch_number} step {step}: {epoch_path}")
+        maybe_save_epoch_checkpoint(
+            enabled=args.save_epoch_checkpoints,
+            checkpoint_path=checkpoint_path,
+            epoch_checkpoint_dir=args.epoch_checkpoint_dir,
+            hypernet=hypernet,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            step=step,
+            best_val=best_val,
+            run_config=run_config,
+            steps_per_epoch=steps_per_epoch,
+            total_steps=total_steps,
+            max_epochs=args.epochs,
+            saved_epochs=saved_epoch_checkpoints,
+        )
 
     metrics = evaluate(
         model,
