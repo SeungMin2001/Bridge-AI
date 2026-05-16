@@ -334,6 +334,58 @@ onUnmounted(() => {
       maxWidth: `${isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth}px`
     }"
   >
+    <div class="copy-rail-inner" aria-label="주 메뉴">
+      <button class="copy-rail-logo" type="button" aria-label="홈" @click="emit('navigate', 'home')">da</button>
+
+      <nav class="copy-rail-nav">
+        <button
+          class="copy-rail-item is-active"
+          type="button"
+          aria-label="새 작업"
+          title="새 작업"
+          @click="emit('openFileCreate')"
+        >
+          <span class="material-symbols-outlined">add_circle</span>
+          <span>새 작업</span>
+        </button>
+        <button
+          class="copy-rail-item"
+          type="button"
+          aria-label="내 작업"
+          title="내 작업"
+          @click="emit('navigate', 'workfolder')"
+        >
+          <span class="material-symbols-outlined">work</span>
+          <span>내 작업</span>
+        </button>
+        <button
+          class="copy-rail-item"
+          type="button"
+          aria-label="AI 채팅"
+          title="AI 채팅"
+          @click="emit('navigate', 'home')"
+        >
+          <span class="material-symbols-outlined">auto_awesome</span>
+          <span>AI 채팅</span>
+        </button>
+        <button
+          class="copy-rail-item"
+          type="button"
+          aria-label="캘린더"
+          title="캘린더"
+          @click="emit('navigate', 'schedule')"
+        >
+          <span class="material-symbols-outlined">calendar_month</span>
+          <span>캘린더</span>
+        </button>
+      </nav>
+
+      <div class="copy-rail-bottom">
+        <span class="material-symbols-outlined">person</span>
+        <span class="copy-free-badge">Free</span>
+      </div>
+    </div>
+
     <div class="sidebar-main-card card flex flex-col h-full p-5 overflow-hidden min-w-[280px] home-left-sidebar-card">
       <div class="sidebar-header transition-all">
         <div class="sidebar-logo-section">
@@ -599,6 +651,108 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+#sidebar.home-sidebar {
+  width: var(--copy-rail-width) !important;
+  min-width: var(--copy-rail-width) !important;
+  max-width: var(--copy-rail-width) !important;
+  height: 100%;
+  padding: 28px 12px 24px;
+  border-radius: 0;
+  background: var(--copy-bg);
+  box-shadow: none;
+}
+
+#sidebar.home-sidebar > .sidebar-main-card {
+  display: none !important;
+}
+
+.copy-rail-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.copy-rail-logo {
+  width: 54px;
+  height: 54px;
+  margin: 0 0 76px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 18px;
+  background: var(--copy-black);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(21, 22, 26, 0.16);
+  font-size: 27px;
+  line-height: 1;
+  font-weight: 950;
+  letter-spacing: -0.08em;
+  cursor: pointer;
+}
+
+.copy-rail-nav {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+}
+
+.copy-rail-item {
+  width: 56px;
+  min-height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  color: #1f2026;
+  cursor: pointer;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.copy-rail-item:hover,
+.copy-rail-item.is-active {
+  background: #fff;
+  box-shadow: 0 16px 30px rgba(48, 42, 58, 0.08);
+}
+
+.copy-rail-item .material-symbols-outlined {
+  font-size: 24px;
+  font-variation-settings: 'FILL' 0;
+}
+
+.copy-rail-item span:last-child {
+  display: none;
+}
+
+.copy-rail-bottom {
+  margin-top: auto;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: var(--copy-black);
+}
+
+.copy-rail-bottom .material-symbols-outlined {
+  font-size: 22px;
+}
+
+.copy-free-badge {
+  min-width: 54px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--copy-black);
+  box-shadow: 0 12px 24px rgba(48, 42, 58, 0.08);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .home-sidebar-kind-badge {
   display: inline-flex;
   align-items: center;
@@ -614,11 +768,11 @@ onUnmounted(() => {
 
 <style scoped>
 .home-left-sidebar-card {
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.86);
-  box-shadow: 0 24px 48px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  background: var(--copy-bg);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .home-left-sidebar-card::before {
@@ -630,14 +784,14 @@ onUnmounted(() => {
 }
 
 .home-sidebar-icon-btn {
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  background: rgba(255, 255, 255, 0.4);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 10px 24px rgba(24, 28, 35, 0.04);
 }
 
 .home-sidebar-nav-item {
-  border: 1px solid rgba(255, 255, 255, 0.44);
-  background: #f4ede4;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: none;
 }
 </style>

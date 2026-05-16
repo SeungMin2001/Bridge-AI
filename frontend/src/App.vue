@@ -81,6 +81,8 @@ const {
 
   <ScheduleManagement
     v-else-if="currentView === 'schedule'"
+    :fileTree="fileTree"
+    :favorites="favorites"
     @navigate="navigateTo"
   />
 

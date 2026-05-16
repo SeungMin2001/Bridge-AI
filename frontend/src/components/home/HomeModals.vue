@@ -11,6 +11,7 @@ const props = defineProps({
   selectedColor: String,
   selectedTag: { type: String, default: '수업' },
   selectedFileIcon: { type: String, default: 'article' },
+  placement: { type: String, default: 'rail' },
   editingItemType: { type: String, default: 'file' },
   editingFileKind: { type: String, default: 'lecture' },
   folderColors: { type: Array, default: () => [] },
@@ -88,7 +89,7 @@ const closeEditItemModal = () => {
 </script>
 
 <template>
-  <div :class="['modal-overlay', { open: isFolderModalOpen }]" @click="closeFolderModal">
+  <div :class="['modal-overlay', `modal-overlay-${placement}`, { open: isFolderModalOpen }]" @click="closeFolderModal">
     <div class="modal-card" @click.stop>
       <h2 class="text-[20px] font-bold tracking-[-0.02em] mb-1.5">새 폴더 생성</h2>
       <p class="text-[14px] text-[#8e8e93] mb-6">이름과 색상을 지정해주세요.</p>
@@ -116,7 +117,7 @@ const closeEditItemModal = () => {
     </div>
   </div>
 
-  <div :class="['modal-overlay', { open: isFileModalOpen }]" @click="closeFileModal">
+  <div :class="['modal-overlay', `modal-overlay-${placement}`, { open: isFileModalOpen }]" @click="closeFileModal">
     <div class="modal-card" @click.stop>
       <h2 class="text-[20px] font-bold tracking-[-0.02em] mb-1.5">새 파일 생성</h2>
       <p class="text-[14px] text-[#8e8e93] mb-6">이름, 태그와 색상을 지정해주세요.</p>
@@ -186,7 +187,7 @@ const closeEditItemModal = () => {
     </div>
   </div>
 
-  <div :class="['modal-overlay', { open: isEditItemModalOpen }]" @click="closeEditItemModal">
+  <div :class="['modal-overlay', `modal-overlay-${placement}`, { open: isEditItemModalOpen }]" @click="closeEditItemModal">
     <div class="modal-card" @click.stop>
       <h2 class="text-[20px] font-bold tracking-[-0.02em] mb-1.5">{{ editModalTitle }}</h2>
       <p class="text-[14px] text-[#8e8e93] mb-6">{{ editModalDescription }}</p>
@@ -257,3 +258,226 @@ const closeEditItemModal = () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  align-items: flex-start;
+  justify-content: flex-start;
+  background: transparent;
+  pointer-events: none;
+}
+
+.modal-overlay.open {
+  display: flex;
+}
+
+.modal-overlay-rail {
+  padding-left: calc(var(--copy-rail-width) - 6px);
+  padding-top: 142px;
+}
+
+.modal-overlay-work-top {
+  justify-content: flex-end;
+  padding-top: 96px;
+  padding-right: 112px;
+}
+
+.modal-card {
+  position: relative;
+  width: min(340px, calc(100vw - 28px));
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  border-radius: 26px;
+  background: var(--copy-surface);
+  border: 0;
+  box-shadow: 0 28px 60px rgba(48, 42, 58, 0.14);
+  padding: 24px 24px 22px;
+  pointer-events: auto;
+}
+
+.modal-card::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 38px;
+  width: 22px;
+  height: 22px;
+  background: #fff;
+  transform: rotate(45deg);
+  border-radius: 3px;
+}
+
+.modal-overlay-work-top .modal-card::before {
+  left: auto;
+  right: 62px;
+  top: -10px;
+}
+
+.modal-card h2 {
+  color: #1f2937;
+  font-size: 24px !important;
+  line-height: 1.18;
+  margin-bottom: 7px !important;
+  font-weight: 950;
+  letter-spacing: -0.04em;
+}
+
+.modal-card p {
+  letter-spacing: -0.01em;
+}
+
+.modal-input {
+  width: 100%;
+  min-height: 48px;
+  border: 2px solid #e2e0e8;
+  border-radius: 15px;
+  padding: 0 16px;
+  outline: none;
+  color: #1f2937;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 850;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.modal-input:focus {
+  border-color: var(--copy-black);
+  box-shadow: 0 0 0 3px rgba(21, 22, 26, 0.06);
+}
+
+.modal-compact-input {
+  min-height: 44px;
+  margin-top: -8px;
+}
+
+.tag-picker-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.tag-choice {
+  min-height: 34px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 2px solid #e2e0e8;
+  background: #fff;
+  color: #73717d;
+  font-size: 13px;
+  font-weight: 900;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.tag-choice:hover {
+  transform: translateY(-1px);
+}
+
+.tag-choice.selected {
+  color: #fff;
+  border-color: var(--copy-black);
+  background: var(--copy-black);
+}
+
+.tag-add-choice {
+  width: 38px;
+  padding: 0;
+}
+
+.icon-picker-container {
+  display: grid;
+  grid-template-columns: repeat(5, 38px);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.icon-choice {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: 2px solid #e2e0e8;
+  background: #fff;
+  color: #777b88;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.icon-choice:hover {
+  transform: translateY(-1px);
+}
+
+.icon-choice.selected {
+  color: #fff;
+  border-color: var(--copy-black);
+  background: var(--copy-black);
+}
+
+.icon-choice .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.color-picker-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.color-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 4px solid #fff;
+  box-shadow: 0 0 0 0 transparent;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.color-circle:hover {
+  transform: translateY(-1px);
+}
+
+.color-circle.selected {
+  box-shadow: 0 0 0 4px var(--copy-black);
+}
+
+.modal-btn-primary,
+.modal-btn-secondary,
+.modal-btn-danger {
+  min-width: 78px;
+  min-height: 42px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 950;
+  transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+}
+
+.modal-btn-primary {
+  background: var(--copy-black);
+  color: #fff;
+}
+
+.modal-btn-secondary {
+  background: #efedf4;
+  color: var(--copy-text);
+}
+
+.modal-btn-danger {
+  background: #fff0f0;
+  color: #f04444;
+}
+
+.modal-btn-primary:hover,
+.modal-btn-secondary:hover,
+.modal-btn-danger:hover {
+  transform: translateY(-1px);
+}
+</style>

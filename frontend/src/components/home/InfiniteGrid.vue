@@ -103,7 +103,7 @@ onUnmounted(() => {
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  background-color: #efe3d4;
+  background-color: var(--copy-bg);
   pointer-events: auto;
 }
 

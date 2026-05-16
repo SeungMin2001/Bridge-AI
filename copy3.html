@@ -1,0 +1,1491 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Daglo UI Mockup</title>
+  <style>
+    :root {
+      --text: #2d2f34;
+      --muted: #7d8590;
+      --line: #e7e9ee;
+      --rail: #f4f5f7;
+      --soft: #f7f8fa;
+      --blue: #2f80ed;
+      --pink: #ee4b7d;
+      --shadow: 0 20px 56px rgba(24, 28, 35, 0.09);
+      --rail-width: 80px;
+      --work-width: 312px;
+      --viewport-scale: 1;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #fff;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      overflow: hidden;
+    }
+
+    button {
+      border: 0;
+      background: none;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .app {
+      width: calc(100vw / var(--viewport-scale));
+      min-height: calc(100vh / var(--viewport-scale));
+      display: flex;
+      position: relative;
+      transform: scale(var(--viewport-scale));
+      transform-origin: top left;
+    }
+
+    .rail {
+      width: var(--rail-width);
+      min-width: var(--rail-width);
+      height: calc(100vh / var(--viewport-scale));
+      background: var(--rail);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 18px 0 18px;
+      position: relative;
+      z-index: 20;
+    }
+
+    .logo {
+      width: 58px;
+      height: 58px;
+      border-radius: 18px;
+      background: #dedfe1;
+      display: grid;
+      place-items: center;
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: -0.08em;
+      color: #18191d;
+      margin-bottom: 30px;
+    }
+
+    .rail-nav {
+      width: 100%;
+      display: grid;
+      gap: 22px;
+    }
+
+    .rail-item {
+      width: 100%;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #202329;
+      white-space: nowrap;
+    }
+
+    .rail-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      transition: 0.18s ease;
+    }
+
+    .rail-item:hover .rail-icon,
+    .rail-item.is-active .rail-icon {
+      background: #e3e5e8;
+    }
+
+    .rail-item.is-strong .rail-icon,
+    .rail-item[data-mode="new"].is-open .rail-icon {
+      background: #22242a;
+      color: #fff;
+    }
+
+    .rail-bottom {
+      margin-top: auto;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      color: #101217;
+    }
+
+    .free-badge {
+      height: 21px;
+      min-width: 43px;
+      border-radius: 12px;
+      border: 1px solid #d9dde4;
+      background: #fff;
+      color: #2176ff;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .icon {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.85;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      display: block;
+    }
+
+    .icon.fill {
+      fill: currentColor;
+      stroke: none;
+    }
+
+    .main {
+      flex: 1;
+      min-width: 0;
+      height: calc(100vh / var(--viewport-scale));
+      position: relative;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .topbar {
+      position: absolute;
+      top: 15px;
+      right: 30px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      z-index: 10;
+    }
+
+    .pill {
+      height: 47px;
+      padding: 0 20px;
+      border-radius: 24px;
+      border: 1px solid var(--line);
+      background: #fff;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: #111318;
+      font-size: 15px;
+      font-weight: 800;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+      white-space: nowrap;
+    }
+
+    .pill .small-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    .primary {
+      height: 48px;
+      border-radius: 8px;
+      background: #2468ee;
+      color: #fff;
+      padding: 0 23px;
+      gap: 12px;
+    }
+
+    .bell {
+      width: 42px;
+      height: 42px;
+      border-radius: 21px;
+      display: grid;
+      place-items: center;
+      color: #111318;
+    }
+
+    .home-page {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 184px 32px 0;
+    }
+
+    .headline {
+      margin: 0 0 52px;
+      font-size: 36px;
+      line-height: 1.2;
+      font-weight: 900;
+      letter-spacing: 0;
+      color: #2f3136;
+      text-align: center;
+    }
+
+    .composer-wrap {
+      width: min(838px, 72vw);
+      position: relative;
+    }
+
+    .composer {
+      height: 134px;
+      border-radius: 22px;
+      padding: 22px 20px;
+      position: relative;
+      background:
+        linear-gradient(#fff, #fff) padding-box,
+        linear-gradient(105deg, #65d1ff 0%, #1aa5ff 22%, #8f77ff 58%, #ff7d93 100%) border-box;
+      border: 2px solid transparent;
+    }
+
+    .placeholder {
+      color: #a3abb6;
+      font-size: 16px;
+      font-weight: 800;
+      margin-bottom: 25px;
+    }
+
+    .model-select {
+      height: 46px;
+      width: 153px;
+      border: 1px solid #e4e8ee;
+      border-radius: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 11px;
+      background: #fff;
+      font-size: 17px;
+      font-weight: 800;
+      color: #23262c;
+    }
+
+    .openai-dot {
+      width: 17px;
+      height: 17px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #41aa95;
+    }
+
+    .send {
+      width: 37px;
+      height: 37px;
+      border-radius: 50%;
+      background: #e4e6ea;
+      color: #a8afb9;
+      display: grid;
+      place-items: center;
+      position: absolute;
+      right: 20px;
+      bottom: 26px;
+    }
+
+    .model-strip {
+      width: calc(100% - 56px);
+      height: 44px;
+      margin: 0 auto;
+      border-radius: 0 0 19px 19px;
+      background: #f4f6f8;
+      color: #8c95a0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 22px;
+      box-shadow: 0 14px 32px rgba(20, 25, 35, 0.06);
+      position: relative;
+    }
+
+    .strip-caret {
+      position: absolute;
+      top: -9px;
+      left: 38px;
+      width: 22px;
+      height: 22px;
+      background: #f4f6f8;
+      transform: rotate(45deg);
+      border-radius: 2px;
+    }
+
+    .strip-icons {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .mini-mark {
+      width: 16px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 900;
+      border-radius: 50%;
+    }
+
+    .mini-mark.m1 { color: #55bfa9; }
+    .mini-mark.m2 { background: #eaf3ff; color: #2b7cff; }
+    .mini-mark.m3 { color: #f07445; }
+    .mini-mark.m4 { color: #52bee7; }
+    .mini-mark.m5 {
+      color: #111318;
+      border-radius: 3px;
+      font-size: 13px;
+    }
+
+    .strip-text {
+      font-size: 14px;
+      font-weight: 700;
+      position: relative;
+      z-index: 1;
+    }
+
+    .strip-close {
+      margin-left: auto;
+      color: #9aa2ad;
+      position: relative;
+      z-index: 1;
+    }
+
+    .recent {
+      width: min(838px, 72vw);
+      margin-top: 100px;
+    }
+
+    .recent-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #6f7782;
+      font-size: 15px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+
+    .recent-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .recent-card {
+      height: 136px;
+      border: 1px solid #e6e9ee;
+      border-radius: 16px;
+      padding: 25px 25px;
+      background: #fff;
+      color: #30333a;
+    }
+
+    .recent-card:nth-child(2) {
+      background: #f0f1f3;
+      border-color: #e8eaef;
+    }
+
+    .recent-kind {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 800;
+      margin-bottom: 15px;
+      color: #1f2228;
+    }
+
+    .recent-name {
+      font-size: 18px;
+      font-weight: 900;
+      margin-bottom: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .recent-date {
+      color: #6f7782;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .footer-links {
+      position: absolute;
+      bottom: 27px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      color: #9aa2ad;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .footer-links span + span::before {
+      content: "";
+      display: inline-block;
+      width: 1px;
+      height: 12px;
+      background: #e3e6eb;
+      margin-right: 24px;
+      vertical-align: -2px;
+    }
+
+    .footer-links .strong {
+      color: #808995;
+      font-weight: 900;
+    }
+
+    .quick-panel {
+      width: 528px;
+      height: 302px;
+      position: absolute;
+      left: var(--rail-width);
+      top: 74px;
+      z-index: 30;
+      border-radius: 23px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      padding: 28px 22px 30px;
+      opacity: 0;
+      transform: translateX(-10px) scale(0.98);
+      pointer-events: none;
+      transition: 0.18s ease;
+    }
+
+    .app.is-panel-open .quick-panel {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .quick-panel::before {
+      content: "";
+      position: absolute;
+      left: -10px;
+      top: 31px;
+      width: 22px;
+      height: 22px;
+      background: #fff;
+      transform: rotate(45deg);
+    }
+
+    .panel-title {
+      margin: 0 0 36px;
+      padding-left: 2px;
+      font-size: 18px;
+      font-weight: 900;
+      color: #16191f;
+    }
+
+    .panel-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      row-gap: 54px;
+      column-gap: 20px;
+    }
+
+    .panel-action {
+      display: grid;
+      justify-items: center;
+      gap: 11px;
+      color: #6f7782;
+      font-size: 15px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .panel-action .mini-feature {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      color: #1c2027;
+    }
+
+    .panel-action .mini-feature.red {
+      color: #ff1438;
+    }
+
+    .panel-action .mini-feature.blue {
+      color: #2d7eff;
+      background: #dcecff;
+    }
+
+    .panel-action .mini-feature.green {
+      color: #00a46e;
+      background: #d9f5e8;
+    }
+
+    .panel-action .mini-feature.purple {
+      color: #7654ff;
+    }
+
+    .panel-action .mini-feature.orange {
+      color: #ff9900;
+    }
+
+    .panel-action .mini-feature.pink {
+      color: #ec4b7a;
+      background: #ffe0eb;
+    }
+
+    .work-sidebar {
+      width: 0;
+      min-width: 0;
+      height: calc(100vh / var(--viewport-scale));
+      border-right: 1px solid var(--line);
+      background: #fff;
+      overflow: hidden;
+      opacity: 0;
+      transition: width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease;
+      position: relative;
+      z-index: 12;
+    }
+
+    .app[data-page="pdf"] .work-sidebar {
+      width: var(--work-width);
+      min-width: var(--work-width);
+      opacity: 1;
+    }
+
+    .work-inner {
+      width: var(--work-width);
+      height: 100%;
+      padding: 70px 22px 28px 20px;
+      position: relative;
+    }
+
+    .collapse {
+      width: 24px;
+      height: 24px;
+      border: 1px solid #aeb5bf;
+      border-radius: 5px;
+      position: absolute;
+      right: 21px;
+      top: 27px;
+      color: #8d96a3;
+      display: grid;
+      place-items: center;
+    }
+
+    .work-list {
+      display: grid;
+      gap: 9px;
+      margin-bottom: 26px;
+    }
+
+    .work-item,
+    .folder-item {
+      height: 48px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 0 11px;
+      color: #25282e;
+      font-size: 16px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .work-item.is-selected {
+      background: #d8d9de;
+    }
+
+    .work-section-title {
+      color: #6e7682;
+      font-size: 15px;
+      font-weight: 900;
+      margin: 21px 0 9px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .folder-add {
+      width: 36px;
+      height: 36px;
+      border: 1px solid #e2e5eb;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #202329;
+      margin-right: 11px;
+    }
+
+    .work-page {
+      height: 100%;
+      display: none;
+      padding: 119px 60px 0 38px;
+    }
+
+    .app[data-page="pdf"] .home-page {
+      display: none;
+    }
+
+    .app[data-page="pdf"] .work-page {
+      display: block;
+    }
+
+    .app[data-page="home"] .topbar .new-pdf {
+      display: none;
+    }
+
+    .app[data-page="pdf"] .footer-links {
+      display: none;
+    }
+
+    .work-title {
+      margin: 0 0 70px;
+      font-size: 25px;
+      line-height: 1.2;
+      font-weight: 900;
+      color: #30333a;
+    }
+
+    .pdf-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .pdf-table .col-check {
+      width: 80px;
+    }
+
+    .pdf-table .col-date {
+      width: 330px;
+    }
+
+    .pdf-table th,
+    .pdf-table td {
+      height: 69px;
+      text-align: left;
+      border: 0;
+      color: #4d5561;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .pdf-table th {
+      height: 44px;
+      color: #5f6874;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .pdf-table .check-cell {
+      width: 40px;
+      padding-left: 36px;
+    }
+
+    .fake-check {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #b7bec8;
+      border-radius: 5px;
+      display: block;
+    }
+
+    .date-head {
+      display: inline-flex;
+      align-items: center;
+      gap: 16px;
+      color: #4d5561;
+    }
+
+    .date-cell {
+      color: #66707d;
+      font-size: 15px;
+    }
+
+    .pdf-name {
+      padding-left: 44px;
+    }
+
+    .hide {
+      display: none !important;
+    }
+
+    @media (max-width: 1120px) {
+      body {
+        overflow: auto;
+      }
+
+      .app {
+        min-width: 980px;
+      }
+
+      .composer-wrap,
+      .recent {
+        width: 720px;
+      }
+
+    }
+
+    /* Reference image inspired skin: white icon rail, pale workspace, calm navy cards */
+    :root {
+      --text: #20283a;
+      --muted: #8a93a3;
+      --line: #edf0f5;
+      --rail: #ffffff;
+      --soft: #f4f5f8;
+      --blue: #0a2a52;
+      --pink: #ec407a;
+      --shadow: 0 18px 44px rgba(29, 39, 57, 0.08);
+      --rail-width: 104px;
+      --work-width: 300px;
+    }
+
+    body {
+      background: #dfe3eb;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+    }
+
+    .app {
+      background: #f3f4f8;
+    }
+
+    .rail {
+      align-items: center;
+      padding: 22px 0 24px;
+      background: #fff;
+      box-shadow: 14px 0 36px rgba(28, 37, 54, 0.05);
+    }
+
+    .logo {
+      width: 46px;
+      height: 46px;
+      margin-bottom: 150px;
+      border-radius: 50%;
+      background: #08294f;
+      color: transparent;
+      box-shadow: 0 12px 24px rgba(8, 41, 79, 0.16);
+      font-size: 0;
+      letter-spacing: 0;
+      position: relative;
+    }
+
+    .logo::before {
+      content: "D";
+      color: #fff;
+      font-size: 26px;
+      font-weight: 950;
+      letter-spacing: -0.08em;
+      transform: rotate(-12deg);
+    }
+
+    .rail-nav {
+      gap: 18px;
+    }
+
+    .rail-item {
+      gap: 0;
+      font-size: 0;
+      font-weight: 800;
+      color: #2b3443;
+    }
+
+    .rail-item > span:last-child {
+      display: none;
+    }
+
+    .rail-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 15px;
+      color: #2b3443;
+      background: transparent;
+    }
+
+    .rail-icon .icon {
+      width: 21px;
+      height: 21px;
+      stroke-width: 2;
+    }
+
+    .rail-item:hover .rail-icon,
+    .rail-item.is-active .rail-icon {
+      background: #f3f5f9;
+      color: #08294f;
+    }
+
+    .rail-item.is-strong .rail-icon,
+    .rail-item[data-mode="new"].is-open .rail-icon {
+      background: #08294f;
+      color: #fff;
+      box-shadow: 0 12px 22px rgba(8, 41, 79, 0.18);
+    }
+
+    .rail-bottom {
+      gap: 12px;
+      color: #2b3443;
+    }
+
+    .rail-bottom .icon {
+      width: 21px;
+      height: 21px;
+    }
+
+    .free-badge {
+      min-width: 44px;
+      height: 24px;
+      border: 0;
+      border-radius: 999px;
+      background: #f4f6fa;
+      color: #08294f;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .main {
+      background: #f3f4f8;
+    }
+
+    .app[data-page="home"] .main::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 314px;
+      height: 100%;
+      background: #ebeef3;
+      box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.72);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .topbar {
+      top: 25px;
+      right: 30px;
+      z-index: 3;
+    }
+
+    .pill {
+      height: 44px;
+      border: 0;
+      border-radius: 16px;
+      background: #fff;
+      color: #20283a;
+      font-size: 14px;
+      font-weight: 850;
+      box-shadow: 0 12px 28px rgba(29, 39, 57, 0.07);
+    }
+
+    .primary {
+      background: #08294f;
+      color: #fff;
+    }
+
+    .bell {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #fff;
+      color: #20283a;
+      box-shadow: 0 14px 30px rgba(29, 39, 57, 0.08);
+      position: relative;
+    }
+
+    .bell::after {
+      content: "";
+      position: absolute;
+      top: 10px;
+      right: 11px;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #ec407a;
+      border: 2px solid #fff;
+    }
+
+    .home-page {
+      align-items: stretch;
+      position: relative;
+      z-index: 1;
+      padding: 34px 350px 0 32px;
+      background: transparent;
+    }
+
+    .headline {
+      margin: 0 0 22px;
+      color: #20283a;
+      font-size: 34px;
+      line-height: 1.15;
+      font-weight: 760;
+      letter-spacing: 0;
+      text-align: left;
+    }
+
+    .composer-wrap,
+    .recent {
+      width: min(760px, 100%);
+    }
+
+    .composer {
+      height: 154px;
+      border: 0;
+      border-radius: 11px;
+      padding: 24px;
+      background: #fff;
+      box-shadow: 0 18px 36px rgba(29, 39, 57, 0.07);
+      overflow: hidden;
+    }
+
+    .composer::before {
+      content: "";
+      position: absolute;
+      right: 22px;
+      top: 20px;
+      width: 74px;
+      height: 74px;
+      border-radius: 50%;
+      border: 2px solid #c8ced9;
+      opacity: 0.62;
+    }
+
+    .composer::after {
+      content: "";
+      position: absolute;
+      left: 24px;
+      right: 56%;
+      bottom: 17px;
+      height: 5px;
+      border-radius: 999px;
+      background: #1687f8;
+      box-shadow: 172px 0 0 #0ec76b, 344px 0 0 #f6b018;
+    }
+
+    .placeholder {
+      color: #9ca4b2;
+      font-size: 14px;
+      font-weight: 850;
+      margin-bottom: 30px;
+    }
+
+    .model-select {
+      height: 42px;
+      width: 143px;
+      border: 1px solid #edf0f5;
+      border-radius: 13px;
+      background: #f9fafc;
+      color: #20283a;
+      font-size: 16px;
+      box-shadow: none;
+    }
+
+    .openai-dot {
+      color: #0a946c;
+    }
+
+    .send {
+      right: 22px;
+      bottom: 20px;
+      width: 40px;
+      height: 40px;
+      background: #f0f2f6;
+      color: #8b94a3;
+    }
+
+    .model-strip {
+      width: 100%;
+      height: 56px;
+      margin-top: 14px;
+      border-radius: 11px;
+      background: #fff;
+      color: #8a93a3;
+      box-shadow: 0 16px 34px rgba(29, 39, 57, 0.06);
+    }
+
+    .strip-caret {
+      display: none;
+    }
+
+    .strip-text {
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .recent {
+      margin-top: 36px;
+    }
+
+    .recent-title {
+      margin-bottom: 16px;
+      color: #20283a;
+      font-size: 28px;
+      line-height: 1.2;
+      font-weight: 720;
+    }
+
+    .recent-grid {
+      gap: 18px;
+    }
+
+    .recent-card {
+      height: 124px;
+      border: 0;
+      border-radius: 10px;
+      padding: 22px 18px 18px;
+      background: #fff;
+      box-shadow: 0 16px 32px rgba(29, 39, 57, 0.06);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .recent-card:nth-child(2) {
+      background: #fff;
+      border: 0;
+    }
+
+    .recent-card::before {
+      content: "";
+      position: absolute;
+      right: 18px;
+      top: 16px;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 2px solid rgba(32, 40, 58, 0.18);
+    }
+
+    .recent-card::after {
+      content: "";
+      position: absolute;
+      left: 18px;
+      bottom: 14px;
+      width: 55%;
+      height: 4px;
+      border-radius: 999px;
+      background: #1687f8;
+    }
+
+    .recent-card:nth-child(2)::after {
+      width: 34%;
+      background: #0ec76b;
+    }
+
+    .recent-card:nth-child(3)::after {
+      width: 60%;
+      background: #f6b018;
+    }
+
+    .recent-kind {
+      margin-bottom: 13px;
+      color: #20283a;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .recent-name {
+      max-width: calc(100% - 48px);
+      color: #20283a;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .recent-date {
+      color: #9aa2af;
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .footer-links {
+      bottom: 26px;
+      justify-content: flex-start;
+      padding-left: 32px;
+      color: #9aa2af;
+      z-index: 1;
+    }
+
+    .quick-panel {
+      left: calc(var(--rail-width) + 22px);
+      top: 78px;
+      width: 520px;
+      height: 286px;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 24px 56px rgba(29, 39, 57, 0.12);
+    }
+
+    .quick-panel::before {
+      display: none;
+    }
+
+    .panel-title {
+      color: #20283a;
+      font-size: 24px;
+      font-weight: 760;
+    }
+
+    .panel-action {
+      color: #5d6675;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .panel-action .mini-feature {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: #f4f6fa;
+      color: #20283a;
+    }
+
+    .work-sidebar {
+      background: #fff;
+      border-right: 0;
+      box-shadow: 12px 0 28px rgba(29, 39, 57, 0.04);
+    }
+
+    .work-page {
+      background: #f3f4f8;
+      padding: 82px 52px 0;
+    }
+
+    .work-title {
+      margin-bottom: 28px;
+      color: #20283a;
+      font-size: 34px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+
+    .pdf-table {
+      border-collapse: separate;
+      border-spacing: 0 12px;
+    }
+
+    .pdf-table th {
+      height: 36px;
+      color: #9aa2af;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .pdf-table td {
+      height: 58px;
+      background: #fff;
+      color: #20283a;
+      font-size: 14px;
+      font-weight: 780;
+      box-shadow: 0 12px 24px rgba(29, 39, 57, 0.04);
+    }
+
+    .pdf-table tbody td:first-child {
+      border-radius: 10px 0 0 10px;
+    }
+
+    .pdf-table tbody td:last-child {
+      border-radius: 0 10px 10px 0;
+    }
+
+    .date-cell {
+      color: #8a93a3;
+    }
+
+    @media (max-width: 1120px) {
+      .home-page {
+        padding-right: 32px;
+      }
+
+      .app[data-page="home"] .main::after {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app" data-page="home">
+    <aside class="rail" aria-label="주 메뉴">
+      <button class="logo" id="homeButton" aria-label="홈">da</button>
+      <nav class="rail-nav">
+        <button class="rail-item" data-mode="new" id="newTaskButton" type="button">
+          <span class="rail-icon">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.2"></circle><path d="M12 8v8M8 12h8"></path></svg>
+          </span>
+          <span>새 작업</span>
+        </button>
+        <button class="rail-item" data-mode="work" id="workButton" type="button">
+          <span class="rail-icon">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="15" rx="2"></rect><path d="M8 5.5V4h8v1.5M4 10h16"></path></svg>
+          </span>
+          <span>내 작업</span>
+        </button>
+        <button class="rail-item" data-mode="chat" id="chatButton" type="button">
+          <span class="rail-icon">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.6 3.3l.9 3.1 3.1.9-3.1.9-.9 3.1-.9-3.1-3.1-.9 3.1-.9.9-3.1z"></path><path d="M7.2 10.6l1.2 4.1 4.1 1.2-4.1 1.2-1.2 4.1L6 17.1 1.9 16 6 14.7l1.2-4.1z"></path><path d="M18.4 14.1l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3z"></path></svg>
+          </span>
+          <span>AI 채팅</span>
+        </button>
+      </nav>
+      <div class="rail-bottom">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 20a6 6 0 0 0-12 0"></path><circle cx="12" cy="8" r="3"></circle></svg>
+        <span class="free-badge">Free</span>
+      </div>
+    </aside>
+
+    <aside class="work-sidebar" aria-label="작업 폴더">
+      <div class="work-inner">
+        <button class="collapse" type="button" aria-label="접기">
+          <svg class="icon" style="width:17px;height:17px" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path><path d="M20 4v16"></path></svg>
+        </button>
+        <div class="work-list">
+          <button class="work-item" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="11" height="16" rx="2"></rect><path d="M8 8h3M8 12h3M17 7h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2V7z"></path></svg>
+            내 슬라이드
+          </button>
+        </div>
+
+        <div class="work-section-title">내 받아쓰기</div>
+        <div class="work-list">
+          <button class="work-item" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M8 5v14"></path></svg>
+            전체 보드
+          </button>
+          <button class="work-item" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M7 7l1 14h8l1-14"></path><path d="M10 11v6M14 11v6"></path></svg>
+            휴지통
+          </button>
+        </div>
+
+        <div class="work-section-title">
+          폴더
+          <button class="folder-add" type="button" aria-label="폴더 추가">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          </button>
+        </div>
+        <div class="work-list">
+          <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>기본 폴더</button>
+          <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>컴퓨터구조</button>
+          <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>데이터베이스</button>
+          <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>기초프로젝트2</button>
+          <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>알고리즘</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="pill primary new-pdf" type="button">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          새 PDF
+        </button>
+        <button class="bell" type="button" aria-label="알림">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>
+        </button>
+      </header>
+
+      <section class="home-page" aria-label="홈">
+        <h1 class="headline">다글로, 세상 모든 AI를 한 번에</h1>
+
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="placeholder">어떤 작업을 도와드릴까요?</div>
+            <button class="model-select" type="button">
+              <span class="openai-dot">
+                <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M11.3 2.7a4.2 4.2 0 0 1 6.4 3.5 4.2 4.2 0 0 1 2.3 6.8 4.2 4.2 0 0 1-3.8 6.1 4.2 4.2 0 0 1-6.4 2.2 4.2 4.2 0 0 1-6.4-3.5 4.2 4.2 0 0 1-2.3-6.8 4.2 4.2 0 0 1 3.8-6.1 4.2 4.2 0 0 1 6.4-2.2z" fill="none" stroke="currentColor" stroke-width="1.4"></path><path d="M8.2 7.8l7.6 4.4v4.1M15.8 7.7l-7.6 4.4v4.2M5.6 13.8l6.4-3.7 6.4 3.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>
+              </span>
+              GPT 5.4
+              <svg class="icon" style="width:17px;height:17px" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <button class="send" type="button" aria-label="전송">
+              <svg class="icon" style="width:20px;height:20px;stroke-width:2.4" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>
+            </button>
+          </div>
+          <div class="model-strip">
+            <span class="strip-caret" aria-hidden="true"></span>
+            <span class="strip-icons">
+              <span class="mini-mark m1">◎</span>
+              <span class="mini-mark m2">◆</span>
+              <span class="mini-mark m3">✳</span>
+              <span class="mini-mark m4">⌘</span>
+              <span class="mini-mark m5">x1</span>
+            </span>
+            <span class="strip-text">다양한 AI 채팅 모델을 사용할 수 있어요</span>
+            <button class="strip-close" type="button" aria-label="닫기">
+              <svg class="icon" style="width:16px;height:16px" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <section class="recent" aria-label="최근 업데이트한 보드">
+          <div class="recent-title">
+            <svg class="icon" style="width:18px;height:18px" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+            최근 업데이트한 보드
+          </div>
+          <div class="recent-grid">
+            <article class="recent-card">
+              <div class="recent-kind"><svg class="icon fill" style="width:17px;height:17px" viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4z"></path><path d="M5 11a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21a1 1 0 0 1-2 0v-3.07A7 7 0 0 1 5 11z"></path></svg>녹음</div>
+              <div class="recent-name">2026. 4. 13. 오후 9:29 - ...</div>
+              <div class="recent-date">2026. 4. 13. 오후 11:36</div>
+            </article>
+            <article class="recent-card">
+              <div class="recent-kind"><svg class="icon fill" style="width:17px;height:17px" viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4z"></path><path d="M5 11a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21a1 1 0 0 1-2 0v-3.07A7 7 0 0 1 5 11z"></path></svg>녹음</div>
+              <div class="recent-name">2026. 4. 12. 오후 3:48 - ...</div>
+              <div class="recent-date">2026. 4. 12. 오후 3:49</div>
+            </article>
+            <article class="recent-card">
+              <div class="recent-kind"><svg class="icon fill" style="width:17px;height:17px" viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4z"></path><path d="M5 11a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21a1 1 0 0 1-2 0v-3.07A7 7 0 0 1 5 11z"></path></svg>녹음</div>
+              <div class="recent-name">2026. 4. 12. 오전 4:38 - ...</div>
+              <div class="recent-date">2026. 4. 12. 오전 4:39</div>
+            </article>
+          </div>
+        </section>
+
+        <footer class="footer-links">
+          <span>고객센터</span>
+          <span>이용약관</span>
+          <span class="strong">개인정보처리방침</span>
+        </footer>
+      </section>
+
+      <section class="work-page" aria-label="내 PDF">
+        <h1 class="work-title">내 PDF</h1>
+        <table class="pdf-table">
+          <colgroup>
+            <col class="col-check">
+            <col>
+            <col class="col-date">
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="check-cell"><span class="fake-check"></span></th>
+              <th>보드 이름</th>
+              <th><span class="date-head">생성일 <svg class="icon" style="width:17px;height:17px" viewBox="0 0 24 24"><path d="M12 5v14M7 14l5 5 5-5"></path></svg></span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="check-cell"></td>
+              <td class="pdf-name">종합프로젝트스크립트.pdf</td>
+              <td class="date-cell">2026. 4. 15. 오후 7:25</td>
+            </tr>
+            <tr>
+              <td class="check-cell"></td>
+              <td class="pdf-name">c0cc1197-d9e5-482b-a116-a52fe82c767f_요구사항_.pdf</td>
+              <td class="date-cell">2026. 4. 11. 오후 7:20</td>
+            </tr>
+            <tr>
+              <td class="check-cell"></td>
+              <td class="pdf-name">ch02_배열과 자료구조.pdf</td>
+              <td class="date-cell">2026. 3. 26. 오전 10:35</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <section class="quick-panel" aria-label="새 작업">
+      <h2 class="panel-title">새 작업</h2>
+      <div class="panel-grid">
+        <button class="panel-action" type="button">
+          <span class="mini-feature"><svg class="icon fill" viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4z"></path><path d="M5 11a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21a1 1 0 0 1-2 0v-3.07A7 7 0 0 1 5 11z"></path></svg></span>
+          녹음 받아쓰기
+        </button>
+        <button class="panel-action" type="button">
+          <span class="mini-feature blue"><svg class="icon fill" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm8 1v5h5"></path><path d="M8 13h2v5H8zm4-3h2v8h-2zm4 5h2v3h-2z" fill="#fff"></path></svg></span>
+          파일 받아쓰기
+        </button>
+        <button class="panel-action" type="button">
+          <span class="mini-feature red"><svg class="icon fill" viewBox="0 0 24 24"><path d="M21 8.2a3.2 3.2 0 0 0-2.2-2.2C16.8 5.5 12 5.5 12 5.5s-4.8 0-6.8.5A3.2 3.2 0 0 0 3 8.2a33.6 33.6 0 0 0 0 7.6A3.2 3.2 0 0 0 5.2 18c2 .5 6.8.5 6.8.5s4.8 0 6.8-.5a3.2 3.2 0 0 0 2.2-2.2 33.6 33.6 0 0 0 0-7.6z"></path><path d="M10 15V9l5 3-5 3z" fill="#fff"></path></svg></span>
+          YouTube 링크
+        </button>
+        <button class="panel-action" type="button">
+          <span class="mini-feature green"><svg class="icon fill" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm8 1v5h5"></path><text x="8.1" y="17" fill="#fff" font-size="5.5" font-weight="900" font-family="Arial">PDF</text></svg></span>
+          PDF 분석
+        </button>
+        <button class="panel-action" type="button">
+          <span class="mini-feature purple"><svg class="icon" viewBox="0 0 24 24"><path d="M5 5h6v6H5zM8 3v10M3 8h10"></path><path d="M15 14l4 7M13.6 18h6.8"></path><path d="M17 3l.7 2.1L20 6l-2.3.9L17 9l-.7-2.1L14 6l2.3-.9L17 3z"></path></svg></span>
+          문서 번역하기
+        </button>
+        <button class="panel-action" type="button">
+          <span class="mini-feature orange"><svg class="icon" viewBox="0 0 24 24"><rect x="4" y="5" width="12" height="12" rx="2"></rect><path d="M8 12l2 2 5-6"></path><path d="M18 9h2v10a2 2 0 0 1-2 2H8v-2"></path></svg></span>
+          퀴즈 만들기
+        </button>
+        <button class="panel-action" type="button">
+          <span class="mini-feature pink"><svg class="icon fill" viewBox="0 0 24 24"><path d="M5 5l12-2v18L5 19V5zm3 5v5l5-1v-5l-5 1z"></path><path d="M18 6h2v12h-2z" opacity=".55"></path></svg></span>
+          슬라이드 만들기
+        </button>
+        <button class="panel-action" type="button">
+          <span class="mini-feature blue"><svg class="icon" viewBox="0 0 24 24"><path d="M13.6 3.3l.9 3.1 3.1.9-3.1.9-.9 3.1-.9-3.1-3.1-.9 3.1-.9.9-3.1z"></path><path d="M7.2 10.6l1.2 4.1 4.1 1.2-4.1 1.2-1.2 4.1L6 17.1 1.9 16 6 14.7l1.2-4.1z"></path></svg></span>
+          AI 채팅하기
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const app = document.getElementById('app');
+    const newTaskButton = document.getElementById('newTaskButton');
+    const workButton = document.getElementById('workButton');
+    const chatButton = document.getElementById('chatButton');
+    const homeButton = document.getElementById('homeButton');
+
+    function syncViewportScale() {
+      const screenWidth = window.screen && window.screen.width ? window.screen.width : window.innerWidth;
+      const isWideWindow = window.outerWidth >= screenWidth - 96;
+      const baseScale = isWideWindow && window.innerWidth < screenWidth
+        ? Math.max(0.75, Math.min(1, window.innerWidth / screenWidth))
+        : 1;
+      const scale = baseScale * 0.88;
+
+      document.documentElement.style.setProperty('--viewport-scale', String(scale));
+    }
+
+    function setPage(page) {
+      app.dataset.page = page;
+      if (page !== 'home') {
+        app.classList.remove('is-panel-open');
+      }
+      workButton.classList.toggle('is-strong', page === 'pdf');
+      chatButton.classList.toggle('is-active', page === 'chat');
+      newTaskButton.classList.toggle('is-open', app.classList.contains('is-panel-open'));
+    }
+
+    function showHome(closePanel = true) {
+      app.dataset.page = 'home';
+      if (closePanel) {
+        app.classList.remove('is-panel-open');
+      }
+      workButton.classList.remove('is-strong');
+      chatButton.classList.remove('is-active');
+      newTaskButton.classList.toggle('is-open', app.classList.contains('is-panel-open'));
+    }
+
+    newTaskButton.addEventListener('click', () => {
+      app.dataset.page = 'home';
+      app.classList.toggle('is-panel-open');
+      workButton.classList.remove('is-strong');
+      chatButton.classList.remove('is-active');
+      newTaskButton.classList.toggle('is-open', app.classList.contains('is-panel-open'));
+    });
+
+    workButton.addEventListener('click', () => setPage('pdf'));
+    chatButton.addEventListener('click', () => showHome());
+    homeButton.addEventListener('click', () => showHome());
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        app.classList.remove('is-panel-open');
+        newTaskButton.classList.remove('is-open');
+      }
+    });
+
+    syncViewportScale();
+    window.addEventListener('resize', syncViewportScale);
+  </script>
+</body>
+</html>
