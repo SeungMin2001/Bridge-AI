@@ -10,6 +10,30 @@
 }
 
 :root {
+  --copy-bg: #eee9f2;
+  --copy-surface: #ffffff;
+  --copy-surface-soft: #f8f6fa;
+  --copy-surface-tint: #f4f1f6;
+  --copy-text: #15161a;
+  --copy-muted: #8c8893;
+  --copy-muted-strong: #6f6a76;
+  --copy-line: #ebe8ef;
+  --copy-line-strong: #dcd8e3;
+  --copy-black: #15161a;
+  --copy-blue: #2f80ed;
+  --copy-green: #1fbd83;
+  --copy-amber: #f5a21c;
+  --copy-lavender: #eef0ff;
+  --copy-yellow: #fff2cf;
+  --copy-mint: #edf8ef;
+  --copy-rose: #ffe5eb;
+  --copy-card-shadow: 0 22px 54px rgba(48, 42, 58, 0.08);
+  --copy-soft-shadow: 0 18px 42px rgba(48, 42, 58, 0.07);
+  --copy-radius-lg: 32px;
+  --copy-radius-md: 22px;
+  --copy-radius-sm: 14px;
+  --copy-rail-width: 92px;
+  --copy-work-width: 280px;
   --liquid-border: rgba(255, 255, 255, 0.58);
   --liquid-border-strong: rgba(255, 255, 255, 0.82);
   --liquid-panel: linear-gradient(155deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.24) 45%, rgba(210, 226, 255, 0.18) 100%);
@@ -28,12 +52,12 @@
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  background: var(--liquid-panel);
+  background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(28px) saturate(170%);
   -webkit-backdrop-filter: blur(28px) saturate(170%);
-  border-radius: 28px;
-  box-shadow: var(--liquid-shadow);
-  border: 1px solid var(--liquid-border);
+  border-radius: var(--copy-radius-lg);
+  box-shadow: var(--copy-card-shadow);
+  border: 1px solid rgba(255, 255, 255, 0.86);
 }
 
 .card::before {

@@ -183,10 +183,10 @@ const emit = defineEmits([
   min-height: 0;
   min-width: 0;
   flex: 1;
-  padding: 16px;
-  border-radius: 24px;
-  background: #f2eadf;
-  border: 1px solid rgba(255, 255, 255, 0.86);
+  padding: 0;
+  border-radius: 22px;
+  background: transparent;
+  border: 0;
 }
 
 .schedule-calendar-title-row {
@@ -202,7 +202,7 @@ const emit = defineEmits([
   text-align: center;
   font-size: 24px;
   font-weight: 950;
-  color: #334155;
+  color: var(--copy-text);
 }
 
 .schedule-view-switch {
@@ -212,8 +212,8 @@ const emit = defineEmits([
   height: 38px;
   padding: 3px;
   border-radius: 10px;
-  background: #f7f1e8;
-  border: 1px solid #ded0bd;
+  background: var(--copy-surface-soft);
+  border: 1px solid var(--copy-line);
 }
 
 .schedule-view-tab {
@@ -230,12 +230,12 @@ const emit = defineEmits([
 
 .schedule-view-tab.active {
   color: #ffffff;
-  background: #1687f8;
+  background: var(--copy-black);
 }
 
 .schedule-view-tab:not(.active):hover {
-  color: #1e293b;
-  background: #fffaf3;
+  color: var(--copy-text);
+  background: #fff;
 }
 
 .schedule-legend {
@@ -259,11 +259,11 @@ const emit = defineEmits([
 }
 
 .schedule-legend .confirmed {
-  background: #2fc07a;
+  background: var(--copy-green);
 }
 
 .schedule-legend .pending {
-  background: #f59e0b;
+  background: var(--copy-amber);
 }
 
 .schedule-weekdays,
@@ -289,22 +289,22 @@ const emit = defineEmits([
   flex: 1;
   min-height: 0;
   gap: 0;
-  grid-auto-rows: minmax(112px, 1fr);
+  grid-auto-rows: minmax(84px, 1fr);
   overflow: hidden;
-  border: 1px solid #dfd2bf;
+  border: 1px solid var(--copy-line);
   border-radius: 18px;
-  background: #f4ede4;
+  background: var(--copy-surface);
 }
 
 .schedule-day-cell {
   position: relative;
-  min-height: 96px;
+  min-height: 78px;
   border: 0;
-  border-right: 1px solid #dfd2bf;
-  border-bottom: 1px solid #dfd2bf;
+  border-right: 1px solid var(--copy-line);
+  border-bottom: 1px solid var(--copy-line);
   border-radius: 0;
   padding: 10px;
-  background: #f4ede4;
+  background: var(--copy-surface);
   text-align: left;
   overflow: hidden;
   cursor: pointer;
@@ -320,23 +320,23 @@ const emit = defineEmits([
 
 .schedule-day-cell:hover,
 .schedule-day-cell.selected {
-  background: #fffaf3;
+  background: var(--copy-surface-soft);
 }
 
 .schedule-day-cell.muted {
   background:
     repeating-linear-gradient(
       45deg,
-      #f8f1e7,
-      #f8f1e7 8px,
-      #efe4d5 8px,
-      #efe4d5 16px
+      #fbfaff,
+      #fbfaff 8px,
+      #f0edf6 8px,
+      #f0edf6 16px
     );
   color: #9a8d7a;
 }
 
 .schedule-day-cell.today .schedule-day-number {
-  background: #1d1d1f;
+  background: var(--copy-black);
   color: white;
 }
 
@@ -363,12 +363,12 @@ const emit = defineEmits([
 }
 
 .schedule-day-cell.confirmed::before {
-  background: #2fc07a;
+  background: var(--copy-green);
 }
 
 .schedule-day-cell.pending::after {
   right: 22px;
-  background: #f59e0b;
+  background: var(--copy-amber);
 }
 
 .schedule-day-items {
@@ -412,12 +412,12 @@ const emit = defineEmits([
 }
 
 .schedule-day-pill.confirmed {
-  background: #16b87a;
+  background: var(--copy-green);
   color: #ffffff;
 }
 
 .schedule-day-pill.pending {
-  background: #ffba4a;
+  background: #ffca64;
   color: #5f3b00;
 }
 
@@ -435,27 +435,27 @@ const emit = defineEmits([
 .schedule-week-view {
   display: flex;
   flex-direction: column;
-  border: 1px solid #dfd2bf;
+  border: 1px solid var(--copy-line);
   border-radius: 18px;
   overflow: hidden;
-  background: #f4ede4;
+  background: var(--copy-surface);
 }
 
 .schedule-week-header-grid {
   display: grid;
   grid-template-columns: 76px repeat(7, minmax(0, 1fr));
-  border-bottom: 1px solid #dfd2bf;
-  background: #efe4d5;
+  border-bottom: 1px solid var(--copy-line);
+  background: var(--copy-surface-soft);
 }
 
 .schedule-week-time-corner {
-  border-right: 1px solid #dfd2bf;
+  border-right: 1px solid var(--copy-line);
 }
 
 .schedule-week-head-cell {
   min-height: 64px;
   border: 0;
-  border-right: 1px solid #dfd2bf;
+  border-right: 1px solid var(--copy-line);
   background: transparent;
   color: #64748b;
   display: flex;
@@ -489,11 +489,11 @@ const emit = defineEmits([
 
 .schedule-week-head-cell.today strong {
   color: #ffffff;
-  background: #1687f8;
+  background: var(--copy-black);
 }
 
 .schedule-week-head-cell.selected {
-  background: #eef6ff;
+  background: var(--copy-surface-soft);
 }
 
 .schedule-week-scroll {
@@ -505,8 +505,8 @@ const emit = defineEmits([
 }
 
 .schedule-week-time-axis {
-  background: #f4ede4;
-  border-right: 1px solid #dfd2bf;
+  background: var(--copy-surface);
+  border-right: 1px solid var(--copy-line);
 }
 
 .schedule-week-time-slot {
@@ -516,7 +516,7 @@ const emit = defineEmits([
   font-size: 11px;
   font-weight: 900;
   text-align: right;
-  border-bottom: 1px solid #dfd2bf;
+  border-bottom: 1px solid var(--copy-line);
 }
 
 .schedule-week-grid {
@@ -529,8 +529,8 @@ const emit = defineEmits([
   position: relative;
   min-height: calc(68px * 15);
   padding: 0 8px;
-  border-right: 1px solid #dfd2bf;
-  background: #f4ede4;
+  border-right: 1px solid var(--copy-line);
+  background: var(--copy-surface);
   cursor: pointer;
 }
 
@@ -539,12 +539,12 @@ const emit = defineEmits([
 }
 
 .schedule-week-column.selected {
-  background: #fffaf3;
+  background: var(--copy-surface-soft);
 }
 
 .schedule-week-hour-line {
   height: 68px;
-  border-bottom: 1px solid #dfd2bf;
+  border-bottom: 1px solid var(--copy-line);
 }
 
 .schedule-week-event {
@@ -563,12 +563,12 @@ const emit = defineEmits([
 
 .schedule-week-event.confirmed {
   color: #ffffff;
-  background: #16b87a;
+  background: var(--copy-green);
 }
 
 .schedule-week-event.pending {
   color: #5f3b00;
-  background: #ffba4a;
+  background: #ffca64;
 }
 
 .schedule-week-event strong,
@@ -594,9 +594,9 @@ const emit = defineEmits([
   flex-direction: column;
   gap: 14px;
   padding: 18px;
-  border: 1px solid #dfd2bf;
+  border: 1px solid var(--copy-line);
   border-radius: 18px;
-  background: #f4ede4;
+  background: var(--copy-surface);
 }
 
 .schedule-day-agenda-date {
@@ -604,7 +604,7 @@ const emit = defineEmits([
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #334155;
+  color: var(--copy-text);
   font-weight: 950;
 }
 
@@ -620,7 +620,7 @@ const emit = defineEmits([
   align-items: center;
   justify-content: center;
   color: #ffffff;
-  background: #1687f8;
+  background: var(--copy-black);
   font-size: 13px;
 }
 
@@ -638,13 +638,13 @@ const emit = defineEmits([
   gap: 18px;
   padding: 14px;
   border-radius: 14px;
-  border-left: 6px solid #16b87a;
-  background: #fffaf3;
+  border-left: 6px solid var(--copy-green);
+  background: var(--copy-surface-soft);
   cursor: pointer;
 }
 
 .schedule-day-agenda-item.pending {
-  border-left-color: #ffba4a;
+  border-left-color: #ffca64;
 }
 
 .schedule-day-agenda-item span {
@@ -675,7 +675,7 @@ const emit = defineEmits([
   min-height: 220px;
   border-radius: 14px;
   color: #94a3b8;
-  background: #efe4d5;
+  background: var(--copy-surface-soft);
   display: flex;
   align-items: center;
   justify-content: center;

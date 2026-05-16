@@ -2,6 +2,7 @@
 <script setup>
 import { onMounted } from 'vue'
 import InfiniteGrid from '../../components/home/InfiniteGrid.vue'
+import HomeSidebar from '../../components/home/HomeSidebar.vue'
 import ScheduleCalendarPanel from '../../components/schedule/ScheduleCalendarPanel.vue'
 import ScheduleHoverPopover from '../../components/schedule/ScheduleHoverPopover.vue'
 import ScheduleSidebar from '../../components/schedule/ScheduleSidebar.vue'
@@ -10,6 +11,11 @@ import { useScheduleIcsExport } from '../../composables/schedule/useScheduleIcsE
 import { useScheduleState } from '../../composables/useScheduleState'
 
 const emit = defineEmits(['navigate'])
+
+defineProps({
+  fileTree: { type: Array, default: () => [] },
+  favorites: { type: Set, default: () => new Set() }
+})
 
 const {
   visibleSchedules,
@@ -84,6 +90,12 @@ onMounted(async () => {
 <template>
   <div class="schedule-page">
     <InfiniteGrid />
+    <HomeSidebar
+      class="relative z-10"
+      :fileTree="fileTree"
+      :favorites="favorites"
+      @navigate="emit('navigate', $event)"
+    />
 
     <main class="schedule-shell">
       <section class="schedule-main-card">
@@ -156,11 +168,17 @@ onMounted(async () => {
 <style scoped>
 .schedule-page {
   position: relative;
+  display: flex;
   width: 100vw;
   height: 100vh;
   min-width: 0;
   overflow: hidden;
-  color: #1d1d1f;
+  color: var(--copy-text);
+  background: var(--copy-bg);
+}
+
+.schedule-page > :deep(.infinite-grid-container) {
+  opacity: 0;
 }
 
 .schedule-shell {
@@ -169,9 +187,10 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: minmax(0, 8fr) minmax(320px, 2fr);
   gap: 12px;
-  width: 100vw;
+  flex: 1;
+  width: auto;
   height: 100vh;
-  padding: 10px 12px 10px 10px;
+  padding: 28px 30px;
   box-sizing: border-box;
 }
 
@@ -180,14 +199,14 @@ onMounted(async () => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 18px;
-  overflow: hidden;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 24px 48px rgba(148, 163, 184, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  padding: 0;
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .schedule-header {
@@ -206,9 +225,9 @@ onMounted(async () => {
 .schedule-back-btn,
 .schedule-icon-btn,
 .schedule-soft-btn {
-  border: 1px solid rgba(226, 213, 195, 0.72);
-  background: #f4ede4;
-  color: #1d1d1f;
+  border: 1px solid var(--copy-line);
+  background: var(--copy-surface-soft);
+  color: var(--copy-text);
   font-weight: 900;
 }
 

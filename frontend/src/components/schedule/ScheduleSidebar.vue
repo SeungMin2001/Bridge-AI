@@ -106,11 +106,11 @@ const emit = defineEmits([
   align-self: stretch;
   justify-self: stretch;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.95);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  background: var(--copy-surface);
+  border: 1px solid #f1edf4;
+  box-shadow: 0 18px 42px rgba(48, 42, 58, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -158,14 +158,14 @@ const emit = defineEmits([
   min-width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: #3b82f6;
+  background: var(--copy-black);
   color: white;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 13px;
   font-weight: 900;
-  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 8px 18px rgba(24, 28, 35, 0.12);
 }
 
 .schedule-list,
@@ -177,8 +177,8 @@ const emit = defineEmits([
 
 .schedule-list-card {
   border-radius: 16px;
-  background: #f4ede4;
-  border: 1px solid rgba(220, 210, 200, 0.8);
+  background: var(--copy-surface-soft);
+  border: 1px solid var(--copy-line);
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
   transition: all 0.2s ease;
@@ -186,19 +186,19 @@ const emit = defineEmits([
 
 .schedule-list-card:hover {
   transform: translateY(-2px);
-  background: #e6dfd6;
-  border-color: #cbbfaa;
+  background: #fff;
+  border-color: var(--copy-line-strong);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 .schedule-list-card.pending {
-  background: #fdf5e6;
-  border-color: #fcd34d;
+  background: var(--copy-yellow);
+  border-color: rgba(245, 162, 28, 0.34);
 }
 
 .schedule-list-card.pending:hover {
-  background: #faedce;
-  border-color: #fbbf24;
+  background: #ffe8a6;
+  border-color: rgba(245, 162, 28, 0.44);
 }
 
 .schedule-list-top,
@@ -221,7 +221,7 @@ const emit = defineEmits([
   border-radius: 6px;
   padding: 4px 8px;
   background: rgba(255, 255, 255, 0.7);
-  color: #2563eb;
+  color: var(--copy-blue);
   font-size: 11px;
   font-weight: 800;
 }
@@ -293,12 +293,12 @@ const emit = defineEmits([
 
 .schedule-primary-btn {
   color: white;
-  background: #3b82f6;
-  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+  background: var(--copy-black);
+  box-shadow: 0 10px 22px rgba(24, 28, 35, 0.14);
 }
 
 .schedule-primary-btn:hover {
-  background: #2563eb;
+  background: #272930;
   transform: translateY(-1px);
 }
 
@@ -318,15 +318,15 @@ const emit = defineEmits([
   gap: 12px;
   padding: 14px;
   border-radius: 14px;
-  background: #f4ede4;
-  border: 1px solid rgba(220, 210, 200, 0.8);
+  background: var(--copy-surface-soft);
+  border: 1px solid var(--copy-line);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .schedule-compact-card:hover {
-  background: #e6dfd6;
-  border-color: #cbbfaa;
+  background: #fff;
+  border-color: var(--copy-line-strong);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   transform: translateX(2px);
 }

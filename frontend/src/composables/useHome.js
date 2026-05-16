@@ -228,23 +228,29 @@ export function useHome(props, emit) {
     closeEditItemModal()
   }
 
-  const handleDeleteEditingItem = async () => {
-    if (!editingItemId.value) return
+  const deleteItemById = async (targetId) => {
+    if (!targetId) return
 
-    const targetNode = findItemInTree(props.fileTree, editingItemId.value)
+    const targetNode = findItemInTree(props.fileTree, targetId)
     if (targetNode?.type === 'file' && isWorkspaceUuid(targetNode.id)) {
       await deleteWorkspaceFile(targetNode.id)
     } else if (targetNode?.type === 'folder' && isWorkspaceUuid(targetNode.id)) {
       await deleteWorkspaceFolder(targetNode.id)
     }
 
-    emit('update:fileTree', removeItemFromTree(props.fileTree, editingItemId.value))
+    emit('update:fileTree', removeItemFromTree(props.fileTree, targetId))
 
-    if (props.favorites.has(editingItemId.value)) {
+    if (props.favorites.has(targetId)) {
       const nextFavorites = new Set(props.favorites)
-      nextFavorites.delete(editingItemId.value)
+      nextFavorites.delete(targetId)
       emit('update:favorites', nextFavorites)
     }
+  }
+
+  const handleDeleteEditingItem = async () => {
+    if (!editingItemId.value) return
+
+    await deleteItemById(editingItemId.value)
 
     closeEditItemModal()
   }
@@ -287,6 +293,7 @@ export function useHome(props, emit) {
     closeEditItemModal,
     handleUpdateItem,
     handleDeleteEditingItem,
+    deleteItemById,
     handleEnterFolder,
     handleGoBack
   }

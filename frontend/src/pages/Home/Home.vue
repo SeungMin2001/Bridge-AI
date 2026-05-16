@@ -86,7 +86,7 @@ const openRecentFileHandler = (file) => {
 </script>
 
 <template>
-  <div class="p-[12px] flex gap-[12px] relative h-full w-full text-[#1d1d1f] overflow-hidden">
+  <div class="copy-app-frame flex relative h-full w-full text-[#1d1d1f] overflow-hidden">
     <InfiniteGrid />
     
     <HomeSidebar 
@@ -100,13 +100,22 @@ const openRecentFileHandler = (file) => {
       @openFileCreate="openFileCreateModal"
     />
 
-    <main id="home-main-content" class="flex-1 relative z-10 transition-all duration-700 overflow-hidden">
+    <main
+      id="home-main-content"
+      :class="[
+        'home-main-shell flex-1 relative z-10 transition-all duration-700 overflow-hidden',
+        isRightSidebarOpen ? 'home-main-shell-with-reference' : ''
+      ]"
+    >
+      <button class="copy-home-bell-btn" type="button" aria-label="알림">
+        <span class="material-symbols-outlined">notifications</span>
+      </button>
       
       <!-- Unified Content Wrapper for seamless transition -->
       <div :class="[
         'absolute top-0 bottom-0 left-0 flex flex-col transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]',
-        isRightSidebarOpen ? 'right-[420px]' : 'right-0',
-        hasStartedChat ? '' : 'items-center justify-center -mt-20'
+        'right-0',
+        hasStartedChat ? '' : 'items-center justify-start'
       ]">
         
         <HomeBanner 
@@ -122,7 +131,7 @@ const openRecentFileHandler = (file) => {
     <!-- Navigation Button to All Folders (Fixed at viewport) -->
     <button 
       @click="emit('navigate', 'workfolder')"
-      class="fixed bottom-8 right-8 neo-active-btn text-white px-6 py-4 rounded-full flex items-center gap-3 hover:scale-105 active:scale-95 transition-all duration-300 z-[60] group">
+      class="hidden fixed bottom-8 right-8 neo-active-btn text-white px-6 py-4 rounded-full items-center gap-3 hover:scale-105 active:scale-95 transition-all duration-300 z-[60] group">
       <span class="font-bold tracking-tight">전체 폴더 가기</span>
       <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white/30 transition-colors">
         <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
@@ -140,6 +149,7 @@ const openRecentFileHandler = (file) => {
     />
 
     <HomeModals
+      placement="rail"
       :isFolderModalOpen="isFolderModalOpen"
       :isFileModalOpen="isFileModalOpen"
       :isEditItemModalOpen="isEditItemModalOpen"
@@ -172,4 +182,74 @@ const openRecentFileHandler = (file) => {
 </template>
 
 <style scoped>
+.copy-app-frame {
+  background: var(--copy-bg);
+}
+
+#home-main-content.home-main-shell {
+  min-width: 0;
+  height: calc(100% - 20px);
+  max-height: calc(100% - 20px);
+  min-height: calc(100% - 20px);
+  align-self: flex-start;
+  margin: 10px 12px 10px 0;
+  box-sizing: border-box;
+  border-radius: 32px;
+  background: var(--copy-surface);
+  border: 0;
+  box-shadow: -10px 0 34px rgba(48, 42, 58, 0.05);
+}
+
+.home-main-shell-with-reference {
+  flex: 0 0 calc(100% - var(--copy-rail-width) - 450px);
+  max-width: calc(100% - var(--copy-rail-width) - 450px);
+  margin-right: 14px;
+  border-radius: 32px;
+}
+
+.home-main-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: #fff;
+  background-image:
+    linear-gradient(rgba(21, 22, 26, 0.052) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 22, 26, 0.052) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: 0 0;
+  opacity: 0.78;
+  animation: homeCardGridDrift 5.2s linear infinite;
+}
+
+.copy-home-bell-btn {
+  position: absolute;
+  top: 28px;
+  right: 34px;
+  z-index: 20;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 21px;
+  background: #fff;
+  color: var(--copy-black);
+  box-shadow: 0 10px 24px rgba(48, 42, 58, 0.05);
+}
+
+.copy-home-bell-btn .material-symbols-outlined {
+  font-size: 22px;
+}
+
+@keyframes homeCardGridDrift {
+  to {
+    background-position: 40px 40px, 40px 40px;
+  }
+}
+
+.copy-app-frame > :deep(.infinite-grid-container) {
+  opacity: 0;
+}
 </style>

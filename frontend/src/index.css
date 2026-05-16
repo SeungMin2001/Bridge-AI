@@ -30,9 +30,8 @@ body,
 
 body {
   font-family: 'Pretendard Variable', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
-  background-color: #f1f5f9;
-  /* Neomorphic light background */
-  color: #1e293b;
+  background-color: var(--copy-bg);
+  color: var(--copy-text);
   min-width: 0;
   overflow: hidden;
 }
@@ -48,14 +47,14 @@ body {
 }
 
 .neo-inner {
-  box-shadow: inset 4px 4px 8px #caced1, inset -4px -4px 8px #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 18px 42px rgba(24, 28, 35, 0.06);
 }
 
 .neo-card {
-  background: #f1f5f9;
+  background: var(--copy-surface);
   border-radius: 20px;
-  box-shadow: 8px 8px 16px #d1d5db, -8px -8px 16px #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: var(--copy-soft-shadow);
+  border: 1px solid var(--copy-line);
 }
 
 .neo-sidebar {

@@ -342,21 +342,22 @@ const onStopGenerating = () => {
       <!-- Top dynamic space -->
       <div 
         class="w-full flex-shrink-0 transition-all duration-700" 
-        :style="{ flexGrow: 1, transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' }"
+        :style="{
+          flexGrow: 0,
+          height: messages.length > 0 ? '0px' : '190px',
+          transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)'
+        }"
       ></div>
 
       <!-- Title (Hides when chat starts) -->
       <Transition name="fade">
-        <div v-if="messages.length === 0" class="flex flex-col items-center text-center gap-3 pb-8 pointer-events-auto shrink-0 w-full transition-all duration-500">
-          <div class="flex items-center justify-center transform -rotate-6 transition-transform hover:rotate-0 duration-500">
-            <img src="/images/banner_illust.png" alt="AI chat" class="w-36 h-auto object-contain" />
-          </div>
-          <div class="text-[32px] font-extrabold text-[#1d1d1f] tracking-tight leading-tight">무엇을 도와드릴까요?</div>
+        <div v-if="messages.length === 0" class="flex flex-col items-center text-center gap-3 pb-[50px] pointer-events-auto shrink-0 w-full transition-all duration-500">
+          <div class="home-hero-title">하이</div>
         </div>
       </Transition>
 
       <!-- Input component -->
-      <div class="w-full max-w-[730px] pointer-events-auto flex-shrink-0 z-50 transition-all duration-700">
+      <div :class="['home-input-stage', messages.length > 0 ? 'is-chatting' : 'is-idle']">
         <MultimodalInput 
           :is-generating="isGenerating"
           @sendMessage="onSendMessage"
@@ -418,7 +419,7 @@ const onStopGenerating = () => {
       <div 
         class="w-full flex-shrink-0 transition-all duration-700"
         :style="{ 
-           flexGrow: messages.length > 0 ? 0 : 1.2, 
+           flexGrow: 0, 
            height: messages.length > 0 ? '32px' : '0px',
            transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' 
         }"
@@ -500,6 +501,42 @@ const onStopGenerating = () => {
   border-radius: 10px;
 }
 
+.home-input-stage {
+  pointer-events: auto;
+  z-index: 50;
+  transition:
+    width 1.15s cubic-bezier(0.19, 1, 0.22, 1),
+    transform 1.15s cubic-bezier(0.19, 1, 0.22, 1),
+    bottom 1.15s cubic-bezier(0.19, 1, 0.22, 1),
+    opacity 0.55s ease;
+}
+
+.home-input-stage.is-idle {
+  width: 100%;
+  max-width: 820px;
+  flex-shrink: 0;
+}
+
+.home-input-stage.is-chatting {
+  position: absolute;
+  left: 50%;
+  bottom: 42px;
+  width: min(820px, calc(100% - 48px));
+  transform: translateX(-50%);
+  animation: homeInputSettle 1.15s cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+@keyframes homeInputSettle {
+  from {
+    opacity: 0.92;
+    transform: translate(-50%, -42px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
 /* ── AI 메시지 등장 애니메이션 ── */
 @keyframes revealMessage {
   from {
@@ -542,17 +579,25 @@ const onStopGenerating = () => {
 }
 
 .home-chat-bubble {
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  box-shadow: none;
+  border: 1px solid var(--copy-line);
+  box-shadow: 0 18px 40px rgba(24, 28, 35, 0.06);
 }
 
 .home-chat-bubble-assistant {
-  background: rgba(248, 250, 252, 0.92);
+  background: var(--copy-surface);
 }
 
 .home-chat-bubble-user {
-  background: #1f2937;
-  border-color: #1f2937;
+  background: var(--copy-black);
+  border-color: var(--copy-black);
+}
+
+.home-hero-title {
+  color: var(--copy-text);
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
 }
 
 .home-recent-files {
@@ -568,7 +613,7 @@ const onStopGenerating = () => {
 
 .home-recent-files h3 {
   padding: 0 2px;
-  color: #64748b;
+  color: var(--copy-muted-strong);
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -582,7 +627,7 @@ const onStopGenerating = () => {
 
 .home-recent-file-card {
   min-width: 0;
-  height: 160px;
+  height: 118px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -602,10 +647,18 @@ const onStopGenerating = () => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
-  border: 1.5px solid #e5e5ea;
-  border-radius: 16px;
-  box-shadow: 2px 3px 0 #e0e0e8;
+  background: var(--copy-lavender);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 18px;
+  box-shadow: 0 18px 42px rgba(24, 28, 35, 0.05);
+}
+
+.home-recent-file-card:nth-of-type(2) .home-recent-file-paper {
+  background: var(--copy-yellow);
+}
+
+.home-recent-file-card:nth-of-type(3) .home-recent-file-paper {
+  background: var(--copy-mint);
 }
 
 .home-recent-file-strip {
@@ -615,18 +668,7 @@ const onStopGenerating = () => {
 }
 
 .home-recent-file-lines {
-  position: absolute;
-  top: 58px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: repeating-linear-gradient(
-    transparent,
-    transparent 22px,
-    #f0f0f5 22px,
-    #f0f0f5 23px
-  );
-  opacity: 0.58;
+  display: none;
 }
 
 .home-recent-file-content {

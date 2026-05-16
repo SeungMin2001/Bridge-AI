@@ -26,10 +26,10 @@
 }
 
 .home-sidebar .sidebar-logo-box {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: #1d1d1f;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: var(--copy-black);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -37,7 +37,7 @@
 
 .home-sidebar .sidebar-logo-text {
   font-size: 20px;
-  color: #1d1d1f;
+  color: var(--copy-text);
   letter-spacing: -0.02em;
 }
 
@@ -63,10 +63,10 @@
   gap: 12px;
   padding: 14px 20px;
   margin-bottom: 20px;
-  background: #f4ede4 !important; /* 강제로 단색 배경 적용 */
+  background: rgba(255, 255, 255, 0.66) !important;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  color: #1d1d1f;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  color: var(--copy-text);
   box-shadow: none !important; /* 모든 그림자 제거하여 그라데이션 느낌 삭제 */
 }
 
@@ -90,7 +90,7 @@
   margin-bottom: 18px;
   padding: 16px 14px 18px;
   border-radius: 24px;
-  background: #f4ede4;
+  background: rgba(255, 255, 255, 0.68);
   border: 1px solid rgba(255, 255, 255, 0.82);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(18px) saturate(140%);
@@ -112,7 +112,7 @@
   font-size: 22px;
   font-weight: 900;
   letter-spacing: -0.04em;
-  color: #1d1d1f;
+  color: var(--copy-text);
 }
 
 .home-sidebar .home-calendar-icon-btn {
@@ -122,7 +122,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #1d1d1f;
+  color: var(--copy-text);
   border: 1px solid rgba(255, 255, 255, 0.76);
   background: rgba(255, 255, 255, 0.62);
 }
@@ -142,7 +142,7 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.76);
   background: rgba(255, 255, 255, 0.62);
-  color: #1d1d1f;
+  color: var(--copy-text);
   font-size: 11px;
   font-weight: 900;
 }
@@ -176,7 +176,7 @@
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  color: #1d1d1f;
+  color: var(--copy-text);
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease;
 }
@@ -186,12 +186,13 @@
 }
 
 .home-sidebar .home-calendar-day.is-today {
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--copy-black);
+  color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.9);
 }
 
 .home-sidebar .home-calendar-day.is-selected {
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--copy-surface);
   border: 1px solid rgba(255, 255, 255, 0.96);
 }
 
@@ -267,7 +268,7 @@
   min-width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: #1d1d1f;
+  background: var(--copy-black);
   color: white;
   display: inline-flex;
   align-items: center;
@@ -472,7 +473,7 @@
 
 .home-sidebar .home-calendar-action-btn.confirm {
   color: white;
-  background: #2fc07a;
+  background: var(--copy-green);
 }
 
 .home-sidebar .home-calendar-action-btn.ghost {
@@ -537,15 +538,15 @@
   padding: 9px 12px;
   border-radius: 16px;
   cursor: pointer;
-  color: #1d1d1f;
-  background: #f4ede4;
+  color: var(--copy-text);
+  background: rgba(255, 255, 255, 0.68);
   border: 1px solid rgba(255, 255, 255, 0.82);
   transition: all 0.2s ease;
 }
 
 .home-sidebar .sidebar-nav-item:hover {
-  background: #eadfce;
-  border-color: rgba(226, 213, 195, 0.98);
+  background: rgba(255, 255, 255, 0.88);
+  border-color: var(--copy-line);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
@@ -640,7 +641,7 @@
   justify-content: center !important;
   border-radius: 12px !important;
   margin-bottom: 12px !important;
-  background: #f4ede4 !important;
+  background: rgba(255, 255, 255, 0.78) !important;
 }
 
 .home-sidebar.sidebar-collapsed .sidebar-search-container .material-symbols-outlined,
@@ -728,7 +729,7 @@
 .home-calendar-field select {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.82);
-  background: #f4ede4;
+  background: var(--copy-surface-soft);
   border-radius: 14px;
   padding: 11px 12px;
   font: inherit;
@@ -769,7 +770,7 @@
   gap: 8px;
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.82);
-  background: #f4ede4;
+  background: var(--copy-surface-soft);
   border-radius: 14px;
   padding: 11px 12px;
   overflow: hidden;
