@@ -481,8 +481,28 @@ def plot_latency(path: Path, rows: list[dict]) -> None:
     ponly_time = [row["ponly_time_s"] for row in rows]
     qp_f1 = [100 * row["qp_token_f1"] for row in rows]
     qp_hit = [100 * row["qp_mergeprag_hit"] for row in rows]
+    best_hit_row = max(rows, key=lambda row: row["qp_mergeprag_hit"])
+    best_f1_row = max(rows, key=lambda row: row["qp_token_f1"])
 
-    colors = {"qp": "#2f5f9f", "ponly": "#c66a2e", "hit": "#5a8f3d"}
+    plt.rcParams.update(
+        {
+            "font.family": "DejaVu Sans",
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.titleweight": "bold",
+            "axes.labelsize": 10.5,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.fontsize": 9,
+        }
+    )
+    colors = {
+        "qp": "#255C99",
+        "ponly": "#C56A32",
+        "hit": "#3E8E5A",
+        "best": "#B3261E",
+        "grid": "#D0D7DE",
+    }
     marker_size = 4.4 if len(x) > 12 else 6.2
 
     def configure_slot_axis(ax) -> None:
@@ -494,8 +514,8 @@ def plot_latency(path: Path, rows: list[dict]) -> None:
         ax.set_xlim(min(x) - 0.5, max(x) + 0.5)
         ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=12, integer=True))
 
-    fig, axes = plt.subplots(1, 2, figsize=(12.8, 4.8))
-    fig.suptitle("Service-Oriented Slot Efficiency Analysis", fontsize=15, fontweight="bold")
+    fig, axes = plt.subplots(1, 2, figsize=(13.2, 4.9))
+    fig.suptitle("Service-Oriented K/V Memory Slot Analysis", fontsize=15.5, fontweight="bold", y=1.02)
 
     axes[0].plot(
         x,
@@ -504,29 +524,29 @@ def plot_latency(path: Path, rows: list[dict]) -> None:
         markersize=marker_size,
         linewidth=2.4,
         color=colors["qp"],
-        label="BridgePRAG",
+        label="BridgePRAG (QP-adaptive)",
     )
-    axes[0].plot(
-        x,
-        ponly_time,
-        marker="s",
-        markersize=marker_size,
-        linewidth=2.0,
-        linestyle="--",
-        color=colors["ponly"],
-        label="Passage-only baseline",
-    )
-    axes[0].set_title("(a) K/V Slots vs. Inference Time")
+    if any(value > 0 for value in ponly_time):
+        baseline = sum(ponly_time) / len(ponly_time)
+        axes[0].axhline(
+            baseline,
+            linewidth=1.8,
+            linestyle=(0, (4, 3)),
+            color=colors["ponly"],
+            label=f"Passage-only baseline ({baseline:.2f}s)",
+        )
+    axes[0].set_title("(a) Inference Cost by Memory Size")
     axes[0].set_xlabel("# K/V memory vectors")
     axes[0].set_ylabel("Average inference time (s)")
     configure_slot_axis(axes[0])
-    axes[0].grid(True, alpha=0.25)
+    axes[0].grid(True, axis="y", color=colors["grid"], alpha=0.65, linewidth=0.8)
+    axes[0].grid(True, axis="x", color=colors["grid"], alpha=0.25, linewidth=0.6)
     axes[0].legend(frameon=False)
 
-    axes[1].scatter(qp_time, qp_f1, s=54, color=colors["qp"], label="Token F1")
-    axes[1].plot(qp_time, qp_f1, linewidth=1.7, alpha=0.7, color=colors["qp"])
-    axes[1].scatter(qp_time, qp_hit, s=54, marker="s", color=colors["hit"], label="Hit")
-    axes[1].plot(qp_time, qp_hit, linewidth=1.7, alpha=0.7, color=colors["hit"])
+    axes[1].scatter(qp_time, qp_f1, s=60, color=colors["qp"], label="Token F1", zorder=3)
+    axes[1].plot(qp_time, qp_f1, linewidth=1.8, alpha=0.72, color=colors["qp"], zorder=2)
+    axes[1].scatter(qp_time, qp_hit, s=60, marker="s", color=colors["hit"], label="Hit", zorder=3)
+    axes[1].plot(qp_time, qp_hit, linewidth=1.8, alpha=0.72, color=colors["hit"], zorder=2)
     for row in rows:
         axes[1].annotate(
             str(row["num_kv"]),
@@ -536,13 +556,43 @@ def plot_latency(path: Path, rows: list[dict]) -> None:
             fontsize=8,
             color=colors["qp"],
         )
+    axes[1].scatter(
+        [best_hit_row["qp_time_s"]],
+        [100 * best_hit_row["qp_mergeprag_hit"]],
+        s=155,
+        marker="*",
+        color=colors["best"],
+        edgecolor="white",
+        linewidth=0.8,
+        zorder=4,
+        label=f"Best Hit: {best_hit_row['num_kv']}",
+    )
+    if best_f1_row["num_kv"] != best_hit_row["num_kv"]:
+        axes[1].scatter(
+            [best_f1_row["qp_time_s"]],
+            [100 * best_f1_row["qp_token_f1"]],
+            s=135,
+            marker="*",
+            color="#7A3DB8",
+            edgecolor="white",
+            linewidth=0.8,
+            zorder=4,
+            label=f"Best F1: {best_f1_row['num_kv']}",
+        )
     axes[1].set_title("(b) Performance-Latency Trade-off")
     axes[1].set_xlabel("Average inference time (s)")
     axes[1].set_ylabel("Performance (%)")
-    axes[1].grid(True, alpha=0.25)
+    axes[1].grid(True, color=colors["grid"], alpha=0.55, linewidth=0.8)
     axes[1].legend(frameon=False)
+    caption = (
+        f"Best Hit slot={best_hit_row['num_kv']} "
+        f"({100 * best_hit_row['qp_mergeprag_hit']:.1f}%, {best_hit_row['qp_time_s']:.2f}s); "
+        f"Best F1 slot={best_f1_row['num_kv']} "
+        f"({100 * best_f1_row['qp_token_f1']:.1f}%, {best_f1_row['qp_time_s']:.2f}s)"
+    )
+    fig.text(0.5, -0.02, caption, ha="center", fontsize=9.5, color="#3D444D")
 
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    fig.tight_layout(rect=[0, 0.03, 1, 0.96])
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=220, bbox_inches="tight")
     plt.close(fig)
