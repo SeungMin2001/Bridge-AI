@@ -82,7 +82,17 @@ def read_best_layer(path: str | Path, *, label: str) -> int:
     return layer
 
 
+def is_power_of_two(value: int) -> bool:
+    return value > 0 and (value & (value - 1)) == 0
+
+
 def scan_variant(args: argparse.Namespace, *, output: Path, num_kv: int, question_conditioned: bool, question_fusion: str) -> int:
+    label = "question+passage" if question_conditioned else "passage-only"
+    if args.reuse_critical_layers and output.exists() and not args.dry_run:
+        print(f"[PRAG:kv-ablation] reuse {label} critical layers: {output}", flush=True)
+        return read_best_layer(output, label=label)
+    if args.reuse_critical_layers and not output.exists():
+        print(f"[PRAG:kv-ablation] missing {label} critical layers, scanning once: {output}", flush=True)
     cmd = [
         sys.executable,
         "-m",
@@ -117,7 +127,7 @@ def scan_variant(args: argparse.Namespace, *, output: Path, num_kv: int, questio
     cmd.append("--question-conditioned-memory" if question_conditioned else "--no-question-conditioned-memory")
     cmd.append("--resume" if args.resume else "--no-resume")
     run_command(cmd, dry_run=args.dry_run)
-    return 0 if args.dry_run else read_best_layer(output, label="question+passage" if question_conditioned else "passage-only")
+    return 0 if args.dry_run else read_best_layer(output, label=label)
 
 
 def train_variant(
@@ -233,13 +243,17 @@ def prepare_fixed_ponly_baseline(args: argparse.Namespace) -> Path:
     k = args.ponly_baseline_num_kv
     suffix = f"{args.suffix_prefix}_ponly_baseline_kv{k}_ep{args.epochs}"
     scan_path = Path(args.scan_root) / f"critical_layers_{suffix}.json"
-    layer = scan_variant(
-        args,
-        output=scan_path,
-        num_kv=k,
-        question_conditioned=False,
-        question_fusion=args.ponly_question_fusion,
-    )
+    if args.ponly_critical_layer is None:
+        layer = scan_variant(
+            args,
+            output=scan_path,
+            num_kv=k,
+            question_conditioned=False,
+            question_fusion=args.ponly_question_fusion,
+        )
+    else:
+        layer = int(args.ponly_critical_layer)
+        print(f"[PRAG:kv-ablation] fixed passage-only critical_layer={layer}", flush=True)
     return train_variant(
         args,
         output_suffix=suffix,
@@ -253,13 +267,17 @@ def prepare_fixed_ponly_baseline(args: argparse.Namespace) -> Path:
 def run_qp_only(args: argparse.Namespace, k: int, ponly_weights: Path, report_dir: Path) -> None:
     qp_suffix = f"{args.suffix_prefix}_qp_kvadapt_kv{k}_ep{args.epochs}"
     qp_scan = Path(args.scan_root) / f"critical_layers_{qp_suffix}.json"
-    qp_layer = scan_variant(
-        args,
-        output=qp_scan,
-        num_kv=k,
-        question_conditioned=True,
-        question_fusion=args.qp_question_fusion,
-    )
+    if args.qp_critical_layer is None:
+        qp_layer = scan_variant(
+            args,
+            output=qp_scan,
+            num_kv=k,
+            question_conditioned=True,
+            question_fusion=args.qp_question_fusion,
+        )
+    else:
+        qp_layer = int(args.qp_critical_layer)
+        print(f"[PRAG:kv-ablation] fixed question+passage critical_layer={qp_layer}", flush=True)
     qp_weights = train_variant(
         args,
         output_suffix=qp_suffix,
@@ -329,8 +347,14 @@ def run_both(args: argparse.Namespace, k: int, report_dir: Path) -> None:
         cmd.append("--include-loss")
     if args.quiet_eval:
         cmd.append("--quiet-eval")
+    if args.qp_critical_layer is not None:
+        cmd.extend(["--qp-critical-layer", str(args.qp_critical_layer)])
+    if args.ponly_critical_layer is not None:
+        cmd.extend(["--ponly-critical-layer", str(args.ponly_critical_layer)])
     if args.resume:
         cmd.append("--resume")
+    if args.reuse_critical_layers:
+        cmd.append("--reuse-critical-layers")
     if args.dry_run:
         cmd.append("--dry-run")
     print(f"\n[PRAG:kv-ablation] k={k} $ {' '.join(cmd)}", flush=True)
@@ -390,6 +414,7 @@ def plot_ablation(path: Path, rows: list[dict]) -> None:
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        import matplotlib.ticker as mticker
     except Exception as exc:  # pragma: no cover - optional dependency.
         print(f"[PRAG:kv-ablation] matplotlib unavailable; skipped plot ({exc})")
         return
@@ -404,26 +429,32 @@ def plot_ablation(path: Path, rows: list[dict]) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.6))
     fig.suptitle("Ablation on Number of K/V Memory Slots", fontsize=15, fontweight="bold")
     colors = {"qp": "#2f5f9f", "ponly": "#c66a2e"}
+    marker_size = 3.8 if len(x) > 20 else 6.0
 
-    axes[0].plot(x, qp_hit, marker="o", linewidth=2.4, color=colors["qp"], label="Question+Passage")
-    axes[0].plot(x, ponly_hit, marker="s", linewidth=2.4, color=colors["ponly"], label="Passage-only")
+    def configure_slot_axis(ax) -> None:
+        if all(is_power_of_two(value) for value in x):
+            ax.set_xscale("log", base=2)
+            ax.set_xticks(x)
+            ax.set_xticklabels([str(v) for v in x])
+            return
+        ax.set_xlim(min(x) - 0.5, max(x) + 0.5)
+        ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=12, integer=True))
+
+    axes[0].plot(x, qp_hit, marker="o", markersize=marker_size, linewidth=2.4, color=colors["qp"], label="Question+Passage")
+    axes[0].plot(x, ponly_hit, marker="s", markersize=marker_size, linewidth=2.4, color=colors["ponly"], label="Passage-only")
     axes[0].set_title("(a) MergePRAG Hit")
     axes[0].set_xlabel("# K/V slots")
     axes[0].set_ylabel("Hit Rate (%)")
-    axes[0].set_xscale("log", base=2)
-    axes[0].set_xticks(x)
-    axes[0].set_xticklabels([str(v) for v in x])
+    configure_slot_axis(axes[0])
     axes[0].grid(True, alpha=0.25)
     axes[0].legend(frameon=False)
 
-    axes[1].plot(x, qp_f1, marker="o", linewidth=2.4, color=colors["qp"], label="Question+Passage")
-    axes[1].plot(x, ponly_f1, marker="s", linewidth=2.4, color=colors["ponly"], label="Passage-only")
+    axes[1].plot(x, qp_f1, marker="o", markersize=marker_size, linewidth=2.4, color=colors["qp"], label="Question+Passage")
+    axes[1].plot(x, ponly_f1, marker="s", markersize=marker_size, linewidth=2.4, color=colors["ponly"], label="Passage-only")
     axes[1].set_title("(b) Token F1")
     axes[1].set_xlabel("# K/V slots")
     axes[1].set_ylabel("F1 (%)")
-    axes[1].set_xscale("log", base=2)
-    axes[1].set_xticks(x)
-    axes[1].set_xticklabels([str(v) for v in x])
+    configure_slot_axis(axes[1])
     axes[1].grid(True, alpha=0.25)
     axes[1].legend(frameon=False)
 
@@ -468,6 +499,8 @@ def main() -> None:
     parser.add_argument("--scan-lr", type=float, default=1e-4)
     parser.add_argument("--scan-steps", type=int, default=60)
     parser.add_argument("--scan-layers", default="all")
+    parser.add_argument("--qp-critical-layer", type=int, default=None, help="Fixed QP critical layer. If set, QP layer scans are skipped.")
+    parser.add_argument("--ponly-critical-layer", type=int, default=None, help="Fixed passage-only critical layer. If set, p-only layer scans are skipped.")
     parser.add_argument("--example-weight", type=float, default=0.0)
     parser.add_argument("--group-weight", type=float, default=0.0)
     parser.add_argument("--merge-weight", type=float, default=1.0)
@@ -477,6 +510,12 @@ def main() -> None:
     parser.add_argument("--test-prompt-style", choices=("service", "short-chat", "memory-cued", "paper"), default="service")
     parser.add_argument("--include-loss", action="store_true")
     parser.add_argument("--quiet-eval", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--reuse-critical-layers",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Skip critical-layer scans for slot values whose scan JSON already exists.",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -506,7 +545,12 @@ def main() -> None:
     json_path.write_text(json.dumps({"rows": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
     plot_ablation(plot_path, rows)
     best = max(rows, key=lambda row: (row["qp_mergeprag_hit"], row["qp_token_f1"], row["qp_qa_score"]))
+    best_ponly = max(rows, key=lambda row: (row["ponly_mergeprag_hit"], row["ponly_token_f1"], row["ponly_qa_score"]))
     print(f"[PRAG:kv-ablation] best_qp_num_kv={best['num_kv']} hit={best['qp_mergeprag_hit']:.4f} f1={best['qp_token_f1']:.4f}")
+    print(
+        f"[PRAG:kv-ablation] best_ponly_num_kv={best_ponly['num_kv']} "
+        f"hit={best_ponly['ponly_mergeprag_hit']:.4f} f1={best_ponly['ponly_token_f1']:.4f}"
+    )
     print(f"[PRAG:kv-ablation] table saved: {table_path}")
     print(f"[PRAG:kv-ablation] json saved: {json_path}")
     print(f"[PRAG:kv-ablation] plot saved: {plot_path}")

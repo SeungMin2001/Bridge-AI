@@ -50,6 +50,22 @@ def read_best_layer(path: str | Path, *, label: str) -> int:
     return layer
 
 
+def maybe_run_scan(args: argparse.Namespace, *, output: str, question_conditioned: bool, label: str) -> None:
+    output_path = Path(output)
+    if args.reuse_critical_layers and output_path.exists():
+        print(
+            f"[PRAG:related-experiment] reuse {label} critical layers: {output_path}",
+            flush=True,
+        )
+        return
+    if args.reuse_critical_layers and not output_path.exists():
+        print(
+            f"[PRAG:related-experiment] missing {label} critical layers, scanning once: {output_path}",
+            flush=True,
+        )
+    run_command(scan_command(args, output=output, question_conditioned=question_conditioned), dry_run=args.dry_run)
+
+
 def orthomerge_output_path(path: Path) -> Path:
     name = path.name
     if "_memory_" in name:
@@ -334,6 +350,24 @@ def main() -> None:
     parser.add_argument("--ponly-output-suffix", default=DEFAULT_PONLY_SUFFIX)
     parser.add_argument("--qp-scan-output", default=DEFAULT_QP_SCAN)
     parser.add_argument("--ponly-scan-output", default=DEFAULT_PONLY_SCAN)
+    parser.add_argument(
+        "--qp-critical-layer",
+        type=int,
+        default=None,
+        help="Use this fixed question+passage critical layer and skip the QP scan.",
+    )
+    parser.add_argument(
+        "--ponly-critical-layer",
+        type=int,
+        default=None,
+        help="Use this fixed passage-only critical layer and skip the passage-only scan.",
+    )
+    parser.add_argument(
+        "--reuse-critical-layers",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Skip layer scan when the configured critical-layer JSON already exists.",
+    )
     parser.add_argument("--resume-scan", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--resume-train", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--resume-eval", action=argparse.BooleanOptionalAction, default=False)
@@ -393,11 +427,19 @@ def main() -> None:
         if not args.skip_eval and not test_path.exists():
             raise FileNotFoundError(f"Test file not found: {test_path}")
 
-    run_command(scan_command(args, output=args.qp_scan_output, question_conditioned=True), dry_run=args.dry_run)
-    run_command(scan_command(args, output=args.ponly_scan_output, question_conditioned=False), dry_run=args.dry_run)
+    if args.qp_critical_layer is None:
+        maybe_run_scan(args, output=args.qp_scan_output, question_conditioned=True, label="question+passage")
+        qp_layer = 0 if args.dry_run else read_best_layer(args.qp_scan_output, label="question+passage")
+    else:
+        qp_layer = int(args.qp_critical_layer)
+        print(f"[PRAG:related-experiment] fixed question+passage critical_layer={qp_layer}", flush=True)
 
-    qp_layer = 0 if args.dry_run else read_best_layer(args.qp_scan_output, label="question+passage")
-    ponly_layer = 0 if args.dry_run else read_best_layer(args.ponly_scan_output, label="passage-only")
+    if args.ponly_critical_layer is None:
+        maybe_run_scan(args, output=args.ponly_scan_output, question_conditioned=False, label="passage-only")
+        ponly_layer = 0 if args.dry_run else read_best_layer(args.ponly_scan_output, label="passage-only")
+    else:
+        ponly_layer = int(args.ponly_critical_layer)
+        print(f"[PRAG:related-experiment] fixed passage-only critical_layer={ponly_layer}", flush=True)
 
     run_command(
         train_command(
