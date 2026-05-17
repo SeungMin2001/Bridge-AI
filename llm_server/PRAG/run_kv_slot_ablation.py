@@ -464,6 +464,90 @@ def plot_ablation(path: Path, rows: list[dict]) -> None:
     plt.close(fig)
 
 
+def plot_latency(path: Path, rows: list[dict]) -> None:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as mticker
+    except Exception as exc:  # pragma: no cover - optional dependency.
+        print(f"[PRAG:kv-ablation] matplotlib unavailable; skipped latency plot ({exc})")
+        return
+
+    rows = sorted(rows, key=lambda row: row["num_kv"])
+    x = [row["num_kv"] for row in rows]
+    qp_time = [row["qp_time_s"] for row in rows]
+    ponly_time = [row["ponly_time_s"] for row in rows]
+    qp_f1 = [100 * row["qp_token_f1"] for row in rows]
+    qp_hit = [100 * row["qp_mergeprag_hit"] for row in rows]
+
+    colors = {"qp": "#2f5f9f", "ponly": "#c66a2e", "hit": "#5a8f3d"}
+    marker_size = 4.4 if len(x) > 12 else 6.2
+
+    def configure_slot_axis(ax) -> None:
+        if all(is_power_of_two(value) for value in x):
+            ax.set_xscale("log", base=2)
+            ax.set_xticks(x)
+            ax.set_xticklabels([str(v) for v in x])
+            return
+        ax.set_xlim(min(x) - 0.5, max(x) + 0.5)
+        ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=12, integer=True))
+
+    fig, axes = plt.subplots(1, 2, figsize=(12.8, 4.8))
+    fig.suptitle("Service-Oriented Slot Efficiency Analysis", fontsize=15, fontweight="bold")
+
+    axes[0].plot(
+        x,
+        qp_time,
+        marker="o",
+        markersize=marker_size,
+        linewidth=2.4,
+        color=colors["qp"],
+        label="BridgePRAG",
+    )
+    axes[0].plot(
+        x,
+        ponly_time,
+        marker="s",
+        markersize=marker_size,
+        linewidth=2.0,
+        linestyle="--",
+        color=colors["ponly"],
+        label="Passage-only baseline",
+    )
+    axes[0].set_title("(a) K/V Slots vs. Inference Time")
+    axes[0].set_xlabel("# K/V memory vectors")
+    axes[0].set_ylabel("Average inference time (s)")
+    configure_slot_axis(axes[0])
+    axes[0].grid(True, alpha=0.25)
+    axes[0].legend(frameon=False)
+
+    axes[1].scatter(qp_time, qp_f1, s=54, color=colors["qp"], label="Token F1")
+    axes[1].plot(qp_time, qp_f1, linewidth=1.7, alpha=0.7, color=colors["qp"])
+    axes[1].scatter(qp_time, qp_hit, s=54, marker="s", color=colors["hit"], label="Hit")
+    axes[1].plot(qp_time, qp_hit, linewidth=1.7, alpha=0.7, color=colors["hit"])
+    for row in rows:
+        axes[1].annotate(
+            str(row["num_kv"]),
+            (row["qp_time_s"], 100 * row["qp_token_f1"]),
+            textcoords="offset points",
+            xytext=(4, 5),
+            fontsize=8,
+            color=colors["qp"],
+        )
+    axes[1].set_title("(b) Performance-Latency Trade-off")
+    axes[1].set_xlabel("Average inference time (s)")
+    axes[1].set_ylabel("Performance (%)")
+    axes[1].grid(True, alpha=0.25)
+    axes[1].legend(frameon=False)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run PRAG num_kv ablation and build a Table-7-style summary.")
     parser.add_argument("--k-values", default="1,2,4,8,16,32")
@@ -541,9 +625,11 @@ def main() -> None:
     table_path = report_root / "kv_slot_ablation_table.csv"
     json_path = report_root / "kv_slot_ablation_table.json"
     plot_path = report_root / "kv_slot_ablation_curves.png"
+    latency_plot_path = report_root / "kv_slot_latency_tradeoff.png"
     write_table(table_path, rows)
     json_path.write_text(json.dumps({"rows": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
     plot_ablation(plot_path, rows)
+    plot_latency(latency_plot_path, rows)
     best = max(rows, key=lambda row: (row["qp_mergeprag_hit"], row["qp_token_f1"], row["qp_qa_score"]))
     best_ponly = max(rows, key=lambda row: (row["ponly_mergeprag_hit"], row["ponly_token_f1"], row["ponly_qa_score"]))
     print(f"[PRAG:kv-ablation] best_qp_num_kv={best['num_kv']} hit={best['qp_mergeprag_hit']:.4f} f1={best['qp_token_f1']:.4f}")
@@ -554,6 +640,7 @@ def main() -> None:
     print(f"[PRAG:kv-ablation] table saved: {table_path}")
     print(f"[PRAG:kv-ablation] json saved: {json_path}")
     print(f"[PRAG:kv-ablation] plot saved: {plot_path}")
+    print(f"[PRAG:kv-ablation] latency plot saved: {latency_plot_path}")
 
 
 if __name__ == "__main__":
