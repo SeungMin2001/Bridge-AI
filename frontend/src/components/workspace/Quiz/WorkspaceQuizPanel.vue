@@ -185,25 +185,25 @@ const canGenerateQuiz = computed(() => (
   !isQuizBusy.value
 ))
 const selectedSourceMeta = computed(() => {
-  if (!hasSelectedQuizSource.value) return '좌측 사이드바에서 강의자료 또는 녹음본을 선택하세요.'
-  if (!hasGeneratableScope.value) return '선택한 소스에 연결된 전사 또는 PDF 텍스트가 없습니다.'
+  if (!hasSelectedQuizSource.value) return '파일을 선택하면 현재 파일의 자료와 녹음본을 사용합니다.'
+  if (!hasGeneratableScope.value) return '현재 파일에 연결된 전사 또는 PDF 텍스트가 없습니다.'
   const sourceCount = props.quizSource?.sourceCount || selectedSourceItems.value.length || 1
   const scopeParts = []
   if (hasPdfScope.value) scopeParts.push(`PDF ${selectedPdfMaterials.value.length}개`)
   if (hasTranscriptScope.value) scopeParts.push(`전사 ${sourceTranscriptIds.value.length}개`)
-  return `선택 ${sourceCount}개 · ${scopeParts.join(' · ')} 연결됨`
+  return `현재 파일 자료 ${sourceCount}개 · ${scopeParts.join(' · ')} 연결됨`
 })
 const quizScopeText = computed(() => {
   if (props.quizSource?.title) return `${props.quizSource.title} 기준`
   if (previewPdfMaterial.value) return `${previewPdfMaterial.value.name || 'PDF 강의자료'} 기준`
-  return props.activeFileName ? `${props.activeFileName}에서 소스를 선택하세요.` : '파일을 선택하면 퀴즈를 만들 수 있습니다.'
+  return props.activeFileName ? `${props.activeFileName} 전체 자료 기준` : '파일을 선택하면 퀴즈를 만들 수 있습니다.'
 })
 const quizProgressText = computed(() => {
   if (quizStatus.value === 'loading') return '퀴즈를 불러오고 있습니다.'
   if (quizStatus.value === 'generating') {
     return hasPdfScope.value
-      ? '선택한 PDF 텍스트로 퀴즈를 만들고 있습니다.'
-      : '선택한 파일의 전사문으로 퀴즈를 만들고 있습니다.'
+      ? '현재 파일의 PDF 텍스트로 퀴즈를 만들고 있습니다.'
+      : '현재 파일의 전사문으로 퀴즈를 만들고 있습니다.'
   }
   if (quizStatus.value === 'submitting') return '답안을 채점하고 있습니다.'
   return ''
@@ -486,8 +486,8 @@ watch(
             <span class="material-symbols-outlined">{{ hasSelectedQuizSource ? 'draft' : 'touch_app' }}</span>
           </div>
           <div class="min-w-0">
-            <span class="quiz-source-label">선택된 파일</span>
-            <strong>{{ hasSelectedQuizSource ? quizSource.title : '선택된 파일 없음' }}</strong>
+            <span class="quiz-source-label">현재 파일 범위</span>
+            <strong>{{ hasSelectedQuizSource ? quizSource.title : '파일을 선택하세요' }}</strong>
             <p>{{ selectedSourceMeta }}</p>
             <div v-if="selectedSourceItems.length" class="quiz-source-list">
               <span
