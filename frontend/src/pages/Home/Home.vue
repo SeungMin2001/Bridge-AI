@@ -92,6 +92,7 @@ const openRecentFileHandler = (file) => {
     <HomeSidebar 
       class="relative z-10"
       :isCollapsed="isSidebarCollapsed"
+      activeView="home"
       :fileTree="fileTree"
       :favorites="favorites"
       @toggle="isSidebarCollapsed = !isSidebarCollapsed"
