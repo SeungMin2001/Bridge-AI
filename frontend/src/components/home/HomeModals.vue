@@ -157,19 +157,6 @@ const closeEditItemModal = () => {
         type="text"
       />
 
-      <p class="text-[14px] font-bold text-[#3a3a3c] mb-3">아이콘</p>
-      <div class="icon-picker-container">
-        <button
-          v-for="icon in fileIcons"
-          :key="icon"
-          type="button"
-          :class="['icon-choice', { selected: selectedFileIcon === icon }]"
-          @click="emit('update:selectedFileIcon', icon)"
-        >
-          <span class="material-symbols-outlined">{{ icon }}</span>
-        </button>
-      </div>
-
       <p class="text-[14px] font-bold text-[#3a3a3c] mb-3">테마 색상</p>
       <div class="color-picker-container">
         <div
@@ -227,18 +214,6 @@ const closeEditItemModal = () => {
           type="text"
         />
 
-        <p class="text-[14px] font-bold text-[#3a3a3c] mb-3">아이콘</p>
-        <div class="icon-picker-container">
-          <button
-            v-for="icon in fileIcons"
-            :key="icon"
-            type="button"
-            :class="['icon-choice', { selected: selectedFileIcon === icon }]"
-            @click="emit('update:selectedFileIcon', icon)"
-          >
-            <span class="material-symbols-outlined">{{ icon }}</span>
-          </button>
-        </div>
       </template>
       <p class="text-[14px] font-bold text-[#3a3a3c] mb-3">테마 색상</p>
       <div class="color-picker-container">
@@ -288,14 +263,14 @@ const closeEditItemModal = () => {
 
 .modal-card {
   position: relative;
-  width: min(340px, calc(100vw - 28px));
+  width: min(310px, calc(100vw - 28px));
   max-height: calc(100vh - 36px);
   overflow-y: auto;
-  border-radius: 26px;
+  border-radius: 24px;
   background: var(--copy-surface);
   border: 0;
   box-shadow: 0 28px 60px rgba(48, 42, 58, 0.14);
-  padding: 24px 24px 22px;
+  padding: 21px 21px 19px;
   pointer-events: auto;
 }
 
@@ -319,9 +294,9 @@ const closeEditItemModal = () => {
 
 .modal-card h2 {
   color: #1f2937;
-  font-size: 24px !important;
+  font-size: 21px !important;
   line-height: 1.18;
-  margin-bottom: 7px !important;
+  margin-bottom: 6px !important;
   font-weight: 950;
   letter-spacing: -0.04em;
 }
@@ -332,10 +307,10 @@ const closeEditItemModal = () => {
 
 .modal-input {
   width: 100%;
-  min-height: 48px;
+  min-height: 44px;
   border: 2px solid #e2e0e8;
   border-radius: 15px;
-  padding: 0 16px;
+  padding: 0 14px;
   outline: none;
   color: #1f2937;
   background: #fff;
@@ -358,7 +333,7 @@ const closeEditItemModal = () => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .tag-choice {
@@ -425,15 +400,15 @@ const closeEditItemModal = () => {
 .color-picker-container {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 22px;
+  gap: 11px;
+  margin-bottom: 18px;
 }
 
 .color-circle {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
-  border: 4px solid #fff;
+  border: 3px solid #fff;
   box-shadow: 0 0 0 0 transparent;
   cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
@@ -444,18 +419,18 @@ const closeEditItemModal = () => {
 }
 
 .color-circle.selected {
-  box-shadow: 0 0 0 4px var(--copy-black);
+  box-shadow: 0 0 0 2px var(--copy-black);
 }
 
 .modal-btn-primary,
 .modal-btn-secondary,
 .modal-btn-danger {
-  min-width: 78px;
-  min-height: 42px;
+  min-width: 72px;
+  min-height: 38px;
   border-radius: 999px;
   border: 0;
-  padding: 0 18px;
-  font-size: 14px;
+  padding: 0 16px;
+  font-size: 13px;
   font-weight: 950;
   transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
 }
