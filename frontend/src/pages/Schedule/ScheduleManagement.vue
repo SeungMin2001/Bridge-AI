@@ -92,6 +92,7 @@ onMounted(async () => {
     <InfiniteGrid />
     <HomeSidebar
       class="relative z-10"
+      activeView="schedule"
       :fileTree="fileTree"
       :favorites="favorites"
       @navigate="emit('navigate', $event)"
@@ -199,14 +200,16 @@ onMounted(async () => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 0;
-  overflow: visible;
-  border-radius: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  padding: 18px 20px 20px;
+  overflow: hidden;
+  border-radius: 32px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 26px 54px rgba(48, 42, 58, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
 }
 
 .schedule-header {
