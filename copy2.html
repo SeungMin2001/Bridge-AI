@@ -51,18 +51,6 @@
       transform-origin: top left;
     }
 
-    @keyframes whiteCardGridDrift {
-      to {
-        background-position: 40px 40px, 40px 40px;
-      }
-    }
-
-    @keyframes composerGridDrift {
-      to {
-        background-position: 34px 34px, 34px 34px;
-      }
-    }
-
     .rail {
       width: var(--rail-width);
       min-width: var(--rail-width);
@@ -717,52 +705,12 @@
       padding-left: 36px;
     }
 
-    .fake-check,
-    .table-check,
-    .row-check {
+    .fake-check {
       width: 18px;
       height: 18px;
       border: 2px solid #b7bec8;
       border-radius: 5px;
       display: block;
-    }
-
-    .table-check,
-    .row-check {
-      position: relative;
-      padding: 0;
-      background: #fff;
-      color: #fff;
-      line-height: 1;
-      transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
-    }
-
-    .table-check::after,
-    .row-check::after {
-      content: "";
-      position: absolute;
-      left: 4px;
-      top: 1px;
-      width: 6px;
-      height: 10px;
-      border: solid currentColor;
-      border-width: 0 2px 2px 0;
-      opacity: 0;
-      transform: rotate(45deg) scale(0.8);
-      transition: opacity 0.16s ease, transform 0.16s ease;
-    }
-
-    .table-check.is-checked,
-    .row-check.is-checked {
-      background: #1f7af3;
-      border-color: #1f7af3;
-      box-shadow: 0 0 0 3px rgba(31, 122, 243, 0.16);
-    }
-
-    .table-check.is-checked::after,
-    .row-check.is-checked::after {
-      opacity: 1;
-      transform: rotate(45deg) scale(1);
     }
 
     .date-head {
@@ -922,33 +870,6 @@
       box-shadow: -10px 0 34px rgba(48, 42, 58, 0.05);
     }
 
-    .main::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
-      background-color: #fff;
-      background-image:
-        linear-gradient(rgba(21, 22, 26, 0.052) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(21, 22, 26, 0.052) 1px, transparent 1px);
-      background-size: 40px 40px;
-      background-position: 0 0;
-      opacity: 0;
-      animation: whiteCardGridDrift 5.2s linear infinite;
-    }
-
-    .app[data-page="home"] .main::before {
-      opacity: 0.78;
-    }
-
-    .home-page,
-    .work-page,
-    .calendar-page {
-      position: relative;
-      z-index: 1;
-    }
-
     .topbar {
       top: 28px;
       right: 34px;
@@ -969,7 +890,7 @@
 
     .home-page {
       padding-top: 190px;
-      background: transparent;
+      background: #fff;
     }
 
     .headline {
@@ -986,27 +907,20 @@
 
     .composer {
       height: 132px;
-      border: 1px solid rgba(255, 255, 255, 0.92);
+      border: 1px solid #ece9ef;
       border-radius: 32px;
       padding: 24px 92px 24px 30px;
-      overflow: hidden;
-      background-color: rgba(255, 255, 255, 0.58);
-      background-image: none;
-      animation: none;
-      box-shadow:
-        inset 0 2px 18px rgba(21, 22, 26, 0.09),
-        inset 0 -8px 22px rgba(255, 255, 255, 0.72),
-        0 18px 42px rgba(48, 42, 58, 0.08);
+      background: #fff;
+      box-shadow: 0 16px 34px rgba(48, 42, 58, 0.07);
     }
 
     .composer::before {
       content: "";
       position: absolute;
-      inset: 0;
-      border-radius: inherit;
+      inset: 12px;
+      border-radius: 26px;
       pointer-events: none;
-      border: 2px solid rgba(255, 255, 255, 0.88);
-      box-shadow: inset 0 0 0 1px rgba(214, 211, 218, 0.52);
+      border: 1px solid #f4f1f6;
     }
 
     .placeholder {
@@ -1020,11 +934,11 @@
       left: 30px;
       bottom: 22px;
       z-index: 1;
-      width: 36px;
-      height: 36px;
+      width: 40px;
+      height: 40px;
       border: 0;
       border-radius: 999px;
-      color: #8e8a84;
+      color: #8f8b94;
       background: transparent;
       box-shadow: none;
     }
@@ -1040,12 +954,17 @@
       width: 56px;
       height: 56px;
       transform: translateY(-50%);
-      background: rgba(170, 163, 151, 0.72);
-      color: #fff;
+      background: #ebecef;
+      color: #9ca0a8;
     }
 
     .model-strip {
-      display: none;
+      width: calc(100% - 64px);
+      height: 42px;
+      border-radius: 0 0 24px 24px;
+      background: #f7f6f8;
+      color: #9995a0;
+      box-shadow: 0 22px 42px rgba(48, 42, 58, 0.07);
     }
 
     .strip-caret {
@@ -1152,58 +1071,6 @@
       box-shadow: 0 10px 22px rgba(48, 42, 58, 0.07);
     }
 
-    .folder-item {
-      width: 100%;
-      border: 0;
-      background: transparent;
-      text-align: left;
-      cursor: pointer;
-      transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-    }
-
-    .folder-item.is-selected {
-      background: rgba(255, 255, 255, 0.76);
-      box-shadow: 0 14px 28px rgba(48, 42, 58, 0.08);
-    }
-
-    .folder-item.is-selected .icon {
-      fill: currentColor;
-      stroke: currentColor;
-    }
-
-    .folder-item.is-editing {
-      height: 50px;
-      border: 1.5px solid #2f80ed;
-      border-radius: 10px;
-      background: #fff;
-      box-shadow: none;
-    }
-
-    .folder-item.is-editing .icon {
-      fill: none;
-      stroke: currentColor;
-    }
-
-    .folder-name,
-    .folder-name-input {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .folder-name-input {
-      flex: 1;
-      height: 100%;
-      border: 0;
-      outline: 0;
-      background: transparent;
-      color: #1f2026;
-      font: inherit;
-      font-weight: 850;
-      padding: 0;
-    }
-
     .work-page {
       margin: 10px 12px 10px 0;
       height: calc(100% - 20px);
@@ -1225,114 +1092,6 @@
       color: #9a96a1;
       font-size: 14px;
       font-weight: 850;
-    }
-
-    .date-sort-wrap {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      gap: 16px;
-      color: #4d5561;
-    }
-
-    .date-sort-button,
-    .sort-direction-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      color: #4d5561;
-      font-size: 14px;
-      font-weight: 900;
-    }
-
-    .date-sort-button {
-      gap: 8px;
-      padding: 7px 8px;
-      border-radius: 10px;
-    }
-
-    .date-sort-button:hover,
-    .sort-direction-button:hover {
-      background: #f4f1f6;
-    }
-
-    .sort-menu-caret {
-      width: 16px;
-      height: 16px;
-      transition: transform 0.18s ease;
-    }
-
-    .date-sort-wrap.is-open .sort-menu-caret {
-      transform: rotate(180deg);
-    }
-
-    .sort-direction-button {
-      width: 32px;
-      height: 32px;
-      border-radius: 10px;
-    }
-
-    .sort-direction-button .icon {
-      width: 18px;
-      height: 18px;
-      transition: transform 0.18s ease;
-    }
-
-    .sort-direction-button.is-asc .icon {
-      transform: rotate(180deg);
-    }
-
-    .date-sort-menu {
-      position: absolute;
-      top: 38px;
-      left: 0;
-      z-index: 40;
-      width: 178px;
-      padding: 8px;
-      border-radius: 16px;
-      background: #fff;
-      border: 1px solid #ece9ef;
-      box-shadow: 0 18px 42px rgba(48, 42, 58, 0.12);
-      opacity: 0;
-      transform: translateY(-6px);
-      pointer-events: none;
-      transition: opacity 0.16s ease, transform 0.16s ease;
-    }
-
-    .date-sort-wrap.is-open .date-sort-menu {
-      opacity: 1;
-      transform: translateY(0);
-      pointer-events: auto;
-    }
-
-    .sort-option {
-      width: 100%;
-      height: 44px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 0 12px;
-      color: #5f6874;
-      font-size: 15px;
-      font-weight: 900;
-      text-align: left;
-    }
-
-    .sort-option.is-selected {
-      background: #f1f1f4;
-      color: #4d5561;
-    }
-
-    .sort-check {
-      width: 18px;
-      opacity: 0;
-      font-size: 18px;
-      line-height: 1;
-    }
-
-    .sort-option.is-selected .sort-check {
-      opacity: 1;
     }
 
     .pdf-table {
@@ -1374,209 +1133,17 @@
       display: block;
     }
 
-    .pdf-table tbody .check-cell:has(.row-check)::before {
-      display: none;
-    }
-
-    .pdf-table .check-cell {
-      vertical-align: middle;
-    }
-
-    .selection-toolbar {
-      min-height: 32px;
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      margin: 0;
-      opacity: 0;
-      transform: translateX(-8px);
-      pointer-events: none;
-      overflow: hidden;
-      transition: opacity 0.18s ease, transform 0.18s ease, max-width 0.18s ease;
-      max-width: 0;
-    }
-
-    .work-page.has-selection .selection-toolbar {
-      opacity: 1;
-      transform: translateX(0);
-      pointer-events: auto;
-      overflow: visible;
-      max-width: 420px;
-    }
-
-    .selection-toolbar .table-check {
-      display: none;
-    }
-
-    .selection-toolbar .table-check::after {
-      left: 9px;
-      top: 4px;
-      width: 9px;
-      height: 15px;
-      border-width: 0 3px 3px 0;
-    }
-
-    .selection-action {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      color: #5b6069;
-      font-size: 16px;
-      font-weight: 850;
-      white-space: nowrap;
-    }
-
-    .selection-action.delete {
-      color: #ff453d;
-    }
-
-    .selection-action .icon {
-      width: 20px;
-      height: 20px;
-      stroke-width: 2;
-    }
-
-    .board-head {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .pdf-table tbody tr.is-checked td {
-      filter: saturate(1.08);
-    }
-
-    .pdf-table tbody tr.color-blue td {
-      background: #eef0ff;
-    }
-
-    .pdf-table tbody tr.color-red td {
-      background: #ffe5eb;
-    }
-
-    .pdf-table tbody tr.color-green td {
-      background: #e7f8ef;
-    }
-
-    .pdf-table tbody tr.color-orange td {
-      background: #fff2cf;
-    }
-
-    .pdf-table tbody tr.color-purple td {
-      background: #eee9ff;
-    }
-
-    .session-main {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      gap: 13px;
-    }
-
-    .favorite-star {
-      width: 30px;
-      height: 30px;
-      border-radius: 999px;
-      display: grid;
-      place-items: center;
-      flex: 0 0 auto;
-      color: #a2a0aa;
-    }
-
-    .favorite-star .icon {
-      width: 19px;
-      height: 19px;
-    }
-
-    .favorite-star.is-active {
-      color: #15161a;
-      background: rgba(255, 255, 255, 0.58);
-    }
-
-    .favorite-star.is-active .icon {
-      fill: currentColor;
-    }
-
-    .session-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 13px;
-      display: grid;
-      place-items: center;
-      flex: 0 0 auto;
-      color: #15161a;
-      background: rgba(255, 255, 255, 0.62);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
-    }
-
-    .session-icon .icon {
-      width: 20px;
-      height: 20px;
-      stroke-width: 2;
-    }
-
-    .session-text {
-      min-width: 0;
-      display: grid;
-      gap: 8px;
-    }
-
-    .session-title {
-      max-width: min(660px, 42vw);
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      color: #15161a;
-      font-size: 16px;
-      font-weight: 900;
-      letter-spacing: -0.02em;
-    }
-
-    .session-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 7px;
-    }
-
-    .session-tag {
-      min-height: 22px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.68);
-      color: #6f6a76;
-      font-size: 12px;
-      font-weight: 900;
-      line-height: 1;
-    }
-
     .quick-panel {
-      left: calc(var(--rail-width) - 6px);
-      top: 142px;
-      width: 340px;
+      top: 92px;
+      width: 540px;
       height: auto;
       max-height: calc((100vh / var(--viewport-scale)) - 118px);
-      padding: 24px 24px 22px;
+      padding: 30px 30px 26px;
       border: 0;
-      border-radius: 26px;
+      border-radius: 30px;
       background: #fff;
       box-shadow: 0 28px 60px rgba(48, 42, 58, 0.14);
-      overflow: visible;
-    }
-
-    .app[data-page="pdf"] .quick-panel {
-      left: auto;
-      right: 112px;
-      top: 96px;
-      width: 340px;
-      padding: 24px 24px 22px;
-      border-radius: 26px;
-      transform-origin: top right;
-    }
-
-    .app[data-page="pdf"] .quick-panel::before {
-      left: auto;
-      right: 62px;
-      top: -10px;
+      overflow-y: auto;
     }
 
     .quick-panel::before {
@@ -1605,30 +1172,30 @@
     .create-file-title {
       margin: 0;
       color: #1f2937;
-      font-size: 24px;
+      font-size: 28px;
       line-height: 1.18;
       font-weight: 950;
       letter-spacing: -0.04em;
     }
 
     .create-file-subtitle {
-      margin: 7px 0 18px;
+      margin: 10px 0 24px;
       color: #8b8793;
-      font-size: 13px;
+      font-size: 16px;
       font-weight: 850;
       letter-spacing: -0.02em;
     }
 
     .create-name-input {
       width: 100%;
-      height: 48px;
+      height: 58px;
       border: 2px solid #e4e2e8;
-      border-radius: 15px;
-      padding: 0 16px;
+      border-radius: 18px;
+      padding: 0 20px;
       outline: 0;
       color: #15161a;
       background: #fff;
-      font-size: 14px;
+      font-size: 17px;
       font-weight: 850;
     }
 
@@ -1637,9 +1204,9 @@
     }
 
     .create-section-label {
-      margin: 18px 0 10px;
+      margin: 24px 0 14px;
       color: #2d2f34;
-      font-size: 14px;
+      font-size: 17px;
       font-weight: 950;
       letter-spacing: -0.03em;
     }
@@ -1647,17 +1214,17 @@
     .create-tags {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 10px;
     }
 
     .create-tag {
-      height: 34px;
-      padding: 0 13px;
+      height: 42px;
+      padding: 0 17px;
       border: 2px solid #e1e1e7;
       border-radius: 999px;
       color: #737887;
       background: #fff;
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 900;
     }
 
@@ -1668,22 +1235,22 @@
     }
 
     .create-tag.icon-only {
-      width: 38px;
+      width: 46px;
       padding: 0;
-      font-size: 20px;
+      font-size: 23px;
       font-weight: 500;
     }
 
     .create-icon-grid {
       display: grid;
-      grid-template-columns: repeat(5, 38px);
-      gap: 8px;
+      grid-template-columns: repeat(5, 46px);
+      gap: 10px;
     }
 
     .create-icon-option {
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
+      width: 46px;
+      height: 46px;
+      border-radius: 14px;
       border: 2px solid #e1e1e7;
       display: grid;
       place-items: center;
@@ -1698,26 +1265,26 @@
     }
 
     .create-icon-option .icon {
-      width: 18px;
-      height: 18px;
+      width: 22px;
+      height: 22px;
       stroke-width: 2.2;
     }
 
     .create-swatches {
       display: flex;
-      gap: 11px;
+      gap: 14px;
       align-items: center;
     }
 
     .create-swatch {
-      width: 32px;
-      height: 32px;
+      width: 40px;
+      height: 40px;
       border-radius: 999px;
       box-shadow: inset 0 0 0 0 transparent;
     }
 
     .create-swatch.is-selected {
-      outline: 3px solid #15161a;
+      outline: 4px solid #15161a;
       outline-offset: 3px;
     }
 
@@ -1744,16 +1311,16 @@
     .create-actions {
       display: flex;
       justify-content: flex-end;
-      gap: 10px;
-      margin-top: 22px;
+      gap: 14px;
+      margin-top: 30px;
     }
 
     .create-action {
-      min-width: 78px;
-      height: 42px;
+      min-width: 96px;
+      height: 50px;
       border-radius: 999px;
-      padding: 0 20px;
-      font-size: 14px;
+      padding: 0 28px;
+      font-size: 16px;
       font-weight: 950;
     }
 
@@ -2108,7 +1675,7 @@
     .calendar-page {
       display: none;
       height: 100%;
-      padding: 28px 30px;
+      padding: 10px 12px 10px 10px;
       background: #fff;
       overflow: hidden;
     }
@@ -2134,14 +1701,14 @@
       min-width: 0;
       display: flex;
       flex-direction: column;
-      padding: 0;
-      overflow: visible;
-      border-radius: 0;
-      background: transparent;
-      border: 0;
-      box-shadow: none;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
+      padding: 18px;
+      overflow: hidden;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 24px 48px rgba(148, 163, 184, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(22px) saturate(135%);
+      -webkit-backdrop-filter: blur(22px) saturate(135%);
     }
 
     .calendar-page .schedule-header {
@@ -2166,11 +1733,10 @@
     .calendar-page .schedule-back-btn,
     .calendar-page .schedule-icon-btn,
     .calendar-page .schedule-soft-btn {
-      border: 1px solid #ece9ef;
-      background: #fff;
-      color: #15161a;
+      border: 1px solid rgba(226, 213, 195, 0.72);
+      background: #f4ede4;
+      color: #1d1d1f;
       font-weight: 900;
-      box-shadow: 0 10px 22px rgba(48, 42, 58, 0.05);
     }
 
     .calendar-page .schedule-back-btn,
@@ -2202,10 +1768,10 @@
       min-height: 0;
       min-width: 0;
       flex: 1;
-      padding: 0;
-      border-radius: 0;
-      background: transparent;
-      border: 0;
+      padding: 16px;
+      border-radius: 24px;
+      background: #f2eadf;
+      border: 1px solid rgba(255, 255, 255, 0.86);
     }
 
     .calendar-page .schedule-calendar-title-row {
@@ -2222,7 +1788,7 @@
       text-align: center;
       font-size: 24px;
       font-weight: 950;
-      color: #15161a;
+      color: #334155;
       letter-spacing: 0;
     }
 
@@ -2233,8 +1799,8 @@
       height: 38px;
       padding: 3px;
       border-radius: 10px;
-      background: #f4f1f6;
-      border: 1px solid #ebe8ef;
+      background: #f7f1e8;
+      border: 1px solid #ded0bd;
     }
 
     .calendar-page .schedule-view-tab {
@@ -2242,7 +1808,7 @@
       height: 30px;
       border: 0;
       border-radius: 8px;
-      color: #6f6a76;
+      color: #64748b;
       background: transparent;
       font-size: 11px;
       font-weight: 900;
@@ -2251,13 +1817,13 @@
 
     .calendar-page .schedule-view-tab.active {
       color: #fff;
-      background: #15161a;
+      background: #1687f8;
     }
 
     .calendar-page .schedule-legend {
       display: flex;
       gap: 12px;
-      color: #8b8793;
+      color: #6b7280;
       font-size: 12px;
       font-weight: 800;
     }
@@ -2276,7 +1842,7 @@
     }
 
     .calendar-page .schedule-legend .confirmed {
-      background: #18bd86;
+      background: #2fc07a;
     }
 
     .calendar-page .schedule-legend .pending {
@@ -2296,7 +1862,7 @@
 
     .calendar-page .schedule-weekdays span {
       padding: 0 10px;
-      color: #8b8793;
+      color: #6b7280;
       font-size: 12px;
       font-weight: 900;
       text-align: center;
@@ -2308,9 +1874,9 @@
       gap: 0;
       grid-auto-rows: minmax(84px, 1fr);
       overflow: hidden;
-      border: 1px solid #ebe8ef;
+      border: 1px solid #dfd2bf;
       border-radius: 18px;
-      background: #fff;
+      background: #f4ede4;
     }
 
     .calendar-page .schedule-day-cell {
@@ -2318,12 +1884,12 @@
       min-width: 0;
       min-height: 78px;
       border: 0;
-      border-right: 1px solid #ebe8ef;
-      border-bottom: 1px solid #ebe8ef;
+      border-right: 1px solid #dfd2bf;
+      border-bottom: 1px solid #dfd2bf;
       border-radius: 0;
       padding: 10px;
-      background: #fff;
-      color: #15161a;
+      background: #f4ede4;
+      color: #1d1d1f;
       text-align: left;
       overflow: hidden;
       cursor: pointer;
@@ -2339,16 +1905,16 @@
 
     .calendar-page .schedule-day-cell:hover,
     .calendar-page .schedule-day-cell.selected {
-      background: #f8f6fa;
+      background: #fffaf3;
     }
 
     .calendar-page .schedule-day-cell.muted {
-      background: repeating-linear-gradient(45deg, #fbfafc, #fbfafc 8px, #f0edf5 8px, #f0edf5 16px);
-      color: #aaa6b0;
+      background: repeating-linear-gradient(45deg, #f8f1e7, #f8f1e7 8px, #efe4d5 8px, #efe4d5 16px);
+      color: #9a8d7a;
     }
 
     .calendar-page .schedule-day-cell.today .schedule-day-number {
-      background: #15161a;
+      background: #1d1d1f;
       color: #fff;
     }
 
@@ -2375,7 +1941,7 @@
     }
 
     .calendar-page .schedule-day-cell.confirmed::before {
-      background: #18bd86;
+      background: #2fc07a;
     }
 
     .calendar-page .schedule-day-cell.pending::after {
@@ -2424,13 +1990,13 @@
     }
 
     .calendar-page .schedule-day-pill.confirmed {
-      background: #18bd86;
+      background: #16b87a;
       color: #fff;
     }
 
     .calendar-page .schedule-day-pill.pending {
-      background: #fff2cf;
-      color: #8a6412;
+      background: #ffba4a;
+      color: #5f3b00;
     }
 
     .calendar-page .schedule-side-card {
@@ -2440,9 +2006,9 @@
       align-self: stretch;
       justify-self: stretch;
       border-radius: 24px;
-      background: #fff;
-      border: 1px solid #f1edf4;
-      box-shadow: 0 18px 42px rgba(48, 42, 58, 0.06);
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.95);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1);
       backdrop-filter: blur(24px) saturate(140%);
       -webkit-backdrop-filter: blur(24px) saturate(140%);
       display: flex;
@@ -2454,7 +2020,7 @@
 
     .calendar-page .schedule-divider {
       height: 1px;
-      background: linear-gradient(90deg, rgba(241, 237, 244, 0) 0%, rgba(241, 237, 244, 1) 50%, rgba(241, 237, 244, 0) 100%);
+      background: linear-gradient(90deg, rgba(200, 200, 200, 0) 0%, rgba(200, 200, 200, 0.3) 50%, rgba(200, 200, 200, 0) 100%);
       margin: 0 10px;
     }
 
@@ -2475,7 +2041,7 @@
       display: block;
       font-size: 12px;
       font-weight: 800;
-      color: #aaa6b0;
+      color: #a1a1aa;
       margin-bottom: 2px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -2485,7 +2051,7 @@
       margin: 0;
       font-size: 20px;
       font-weight: 900;
-      color: #15161a;
+      color: #18181b;
       letter-spacing: 0;
     }
 
@@ -2493,14 +2059,14 @@
       min-width: 26px;
       height: 26px;
       border-radius: 8px;
-      background: #15161a;
+      background: #3b82f6;
       color: #fff;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       font-size: 13px;
       font-weight: 900;
-      box-shadow: 0 10px 22px rgba(21, 22, 26, 0.14);
+      box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
     }
 
     .calendar-page .schedule-list,
@@ -2512,16 +2078,16 @@
 
     .calendar-page .schedule-list-card {
       border-radius: 16px;
-      background: #f8f6fa;
-      border: 1px solid #f1edf4;
+      background: #f4ede4;
+      border: 1px solid rgba(220, 210, 200, 0.8);
       padding: 16px;
-      box-shadow: 0 12px 24px rgba(48, 42, 58, 0.04);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
       transition: all 0.2s ease;
     }
 
     .calendar-page .schedule-list-card.pending {
-      background: #fff2cf;
-      border-color: rgba(245, 158, 11, 0.28);
+      background: #fdf5e6;
+      border-color: #fcd34d;
     }
 
     .calendar-page .schedule-list-top,
@@ -2543,8 +2109,8 @@
       gap: 4px;
       border-radius: 6px;
       padding: 4px 8px;
-      background: rgba(255, 255, 255, 0.72);
-      color: #15161a;
+      background: rgba(255, 255, 255, 0.7);
+      color: #2563eb;
       font-size: 11px;
       font-weight: 800;
     }
@@ -2552,28 +2118,28 @@
     .calendar-page .schedule-status {
       font-size: 11px;
       font-weight: 800;
-      color: #aaa6b0;
+      color: #a1a1aa;
     }
 
     .calendar-page .schedule-list-card h3 {
       margin: 0 0 6px;
       font-size: 16px;
       font-weight: 900;
-      color: #15161a;
+      color: #27272a;
       line-height: 1.4;
       letter-spacing: 0;
     }
 
     .calendar-page .schedule-list-meta {
       gap: 4px;
-      color: #77727d;
+      color: #71717a;
       font-size: 12px;
       font-weight: 700;
     }
 
     .calendar-page .schedule-list-card p {
       margin: 8px 0 0;
-      color: #77727d;
+      color: #71717a;
       font-size: 12px;
       font-weight: 600;
       line-height: 1.5;
@@ -2583,12 +2149,12 @@
       margin: 10px 0 0;
       padding: 10px 12px;
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.62);
-      color: #5f5b66;
+      background: rgba(255, 255, 255, 0.4);
+      color: #52525b;
       font-size: 12px;
       font-weight: 600;
       line-height: 1.5;
-      border-left: 3px solid #d8d3df;
+      border-left: 3px solid #d4d4d8;
     }
 
     .calendar-page .schedule-card-actions {
@@ -2609,13 +2175,13 @@
 
     .calendar-page .schedule-primary-btn {
       color: #fff;
-      background: #15161a;
-      box-shadow: 0 10px 20px rgba(21, 22, 26, 0.14);
+      background: #3b82f6;
+      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
     }
 
     .calendar-page .schedule-secondary-btn {
-      color: #5f5b66;
-      background: rgba(255, 255, 255, 0.72);
+      color: #52525b;
+      background: rgba(255, 255, 255, 0.6);
     }
 
     .calendar-page .schedule-compact-card {
@@ -2625,8 +2191,8 @@
       gap: 12px;
       padding: 14px;
       border-radius: 14px;
-      background: #f8f6fa;
-      border: 1px solid #f1edf4;
+      background: #f4ede4;
+      border: 1px solid rgba(220, 210, 200, 0.8);
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -2640,11 +2206,11 @@
     .calendar-page .compact-info strong {
       font-size: 13px;
       font-weight: 800;
-      color: #15161a;
+      color: #27272a;
     }
 
     .calendar-page .compact-info span {
-      color: #aaa6b0;
+      color: #a1a1aa;
       font-size: 11px;
       font-weight: 600;
     }
@@ -2833,13 +2399,13 @@
     }
 
     .chat-input::placeholder {
-      color: rgba(94, 89, 82, 0.54);
+      color: #aaa6b0;
     }
 
     .send.can-send {
-      background: #15161a;
+      background: #2f6dff;
       color: #ffffff;
-      box-shadow: 0 12px 26px rgba(21, 22, 26, 0.18);
+      box-shadow: 0 12px 26px rgba(47, 109, 255, 0.24);
       transform: translateY(-50%);
     }
 
@@ -3100,39 +2666,39 @@
 
         <div class="work-section-title">
           폴더
-          <button class="folder-add" id="folderAddButton" type="button" aria-label="폴더 추가">
+          <button class="folder-add" type="button" aria-label="폴더 추가">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 5v14M5 12h14"></path>
             </svg>
           </button>
         </div>
-        <div class="work-list" id="folderList">
+        <div class="work-list">
           <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24">
               <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
-            </svg><span class="folder-name">기본 폴더</span></button>
+            </svg>기본 폴더</button>
           <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24">
               <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
-            </svg><span class="folder-name">컴퓨터구조</span></button>
+            </svg>컴퓨터구조</button>
           <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24">
               <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
-            </svg><span class="folder-name">데이터베이스</span></button>
+            </svg>데이터베이스</button>
           <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24">
               <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
-            </svg><span class="folder-name">기초프로젝트2</span></button>
+            </svg>기초프로젝트2</button>
           <button class="folder-item" type="button"><svg class="icon" viewBox="0 0 24 24">
               <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
-            </svg><span class="folder-name">알고리즘</span></button>
+            </svg>알고리즘</button>
         </div>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <button class="pill primary new-pdf" id="newFileButton" type="button">
+        <button class="pill primary new-pdf" type="button">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14"></path>
           </svg>
-          새 파일
+          새 PDF
         </button>
         <button class="bell" type="button" aria-label="알림">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -3284,129 +2850,27 @@
           </colgroup>
           <thead>
             <tr>
-              <th class="check-cell"><button class="table-check" id="selectAllButton" type="button"
-                  aria-label="전체 선택"></button></th>
-              <th>
-                <div class="board-head">
-                  <span>보드 이름</span>
-                  <div class="selection-toolbar" id="selectionToolbar" aria-label="선택한 항목 작업">
-                    <button class="table-check" id="toolbarSelectButton" type="button"
-                      aria-label="선택 항목 전체 해제"></button>
-                    <button class="selection-action delete" id="deleteSelectedButton" type="button">
-                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 7h16"></path>
-                        <path d="M9 7V4h6v3"></path>
-                        <path d="M7 7l1 14h8l1-14"></path>
-                        <path d="M10 11v6M14 11v6"></path>
-                      </svg>
-                      삭제하기
-                    </button>
-                    <button class="selection-action" id="moveSelectedButton" type="button">
-                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
-                        <path d="M13 13h6M16 10l3 3-3 3"></path>
-                      </svg>
-                      이동하기
-                    </button>
-                  </div>
-                </div>
-              </th>
-              <th>
-                <div class="date-sort-wrap" id="dateSortWrap">
-                  <button class="date-sort-button" id="dateSortButton" type="button" aria-haspopup="true"
-                    aria-expanded="false">
-                    <span id="dateSortLabel">생성일</span>
-                    <svg class="icon sort-menu-caret" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M6 15l6-6 6 6"></path>
-                    </svg>
-                  </button>
-                  <button class="sort-direction-button" id="sortDirectionButton" type="button" aria-label="정렬 방향">
-                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 5v14M7 14l5 5 5-5"></path>
-                    </svg>
-                  </button>
-                  <div class="date-sort-menu" id="dateSortMenu" role="menu">
-                    <button class="sort-option is-selected" type="button" data-sort-key="created" role="menuitem">
-                      <span class="sort-check">✓</span>
-                      <span>생성일</span>
-                    </button>
-                    <button class="sort-option" type="button" data-sort-key="modified" role="menuitem">
-                      <span class="sort-check">✓</span>
-                      <span>최근 수정일</span>
-                    </button>
-                  </div>
-                </div>
-              </th>
+              <th class="check-cell"><span class="fake-check"></span></th>
+              <th>보드 이름</th>
+              <th><span class="date-head">생성일 <svg class="icon" style="width:17px;height:17px" viewBox="0 0 24 24">
+                    <path d="M12 5v14M7 14l5 5 5-5"></path>
+                  </svg></span></th>
             </tr>
           </thead>
-          <tbody id="pdfTableBody">
-            <tr class="color-purple" data-created-at="1776252300000" data-modified-at="1776943500000">
-              <td class="check-cell"><button class="row-check" type="button" aria-label="항목 선택"></button></td>
-              <td class="pdf-name">
-                <div class="session-main">
-                  <button class="favorite-star is-active" type="button" aria-label="즐겨찾기">
-                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2 7.5 14 3 9.6l6.2-.9L12 3z"></path>
-                    </svg>
-                  </button>
-                  <span class="session-icon">
-                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <rect x="5" y="4" width="14" height="16" rx="2"></rect>
-                      <path d="M8 8h8M8 12h8M8 16h5"></path>
-                    </svg>
-                  </span>
-                  <div class="session-text">
-                    <div class="session-title">종합프로젝트스크립트.pdf</div>
-                    <div class="session-tags"><span class="session-tag">수업</span></div>
-                  </div>
-                </div>
-              </td>
+          <tbody>
+            <tr>
+              <td class="check-cell"></td>
+              <td class="pdf-name">종합프로젝트스크립트.pdf</td>
               <td class="date-cell">2026. 4. 15. 오후 7:25</td>
             </tr>
-            <tr class="color-orange" data-created-at="1775902800000" data-modified-at="1776779400000">
-              <td class="check-cell"><button class="row-check" type="button" aria-label="항목 선택"></button></td>
-              <td class="pdf-name">
-                <div class="session-main">
-                  <button class="favorite-star" type="button" aria-label="즐겨찾기">
-                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2 7.5 14 3 9.6l6.2-.9L12 3z"></path>
-                    </svg>
-                  </button>
-                  <span class="session-icon">
-                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 5v8"></path>
-                      <path d="M12 18h.01"></path>
-                    </svg>
-                  </span>
-                  <div class="session-text">
-                    <div class="session-title">c0cc1197-d9e5-482b-a116-a52fe82c767f_요구사항_.pdf</div>
-                    <div class="session-tags"><span class="session-tag">중요</span></div>
-                  </div>
-                </div>
-              </td>
+            <tr>
+              <td class="check-cell"></td>
+              <td class="pdf-name">c0cc1197-d9e5-482b-a116-a52fe82c767f_요구사항_.pdf</td>
               <td class="date-cell">2026. 4. 11. 오후 7:20</td>
             </tr>
-            <tr class="color-green" data-created-at="1774488900000" data-modified-at="1776167700000">
-              <td class="check-cell"><button class="row-check" type="button" aria-label="항목 선택"></button></td>
-              <td class="pdf-name">
-                <div class="session-main">
-                  <button class="favorite-star" type="button" aria-label="즐겨찾기">
-                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2 7.5 14 3 9.6l6.2-.9L12 3z"></path>
-                    </svg>
-                  </button>
-                  <span class="session-icon">
-                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M3 8l9-4 9 4-9 4-9-4z"></path>
-                      <path d="M7 10.2V15c0 1.7 2.2 3 5 3s5-1.3 5-3v-4.8"></path>
-                    </svg>
-                  </span>
-                  <div class="session-text">
-                    <div class="session-title">ch02_배열과 자료구조.pdf</div>
-                    <div class="session-tags"><span class="session-tag">수업</span></div>
-                  </div>
-                </div>
-              </td>
+            <tr>
+              <td class="check-cell"></td>
+              <td class="pdf-name">ch02_배열과 자료구조.pdf</td>
               <td class="date-cell">2026. 3. 26. 오전 10:35</td>
             </tr>
           </tbody>
@@ -3735,7 +3199,6 @@
   <script>
     const app = document.getElementById('app');
     const newTaskButton = document.getElementById('newTaskButton');
-    const newFileButton = document.getElementById('newFileButton');
     const workButton = document.getElementById('workButton');
     const chatButton = document.getElementById('chatButton');
     const calendarButton = document.getElementById('calendarButton');
@@ -3750,24 +3213,8 @@
     const referenceTitle = document.getElementById('referenceTitle');
     const referenceMeta = document.getElementById('referenceMeta');
     const referenceScript = document.getElementById('referenceScript');
-    const createNameInput = document.querySelector('.create-name-input');
     const createCancelButton = document.querySelector('.create-action.cancel');
     const createSubmitButton = document.querySelector('.create-action.submit');
-    const pdfTableBody = document.getElementById('pdfTableBody');
-    const workPage = document.querySelector('.work-page');
-    const selectAllButton = document.getElementById('selectAllButton');
-    const toolbarSelectButton = document.getElementById('toolbarSelectButton');
-    const deleteSelectedButton = document.getElementById('deleteSelectedButton');
-    const moveSelectedButton = document.getElementById('moveSelectedButton');
-    const folderAddButton = document.getElementById('folderAddButton');
-    const folderList = document.getElementById('folderList');
-    const dateSortWrap = document.getElementById('dateSortWrap');
-    const dateSortButton = document.getElementById('dateSortButton');
-    const dateSortLabel = document.getElementById('dateSortLabel');
-    const dateSortMenu = document.getElementById('dateSortMenu');
-    const sortDirectionButton = document.getElementById('sortDirectionButton');
-    let currentSortKey = 'created';
-    let currentSortDirection = 'desc';
 
     const demoReferences = [
       {
@@ -3800,242 +3247,6 @@
         return escapeHtml(script);
       }
       return script.split(target).map((part) => escapeHtml(part)).join(`<mark>${escapeHtml(target)}</mark>`);
-    }
-
-    function getSelectedSwatchColor() {
-      const selected = document.querySelector('.create-swatch.is-selected');
-      return ['blue', 'red', 'green', 'orange', 'purple'].find((color) => selected && selected.classList.contains(color)) || 'blue';
-    }
-
-    function getSelectedIconSvg() {
-      const selected = document.querySelector('.create-icon-option.is-selected svg');
-      return selected ? selected.outerHTML : '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="16" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>';
-    }
-
-    function getFolderIconSvg() {
-      return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
-      </svg>`;
-    }
-
-    function formatCreatedAt(date = new Date()) {
-      return new Intl.DateTimeFormat('ko-KR', {
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: 'numeric'
-      }).format(date);
-    }
-
-    function closeCreatePanel() {
-      app.classList.remove('is-panel-open');
-      newTaskButton.classList.remove('is-open');
-    }
-
-    function selectFolder(folderItem) {
-      if (!folderItem || !folderList) return;
-      folderList.querySelectorAll('.folder-item').forEach((item) => item.classList.remove('is-selected'));
-      folderItem.classList.add('is-selected');
-    }
-
-    function commitFolderName(folderItem, input) {
-      if (!folderItem || !input) return;
-      const folderName = input.value.trim() || '새로운 폴더';
-      folderItem.classList.remove('is-editing');
-      folderItem.setAttribute('aria-label', folderName);
-      folderItem.innerHTML = `${getFolderIconSvg()}<span class="folder-name">${escapeHtml(folderName)}</span>`;
-      selectFolder(folderItem);
-    }
-
-    function addEditableFolder() {
-      if (!folderList) return;
-      const folderItem = document.createElement('div');
-      folderItem.className = 'folder-item is-editing is-selected';
-      folderItem.setAttribute('role', 'button');
-      folderItem.setAttribute('tabindex', '0');
-      folderItem.innerHTML = `${getFolderIconSvg()}<input class="folder-name-input" type="text" value="새로운 폴더" aria-label="새 폴더 이름">`;
-      const firstFolder = folderList.querySelector('.folder-item');
-      if (firstFolder && firstFolder.nextSibling) {
-        folderList.insertBefore(folderItem, firstFolder.nextSibling);
-      } else {
-        folderList.appendChild(folderItem);
-      }
-      selectFolder(folderItem);
-
-      const input = folderItem.querySelector('.folder-name-input');
-      if (!input) return;
-      requestAnimationFrame(() => {
-        input.focus();
-        input.select();
-      });
-      input.addEventListener('click', (event) => event.stopPropagation());
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          commitFolderName(folderItem, input);
-        }
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          folderItem.remove();
-        }
-      });
-      input.addEventListener('blur', () => commitFolderName(folderItem, input), { once: true });
-    }
-
-    function ensureSortMetadata() {
-      if (!pdfTableBody) return;
-      Array.from(pdfTableBody.querySelectorAll('tr')).forEach((row, index) => {
-        const fallback = Date.now() - index * 86400000;
-        if (!row.dataset.createdAt) {
-          row.dataset.createdAt = String(fallback);
-        }
-        if (!row.dataset.modifiedAt) {
-          row.dataset.modifiedAt = String(fallback + (index + 1) * 1800000);
-        }
-      });
-    }
-
-    function applyTableSort() {
-      if (!pdfTableBody) return;
-      ensureSortMetadata();
-      const datasetKey = currentSortKey === 'modified' ? 'modifiedAt' : 'createdAt';
-      const rows = Array.from(pdfTableBody.querySelectorAll('tr'));
-      rows.sort((a, b) => {
-        const first = Number(a.dataset[datasetKey] || 0);
-        const second = Number(b.dataset[datasetKey] || 0);
-        return currentSortDirection === 'asc' ? first - second : second - first;
-      });
-      rows.forEach((row) => pdfTableBody.appendChild(row));
-
-      const label = currentSortKey === 'modified' ? '최근 수정일' : '생성일';
-      if (dateSortLabel) {
-        dateSortLabel.textContent = label;
-      }
-      document.querySelectorAll('.sort-option').forEach((option) => {
-        option.classList.toggle('is-selected', option.dataset.sortKey === currentSortKey);
-      });
-      if (sortDirectionButton) {
-        sortDirectionButton.classList.toggle('is-asc', currentSortDirection === 'asc');
-        sortDirectionButton.setAttribute('aria-label', currentSortDirection === 'asc' ? '오름차순 정렬' : '내림차순 정렬');
-      }
-    }
-
-    function closeSortMenu() {
-      if (!dateSortWrap || !dateSortButton) return;
-      dateSortWrap.classList.remove('is-open');
-      dateSortButton.setAttribute('aria-expanded', 'false');
-    }
-
-    function getTableRows() {
-      return pdfTableBody ? Array.from(pdfTableBody.querySelectorAll('tr')) : [];
-    }
-
-    function getCheckedRows() {
-      return getTableRows().filter((row) => row.classList.contains('is-checked'));
-    }
-
-    function updateSelectionState() {
-      const rows = getTableRows();
-      const checkedRows = getCheckedRows();
-      const hasSelection = checkedRows.length > 0;
-      const allChecked = rows.length > 0 && checkedRows.length === rows.length;
-      if (workPage) {
-        workPage.classList.toggle('has-selection', hasSelection);
-      }
-      if (selectAllButton) {
-        selectAllButton.classList.toggle('is-checked', allChecked);
-        selectAllButton.setAttribute('aria-pressed', String(allChecked));
-        selectAllButton.setAttribute('aria-label', allChecked ? '전체 선택 해제' : '전체 선택');
-      }
-      if (toolbarSelectButton) {
-        toolbarSelectButton.classList.toggle('is-checked', hasSelection);
-        toolbarSelectButton.setAttribute('aria-pressed', String(hasSelection));
-        toolbarSelectButton.setAttribute('aria-label', hasSelection ? '선택 항목 해제' : '전체 선택');
-      }
-      rows.forEach((row) => {
-        const checkButton = row.querySelector('.row-check');
-        if (!checkButton) return;
-        const isChecked = row.classList.contains('is-checked');
-        checkButton.classList.toggle('is-checked', isChecked);
-        checkButton.setAttribute('aria-pressed', String(isChecked));
-        checkButton.setAttribute('aria-label', isChecked ? '항목 선택 해제' : '항목 선택');
-      });
-    }
-
-    function setRowChecked(row, checked) {
-      if (!row) return;
-      row.classList.toggle('is-checked', checked);
-      updateSelectionState();
-    }
-
-    function toggleAllRows(forceChecked) {
-      const rows = getTableRows();
-      const shouldCheck = typeof forceChecked === 'boolean'
-        ? forceChecked
-        : getCheckedRows().length !== rows.length;
-      rows.forEach((row) => row.classList.toggle('is-checked', shouldCheck));
-      updateSelectionState();
-    }
-
-    function clearSelectedRows() {
-      getCheckedRows().forEach((row) => row.classList.remove('is-checked'));
-      updateSelectionState();
-    }
-
-    function openCreatePanel(page = 'home') {
-      app.dataset.page = page;
-      app.classList.add('is-panel-open');
-      newTaskButton.classList.toggle('is-open', page === 'home');
-      workButton.classList.toggle('is-strong', page === 'pdf');
-      chatButton.classList.remove('is-active');
-      calendarButton.classList.remove('is-active');
-      closeReference();
-      if (createNameInput) {
-        createNameInput.focus();
-      }
-    }
-
-    function addCreatedFileRow() {
-      if (!pdfTableBody) return;
-      const rawName = createNameInput ? createNameInput.value.trim() : '';
-      const fileName = rawName || '새 파일';
-      const selectedTag = document.querySelector('.create-tag.is-selected:not(.icon-only)');
-      const tag = selectedTag ? selectedTag.textContent.trim() : '수업';
-      const color = getSelectedSwatchColor();
-      const iconSvg = getSelectedIconSvg();
-      const createdAt = new Date();
-      const row = document.createElement('tr');
-      row.className = `color-${color}`;
-      row.dataset.createdAt = String(createdAt.getTime());
-      row.dataset.modifiedAt = String(createdAt.getTime());
-      row.innerHTML = `
-        <td class="check-cell"><button class="row-check" type="button" aria-label="항목 선택"></button></td>
-        <td class="pdf-name">
-          <div class="session-main">
-            <button class="favorite-star" type="button" aria-label="즐겨찾기">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2 7.5 14 3 9.6l6.2-.9L12 3z"></path>
-              </svg>
-            </button>
-            <span class="session-icon">${iconSvg}</span>
-            <div class="session-text">
-              <div class="session-title">${escapeHtml(fileName)}</div>
-              <div class="session-tags"><span class="session-tag">${escapeHtml(tag)}</span></div>
-            </div>
-          </div>
-        </td>
-        <td class="date-cell">${formatCreatedAt(createdAt)}</td>
-      `;
-      pdfTableBody.prepend(row);
-      applyTableSort();
-      updateSelectionState();
-      if (createNameInput) {
-        createNameInput.value = '';
-      }
-      app.dataset.page = 'pdf';
-      closeCreatePanel();
-      workButton.classList.add('is-strong');
     }
 
     function openReference(index = 0) {
@@ -4117,100 +3328,6 @@
       closeReference();
     });
 
-    newFileButton.addEventListener('click', () => {
-      if (app.dataset.page !== 'pdf' || !app.classList.contains('is-panel-open')) {
-        openCreatePanel('pdf');
-        return;
-      }
-      closeCreatePanel();
-    });
-
-    if (folderAddButton) {
-      folderAddButton.addEventListener('click', (event) => {
-        event.stopPropagation();
-        setPage('pdf');
-        addEditableFolder();
-      });
-    }
-
-    if (folderList) {
-      folderList.addEventListener('click', (event) => {
-        const folderItem = event.target.closest('.folder-item');
-        if (!folderItem || folderItem.classList.contains('is-editing')) return;
-        selectFolder(folderItem);
-      });
-    }
-
-    if (dateSortButton && dateSortWrap) {
-      dateSortButton.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const isOpen = dateSortWrap.classList.toggle('is-open');
-        dateSortButton.setAttribute('aria-expanded', String(isOpen));
-      });
-    }
-
-    if (sortDirectionButton) {
-      sortDirectionButton.addEventListener('click', (event) => {
-        event.stopPropagation();
-        currentSortDirection = currentSortDirection === 'desc' ? 'asc' : 'desc';
-        applyTableSort();
-      });
-    }
-
-    if (dateSortMenu) {
-      dateSortMenu.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const option = event.target.closest('.sort-option');
-        if (!option) return;
-        currentSortKey = option.dataset.sortKey || 'created';
-        closeSortMenu();
-        applyTableSort();
-      });
-    }
-
-    if (selectAllButton) {
-      selectAllButton.addEventListener('click', (event) => {
-        event.stopPropagation();
-        toggleAllRows();
-      });
-    }
-
-    if (toolbarSelectButton) {
-      toolbarSelectButton.addEventListener('click', (event) => {
-        event.stopPropagation();
-        clearSelectedRows();
-      });
-    }
-
-    if (deleteSelectedButton) {
-      deleteSelectedButton.addEventListener('click', (event) => {
-        event.stopPropagation();
-        getCheckedRows().forEach((row) => row.remove());
-        updateSelectionState();
-      });
-    }
-
-    if (moveSelectedButton) {
-      moveSelectedButton.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const selectedFolder = folderList && folderList.querySelector('.folder-item.is-selected');
-        if (!selectedFolder && folderList) {
-          selectFolder(folderList.querySelector('.folder-item'));
-        }
-        clearSelectedRows();
-      });
-    }
-
-    if (pdfTableBody) {
-      pdfTableBody.addEventListener('click', (event) => {
-        const checkButton = event.target.closest('.row-check');
-        if (!checkButton) return;
-        event.stopPropagation();
-        const row = checkButton.closest('tr');
-        setRowChecked(row, !row.classList.contains('is-checked'));
-      });
-    }
-
     workButton.addEventListener('click', () => setPage('pdf'));
     calendarButton.addEventListener('click', () => setPage('calendar'));
     chatButton.addEventListener('click', () => showHome());
@@ -4232,10 +3349,7 @@
     });
     referenceClose.addEventListener('click', closeReference);
     document.querySelectorAll('.create-tag:not(.icon-only)').forEach((button) => {
-      button.addEventListener('click', () => {
-        document.querySelectorAll('.create-tag:not(.icon-only)').forEach((item) => item.classList.remove('is-selected'));
-        button.classList.add('is-selected');
-      });
+      button.addEventListener('click', () => button.classList.toggle('is-selected'));
     });
     document.querySelectorAll('.create-icon-option').forEach((button) => {
       button.addEventListener('click', () => {
@@ -4249,30 +3363,22 @@
         button.classList.add('is-selected');
       });
     });
-    createCancelButton.addEventListener('click', closeCreatePanel);
-    createSubmitButton.addEventListener('click', addCreatedFileRow);
-
-    document.addEventListener('click', (event) => {
-      const favoriteButton = event.target.closest('.favorite-star');
-      if (favoriteButton) {
-        favoriteButton.classList.toggle('is-active');
-      }
-      if (!event.target.closest('.date-sort-wrap')) {
-        closeSortMenu();
-      }
+    [createCancelButton, createSubmitButton].forEach((button) => {
+      button.addEventListener('click', () => {
+        app.classList.remove('is-panel-open');
+        newTaskButton.classList.remove('is-open');
+      });
     });
 
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
-        closeCreatePanel();
+        app.classList.remove('is-panel-open');
+        newTaskButton.classList.remove('is-open');
         closeReference();
       }
     });
 
     updateSendState();
-    ensureSortMetadata();
-    applyTableSort();
-    updateSelectionState();
     syncViewportScale();
     window.addEventListener('resize', syncViewportScale);
   </script>
