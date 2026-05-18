@@ -17,7 +17,7 @@ const props = defineProps({
   chatSource: { type: Object, default: null }
 })
 
-const emit = defineEmits(['update:aiInput', 'openEvidenceSource', 'removeChatSource'])
+const emit = defineEmits(['update:aiInput', 'openEvidenceSource'])
 
 const { 
   messages, 
@@ -42,62 +42,27 @@ function getChatSessionId() {
   return null
 }
 
-const selectedChatSources = computed(() => {
+const workspaceChatSources = computed(() => {
   if (!props.chatSource) return []
   if (Array.isArray(props.chatSource.sources)) return props.chatSource.sources
   return [props.chatSource]
 })
 
-const hasSelectedChatSource = computed(() => selectedChatSources.value.length > 0)
-
-const selectedChatSourceTitle = computed(() => {
-  if (!hasSelectedChatSource.value) return ''
-  if (selectedChatSources.value.length === 1) return sourceTitle(selectedChatSources.value[0])
-  return `${sourceTitle(selectedChatSources.value[0])} 외 ${selectedChatSources.value.length - 1}개`
-})
-
-function sourceTitle(source = {}) {
-  return source.title || source.material?.name || source.recording?.title || '선택한 자료'
-}
-
-function sourceIcon(source = {}) {
-  if (source.type === 'material') return 'picture_as_pdf'
-  if (source.type === 'recording') return 'graphic_eq'
-  return 'library_books'
-}
-
-function snapshotChatSources() {
-  if (!hasSelectedChatSource.value) return []
-
-  return selectedChatSources.value.map((source) => ({
-    type: source.type || (source.material ? 'material' : source.recording ? 'recording' : 'source'),
-    id: source.id || source.materialId || source.recordingId || source.material?.id || source.material?.storedName || sourceTitle(source),
-    title: sourceTitle(source),
-    icon: sourceIcon(source),
-  }))
-}
-
-function messageSources(msg) {
-  return Array.isArray(msg?.sources) ? msg.sources : []
-}
-
-function sourceKey(source = {}) {
-  return `${source.type || 'source'}-${source.id || source.materialId || source.recordingId || sourceTitle(source)}`
-}
+const hasWorkspaceChatSource = computed(() => workspaceChatSources.value.length > 0)
 
 function unique(values = []) {
   return Array.from(new Set(values.filter(Boolean).map((item) => String(item))))
 }
 
 function buildSourceFilter() {
-  if (!hasSelectedChatSource.value) return null
+  if (!hasWorkspaceChatSource.value) return null
 
   const materialIds = []
   const storedNames = []
   const recordingIds = []
   const transcriptIds = []
 
-  selectedChatSources.value.forEach((source) => {
+  workspaceChatSources.value.forEach((source) => {
     const material = source.material || {}
     if (source.type === 'material' || material.id || material.storedName) {
       if (material.id || source.materialId) materialIds.push(material.id || source.materialId)
@@ -134,7 +99,7 @@ async function sendMessage() {
   
   isSending.value = true
 
-  addMessage({ role: 'user', text: question, sources: snapshotChatSources() })
+  addMessage({ role: 'user', text: question })
   emit('update:aiInput', '')
   isLoading.value = true
 
@@ -452,17 +417,6 @@ watch(messages, () => {
             >
               <!-- 사용자 말풍선 -->
               <template v-if="msg.role === 'user'">
-                <div v-if="messageSources(msg).length" class="user-message-sources">
-                  <span
-                    v-for="source in messageSources(msg)"
-                    :key="`${source.type || 'source'}-${source.id || source.title}`"
-                    class="user-message-source-chip"
-                    :title="source.title"
-                  >
-                    <span class="material-symbols-outlined">{{ source.icon || sourceIcon(source) }}</span>
-                    <span>{{ source.title }}</span>
-                  </span>
-                </div>
                 <div class="user-bubble px-4 py-2.5 rounded-[18px] text-white text-[14px] leading-relaxed w-fit max-w-[85%]">
                   {{ msg.text }}
                 </div>
@@ -552,27 +506,6 @@ watch(messages, () => {
         <div class="mt-auto px-1 pb-2">
           <!-- 🎨 다듬어진 프리미엄 입력창 디자인 -->
           <div class="chat-input-glow rounded-[26px] p-3.5 transition-all">
-            <div v-if="hasSelectedChatSource" class="selected-chat-source-strip">
-              <div class="selected-chat-source-list custom-scrollbar">
-                <span
-                  v-for="source in selectedChatSources"
-                  :key="sourceKey(source)"
-                  class="selected-chat-source-chip"
-                  :title="sourceTitle(source)"
-                >
-                  <span class="material-symbols-outlined">{{ sourceIcon(source) }}</span>
-                  <span class="selected-chat-source-title">{{ sourceTitle(source) }}</span>
-                  <button
-                    type="button"
-                    class="selected-chat-source-remove"
-                    :aria-label="`${sourceTitle(source)} 선택 해제`"
-                    @click.stop="emit('removeChatSource', source)"
-                  >
-                    <span class="material-symbols-outlined">close</span>
-                  </button>
-                </span>
-              </div>
-            </div>
             <textarea
               class="w-full bg-transparent border-none focus:ring-0 p-0 text-[14px] text-[#1d1d1f] placeholder-[#aeaeb2] min-h-[24px] max-h-[120px] resize-none leading-relaxed custom-scrollbar"
               placeholder="무엇이든 물어보세요..."
@@ -744,135 +677,6 @@ watch(messages, () => {
   font-size: 10px;
   color: #7a9a7c;
   font-weight: 600;
-}
-
-.selected-chat-source-strip {
-  margin: 0 0 10px;
-  padding: 0 2px 5px;
-  background: transparent;
-  border: 0;
-}
-
-.selected-chat-source-list {
-  display: flex;
-  gap: 8px;
-  margin-top: 0;
-  overflow-x: auto;
-  padding: 0 2px 7px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.7) transparent;
-}
-
-.selected-chat-source-list::-webkit-scrollbar {
-  height: 6px;
-}
-
-.selected-chat-source-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.selected-chat-source-list::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.58);
-}
-
-.selected-chat-source-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 210px;
-  padding: 7px 11px;
-  border-radius: 999px;
-  color: #4b6a4e;
-  background: #eef4e8;
-  border: 1px solid #dce8d3;
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.2;
-  white-space: nowrap;
-  flex: 0 0 auto;
-  position: relative;
-}
-
-.selected-chat-source-chip .material-symbols-outlined {
-  font-size: 14px;
-  color: #4b6a4e;
-  flex: 0 0 auto;
-}
-
-.selected-chat-source-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.selected-chat-source-remove {
-  width: 0;
-  height: 20px;
-  margin-left: -2px;
-  border: 0;
-  border-radius: 999px;
-  color: #4b6a4e;
-  background: rgba(75, 106, 78, 0.1);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  overflow: hidden;
-  cursor: pointer;
-  transition: width 0.18s ease, opacity 0.18s ease, margin-left 0.18s ease, background-color 0.18s ease;
-}
-
-.selected-chat-source-chip:hover .selected-chat-source-remove,
-.selected-chat-source-remove:focus-visible {
-  width: 20px;
-  margin-left: 2px;
-  opacity: 1;
-}
-
-.selected-chat-source-remove:hover {
-  background: rgba(75, 106, 78, 0.18);
-}
-
-.selected-chat-source-remove .material-symbols-outlined {
-  font-size: 14px;
-  color: inherit;
-}
-
-.user-message-sources {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-width: 85%;
-}
-
-.user-message-source-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(238, 244, 232, 0.9);
-  border: 1px solid rgba(220, 232, 211, 0.95);
-  color: #4b6a4e;
-  font-size: 11px;
-  font-weight: 750;
-  line-height: 1.2;
-}
-
-.user-message-source-chip .material-symbols-outlined {
-  flex: 0 0 auto;
-  color: #4b6a4e;
-  font-size: 14px;
-}
-
-.user-message-source-chip span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .answer-source-summary {
