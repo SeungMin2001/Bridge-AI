@@ -21,6 +21,7 @@ const props = defineProps({
   activeFileName: { type: String, default: '' },
   activeFileId: { type: String, default: '' },
   activeFileType: { type: String, default: 'lecture' },
+  currentAttachments: { type: Array, default: () => [] },
   currentRecordings: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
@@ -57,10 +58,9 @@ const isLeftSidebarCollapsed = ref(false)
 const { showCitePopover, currentCite, citePopoverPos, closeCitePopover, clearHistory } = useChat()
 const citationSourceRequest = ref(null)
 const materialEvidenceRequest = ref(null)
-const selectedQuizSource = ref(null)
+const mainContentTabRequest = ref(null)
 
 watch(() => props.activeFileId, () => {
-  selectedQuizSource.value = null
   citationSourceRequest.value = null
   materialEvidenceRequest.value = null
   clearHistory()
@@ -209,36 +209,14 @@ async function openEvidenceSource(cite) {
   }
 }
 
-function handleQuizSourceSelect(source) {
-  selectedQuizSource.value = source
-}
+async function handleOpenRecording(payload) {
+  emit('openRecording', payload)
+  await nextTick()
 
-function chatSourceKey(source = {}) {
-  return `${source.type || 'source'}-${source.id || source.materialId || source.recordingId || source.title || ''}`
-}
-
-function handleRemoveChatSource(source) {
-  if (!selectedQuizSource.value || !source) return
-
-  const current = selectedQuizSource.value
-  const currentSources = Array.isArray(current.sources) ? current.sources : [current]
-  const removeKey = chatSourceKey(source)
-  const nextSources = currentSources.filter((item) => chatSourceKey(item) !== removeKey)
-
-  if (!nextSources.length) {
-    selectedQuizSource.value = null
-    return
-  }
-
-  const transcriptIds = Array.from(new Set(nextSources.flatMap((item) => item.transcriptIds || [])))
-  selectedQuizSource.value = {
-    ...current,
-    type: nextSources.every((item) => item.type === 'recording') ? 'recording' : 'mixed',
-    title: nextSources.length === 1 ? nextSources[0].title : `${nextSources[0].title} 외 ${nextSources.length - 1}개`,
-    sourceCount: nextSources.length,
-    sources: nextSources,
-    recordings: [],
-    transcriptIds
+  mainContentTabRequest.value = {
+    id: `${payload?.sessionId || ''}-${payload?.recordingId || ''}-${Date.now()}`,
+    tab: 'summary',
+    summaryTab: 'summary'
   }
 }
 
@@ -288,6 +266,56 @@ const currentCitationSourceIcon = computed(() => (
 const currentCitationSourceCaption = computed(() => (
   currentCite.value?.source_type === 'material' ? 'PDF 자료' : '출처'
 ))
+
+function collectTranscriptIds(recordings = []) {
+  const ids = new Set()
+  recordings.forEach((recording) => {
+    const transcriptions = Array.isArray(recording?.transcriptions) ? recording.transcriptions : []
+    transcriptions.forEach((transcription) => {
+      const segments = Array.isArray(transcription?.segments) ? transcription.segments : []
+      segments.forEach((segment) => {
+        const id = segment?.transcript_id || segment?.transcriptId
+        if (id) ids.add(String(id))
+      })
+    })
+  })
+  return Array.from(ids)
+}
+
+const activeWorkspaceSource = computed(() => {
+  if (!props.activeFileId) return null
+
+  const materials = Array.isArray(props.currentAttachments) ? props.currentAttachments : []
+  const recordings = Array.isArray(props.currentRecordings) ? props.currentRecordings : []
+  const materialSources = materials.map((material, index) => ({
+    id: material?.id || material?.storedName || material?.url || material?.name || `material-${index}`,
+    type: 'material',
+    title: material?.name || material?.title || `강의자료 ${index + 1}`,
+    material,
+    transcriptIds: []
+  }))
+  const recordingSources = recordings.map((recording, index) => ({
+    id: recording?.id || recording?.recordingId || recording?.title || `recording-${index}`,
+    type: 'recording',
+    title: recording?.title || `녹음본 ${index + 1}`,
+    recordingId: recording?.id || recording?.recordingId || '',
+    recording,
+    transcriptIds: collectTranscriptIds([recording])
+  }))
+  const sources = [...materialSources, ...recordingSources]
+  const transcriptIds = Array.from(new Set(recordingSources.flatMap((source) => source.transcriptIds || [])))
+  const sourceCount = sources.length
+
+  return {
+    type: sourceCount ? 'workspace' : 'empty',
+    title: props.activeFileName ? `${props.activeFileName} 전체 자료` : '현재 파일 전체 자료',
+    sessionId: props.activeFileId,
+    sourceCount,
+    sources,
+    recordings,
+    transcriptIds
+  }
+})
 </script>
 
 <template>
@@ -352,13 +380,19 @@ const currentCitationSourceCaption = computed(() => (
     <LeftSidebar
       class="relative z-10"
       :isCollapsed="isLeftSidebarCollapsed"
+      :isRecording="isRecording"
+      :isRecordingPaused="isRecordingPaused"
       :recordingMode="recordingMode"
+      :recordingTimeText="recordingTimeText"
+      :recordingAudioLevel="recordingAudioLevel"
       :diarization-enabled="diarizationEnabled"
       :diarization-status="diarizationStatus"
       :transcriptions="transcriptions"
       :fileTree="fileTree"
       :favorites="favorites"
+      :activeFileName="activeFileName"
       :activeFileId="activeFileId"
+      :activeFileType="activeFileType"
       :citationSourceRequest="citationSourceRequest"
       @toggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
       @navigateHome="emit('navigateHome')"
@@ -368,8 +402,11 @@ const currentCitationSourceCaption = computed(() => (
       @addToNote="(text, source) => emit('addToNote', text, source)"
       @askAi="(word) => emit('askAi', word)"
       @openStoredMaterial="emit('openStoredMaterial', $event)"
-      @openRecording="emit('openRecording', $event)"
-      @quizSourceSelect="handleQuizSourceSelect"
+      @openRecording="handleOpenRecording"
+      @startRecording="emit('startRecording', $event)"
+      @pauseRecording="emit('pauseRecording')"
+      @resumeRecording="emit('resumeRecording')"
+      @stopRecording="emit('stopRecording')"
     />
     
     <MainContent
@@ -384,13 +421,15 @@ const currentCitationSourceCaption = computed(() => (
       :activeFileName="activeFileName"
       :activeFileId="activeFileId"
       :activeFileType="activeFileType"
+      :currentAttachments="currentAttachments"
       :currentRecordings="currentRecordings"
       :transcriptions="transcriptions"
       :currentPreviewMaterial="currentPreviewMaterial"
       :materialEvidenceRequest="materialEvidenceRequest"
       :summaryState="summaryState"
       :summaryNotes="summaryNotes"
-      :quizSource="selectedQuizSource"
+      :quizSource="activeWorkspaceSource"
+      :tabRequest="mainContentTabRequest"
       @startRecording="emit('startRecording', $event)"
       @pauseRecording="emit('pauseRecording')"
       @resumeRecording="emit('resumeRecording')"
@@ -403,6 +442,7 @@ const currentCitationSourceCaption = computed(() => (
       @addToNote="(text, source) => emit('addToNote', text, source)"
       @uploadLectureMaterials="emit('uploadLectureMaterials', $event)"
       @closePreviewMaterial="emit('closePreviewMaterial')"
+      @openStoredMaterial="emit('openStoredMaterial', $event)"
     />
     
     <RightSidebar 
@@ -410,11 +450,11 @@ const currentCitationSourceCaption = computed(() => (
       :visible="isRightSidebarVisible" 
       :aiInput="aiInput"
       :activeFileId="activeFileId"
-      :chatSource="selectedQuizSource"
+      :chatSource="activeWorkspaceSource"
       @update:aiInput="emit('update:aiInput', $event)"
       @openEvidenceSource="openEvidenceSource"
-      @removeChatSource="handleRemoveChatSource"
     />
+
   </div>
 
   <!-- ═══ 부유형 팝오버 (Workspace 수준 관리) ═══ -->
