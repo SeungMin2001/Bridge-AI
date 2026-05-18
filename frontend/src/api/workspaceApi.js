@@ -85,6 +85,15 @@ export const createWorkspaceFile = async (payload) => {
   return result.node
 }
 
+export const updateWorkspaceFile = async (fileId, payload) => {
+  const result = await requestWorkspaceJson(
+    `sessions/${fileId}`,
+    jsonRequestOptions('PUT', payload),
+    '워크스페이스 파일 수정에 실패했습니다.'
+  )
+  return result.node
+}
+
 export const uploadWorkspaceMaterial = async (sessionId, file) => {
   const formData = new FormData()
   formData.append('file', file)
