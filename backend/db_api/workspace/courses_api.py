@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from db import get_pool
-from db_api.workspace.common import WorkspaceApiError, required_text, uuid_or_none
+from db_api.workspace.common import DEFAULT_FOLDER_DESCRIPTION, WorkspaceApiError, required_text, uuid_or_none
 from db_api.workspace.files_api import delete_workspace_material_files
 from db_api.workspace.session_cleanup import delete_session_related_rows, delete_transcript_json_files
 from db_api.workspace.serializers import course_node
@@ -121,6 +121,17 @@ async def delete_course(course_id: str) -> dict:
 
             if not rows:
                 raise WorkspaceApiError("Course folder not found.", status_code=404)
+
+            target_row = await conn.fetchrow(
+                """
+                SELECT description
+                FROM courses
+                WHERE course_id = $1
+                """,
+                course_uuid,
+            )
+            if target_row and target_row["description"] == DEFAULT_FOLDER_DESCRIPTION:
+                raise WorkspaceApiError("Default folder cannot be deleted.", status_code=400)
 
             course_ids = [row["course_id"] for row in rows]
 
