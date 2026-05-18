@@ -155,9 +155,11 @@ aside:last-of-type {
 
 .workspace-inset-shell {
   position: relative;
-  background: #f4ede4;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  box-shadow: none;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(226, 224, 232, 0.84);
+  box-shadow:
+    0 14px 34px rgba(48, 42, 58, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
@@ -173,14 +175,15 @@ aside:last-of-type {
 }
 
 .workspace-inset-pill.is-active {
-  background: linear-gradient(180deg, rgba(232, 218, 198, 0.96), rgba(219, 202, 176, 0.88));
-  border-color: rgba(205, 184, 153, 0.62);
-  box-shadow: none;
+  background: #15161a;
+  border-color: #15161a;
+  color: #ffffff !important;
+  box-shadow: 0 12px 24px rgba(21, 22, 26, 0.12);
   backdrop-filter: blur(14px) saturate(135%);
   -webkit-backdrop-filter: blur(14px) saturate(135%);
 }
 
 .workspace-inset-pill:not(.is-active):hover {
-  background: rgba(255, 255, 255, 0.26);
-  color: #4b5563;
+  background: rgba(255, 255, 255, 0.7);
+  color: #15161a;
 }
