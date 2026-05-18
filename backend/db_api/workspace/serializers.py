@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 
+from db_api.workspace.common import DEFAULT_FOLDER_DESCRIPTION
+
 
 def format_display_date(value) -> str:
     # DB timestamp를 기존 프론트 fileTree 날짜 문자열로 변환
@@ -144,10 +146,13 @@ def merge_session_resources(session_pdf: list, session_voicefile: list) -> list:
 
 def course_node(row) -> dict:
     # COURSES row를 프론트 폴더 노드 구조로 변환
+    description = row["description"]
     return {
         "id": str(row["course_id"]),
         "type": "folder",
         "name": row["title"] or "새 폴더",
+        "description": description,
+        "isDefaultFolder": description == DEFAULT_FOLDER_DESCRIPTION,
         "date": format_display_date(row["created_at"]),
         "color": row["color"] or "#3b82f6",
         "icon": row["icon"] or "folder",
