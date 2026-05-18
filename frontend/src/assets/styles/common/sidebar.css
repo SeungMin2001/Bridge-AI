@@ -85,7 +85,8 @@
 
 /* ── Search ── */
 .sidebar-search-bg {
-  background-color: var(--copy-surface-soft);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 246, 250, 0.82));
 }
 
 .sidebar-search-container {
