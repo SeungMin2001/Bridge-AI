@@ -101,6 +101,7 @@ const {
     :activeFileName="activeFileName"
     :activeFileId="activeFileId"
     :activeFileType="activeFileType"
+    :currentAttachments="currentAttachments"
     :currentRecordings="currentRecordings"
     :currentPreviewMaterial="currentPreviewMaterial"
     :isRightSidebarVisible="isRightSidebarVisible"
