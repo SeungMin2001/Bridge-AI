@@ -12,6 +12,21 @@ const logSpeakerFlow = (step, payload = {}) => {
 
 const previewText = (text = '') => String(text).replace(/\s+/g, ' ').trim().slice(0, 80)
 
+const formatElapsedTime = (seconds = 0) => {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const remainSeconds = String(safeSeconds % 60).padStart(2, '0')
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${remainSeconds}`
+  return `${minutes}:${remainSeconds}`
+}
+
+const numberOrNull = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 // 신창영: 수정 이유 - 백엔드가 speaker_id만 늦게 보내도 화면에는 사람이 읽기 쉬운 화자 라벨로 표시하기 위함입니다.
 const formatSpeakerLabel = (speakerId = '') => {
   const normalized = String(speakerId || '').trim()
@@ -109,16 +124,20 @@ export function useRecordingState() {
 
   // 전사 탭에 말풍선 형태의 전사 결과를 추가합니다.
   const addTranscriptionBubble = (text, isMock = false, speaker = null, speakerId = null) => {
-    const now = new Date()
+    const start = recordingSeconds.value
     transcriptions.value.push({
       recordingId: activeRecordingId.value,
-      time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+      time: formatElapsedTime(start),
       speakerId,
       speaker,
       text,
+      start,
+      end: start,
       segments: [{
         id: Date.now() + Math.random(),
         text,
+        start,
+        end: start,
         status: isMock ? 'confirmed' : 'pending'
       }]
     })
@@ -470,6 +489,7 @@ export function useRecordingState() {
         const chunkId = data.chunk_id || data.chunkId || ''
         const start = data.start_time ?? data.startTime ?? null
         const end = data.end_time ?? data.endTime ?? null
+        const displayStart = numberOrNull(start) ?? recordingSeconds.value
         if (diarizationEnabled.value && diarizationStatus.value === 'bootstrapping') {
           diarizationStatus.value = 'active'
         }
@@ -494,7 +514,7 @@ export function useRecordingState() {
         if (shouldCreateBubble) {
           transcriptions.value.push({
             recordingId,
-            time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            time: formatElapsedTime(displayStart),
             speakerId,
             speaker,
             text: rawText,
