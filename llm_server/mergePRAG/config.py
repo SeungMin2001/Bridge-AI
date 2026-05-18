@@ -141,7 +141,7 @@ DEFAULT_DATA_DIR = os.getenv(
     _PROJECT_DATA_DIR if os.path.isdir(_PROJECT_DATA_DIR) else _WINDOWS_DATA_DIR,
 )
 CRITICAL_LAYERS_PATH = os.path.join(_BASE_DIR, "critical_layers.json")
-WEIGHTS_PATH = os.path.join(_BASE_DIR, "hypernet_weights.pt")
+WEIGHTS_PATH = os.getenv("MERGEPRAG_WEIGHTS_PATH", r"C:\Users\user\Documents\last_project\models\prag_orthomerge_related_qwen25_3b_qp_memory_weights.pt")
 CHECKPOINT_PATH = os.path.join(_BASE_DIR, "hypernet_checkpoint.pt")
 LOG_PATH = os.path.join(_BASE_DIR, "train_log.json")
 CHART_PATH = os.path.join(_BASE_DIR, "train_loss_curve.png")
