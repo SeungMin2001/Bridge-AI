@@ -28,7 +28,8 @@ const emit = defineEmits([
   'openFile',
   'goBack',
   'openFolderModal',
-  'openFileModal'
+  'openFileModal',
+  'deleteSelectedItems'
 ])
 
 const filterType = ref('all')
@@ -75,6 +76,14 @@ const toggleFilter = () => {
 const selectFilter = (type) => {
   filterType.value = type
   isFilterOpen.value = false
+}
+
+const handleDeleteSelected = () => {
+  const ids = Array.from(selectedIds.value)
+  if (!ids.length) return
+  if (!confirm(`선택한 보드 ${ids.length}개를 삭제할까요?`)) return
+  emit('deleteSelectedItems', ids)
+  selectedIds.value = new Set()
 }
 
 const colorWithAlpha = (color = '#6366f1', alpha = 0.12) => {
@@ -138,9 +147,15 @@ const getItemTag = (item) => {
   return item.tag || (item.fileKind === 'meeting' ? '회의' : '수업')
 }
 
+const getFolderLocation = (item) => {
+  if (item.type === 'folder') return '-'
+  return item.folderLocationName || item.folderName || item.courseTitle || '기본폴더'
+}
+
 const getRowStyle = (item) => ({
-  background: colorWithAlpha(item?.color, item.type === 'folder' ? 0.12 : 0.14),
+  background: '#ffffff',
   '--row-accent': item?.color || '#6366f1',
+  '--row-accent-soft': colorWithAlpha(item?.color, item.type === 'folder' ? 0.12 : 0.14),
 })
 
 // Close dropdown on outside click
@@ -222,7 +237,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
             ></button>
             <span>보드 이름</span>
             <div v-if="selectedCount" class="work-selection-toolbar">
-              <button class="work-selection-action delete" type="button">
+              <button class="work-selection-action delete" type="button" @click="handleDeleteSelected">
                 <span class="material-symbols-outlined">delete</span>
                 삭제하기
               </button>
@@ -232,6 +247,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
               </button>
             </div>
           </div>
+          <div class="work-folder-head">폴더 위치</div>
           <button class="work-sort-btn" type="button">
             <span>생성일</span>
             <span class="material-symbols-outlined">south</span>
@@ -265,6 +281,10 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
             <div class="work-row-title">
               <strong>{{ item.name }}</strong>
               <span class="work-row-tag" :style="{ color: item.color || '#6366f1' }">{{ getItemTag(item) }}</span>
+            </div>
+            <div class="work-row-folder-location">
+              <span class="material-symbols-outlined">folder</span>
+              <span>{{ getFolderLocation(item) }}</span>
             </div>
             <time class="work-row-date">{{ item.date || '-' }}</time>
             <button class="work-row-more" title="설정" type="button" @click.stop="emit('openItemEditModal', item.id)">
@@ -468,7 +488,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 .work-list-head,
 .work-row-card {
   display: grid;
-  grid-template-columns: 30px 30px 36px minmax(0, 1fr) 250px 30px;
+  grid-template-columns: 30px 30px 36px minmax(0, 1fr) 180px 250px 30px;
   align-items: center;
   gap: 11px;
 }
@@ -486,6 +506,14 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.work-folder-head {
+  grid-column: 5;
+  justify-self: start;
+  color: #515866;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .work-check-placeholder,
@@ -555,7 +583,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 }
 
 .work-sort-btn {
-  grid-column: 5 / 7;
+  grid-column: 6 / 8;
   display: inline-flex;
   align-items: center;
   justify-self: start;
@@ -581,14 +609,14 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
   overflow: hidden;
   border-radius: 19px;
   padding: 0 20px;
-  border: 1px solid rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(226, 232, 240, 0.78);
   cursor: pointer;
   box-shadow: 0 18px 42px rgba(24, 28, 35, 0.05);
   transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
 }
 
 .work-row-card.is-selected {
-  filter: saturate(1.08);
+  border-color: rgba(148, 163, 184, 0.48);
 }
 
 .work-row-card::before {
@@ -645,8 +673,8 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--copy-text);
+  background: var(--row-accent-soft);
+  color: var(--row-accent);
   position: relative;
   z-index: 1;
 }
@@ -689,6 +717,32 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
   font-weight: 950;
 }
 
+.work-row-folder-location {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #6f7682;
+  font-size: 13px;
+  font-weight: 850;
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
+}
+
+.work-row-folder-location .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: #b6bac2;
+  font-size: 19px;
+  font-variation-settings: 'FILL' 1;
+}
+
+.work-row-folder-location span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .work-row-date {
   color: var(--copy-text);
   font-size: 13px;
@@ -704,6 +758,8 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
     grid-template-columns: 28px 34px 38px minmax(0, 1fr) 30px;
   }
 
+  .work-folder-head,
+  .work-row-folder-location,
   .work-row-date,
   .work-sort-btn {
     display: none;
