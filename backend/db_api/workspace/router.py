@@ -5,7 +5,7 @@ import logging
 from db_api.workspace.common import WorkspaceApiError
 from db_api.workspace.courses_api import create_course, delete_course, update_course
 from db_api.workspace.files_api import get_workspace_material_file, save_workspace_material
-from db_api.workspace.sessions_api import create_session_file, delete_session_file, delete_session_recording, update_session_resources
+from db_api.workspace.sessions_api import create_session_file, delete_session_file, delete_session_recording, update_session_file, update_session_resources
 from db_api.workspace.tree_api import get_workspace_tree
 
 
@@ -40,6 +40,10 @@ class CreateSessionFileRequest(BaseModel):
     icon: str | None = None
     color: str | None = None
     status: str | None = None
+
+
+class UpdateSessionFileRequest(BaseModel):
+    title: str
 
 
 class UpdateSessionResourcesRequest(BaseModel):
@@ -106,6 +110,15 @@ async def workspace_delete_session(session_id: str):
     # 파일 삭제 요청을 SESSIONS 테이블 삭제로 연결
     try:
         return await delete_session_file(session_id)
+    except Exception as error:
+        _raise_http_error(error)
+
+
+@router.put("/sessions/{session_id}")
+async def workspace_update_session(session_id: str, req: UpdateSessionFileRequest):
+    # 파일 제목 같은 SESSIONS 기본 정보를 수정합니다.
+    try:
+        return await update_session_file(session_id, req.model_dump())
     except Exception as error:
         _raise_http_error(error)
 
