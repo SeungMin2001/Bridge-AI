@@ -1,6 +1,6 @@
 <!-- 실시간 음성 전사 결과를 확인하고 AI에게 질문하거나 노트에 추가하는 사이드 탭 컴포넌트입니다. -->
 <script setup>
-import { computed, ref, watch, onMounted, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useChat } from '../../composables/useChat'
 
 const { selectWord } = useChat()
@@ -17,6 +17,10 @@ const emit = defineEmits(['addToNote', 'askAi'])
 
 const transSearch = ref('')
 const scrollContainer = ref(null)
+const isSearchOpen = ref(false)
+const searchTrigger = ref(null)
+const searchInput = ref(null)
+const searchPopoverStyle = ref({})
 const isDiarizationBootstrapping = computed(() => (
   props.diarizationEnabled && props.diarizationStatus === 'bootstrapping'
 ))
@@ -25,6 +29,13 @@ const filteredTranscriptions = computed(() => (
     String(item.text || '').toLowerCase().includes(transSearch.value.toLowerCase())
   ))
 ))
+const hasSearchTerm = computed(() => transSearch.value.trim().length > 0)
+const normalizedSearchTerm = computed(() => transSearch.value.trim().toLowerCase())
+const searchStatusText = computed(() => {
+  if (!hasSearchTerm.value) return '검색어를 입력해주세요.'
+  if (!filteredTranscriptions.value.length) return `"${transSearch.value}"에 대한 검색 결과가 없습니다`
+  return `검색 결과 ${filteredTranscriptions.value.length}개`
+})
 
 // 최하단으로 스크롤 이동
 const scrollToBottom = async () => {
@@ -44,7 +55,83 @@ watch(() => props.transcriptions, () => {
 
 onMounted(() => {
   scrollToBottom()
+  window.addEventListener('resize', updateSearchPopoverPosition)
 })
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateSearchPopoverPosition)
+})
+
+const updateSearchPopoverPosition = () => {
+  if (!searchTrigger.value) return
+  const rect = searchTrigger.value.getBoundingClientRect()
+  const width = 260
+  const gap = 8
+  const viewportPadding = 12
+  const preferredLeft = rect.right + gap
+  const left = preferredLeft + width <= window.innerWidth - viewportPadding
+    ? preferredLeft
+    : Math.max(viewportPadding, rect.left - width - gap)
+
+  searchPopoverStyle.value = {
+    left: `${left}px`,
+    top: `${rect.top}px`,
+    width: `${width}px`
+  }
+}
+
+const openSearchPopup = async () => {
+  isSearchOpen.value = true
+  await nextTick()
+  updateSearchPopoverPosition()
+  await nextTick()
+  searchInput.value?.focus()
+}
+
+const closeSearchPopup = () => {
+  isSearchOpen.value = false
+}
+
+const clearSearch = () => {
+  transSearch.value = ''
+  closeSearchPopup()
+}
+
+const isSearchHighlightedWord = (word = '') => (
+  normalizedSearchTerm.value &&
+  String(word || '').toLowerCase().includes(normalizedSearchTerm.value)
+)
+
+const formatElapsedTime = (seconds = 0) => {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const remainSeconds = String(safeSeconds % 60).padStart(2, '0')
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${remainSeconds}`
+  return `${minutes}:${remainSeconds}`
+}
+
+const getFiniteNumber = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const getTranscriptionTime = (transcription = {}) => {
+  const starts = []
+  const transcriptionStart = getFiniteNumber(transcription.start ?? transcription.start_time ?? transcription.startTime)
+  if (transcriptionStart !== null) starts.push(transcriptionStart)
+
+  if (Array.isArray(transcription.segments)) {
+    transcription.segments.forEach((segment) => {
+      const segmentStart = getFiniteNumber(segment?.start_time ?? segment?.startTime ?? segment?.start)
+      if (segmentStart !== null) starts.push(segmentStart)
+    })
+  }
+
+  if (starts.length) return formatElapsedTime(Math.min(...starts))
+  return transcription.time || ''
+}
 
 // 단어 클릭 → 전역 상태로 전달하여 메인 컨텐츠 영역에 카드로 표시
 const handleWordClick = (e, word, context = '') => {
@@ -107,15 +194,18 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 
 <template>
   <div class="flex flex-col flex-1 overflow-hidden" :class="{ 'transcript-panel-content': variant === 'content' }">
-    <!-- 검색 창 -->
-    <div class="sidebar-search-bg workspace-inset-shell transcript-search-shell rounded-[20px] px-3 py-2 flex items-center gap-2.5 mb-4">
-      <span class="material-symbols-outlined text-[#8e8e93] text-[19px]">search</span>
-      <input
-        class="bg-transparent border-none focus:ring-0 p-0 text-[13px] text-[#1d1d1f] placeholder-[#aeaeb2] w-full"
-        placeholder="전사 내용 검색"
-        type="text"
-        v-model="transSearch"
-      />
+    <!-- 검색 팝업 -->
+    <div class="transcript-search-anchor">
+      <button
+        ref="searchTrigger"
+        type="button"
+        class="transcript-search-trigger"
+        :class="{ 'is-active': isSearchOpen || hasSearchTerm }"
+        aria-label="전사 내용 검색"
+        @click="isSearchOpen ? closeSearchPopup() : openSearchPopup()"
+      >
+        <span class="material-symbols-outlined">search</span>
+      </button>
     </div>
 
     <!-- 전사 기록 리스트 -->
@@ -150,7 +240,7 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
           class="flex flex-col gap-1.5 mt-2 transcription-item-enter"
           :style="{ animationDelay: `${idx * 0.06}s` }"
         >
-          <span class="text-[11px] font-bold text-[#aeaeb2] px-1.5">{{ t.time }}</span>
+          <span class="text-[11px] font-bold text-[#aeaeb2] px-1.5">{{ getTranscriptionTime(t) }}</span>
           <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[15px] leading-[1.6]" :class="{ 'is-content': variant === 'content', 'is-meeting': shouldShowSpeaker(t) }">
             <template v-if="t.segments && t.segments.length">
               <span
@@ -163,6 +253,7 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
                   v-for="(word, wIdx) in seg.text.split(' ')"
                   :key="wIdx"
                   class="clickable-word"
+                  :class="{ 'search-highlighted-word': isSearchHighlightedWord(word) }"
                   @click="(e) => handleWordClick(e, word, seg.text)"
                 >{{ word }}&nbsp;</span>
               </span>
@@ -172,6 +263,7 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
                 v-for="(word, wIdx) in t.text.split(' ')"
                 :key="wIdx"
                 class="clickable-word"
+                :class="{ 'search-highlighted-word': isSearchHighlightedWord(word) }"
                 @click="(e) => handleWordClick(e, word, t.text)"
               >{{ word }}&nbsp;</span>
             </template>
@@ -180,6 +272,42 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
       </template>
     </div>
   </div>
+
+  <Teleport to="body">
+    <transition name="transcript-search-popover">
+      <section
+        v-if="isSearchOpen"
+        class="transcript-search-popover"
+        :style="searchPopoverStyle"
+        role="search"
+        aria-label="전사 내용 검색"
+      >
+        <div class="transcript-search-input-row">
+          <span class="material-symbols-outlined transcript-search-leading-icon">search</span>
+          <input
+            ref="searchInput"
+            v-model="transSearch"
+            class="transcript-search-input"
+            placeholder="검색어를 입력해주세요"
+            type="text"
+            @keydown.esc="closeSearchPopup"
+          />
+          <button type="button" class="transcript-search-nav" aria-label="이전 검색 결과" disabled>
+            <span class="material-symbols-outlined">keyboard_arrow_up</span>
+          </button>
+          <button type="button" class="transcript-search-nav" aria-label="다음 검색 결과" disabled>
+            <span class="material-symbols-outlined">keyboard_arrow_down</span>
+          </button>
+          <button type="button" class="transcript-search-close" aria-label="검색 닫기" @click="clearSearch">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div class="transcript-search-status">
+          {{ searchStatusText }}
+        </div>
+      </section>
+    </transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -224,12 +352,23 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 }
 
 .voice-message-bubble .clickable-word:hover {
-  background-color: rgba(191, 165, 128, 0.46);
-  color: #1d1d1f;
+  background-color: rgba(238, 240, 255, 0.92);
+  color: #2f80ed;
+}
+
+.voice-message-bubble .clickable-word.search-highlighted-word {
+  color: #111827;
+  background: rgba(254, 240, 138, 0.72);
+  box-shadow: inset 0 -0.32em 0 rgba(250, 204, 21, 0.36);
+}
+
+.voice-message-bubble .clickable-word.search-highlighted-word:hover {
+  color: #111827;
+  background: rgba(254, 240, 138, 0.9);
 }
 
 .voice-message-bubble .clickable-word:active {
-  background-color: rgba(148, 130, 106, 0.42);
+  background-color: rgba(226, 224, 232, 0.86);
 }
 
 .diarization-preparing-state {
@@ -296,10 +435,15 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   position: relative;
   width: fit-content;
   max-width: min(calc(100% - 18px), 440px);
-  background: #f4ede4;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow: none;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(248, 246, 250, 0.9));
+  border: 1px solid rgba(226, 224, 232, 0.94);
+  border-radius: 18px;
+  box-shadow:
+    0 14px 30px rgba(48, 42, 58, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
   overflow: hidden;
+  color: #15161a;
 }
 
 .transcript-list {
@@ -377,25 +521,144 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 }
 
 .voice-message-bubble.is-meeting {
-  background: #f8f4ee;
-  border-color: rgba(222, 205, 182, 0.72);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.97), rgba(238, 240, 255, 0.86));
+  border-color: rgba(220, 216, 227, 0.98);
 }
 
-.transcript-search-shell {
+.transcript-search-anchor {
   position: relative;
-  background: #f4ede4;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow: none;
-  overflow: hidden;
+  z-index: 12;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 10px;
 }
 
-.transcript-search-shell::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.58), transparent 42%);
-  pointer-events: none;
+.transcript-search-trigger {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: #5f6472;
+  background: transparent;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.16s ease;
+}
+
+.transcript-search-trigger:hover,
+.transcript-search-trigger.is-active {
+  color: #15161a;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.transcript-search-trigger:active {
+  transform: scale(0.94);
+}
+
+.transcript-search-trigger .material-symbols-outlined {
+  font-size: 23px;
+}
+
+.transcript-search-popover {
+  position: fixed;
+  z-index: 1000;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(226, 224, 232, 0.92);
+  box-shadow: 0 14px 30px rgba(48, 42, 58, 0.1);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+}
+
+.transcript-search-input-row {
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 22px 22px 22px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border-bottom: 1px solid rgba(226, 224, 232, 0.78);
+}
+
+.transcript-search-leading-icon {
+  color: #15161a;
+  font-size: 20px;
+}
+
+.transcript-search-input {
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #15161a;
+  font-size: 12.5px;
+  font-weight: 750;
+  outline: none;
+  box-shadow: none;
+}
+
+.transcript-search-input:focus {
+  outline: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  --tw-ring-color: transparent;
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+.transcript-search-input::placeholder {
+  color: #9ca3af;
+  font-weight: 800;
+}
+
+.transcript-search-nav,
+.transcript-search-close {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #8e8e93;
+  background: transparent;
+}
+
+.transcript-search-nav:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.transcript-search-close:hover {
+  color: #15161a;
+  background: rgba(229, 226, 235, 0.72);
+}
+
+.transcript-search-nav .material-symbols-outlined,
+.transcript-search-close .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.transcript-search-status {
+  padding: 8px 12px 10px;
+  color: #9ca3af;
+  font-size: 11.5px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.transcript-search-popover-enter-active,
+.transcript-search-popover-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.transcript-search-popover-enter-from,
+.transcript-search-popover-leave-to {
+  opacity: 0;
+  transform: translateX(-4px) scale(0.98);
 }
 
 .voice-message-bubble::before {
@@ -404,7 +667,7 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   inset: 0;
   border-radius: inherit;
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.18), transparent 34%);
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.58), transparent 36%);
   pointer-events: none;
 }
 
