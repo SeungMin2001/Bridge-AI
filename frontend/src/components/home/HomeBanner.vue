@@ -64,7 +64,7 @@ const getRecentFileIcon = (file = {}) => {
   if (node?.tag === '프로젝트') return 'workspaces'
   if (node?.tag === '개인') return 'person'
   if (node?.tag === '중요') return 'priority_high'
-  return isRecentMeetingFile(file) ? 'groups_2' : getFileIcon(file?.type || node?.type)
+  return isRecentMeetingFile(file) ? 'groups_2' : 'article'
 }
 const getRecentFileTag = (file = {}) => {
   const node = getRecentFileNode(file)
@@ -352,7 +352,11 @@ const onStopGenerating = () => {
       <!-- Title (Hides when chat starts) -->
       <Transition name="fade">
         <div v-if="messages.length === 0" class="flex flex-col items-center text-center gap-3 pb-[50px] pointer-events-auto shrink-0 w-full transition-all duration-500">
-          <div class="home-hero-title">하이</div>
+          <img
+            class="home-hero-image"
+            src="/images/what.png"
+            alt="무엇을 도와드릴까요?"
+          />
         </div>
       </Transition>
 
@@ -376,31 +380,24 @@ const onStopGenerating = () => {
             class="home-recent-file-card"
             @click="emit('openRecentFile', file)"
           >
-            <div class="home-recent-file-paper">
-              <div
-                class="home-recent-file-strip"
-                :style="{ background: getRecentFileColor(file) }"
-              ></div>
+            <div
+              class="home-recent-file-paper"
+              :style="{
+                background: colorWithAlpha(getRecentFileColor(file), 0.14),
+                '--recent-file-color': getRecentFileColor(file)
+              }"
+            >
               <div class="home-recent-file-lines"></div>
               <div class="home-recent-file-content">
                 <div class="home-recent-file-meta">
-                  <div
-                    class="home-recent-file-icon"
-                    :style="{ background: colorWithAlpha(getRecentFileColor(file), 0.14) }"
-                  >
-                    <span
-                      class="material-symbols-outlined"
-                      :style="{ color: getRecentFileColor(file) }"
-                    >
+                  <div class="home-recent-file-icon">
+                    <span class="material-symbols-outlined">
                       {{ getRecentFileIcon(file) }}
                     </span>
                   </div>
                   <span
                     class="home-recent-file-tag"
-                    :style="{
-                      color: getRecentFileColor(file),
-                      background: colorWithAlpha(getRecentFileColor(file), 0.12)
-                    }"
+                    :style="{ color: getRecentFileColor(file) }"
                   >
                     {{ getRecentFileTag(file) }}
                   </span>
@@ -600,6 +597,16 @@ const onStopGenerating = () => {
   line-height: 1.15;
 }
 
+.home-hero-image {
+  width: clamp(300px, 34vw, 440px);
+  height: 110px;
+  display: block;
+  object-fit: cover;
+  object-position: center 56%;
+  user-select: none;
+  pointer-events: none;
+}
+
 .home-recent-files {
   width: 100%;
   max-width: 700px;
@@ -647,24 +654,9 @@ const onStopGenerating = () => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--copy-lavender);
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 18px;
   box-shadow: 0 18px 42px rgba(24, 28, 35, 0.05);
-}
-
-.home-recent-file-card:nth-of-type(2) .home-recent-file-paper {
-  background: var(--copy-yellow);
-}
-
-.home-recent-file-card:nth-of-type(3) .home-recent-file-paper {
-  background: var(--copy-mint);
-}
-
-.home-recent-file-strip {
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 16px 16px 0 0;
 }
 
 .home-recent-file-lines {
@@ -688,29 +680,35 @@ const onStopGenerating = () => {
 }
 
 .home-recent-file-icon {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--copy-text);
 }
 
 .home-recent-file-icon .material-symbols-outlined {
-  font-size: 20px;
-  font-variation-settings: 'FILL' 1;
+  font-size: 18px;
+  font-variation-settings: 'FILL' 0;
 }
 
 .home-recent-file-tag {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
   max-width: 112px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 2px 8px;
+  padding: 0 8px;
   border-radius: 999px;
+  background: rgba(255, 255, 255, 0.64);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 950;
   letter-spacing: 0.04em;
 }
 
