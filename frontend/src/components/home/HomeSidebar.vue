@@ -5,6 +5,7 @@ import { useScheduleState } from '../../composables/useScheduleState'
 
 const props = defineProps({
   isCollapsed: Boolean,
+  activeView: { type: String, default: 'home' },
   fileTree: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() }
 })
@@ -13,6 +14,8 @@ const emit = defineEmits(['toggle', 'navigate', 'openScheduleSource', 'openFileC
 
 const expandedSidebarWidth = 370
 const collapsedSidebarWidth = 56
+const selectedRailKey = ref(null)
+const activeRailKey = computed(() => selectedRailKey.value || props.activeView)
 
 const weekLabels = ['일', '월', '화', '수', '목', '금', '토']
 const meridiemOptions = ['오전', '오후']
@@ -60,6 +63,20 @@ const scheduleForm = ref({
   endMinute: '00',
   note: '',
 })
+
+function activateRail(key) {
+  selectedRailKey.value = key
+}
+
+function handleCreateClick() {
+  activateRail('create')
+  emit('openFileCreate')
+}
+
+function handleRailNavigate(key, view) {
+  activateRail(key)
+  emit('navigate', view)
+}
 
 function createEmptyScheduleForm() {
   return {
@@ -339,41 +356,41 @@ onUnmounted(() => {
 
       <nav class="copy-rail-nav">
         <button
-          class="copy-rail-item is-active"
+          :class="['copy-rail-item', { 'is-active': activeRailKey === 'create' }]"
           type="button"
           aria-label="새 작업"
           title="새 작업"
-          @click="emit('openFileCreate')"
+          @click="handleCreateClick"
         >
           <span class="material-symbols-outlined">add_circle</span>
           <span>새 작업</span>
         </button>
         <button
-          class="copy-rail-item"
+          :class="['copy-rail-item', { 'is-active': activeRailKey === 'workfolder' }]"
           type="button"
           aria-label="내 작업"
           title="내 작업"
-          @click="emit('navigate', 'workfolder')"
+          @click="handleRailNavigate('workfolder', 'workfolder')"
         >
-          <span class="material-symbols-outlined">work</span>
+          <span class="material-symbols-outlined">folder</span>
           <span>내 작업</span>
         </button>
         <button
-          class="copy-rail-item"
+          :class="['copy-rail-item', { 'is-active': activeRailKey === 'home' }]"
           type="button"
           aria-label="AI 채팅"
           title="AI 채팅"
-          @click="emit('navigate', 'home')"
+          @click="handleRailNavigate('home', 'home')"
         >
           <span class="material-symbols-outlined">auto_awesome</span>
           <span>AI 채팅</span>
         </button>
         <button
-          class="copy-rail-item"
+          :class="['copy-rail-item', { 'is-active': activeRailKey === 'schedule' }]"
           type="button"
           aria-label="캘린더"
           title="캘린더"
-          @click="emit('navigate', 'schedule')"
+          @click="handleRailNavigate('schedule', 'schedule')"
         >
           <span class="material-symbols-outlined">calendar_month</span>
           <span>캘린더</span>
@@ -675,17 +692,17 @@ onUnmounted(() => {
 }
 
 .copy-rail-logo {
-  width: 54px;
-  height: 54px;
+  width: 46px;
+  height: 46px;
   margin: 0 0 76px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 18px;
+  border-radius: 15px;
   background: var(--copy-black);
   color: #fff;
-  box-shadow: 0 14px 30px rgba(21, 22, 26, 0.16);
-  font-size: 27px;
+  box-shadow: 0 12px 26px rgba(21, 22, 26, 0.14);
+  font-size: 23px;
   line-height: 1;
   font-weight: 950;
   letter-spacing: -0.08em;
@@ -700,27 +717,30 @@ onUnmounted(() => {
 }
 
 .copy-rail-item {
-  width: 56px;
-  min-height: 56px;
+  width: 48px;
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 18px;
+  border-radius: 15px;
   background: transparent;
   color: #1f2026;
   cursor: pointer;
   transition: background 0.18s ease, box-shadow 0.18s ease;
 }
 
-.copy-rail-item:hover,
+.copy-rail-item:hover {
+  background: rgba(255, 255, 255, 0.36);
+}
+
 .copy-rail-item.is-active {
   background: #fff;
   box-shadow: 0 16px 30px rgba(48, 42, 58, 0.08);
 }
 
 .copy-rail-item .material-symbols-outlined {
-  font-size: 24px;
+  font-size: 20px;
   font-variation-settings: 'FILL' 0;
 }
 
@@ -737,7 +757,7 @@ onUnmounted(() => {
 }
 
 .copy-rail-bottom .material-symbols-outlined {
-  font-size: 22px;
+  font-size: 18px;
 }
 
 .copy-free-badge {
