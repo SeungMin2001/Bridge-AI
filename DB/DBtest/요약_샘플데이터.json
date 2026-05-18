@@ -1,0 +1,50 @@
+{
+  "courseTitle": "요약 데모 과목",
+  "sessionTitlePrefix": "요약 데모 파일",
+  "recordingTitlePrefix": "요약 데모 녹음",
+  "recordingMode": "lecture",
+  "transcriptions": [
+    {
+      "speakerId": "teacher",
+      "speaker": "선생님",
+      "segments": [
+        {
+          "start": 0,
+          "end": 12,
+          "text": "오늘 수학1 수업에서는 이차함수의 그래프와 꼭짓점 구하는 방법을 정리했습니다."
+        },
+        {
+          "start": 12,
+          "end": 25,
+          "text": "꼭짓점의 좌표는 일반식을 완전제곱식으로 변형하면 쉽게 찾을 수 있습니다."
+        },
+        {
+          "start": 25,
+          "end": 39,
+          "text": "다음 주 월요일에는 이차함수 단원 시험이 있고 시험 범위는 교과서 45쪽부터 62쪽까지입니다."
+        },
+        {
+          "start": 39,
+          "end": 54,
+          "text": "숙제는 연습문제 3번부터 10번까지 풀어오는 것이고 판별식의 의미도 같이 복습해야 합니다."
+        }
+      ]
+    },
+    {
+      "speakerId": "student",
+      "speaker": "학생",
+      "segments": [
+        {
+          "start": 54,
+          "end": 63,
+          "text": "시험에는 그래프가 x축과 만나는 점을 구하는 문제도 나오나요?"
+        },
+        {
+          "start": 63,
+          "end": 76,
+          "text": "판별식이 양수, 0, 음수일 때 그래프가 어떻게 달라지는지 다시 확인하겠습니다."
+        }
+      ]
+    }
+  ]
+}

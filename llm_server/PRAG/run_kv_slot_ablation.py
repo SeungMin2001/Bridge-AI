@@ -72,6 +72,35 @@ def read_summary(report_dir: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))["summary"]
 
 
+def read_table(path: Path) -> list[dict]:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing ablation table: {path}")
+    rows: list[dict] = []
+    with path.open("r", encoding="utf-8-sig", newline="") as f:
+        for raw in csv.DictReader(f):
+            row = dict(raw)
+            row["num_kv"] = int(row["num_kv"])
+            row["cases"] = int(float(row.get("cases") or 0))
+            for key in (
+                "qp_mergeprag_hit",
+                "ponly_mergeprag_hit",
+                "delta_mergeprag_hit",
+                "qp_token_f1",
+                "ponly_token_f1",
+                "delta_token_f1",
+                "qp_qa_score",
+                "ponly_qa_score",
+                "delta_qa_score",
+                "qp_time_s",
+                "ponly_time_s",
+            ):
+                row[key] = float(row.get(key) or 0.0)
+            rows.append(row)
+    if not rows:
+        raise RuntimeError(f"Empty ablation table: {path}")
+    return rows
+
+
 def read_best_layer(path: str | Path, *, label: str) -> int:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     layers = data.get("critical_layers") or []
@@ -476,12 +505,8 @@ def plot_latency(path: Path, rows: list[dict]) -> None:
         return
 
     rows = sorted(rows, key=lambda row: row["num_kv"])
-    x = [row["num_kv"] for row in rows]
     qp_time = [row["qp_time_s"] for row in rows]
-    ponly_time = [row["ponly_time_s"] for row in rows]
     qp_f1 = [100 * row["qp_token_f1"] for row in rows]
-    qp_hit = [100 * row["qp_mergeprag_hit"] for row in rows]
-    best_hit_row = max(rows, key=lambda row: row["qp_mergeprag_hit"])
     best_f1_row = max(rows, key=lambda row: row["qp_token_f1"])
 
     plt.rcParams.update(
@@ -494,103 +519,54 @@ def plot_latency(path: Path, rows: list[dict]) -> None:
             "xtick.labelsize": 9,
             "ytick.labelsize": 9,
             "legend.fontsize": 9,
+            "figure.facecolor": "white",
+            "axes.facecolor": "white",
         }
     )
     colors = {
         "qp": "#255C99",
-        "ponly": "#C56A32",
-        "hit": "#3E8E5A",
         "best": "#B3261E",
         "grid": "#D0D7DE",
+        "text": "#3D444D",
     }
-    marker_size = 4.4 if len(x) > 12 else 6.2
 
-    def configure_slot_axis(ax) -> None:
-        if all(is_power_of_two(value) for value in x):
-            ax.set_xscale("log", base=2)
-            ax.set_xticks(x)
-            ax.set_xticklabels([str(v) for v in x])
-            return
-        ax.set_xlim(min(x) - 0.5, max(x) + 0.5)
-        ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=12, integer=True))
-
-    fig, axes = plt.subplots(1, 2, figsize=(13.2, 4.9))
-    fig.suptitle("Service-Oriented K/V Memory Slot Analysis", fontsize=15.5, fontweight="bold", y=1.02)
-
-    axes[0].plot(
-        x,
-        qp_time,
-        marker="o",
-        markersize=marker_size,
-        linewidth=2.4,
-        color=colors["qp"],
-        label="BridgePRAG (QP-adaptive)",
-    )
-    if any(value > 0 for value in ponly_time):
-        baseline = sum(ponly_time) / len(ponly_time)
-        axes[0].axhline(
-            baseline,
-            linewidth=1.8,
-            linestyle=(0, (4, 3)),
-            color=colors["ponly"],
-            label=f"Passage-only baseline ({baseline:.2f}s)",
-        )
-    axes[0].set_title("(a) Inference Cost by Memory Size")
-    axes[0].set_xlabel("# K/V memory vectors")
-    axes[0].set_ylabel("Average inference time (s)")
-    configure_slot_axis(axes[0])
-    axes[0].grid(True, axis="y", color=colors["grid"], alpha=0.65, linewidth=0.8)
-    axes[0].grid(True, axis="x", color=colors["grid"], alpha=0.25, linewidth=0.6)
-    axes[0].legend(frameon=False)
-
-    axes[1].scatter(qp_time, qp_f1, s=60, color=colors["qp"], label="Token F1", zorder=3)
-    axes[1].plot(qp_time, qp_f1, linewidth=1.8, alpha=0.72, color=colors["qp"], zorder=2)
-    axes[1].scatter(qp_time, qp_hit, s=60, marker="s", color=colors["hit"], label="Hit", zorder=3)
-    axes[1].plot(qp_time, qp_hit, linewidth=1.8, alpha=0.72, color=colors["hit"], zorder=2)
+    fig, ax = plt.subplots(1, 1, figsize=(7.2, 5.0))
+    ax.plot(qp_time, qp_f1, linewidth=2.1, alpha=0.72, color=colors["qp"], zorder=2)
+    ax.scatter(qp_time, qp_f1, s=72, color=colors["qp"], edgecolor="white", linewidth=0.8, zorder=3)
     for row in rows:
-        axes[1].annotate(
+        ax.annotate(
             str(row["num_kv"]),
             (row["qp_time_s"], 100 * row["qp_token_f1"]),
             textcoords="offset points",
             xytext=(4, 5),
-            fontsize=8,
-            color=colors["qp"],
+            fontsize=8.5,
+            color=colors["text"],
         )
-    axes[1].scatter(
-        [best_hit_row["qp_time_s"]],
-        [100 * best_hit_row["qp_mergeprag_hit"]],
-        s=155,
+
+    ax.scatter(
+        [best_f1_row["qp_time_s"]],
+        [100 * best_f1_row["qp_token_f1"]],
+        s=210,
         marker="*",
         color=colors["best"],
         edgecolor="white",
-        linewidth=0.8,
+        linewidth=1.0,
         zorder=4,
-        label=f"Best Hit: {best_hit_row['num_kv']}",
+        label=f"Best F1: {best_f1_row['num_kv']} K/V vectors",
     )
-    if best_f1_row["num_kv"] != best_hit_row["num_kv"]:
-        axes[1].scatter(
-            [best_f1_row["qp_time_s"]],
-            [100 * best_f1_row["qp_token_f1"]],
-            s=135,
-            marker="*",
-            color="#7A3DB8",
-            edgecolor="white",
-            linewidth=0.8,
-            zorder=4,
-            label=f"Best F1: {best_f1_row['num_kv']}",
-        )
-    axes[1].set_title("(b) Performance-Latency Trade-off")
-    axes[1].set_xlabel("Average inference time (s)")
-    axes[1].set_ylabel("Performance (%)")
-    axes[1].grid(True, color=colors["grid"], alpha=0.55, linewidth=0.8)
-    axes[1].legend(frameon=False)
+    ax.set_title("BridgePRAG Performance-Latency Trade-off", fontsize=13.5)
+    ax.set_xlabel("Average inference time per case (s)")
+    ax.set_ylabel("Token F1 (%)")
+    ax.grid(True, color=colors["grid"], alpha=0.6, linewidth=0.8)
+    ax.legend(frameon=False, loc="lower right")
+    ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=6))
+    ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=6))
+
     caption = (
-        f"Best Hit slot={best_hit_row['num_kv']} "
-        f"({100 * best_hit_row['qp_mergeprag_hit']:.1f}%, {best_hit_row['qp_time_s']:.2f}s); "
-        f"Best F1 slot={best_f1_row['num_kv']} "
+        f"Best operating point by F1: {best_f1_row['num_kv']} K/V memory vectors "
         f"({100 * best_f1_row['qp_token_f1']:.1f}%, {best_f1_row['qp_time_s']:.2f}s)"
     )
-    fig.text(0.5, -0.02, caption, ha="center", fontsize=9.5, color="#3D444D")
+    fig.text(0.5, -0.02, caption, ha="center", fontsize=9.7, color=colors["text"])
 
     fig.tight_layout(rect=[0, 0.03, 1, 0.96])
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -652,10 +628,23 @@ def main() -> None:
     )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--plot-only",
+        action="store_true",
+        help="Recreate summary figures from an existing kv_slot_ablation_table.csv without training/evaluation.",
+    )
     args = parser.parse_args()
 
     rows = []
     report_root = Path(args.report_root)
+    if args.plot_only:
+        rows = read_table(report_root / "kv_slot_ablation_table.csv")
+        plot_ablation(report_root / "kv_slot_ablation_curves.png", rows)
+        plot_latency(report_root / "kv_slot_latency_tradeoff.png", rows)
+        print(f"[PRAG:kv-ablation] plot refreshed: {report_root / 'kv_slot_ablation_curves.png'}")
+        print(f"[PRAG:kv-ablation] latency plot refreshed: {report_root / 'kv_slot_latency_tradeoff.png'}")
+        return
+
     fixed_ponly_weights = None
     if args.ablate_target == "qp":
         fixed_ponly_weights = prepare_fixed_ponly_baseline(args)
