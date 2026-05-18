@@ -21,7 +21,6 @@ const emit = defineEmits([
   'fileSelect',
   'openMaterial',
   'openRecording',
-  'quizSourceChange',
   'deleteResource',
   'showToast'
 ])
@@ -421,7 +420,6 @@ const handleContextAction = async (action) => {
               @openMaterial="handleOpenMaterial"
               @openRecording="handleOpenRecording"
               @deleteResource="handleDeleteResource"
-              @quizSourceChange="emit('quizSourceChange', $event)"
             />
           </template>
         </div>
@@ -501,31 +499,6 @@ const getRelatedRecordings = (recordings, materialId) => {
   return recordings.filter((recording) => Array.isArray(recording.materialIds) && recording.materialIds.includes(materialId))
 }
 
-const collectTranscriptIds = (recordings = []) => {
-  const ids = new Set()
-  recordings.forEach((recording) => {
-    const transcriptions = recording?.transcriptions || []
-    transcriptions.forEach((transcription) => {
-      const segments = transcription?.segments || []
-      segments.forEach((segment) => {
-        const id = segment?.transcript_id || segment?.transcriptId
-        if (id) ids.add(String(id))
-      })
-    })
-  })
-  return Array.from(ids)
-}
-
-const uniqueRecordings = (recordings = []) => {
-  const seen = new Set()
-  return recordings.filter((recording) => {
-    const key = recording?.id || recording?.recordingId || recording?.title
-    if (!key || seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
 const getWeekMaterials = (week) => Array.isArray(week?.materials) ? week.materials : []
 
 const getWeekRecordings = (week) => Array.isArray(week?.recordings) ? week.recordings : []
@@ -602,13 +575,12 @@ const TreeItemComponent = defineComponent({
     depth: { type: Number, required: true },
     activeFileId: { type: String, default: null }
   },
-  emits: ['selectFile', 'toggleFolder', 'showContextMenu', 'showMaterialMenu', 'openMaterial', 'openRecording', 'deleteResource', 'quizSourceChange'],
+  emits: ['selectFile', 'toggleFolder', 'showContextMenu', 'showMaterialMenu', 'openMaterial', 'openRecording', 'deleteResource'],
   setup(props, { emit }) {
     const isFile = computed(() => props.node.type === 'file')
     const isSelected = computed(() => props.node.id === props.activeFileId)
     const isMeetingFile = computed(() => props.node.fileKind === 'meeting')
     const resourceOpen = ref(props.node.id === props.activeFileId)
-    const selectedResources = ref(new Set())
     const collapsedWeeks = ref(new Set())
     const collapsedMaterialFolders = ref(new Set())
     const collapsedRecordingFolders = ref(new Set())
@@ -672,7 +644,6 @@ const TreeItemComponent = defineComponent({
         recordings: relatedRecordings,
         recording: relatedRecordings[0]
       })
-      toggleSelectedResource(getMaterialResourceId(material))
     }
 
     const handleRecordingClick = (e, recording) => {
@@ -683,113 +654,13 @@ const TreeItemComponent = defineComponent({
         node: props.node,
         recording
       })
-      toggleSelectedResource(getRecordingResourceId(recording))
-    }
-
-    const emitSelectedQuizSource = () => {
-      const selectedIds = selectedResources.value
-      const sourceItems = []
-      const sourceRecordings = []
-
-      weeks.value.forEach((week) => {
-        const weekRecordings = getWeekRecordings(week)
-
-        getWeekMaterials(week).forEach((material) => {
-          const materialId = getMaterialResourceId(material)
-          if (!selectedIds.has(materialId)) return
-
-          const relatedRecordings = getRelatedRecordings(weekRecordings, material.id)
-          const transcriptIds = collectTranscriptIds(relatedRecordings)
-          sourceRecordings.push(...relatedRecordings)
-          sourceItems.push({
-            id: materialId,
-            type: 'material',
-            title: material.name || '강의자료',
-            material,
-            transcriptIds,
-            recordingCount: relatedRecordings.length
-          })
-        })
-
-        weekRecordings.forEach((recording, recordingIndex) => {
-          const recordingId = getRecordingResourceId(recording)
-          if (!selectedIds.has(recordingId)) return
-
-          const transcriptIds = collectTranscriptIds([recording])
-          sourceRecordings.push(recording)
-          sourceItems.push({
-            id: recordingId,
-            type: 'recording',
-            title: recording.title || `녹음본 ${recordingIndex + 1}`,
-            transcriptIds,
-            recordingCount: 1
-          })
-        })
-      })
-
-      if (!sourceItems.length) {
-        emit('quizSourceChange', null)
-        return
-      }
-
-      const transcriptIds = Array.from(new Set(sourceItems.flatMap((item) => item.transcriptIds || [])))
-      const recordings = uniqueRecordings(sourceRecordings)
-      const title = sourceItems.length === 1
-        ? sourceItems[0].title
-        : `${sourceItems[0].title} 외 ${sourceItems.length - 1}개`
-
-      emit('quizSourceChange', {
-        type: sourceItems.every((item) => item.type === 'recording') ? 'recording' : 'mixed',
-        title,
-        sessionId: props.node.id,
-        sourceCount: sourceItems.length,
-        sources: sourceItems,
-        recordings,
-        transcriptIds
-      })
-    }
-
-    const toggleSelectedResource = (id) => {
-      if (!id) return
-      toggleSet(selectedResources, id)
-      emitSelectedQuizSource()
-    }
-
-    const handleDeleteResourceClick = (e, payload, resourceId) => {
-      e.stopPropagation()
-      if (!payload?.fileId || !payload?.weekId) return
-      const title = payload.title || '선택한 파일'
-      if (!confirm(`"${title}"을(를) 삭제할까요?`)) return
-
-      if (resourceId && selectedResources.value.has(resourceId)) {
-        const nextSet = new Set(selectedResources.value)
-        nextSet.delete(resourceId)
-        selectedResources.value = nextSet
-        emitSelectedQuizSource()
-      }
-
-      emit('deleteResource', payload)
     }
 
     const renderResourceSection = () => {
       if (!shouldShowResources.value) return null
 
-      const allIds = []
-      weeks.value.forEach(w => {
-        getWeekMaterials(w).forEach((material) => {
-          const id = getMaterialResourceId(material)
-          if (id) allIds.push(id)
-        })
-        getWeekRecordings(w).forEach((recording) => {
-          const id = getRecordingResourceId(recording)
-          if (id) allIds.push(id)
-        })
-      })
-      const allSelected = allIds.length > 0 && allIds.every((id) => selectedResources.value.has(id))
-
       const renderTreeRow = ({
         key,
-        id,
         type,
         icon,
         hoverIcon,
@@ -799,17 +670,13 @@ const TreeItemComponent = defineComponent({
         depth = 0,
         isOpen = false,
         hasChevron = false,
-        selectable = false,
         onClick,
-        onActionClick,
-        onDeleteClick
+        onActionClick
       }) => {
-        const isSelected = id && selectedResources.value.has(id)
-
         return h('button', {
           key,
           type: 'button',
-          class: `week-tree-row ${type} ${selectable ? 'selectable' : ''}`,
+          class: `week-tree-row ${type}`,
           style: { '--tree-indent': `${depth * 22}px` },
           title,
           onClick
@@ -836,24 +703,6 @@ const TreeItemComponent = defineComponent({
             ]),
             ...(meta ? [h('span', { class: 'week-tree-meta' }, meta)] : [])
           ]),
-          ...(selectable ? [
-            h('span', {
-              class: 'week-tree-delete-btn',
-              title: `${title} 삭제`,
-              onClick: onDeleteClick
-            }, [
-              h('span', {
-                class: 'material-symbols-outlined'
-              }, 'delete')
-            ]),
-            h('span', {
-              class: `material-symbols-outlined week-tree-checkbox ${isSelected ? 'checked' : ''}`,
-              onClick: (e) => {
-                e.stopPropagation()
-                toggleSelectedResource(id)
-              }
-            }, isSelected ? 'check_box' : 'check_box_outline_blank')
-          ] : []),
           ...(hasChevron ? [
             h('span', {
               class: `material-symbols-outlined week-tree-chevron ${isOpen ? 'open' : ''}`
@@ -892,28 +741,9 @@ const TreeItemComponent = defineComponent({
         ])
       }
 
-      const headerRow = allIds.length > 0 ? h('div', {
-        class: 'select-all-row'
-      }, [
-        h('span', { class: 'select-all-text' }, '모든 소스 선택'),
-        h('span', {
-          class: `material-symbols-outlined week-tree-checkbox ${allSelected ? 'checked' : ''}`,
-          onClick: () => {
-            if (allSelected) {
-              selectedResources.value.clear()
-            } else {
-              allIds.forEach(id => selectedResources.value.add(id))
-            }
-            selectedResources.value = new Set(selectedResources.value)
-            emitSelectedQuizSource()
-          }
-        }, allSelected ? 'check_box' : 'check_box_outline_blank')
-      ]) : null
-
       return h('div', {
         class: 'week-tree-list'
       }, [
-        ...(headerRow ? [headerRow] : []),
         ...weeks.value.map((week, weekIndex) => {
         const materials = getWeekMaterials(week)
         const weekRecordings = getWeekRecordings(week)
@@ -952,21 +782,13 @@ const TreeItemComponent = defineComponent({
                     const materialId = getMaterialResourceId(material)
                     return renderTreeRow({
                       key: `material-${materialId || materialIndex}`,
-                      id: materialId,
                       type: 'material file',
                       icon: getAttachmentIcon(material.name),
                       title: material.name,
                       meta: getRelatedRecordings(weekRecordings, material.id).length ? '연결된 녹음 있음' : '',
                       depth: 2,
-                      selectable: !!materialId,
                       hoverIcon: 'more_vert',
                       onClick: (e) => handleMaterialClick(e, material, weekRecordings),
-                      onDeleteClick: (e) => handleDeleteResourceClick(e, {
-                        fileId: props.node.id,
-                        weekId: week.id,
-                        materialId,
-                        title: material.name || '강의자료'
-                      }, materialId),
                       onActionClick: (e) => {
                         e.stopPropagation()
                         const rect = e.currentTarget.getBoundingClientRect()
@@ -991,21 +813,13 @@ const TreeItemComponent = defineComponent({
                     const recordingId = getRecordingResourceId(recording)
                     return renderTreeRow({
                       key: `recording-${recordingId || recordingIndex}`,
-                      id: recordingId,
                       type: 'recording file',
                       icon: 'graphic_eq',
                       title: recording.title || `녹음본 ${recordingIndex + 1}`,
                       meta: getRecordingMeta(recording),
                       depth: 2,
-                      selectable: !!recordingId,
                       hoverIcon: 'more_vert',
                       onClick: (e) => handleRecordingClick(e, recording),
-                      onDeleteClick: (e) => handleDeleteResourceClick(e, {
-                        fileId: props.node.id,
-                        weekId: week.id,
-                        recordingId,
-                        title: recording.title || `녹음본 ${recordingIndex + 1}`
-                      }, recordingId),
                       onActionClick: (e) => {
                         e.stopPropagation()
                         const rect = e.currentTarget.getBoundingClientRect()
@@ -1105,8 +919,7 @@ const TreeItemComponent = defineComponent({
           onShowMaterialMenu: (payload, x, y) => emit('showMaterialMenu', payload, x, y),
           onOpenMaterial: (payload) => emit('openMaterial', payload),
           onOpenRecording: (payload) => emit('openRecording', payload),
-          onDeleteResource: (payload) => emit('deleteResource', payload),
-          onQuizSourceChange: (payload) => emit('quizSourceChange', payload)
+          onDeleteResource: (payload) => emit('deleteResource', payload)
         }))))
       }
 
@@ -1143,8 +956,8 @@ export default {
   overflow: hidden;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(244, 237, 228, 0.78);
-  color: #6b5b45;
+  background: rgba(239, 237, 244, 0.9);
+  color: #6f6a76;
   font-size: 11px;
   font-weight: 900;
   text-overflow: ellipsis;
@@ -1191,7 +1004,7 @@ export default {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   animation: weekBodyDrop 0.22s ease both;
   animation-delay: calc(var(--week-index, 0) * 0.035s);
 }
@@ -1200,7 +1013,7 @@ export default {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
   padding-left: 14px;
   animation: weekBodyDrop 0.22s ease both;
 }
@@ -1213,12 +1026,12 @@ export default {
   left: 13px;
   width: 2px;
   border-radius: 999px;
-  background: rgba(222, 205, 182, 0.58);
+  background: rgba(226, 224, 232, 0.78);
 }
 
 .week-tree-children.folder-children {
-  gap: 8px;
-  padding-top: 8px;
+  gap: 5px;
+  padding-top: 4px;
   padding-left: 0;
   padding-bottom: 4px;
 }
@@ -1230,21 +1043,22 @@ export default {
 .week-tree-row {
   --tree-indent: 0px;
   width: calc(100% - var(--tree-indent));
-  min-height: 40px;
+  min-height: 38px;
   display: flex;
   align-items: center;
   gap: 9px;
   margin-left: var(--tree-indent);
-  padding: 8px 12px;
-  border-radius: 16px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 13px;
   text-align: left;
   color: #1f2937;
-  background: rgba(244, 237, 228, 0.76);
+  background: transparent;
   transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 .week-tree-row:hover {
-  background: rgba(244, 237, 228, 0.96);
+  background: rgba(255, 255, 255, 0.46);
 }
 
 .week-tree-row:active {
@@ -1252,34 +1066,32 @@ export default {
 }
 
 .week-tree-row.week {
-  min-height: 46px;
-  border: 1px solid rgba(222, 205, 182, 0.78);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  min-height: 44px;
 }
 
 .week-tree-row.folder {
   min-height: 42px;
-  border: 1px solid rgba(222, 205, 182, 0.78);
-  border-radius: 16px;
-  background: rgba(244, 237, 228, 0.76);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  border-color: transparent;
+  border-radius: 13px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .week-tree-row.folder:hover {
-  background: rgba(244, 237, 228, 0.96);
+  background: rgba(255, 255, 255, 0.46);
 }
 
 .week-tree-row.file {
   min-height: 40px;
-  padding: 7px 10px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(229, 229, 234, 0.82);
-  border-radius: 14px;
+  padding: 7px 8px;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 13px;
 }
 
 .week-tree-row.file:hover {
-  border-color: rgba(191, 165, 128, 0.48);
-  background: #ffffff;
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.46);
 }
 
 .week-tree-icon {
@@ -1295,7 +1107,7 @@ export default {
 }
 
 .week-tree-icon.week {
-  color: #8a6f4b;
+  color: #6f6a76;
   font-variation-settings: 'FILL' 1;
 }
 
@@ -1305,7 +1117,7 @@ export default {
 }
 
 .week-tree-icon.folder.recordings {
-  color: #b7791f;
+  color: #f59e0b;
   font-variation-settings: 'FILL' 0;
 }
 
@@ -1317,8 +1129,8 @@ export default {
 }
 
 .week-tree-icon.recording {
-  background: rgba(255, 247, 237, 0.92);
-  color: #b7791f;
+  background: rgba(255, 242, 207, 0.9);
+  color: #f59e0b;
   font-size: 16px;
 }
 
@@ -1388,7 +1200,7 @@ export default {
 }
 
 .week-tree-chevron.open {
-  color: #6b5b45;
+  color: #15161a;
   transform: rotate(180deg);
 }
 
@@ -1418,12 +1230,12 @@ export default {
   align-items: center;
   margin-left: var(--tree-indent);
   padding: 9px 12px;
-  border: 1px dashed rgba(191, 165, 128, 0.52);
+  border: 1px dashed rgba(220, 216, 227, 0.96);
   border-radius: 13px;
   color: #9ca3af;
   font-size: 11px;
   font-weight: 850;
-  background: rgba(250, 247, 242, 0.58);
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .week-tree-icon-wrapper {
@@ -1450,56 +1262,5 @@ export default {
 }
 .week-tree-row:hover .default-icon.has-hover {
   opacity: 0;
-}
-.week-tree-checkbox {
-  flex: 0 0 auto;
-  color: #d1d1d6;
-  font-size: 20px;
-  cursor: pointer;
-  transition: color 0.18s ease;
-}
-
-.week-tree-delete-btn {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 7px;
-  color: #c7c7cc;
-  background: transparent;
-  cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
-}
-
-.week-tree-delete-btn:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.week-tree-delete-btn .material-symbols-outlined {
-  font-size: 17px;
-}
-
-.week-tree-checkbox:hover {
-  color: #8e8e93;
-}
-.week-tree-checkbox.checked {
-  color: #1f2937;
-  font-variation-settings: 'FILL' 1;
-}
-.select-all-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  margin-bottom: 4px;
-}
-.select-all-text {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 800;
 }
 </style>
