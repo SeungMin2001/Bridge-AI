@@ -13,14 +13,16 @@ const LECTURE_FILE_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf
 const MEETING_FILE_COLORS = ['#ec4899', '#f97316', '#14b8a6', '#6366f1', '#0ea5e9']
 const FILE_TAGS = ['수업', '회의', '프로젝트', '개인', '중요']
 const FILE_ICONS = ['article', 'groups_2', 'workspaces', 'person', 'priority_high', 'star', 'task_alt', 'lightbulb', 'bookmark', 'school']
+const DEFAULT_FILE_ICON = 'article'
+const DEFAULT_FOLDER_NAME = '기본폴더'
+const DEFAULT_FOLDER_LEGACY_NAME = '기본파일'
 
-const getDefaultIconForTag = (tag = '') => {
-  if (tag === '회의') return 'groups_2'
-  if (tag === '프로젝트') return 'workspaces'
-  if (tag === '개인') return 'person'
-  if (tag === '중요') return 'priority_high'
-  return 'article'
-}
+const getDefaultIconForTag = () => DEFAULT_FILE_ICON
+
+const isDefaultFolderNode = (node) => (
+  node?.type === 'folder'
+  && (node.isDefaultFolder || node.name === DEFAULT_FOLDER_NAME || node.name === DEFAULT_FOLDER_LEGACY_NAME)
+)
 
 // 홈/작업 폴더 화면의 모달, 폴더 이동, 파일/폴더 생성 액션을 관리합니다.
 export function useHome(props, emit) {
@@ -30,7 +32,7 @@ export function useHome(props, emit) {
   const isEditItemModalOpen = ref(false)
   const selectedColor = ref('#3b82f6')
   const selectedTag = ref('수업')
-  const selectedFileIcon = ref(getDefaultIconForTag('수업'))
+  const selectedFileIcon = ref(DEFAULT_FILE_ICON)
   const navigationStack = ref([]) // [{id, name}]
   const editingItemId = ref(null)
   const editingItemType = ref('file')
@@ -54,7 +56,7 @@ export function useHome(props, emit) {
 
   const handleFileTagChange = (tag = '수업') => {
     selectedTag.value = tag
-    selectedFileIcon.value = getDefaultIconForTag(tag)
+    selectedFileIcon.value = DEFAULT_FILE_ICON
   }
 
   const openFileCreateModal = () => {
@@ -136,8 +138,24 @@ export function useHome(props, emit) {
       })
   }
 
+  const removeItemsFromTree = (nodes, targetIds) => {
+    return nodes
+      .filter((node) => !targetIds.has(node.id))
+      .map((node) => {
+        if (node.children) {
+          return { ...node, children: removeItemsFromTree(node.children, targetIds) }
+        }
+        return node
+      })
+  }
+
   const getCurrentFolderId = () => {
     return navigationStack.value.length > 0 ? navigationStack.value[navigationStack.value.length - 1].id : null
+  }
+
+  const getDefaultFolderId = () => {
+    const defaultFolder = props.fileTree.find(isDefaultFolderNode)
+    return defaultFolder?.id || null
   }
 
   // 입력한 이름과 색상으로 새 폴더 생성
@@ -162,16 +180,17 @@ export function useHome(props, emit) {
     if (!newFileName.value.trim()) return
 
     const currentFolderId = getCurrentFolderId()
+    const targetFolderId = isWorkspaceUuid(currentFolderId) ? currentFolderId : getDefaultFolderId()
     const newFile = await createWorkspaceFile({
-      course_id: isWorkspaceUuid(currentFolderId) ? currentFolderId : null,
+      course_id: isWorkspaceUuid(targetFolderId) ? targetFolderId : null,
       title: newFileName.value.trim(),
       file_kind: fileKind,
       tag: selectedTag.value,
-      icon: selectedFileIcon.value || getDefaultIconForTag(selectedTag.value),
+      icon: DEFAULT_FILE_ICON,
       color: selectedColor.value
     })
 
-    emit('update:fileTree', addItemToTree(props.fileTree, currentFolderId, newFile))
+    emit('update:fileTree', addItemToTree(props.fileTree, targetFolderId, newFile))
     isFileModalOpen.value = false
     newFileName.value = ''
   }
@@ -185,7 +204,7 @@ export function useHome(props, emit) {
     editingFileKind.value = targetNode.fileKind || 'lecture'
     newFileName.value = targetNode.name || ''
     selectedTag.value = targetNode.tag || (editingFileKind.value === 'meeting' ? '회의' : '수업')
-    selectedFileIcon.value = targetNode.fileIcon || getDefaultIconForTag(selectedTag.value)
+    selectedFileIcon.value = DEFAULT_FILE_ICON
 
     if (targetNode.type === 'folder') {
       selectedColor.value = targetNode.color || FOLDER_COLORS[0]
@@ -220,7 +239,7 @@ export function useHome(props, emit) {
       ...(node.type === 'file'
         ? {
             tag: selectedTag.value,
-            fileIcon: selectedFileIcon.value || getDefaultIconForTag(selectedTag.value)
+            fileIcon: DEFAULT_FILE_ICON
           }
         : {})
     })))
@@ -232,6 +251,8 @@ export function useHome(props, emit) {
     if (!targetId) return
 
     const targetNode = findItemInTree(props.fileTree, targetId)
+    if (isDefaultFolderNode(targetNode)) return
+
     if (targetNode?.type === 'file' && isWorkspaceUuid(targetNode.id)) {
       await deleteWorkspaceFile(targetNode.id)
     } else if (targetNode?.type === 'folder' && isWorkspaceUuid(targetNode.id)) {
@@ -245,6 +266,34 @@ export function useHome(props, emit) {
       nextFavorites.delete(targetId)
       emit('update:favorites', nextFavorites)
     }
+  }
+
+  const deleteItemsByIds = async (targetIds = []) => {
+    const ids = Array.from(new Set(targetIds)).filter(Boolean)
+    if (!ids.length) return
+
+    const targets = ids
+      .map((id) => findItemInTree(props.fileTree, id))
+      .filter((targetNode) => !isDefaultFolderNode(targetNode))
+      .filter(Boolean)
+    const deletableIds = new Set(targets.map((targetNode) => targetNode.id))
+    if (!deletableIds.size) return
+
+    await Promise.all(targets.map(async (targetNode) => {
+      if (targetNode.type === 'file' && isWorkspaceUuid(targetNode.id)) {
+        await deleteWorkspaceFile(targetNode.id)
+      } else if (targetNode.type === 'folder' && isWorkspaceUuid(targetNode.id)) {
+        await deleteWorkspaceFolder(targetNode.id)
+      }
+    }))
+
+    emit('update:fileTree', removeItemsFromTree(props.fileTree, deletableIds))
+
+    const nextFavorites = new Set(props.favorites)
+    deletableIds.forEach((id) => nextFavorites.delete(id))
+    emit('update:favorites', nextFavorites)
+
+    navigationStack.value = navigationStack.value.filter((item) => !deletableIds.has(item.id))
   }
 
   const handleDeleteEditingItem = async () => {
@@ -294,6 +343,7 @@ export function useHome(props, emit) {
     handleUpdateItem,
     handleDeleteEditingItem,
     deleteItemById,
+    deleteItemsByIds,
     handleEnterFolder,
     handleGoBack
   }
