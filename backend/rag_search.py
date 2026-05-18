@@ -40,6 +40,7 @@ _initialized = False
 _init_error = None
 
 logger = logging.getLogger(__name__)
+SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS = int(os.getenv("CHAT_SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS", "16000"))
 
 
 def _db_config() -> dict:
@@ -309,6 +310,147 @@ def _get_full_transcript(session_id: str | None) -> str:
             cur.close()
         if conn:
             conn.close()
+
+
+def _truncate_selected_transcript(text: str, max_chars: int = SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS) -> str:
+    text = str(text or "").strip()
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars].rstrip()}\n\n...[선택한 녹음본 전사가 길어 일부만 사용했습니다]"
+
+
+def _selected_transcript_context_search(
+    session_id: str | None,
+    source_filter: dict | None,
+) -> list[dict]:
+    """선택한 녹음본/전사에 대해 검색어 매칭이 없어도 원문을 LLM context로 제공합니다."""
+    if not session_id:
+        return []
+
+    filters = _normalize_source_filter(source_filter)
+    if not filters["recording_ids"] and not filters["transcript_ids"]:
+        return []
+
+    source_clauses = []
+    values = [session_id]
+    if filters["recording_ids"]:
+        source_clauses.append("t.recording_id = ANY(%s)")
+        values.append(list(filters["recording_ids"]))
+    if filters["transcript_ids"]:
+        source_clauses.append("t.transcript_id::text = ANY(%s)")
+        values.append(list(filters["transcript_ids"]))
+
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(**_db_config())
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT t.transcript_id, t.session_id, t.recording_id, t.chunk_index,
+                   t.start_time, t.end_time, t.created_at,
+                   COALESCE(t.corrected_text, t.chunk_text, '') AS chunk_text,
+                   s.title as session_title, s.session_date, s.session_voicefile,
+                   co.title as course_title
+            FROM transcripts t
+            JOIN sessions s ON t.session_id = s.session_id
+            LEFT JOIN courses co ON s.course_id = co.course_id
+            WHERE t.session_id = %s
+              AND ({" OR ".join(source_clauses)})
+            ORDER BY t.recording_id ASC NULLS LAST,
+                     t.chunk_index ASC NULLS LAST,
+                     t.start_time ASC NULLS LAST,
+                     t.created_at ASC
+            """,
+            values,
+        )
+        rows = cur.fetchall()
+    except Exception as exc:
+        logger.warning("[RAG] 선택 녹음본 전사 fallback 조회 실패: %s", exc)
+        return []
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+    groups = {}
+    for row in rows:
+        (
+            transcript_id,
+            row_session_id,
+            recording_id,
+            chunk_index,
+            start_time,
+            end_time,
+            created_at,
+            chunk_text,
+            session_title,
+            session_date,
+            session_voicefile,
+            course_title,
+        ) = row
+        text = str(chunk_text or "").strip()
+        if not text:
+            continue
+
+        key = recording_id or "selected-transcripts"
+        if key not in groups:
+            file_title = session_title or "전사 파일"
+            groups[key] = {
+                "chunks": [],
+                "file_title": file_title,
+                "recording_title": _extract_recording_title(session_voicefile, file_title, created_at, recording_id or ""),
+                "course_title": course_title or "미분류",
+                "session_title": file_title,
+                "session_date": str(session_date) if session_date else "",
+                "session_id": str(row_session_id) if row_session_id else str(session_id),
+                "recording_id": recording_id or "",
+                "first_transcript_id": str(transcript_id),
+                "first_chunk_index": chunk_index,
+                "first_created_at": created_at,
+                "start_time": float(start_time or 0),
+                "end_time": float(end_time or 0),
+            }
+
+        groups[key]["chunks"].append({
+            "text": text,
+            "start_time": float(start_time or 0),
+            "end_time": float(end_time or 0),
+        })
+        groups[key]["end_time"] = float(end_time or groups[key]["end_time"] or 0)
+
+    results = []
+    for group in groups.values():
+        full_transcript = "\n".join(
+            f"[{_format_time(chunk['start_time'])}~{_format_time(chunk['end_time'])}] {chunk['text']}"
+            for chunk in group["chunks"]
+        ).strip()
+        if not full_transcript:
+            continue
+
+        results.append({
+            "text": _truncate_selected_transcript(full_transcript),
+            "full_transcript": full_transcript,
+            "file_title": group["file_title"],
+            "recording_title": group["recording_title"],
+            "course_title": group["course_title"],
+            "session_title": group["session_title"],
+            "session_date": group["session_date"],
+            "start_time": group["start_time"],
+            "end_time": group["end_time"],
+            "transcript_id": group["first_transcript_id"],
+            "recording_id": group["recording_id"],
+            "chunk_index": group["first_chunk_index"],
+            "created_at": group["first_created_at"].isoformat()
+            if hasattr(group["first_created_at"], "isoformat")
+            else str(group["first_created_at"] or ""),
+            "session_id": group["session_id"],
+            "source_type": "transcript",
+            "source": "selected_source_context",
+        })
+
+    return results
 
 
 def _normalize_source_filter(source_filter: dict | None) -> dict:
@@ -813,6 +955,10 @@ def search(
         results = _run_hybrid_search(queries, top_k=top_k, session_id=session_id, source_filter=source_filter)
         if results:
             search_scope = f"{search_scope}_keyword_fallback"
+    if not results and session_id and (filters["recording_ids"] or filters["transcript_ids"]):
+        results = _selected_transcript_context_search(session_id, source_filter)
+        if results:
+            search_scope = "selected_source_context"
     if session_id and not results and not has_filter:
         results = _run_vector_similarity_search(queries, top_k=top_k, session_id=None, source_filter=None)
         if not results:
@@ -856,8 +1002,16 @@ def search(
             )
         if result_session_id not in full_transcript_cache:
             full_transcript_cache[result_session_id] = _get_full_transcript(result_session_id)
-        full_transcript = recording_transcript_cache.get(recording_cache_key) or full_transcript_cache.get(result_session_id) or r["text"]
-        context_parts.append(f"[{i}] {r['text']} (출처: {citation})")
+        full_transcript = (
+            r.get("full_transcript")
+            or recording_transcript_cache.get(recording_cache_key)
+            or full_transcript_cache.get(result_session_id)
+            or r["text"]
+        )
+        if r.get("source") == "selected_source_context":
+            context_parts.append(f"[{i}] 선택된 녹음본 전체 전사 (출처: {citation})\n{r['text']}")
+        else:
+            context_parts.append(f"[{i}] {r['text']} (출처: {citation})")
         citations.append({
             "text": r["text"],
             "citation": citation,
