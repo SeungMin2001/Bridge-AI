@@ -137,7 +137,7 @@ onMounted(() => {
   border-radius: 32px;
   border: 1px solid rgba(255, 255, 255, 0.92);
   background-color: rgba(255, 255, 255, 0.58);
-  padding: 24px 92px 24px 30px !important;
+  padding: 24px 78px 24px 30px !important;
   overflow: hidden;
   box-shadow:
     inset 0 2px 18px rgba(21, 22, 26, 0.09),
@@ -173,10 +173,10 @@ onMounted(() => {
 .multimodal-send-btn {
   position: absolute;
   right: 30px;
-  top: 50%;
-  width: 56px;
-  height: 56px;
-  transform: translateY(-50%);
+  bottom: 22px;
+  width: 36px;
+  height: 36px;
+  transform: none;
   color: #fff;
   background: rgba(170, 163, 151, 0.72);
   box-shadow: none;
