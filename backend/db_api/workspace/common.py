@@ -1,5 +1,9 @@
 from uuid import UUID
 
+DEFAULT_FOLDER_TITLE = "기본폴더"
+DEFAULT_FOLDER_LEGACY_TITLE = "기본파일"
+DEFAULT_FOLDER_DESCRIPTION = "__lecto_default_files__"
+
 
 class WorkspaceApiError(Exception):
     # 워크스페이스 API에서 클라이언트에게 내려줄 오류 상태를 함께 보관.
