@@ -4,10 +4,8 @@ import { ref, computed, watch } from 'vue'
 import { useChat } from '../../composables/useChat'
 import WorkspaceWordCard from './MainContent/WorkspaceWordCard.vue'
 import WorkspaceHeader from './MainContent/WorkspaceHeader.vue'
-import WorkspaceFloatingTabs from './MainContent/WorkspaceFloatingTabs.vue'
 import LecturePreviewPanel from './MainContent/LecturePreviewPanel.vue'
 import WorkspaceQuizPanel from './Quiz/WorkspaceQuizPanel.vue'
-import WorkspaceSummaryNotesPanel from './Summary/WorkspaceSummaryNotesPanel.vue'
 import WorkspaceSummaryPanel from './Summary/WorkspaceSummaryPanel.vue'
 
 const {
@@ -29,13 +27,15 @@ const props = defineProps({
   activeFileName: String,
   activeFileId: String,
   activeFileType: { type: String, default: 'lecture' },
+  currentAttachments: { type: Array, default: () => [] },
   currentRecordings: { type: Array, default: () => [] },
   transcriptions: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   materialEvidenceRequest: { type: Object, default: null },
   summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] },
-  quizSource: { type: Object, default: null }
+  quizSource: { type: Object, default: null },
+  tabRequest: { type: Object, default: null }
 })
 
 const emit = defineEmits([
@@ -50,28 +50,28 @@ const emit = defineEmits([
   'askAi',
   'addToNote',
   'uploadLectureMaterials',
+  'openStoredMaterial',
   'closePreviewMaterial'
 ])
 
-const activeTab = ref('note')
+const activeTab = ref('materials')
 const activeSummaryTab = ref('summary')
-const noteContent = ref('')
-const isNoteFocused = ref(false)
 const tabAnim = ref('tab-slide-right')
-const isNoteDragOver = ref(false)
+const isMaterialDragOver = ref(false)
 const showDiarizationChoice = ref(false)
-let prevTab = 'note'
+const materialInputRef = ref(null)
+let prevTab = 'materials'
 
-const TAB_ORDER = ['note', 'summary-note', 'summary', 'quiz']
+const TAB_ORDER = ['materials', 'summary', 'quiz']
 
 const tabs = computed(() => [
-  { key: 'note', label: '메모' },
-  { key: 'summary-note', label: '정리' },
+  { key: 'materials', label: '자료' },
   { key: 'summary', label: '요약' },
   { key: 'quiz', label: '퀴즈' }
 ])
 
-const noteTitle = computed(() => props.activeFileName || '파일을 선택하세요')
+const materialTitle = computed(() => props.activeFileName || '파일을 선택하세요')
+const materialCards = computed(() => Array.isArray(props.currentAttachments) ? props.currentAttachments : [])
 
 const allowedMaterialTypes = [
   'application/pdf',
@@ -79,7 +79,7 @@ const allowedMaterialTypes = [
   'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 ]
 
-const getDefaultTabByFileType = () => 'note'
+const getDefaultTabByFileType = () => 'materials'
 
 const handleTabChange = (newTab) => {
   const prevIdx = TAB_ORDER.indexOf(prevTab)
@@ -111,7 +111,7 @@ watch(
   () => props.currentPreviewMaterial,
   (nextMaterial, prevMaterial) => {
     if (!nextMaterial || nextMaterial.id === prevMaterial?.id) return
-    handleTabChange('note')
+    handleTabChange('materials')
   }
 )
 
@@ -119,7 +119,16 @@ watch(
   () => props.materialEvidenceRequest,
   (request) => {
     if (!request) return
-    handleTabChange('note')
+    handleTabChange('materials')
+  }
+)
+
+watch(
+  () => props.tabRequest,
+  (request) => {
+    if (!request || !TAB_ORDER.includes(request.tab)) return
+    if (request.summaryTab) activeSummaryTab.value = request.summaryTab
+    handleTabChange(request.tab)
   }
 )
 
@@ -128,29 +137,61 @@ const isLectureMaterialFile = (file) => {
   return allowedMaterialTypes.includes(file.type) || /\.(pdf|ppt|pptx)$/i.test(file.name)
 }
 
-const openMaterialInMemo = (file) => {
+const openMaterialInMaterials = (file) => {
   emit('uploadLectureMaterials', [file])
-  activeTab.value = 'note'
+  handleTabChange('materials')
 }
 
 const handleMaterialSelection = (file) => {
   if (isLectureMaterialFile(file)) {
-    openMaterialInMemo(file)
+    openMaterialInMaterials(file)
   }
 }
 
 const handleDroppedMaterial = (event) => {
   event.preventDefault()
-  isNoteDragOver.value = false
+  isMaterialDragOver.value = false
   const file = Array.from(event.dataTransfer?.files || []).find(isLectureMaterialFile)
   if (file) {
-    openMaterialInMemo(file)
+    openMaterialInMaterials(file)
   }
 }
 
-const onNoteBlur = (e) => {
-  isNoteFocused.value = false
-  noteContent.value = e.target.innerText
+const triggerMaterialUpload = () => {
+  materialInputRef.value?.click()
+}
+
+const handleMaterialInputChange = (event) => {
+  const file = Array.from(event.target.files || []).find(isLectureMaterialFile)
+  if (file) handleMaterialSelection(file)
+  event.target.value = ''
+}
+
+const handleOpenStoredMaterial = (material) => {
+  const materialId = material?.id
+  if (!materialId) return
+  emit('openStoredMaterial', materialId)
+  handleTabChange('materials')
+}
+
+const getMaterialIcon = (material) => (
+  /\.(ppt|pptx)$/i.test(material?.name || material?.storedName || '') ? 'slideshow' : 'picture_as_pdf'
+)
+
+const formatMaterialSize = (size = 0) => {
+  const bytes = Number(size) || 0
+  if (!bytes) return '파일'
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+const formatMaterialDate = (value = '') => {
+  if (!value) return ''
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const month = parsed.getMonth() + 1
+  const day = parsed.getDate()
+  return `${month}.${day}`
 }
 
 const handleAskAi = () => {
@@ -237,13 +278,16 @@ const postRecordingProcessing = computed(() => {
         :is-recording-paused="isRecordingPaused"
         :recording-time-text="recordingTimeText"
         :recording-audio-level="recordingAudioLevel"
-        :show-close-preview="!!currentPreviewMaterial"
+        :tabs="tabs"
+        :active-tab="activeTab"
+        :show-close-preview="activeTab === 'materials' && !!currentPreviewMaterial"
         :has-word-insight="!!selectedWordData"
         :word-insight-visible="!!selectedWordData && isWordCardVisible"
         @start-recording="handleStartRecording"
         @pause-recording="emit('pauseRecording')"
         @resume-recording="emit('resumeRecording')"
         @stop-recording="emit('stopRecording')"
+        @tab-change="handleTabChange"
         @main-sidebar-toggle="emit('mainSidebarToggle')"
         @right-sidebar-toggle="emit('rightSidebarToggle')"
         @material-selected="handleMaterialSelection"
@@ -277,21 +321,19 @@ const postRecordingProcessing = computed(() => {
 
       <div class="flex-1 flex flex-col relative min-h-0 min-w-0">
         <section
-          v-if="activeTab === 'note'"
-          :key="'tab-note'"
+          v-if="activeTab === 'materials'"
+          :key="'tab-materials'"
           :class="[
-            'tab-content flex-1 flex flex-col relative overflow-hidden note-canvas',
+            'tab-content flex-1 flex flex-col relative overflow-hidden materials-canvas',
             currentPreviewMaterial ? 'px-4 pt-4 pb-0' : 'p-10 pt-4',
             tabAnim
           ]"
-          @dragover.prevent="isNoteDragOver = true"
-          @dragenter.prevent="isNoteDragOver = true"
-          @dragleave.prevent="isNoteDragOver = false"
+          @dragover.prevent="isMaterialDragOver = true"
+          @dragenter.prevent="isMaterialDragOver = true"
+          @dragleave.prevent="isMaterialDragOver = false"
           @drop="handleDroppedMaterial"
         >
-          <div :class="[currentPreviewMaterial ? 'w-full h-full flex flex-col' : 'max-w-4xl mx-auto w-full h-full']">
-            <h1 v-if="!currentPreviewMaterial" class="text-[32px] font-heavy-heading text-[#d1d1d6] mb-5">{{ noteTitle }}</h1>
-
+          <div :class="[currentPreviewMaterial ? 'w-full h-full flex flex-col' : 'materials-tab-shell']">
             <div v-if="currentPreviewMaterial" class="preview-panel-wrap">
               <LecturePreviewPanel
                 :material="currentPreviewMaterial"
@@ -299,27 +341,59 @@ const postRecordingProcessing = computed(() => {
               />
             </div>
 
-            <div
-              class="text-[16px] leading-relaxed min-h-[200px] focus:outline-none"
-              :class="{ 'note-drop-target': isNoteDragOver }"
-              id="note-body"
-              contenteditable="true"
-              v-show="!currentPreviewMaterial"
-              :style="{ color: isNoteFocused || noteContent ? '#1d1d1f' : '#aeaeb2' }"
-              @focus="isNoteFocused = true"
-              @blur="onNoteBlur"
-            >
-              {{ (!noteContent && !isNoteFocused) ? '여기에 타이핑을 시작하거나 파일을 업로드하세요.' : noteContent }}
-            </div>
+            <template v-else>
+              <div class="materials-tab-head">
+                <div>
+                  <h1>강의자료</h1>
+                  <p>{{ materialTitle }}</p>
+                </div>
+                <button type="button" class="materials-upload-btn" @click="triggerMaterialUpload">
+                  <span class="material-symbols-outlined">upload_file</span>
+                  <span>자료 추가</span>
+                </button>
+              </div>
+
+              <div
+                v-if="materialCards.length"
+                class="materials-grid"
+                :class="{ 'is-drag-over': isMaterialDragOver }"
+              >
+                <button
+                  v-for="material in materialCards"
+                  :key="material.id || material.name"
+                  type="button"
+                  class="material-card"
+                  @click="handleOpenStoredMaterial(material)"
+                >
+                  <span class="material-card-icon material-symbols-outlined">{{ getMaterialIcon(material) }}</span>
+                  <span class="material-card-copy">
+                    <strong>{{ material.name || material.title || material.storedName || '강의자료' }}</strong>
+                    <small>
+                      {{ formatMaterialSize(material.size) }}
+                      <template v-if="formatMaterialDate(material.uploadedAt || material.createdAt)">
+                        · {{ formatMaterialDate(material.uploadedAt || material.createdAt) }}
+                      </template>
+                    </small>
+                  </span>
+                  <span class="material-card-open material-symbols-outlined">open_in_new</span>
+                </button>
+              </div>
+
+              <div v-else class="materials-empty-state" :class="{ 'is-drag-over': isMaterialDragOver }">
+                <span class="material-symbols-outlined">folder_open</span>
+                <strong>강의자료가 없습니다</strong>
+              </div>
+            </template>
+
+            <input
+              ref="materialInputRef"
+              type="file"
+              accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              class="hidden"
+              @change="handleMaterialInputChange"
+            />
           </div>
         </section>
-
-        <WorkspaceSummaryNotesPanel
-          v-else-if="activeTab === 'summary-note'"
-          :key="'tab-summary-note'"
-          :tab-anim="tabAnim"
-          :summary-notes="summaryNotes"
-        />
 
         <WorkspaceSummaryPanel
           v-else-if="activeTab === 'summary'"
@@ -351,8 +425,6 @@ const postRecordingProcessing = computed(() => {
           :current-preview-material="currentPreviewMaterial"
           :quiz-source="quizSource"
         />
-
-        <WorkspaceFloatingTabs :tabs="tabs" :active-tab="activeTab" @change="handleTabChange" />
       </div>
     </div>
 
@@ -522,16 +594,170 @@ const postRecordingProcessing = computed(() => {
   transform: translateY(-8px);
 }
 
-.note-drop-target {
-  border-radius: 24px;
-  background: rgba(239, 246, 255, 0.5);
-  outline: 1.5px dashed rgba(59, 130, 246, 0.42);
-  outline-offset: 16px;
-}
-
 .preview-panel-wrap {
   flex: 1;
   min-height: 0;
+}
+
+.materials-tab-shell {
+  width: min(100%, 980px);
+  height: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.materials-tab-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.materials-tab-head h1 {
+  margin: 0;
+  color: #1d1d1f;
+  font-size: 28px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.materials-tab-head p {
+  margin: 6px 0 0;
+  color: #8e8e93;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.materials-upload-btn {
+  flex: 0 0 auto;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: #15161a;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 12px 24px rgba(21, 22, 26, 0.12);
+  transition: transform 0.18s ease, background-color 0.18s ease;
+}
+
+.materials-upload-btn:hover {
+  background: #22242a;
+}
+
+.materials-upload-btn:active {
+  transform: scale(0.98);
+}
+
+.materials-upload-btn .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.materials-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+  padding: 2px;
+  overflow-y: auto;
+}
+
+.materials-grid.is-drag-over,
+.materials-empty-state.is-drag-over {
+  outline: 1.5px dashed rgba(59, 130, 246, 0.44);
+  outline-offset: 8px;
+  background: rgba(239, 246, 255, 0.42);
+}
+
+.material-card {
+  min-width: 0;
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #ffffff;
+  text-align: left;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.045);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.material-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(148, 163, 184, 0.5);
+  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.075);
+}
+
+.material-card-icon {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #2563eb;
+  background: #eef4ff;
+  font-size: 21px;
+  font-variation-settings: 'FILL' 1;
+}
+
+.material-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.material-card-copy strong {
+  overflow: hidden;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-card-copy small {
+  color: #8e8e93;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.material-card-open {
+  color: #9ca3af;
+  font-size: 18px;
+}
+
+.materials-empty-state {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  border: 1px dashed rgba(203, 213, 225, 0.95);
+  border-radius: 8px;
+  color: #9ca3af;
+  background: rgba(248, 250, 252, 0.74);
+}
+
+.materials-empty-state .material-symbols-outlined {
+  font-size: 38px;
+  color: #b8bec8;
+}
+
+.materials-empty-state strong {
+  color: #8e8e93;
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .recording-choice-overlay {
