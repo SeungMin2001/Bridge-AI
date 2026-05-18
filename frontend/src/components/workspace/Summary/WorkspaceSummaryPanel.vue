@@ -184,7 +184,7 @@ const selectedPdfMaterials = computed(() => {
 })
 
 const selectedMaterialLabel = computed(() => {
-  if (!selectedPdfMaterials.value.length) return 'PDF 선택 없음'
+  if (!selectedPdfMaterials.value.length) return 'PDF 없음'
   const first = selectedPdfMaterials.value[0]
   return selectedPdfMaterials.value.length === 1
     ? (first.name || first.title || 'PDF 강의자료')
@@ -193,8 +193,8 @@ const selectedMaterialLabel = computed(() => {
 
 const selectedMaterialMeta = computed(() => (
   selectedPdfMaterials.value.length
-    ? `선택 ${selectedPdfMaterials.value.length}개 · PDF ${selectedPdfMaterials.value.length}개 연결됨`
-    : '좌측 폴더에서 PDF 강의자료를 선택하세요.'
+    ? `현재 파일 PDF ${selectedPdfMaterials.value.length}개 연결됨`
+    : '현재 파일에 PDF 강의자료가 없습니다.'
 ))
 
 const materialSummaryLevels = [
