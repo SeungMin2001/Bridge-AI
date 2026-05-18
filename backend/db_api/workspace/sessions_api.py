@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from db import get_pool
 from db_api.workspace.common import WorkspaceApiError, required_text, uuid_or_none
+from db_api.workspace.default_folder import ensure_default_folder
 from db_api.workspace.files_api import delete_workspace_material_files
 from db_api.workspace.session_cleanup import delete_recording_related_rows, delete_session_related_rows, delete_transcript_json_files
 from db_api.workspace.serializers import session_node, split_week_resources
@@ -25,6 +26,9 @@ async def create_session_file(payload: dict) -> dict:
 
     pool = await get_pool()
     async with pool.acquire() as conn:
+        if course_id is None:
+            course_id = await ensure_default_folder(conn)
+
         row = await conn.fetchrow(
             """
             INSERT INTO sessions (
@@ -60,6 +64,37 @@ async def create_session_file(payload: dict) -> dict:
             json.dumps([]),
             json.dumps([]),
         )
+
+    return {
+        "ok": True,
+        "sessionId": str(row["session_id"]),
+        "node": session_node(row),
+    }
+
+
+async def update_session_file(session_id: str, payload: dict) -> dict:
+    session_uuid = uuid_or_none(session_id, "session_id")
+    if session_uuid is None:
+        raise WorkspaceApiError("session_id is required.")
+
+    title = required_text(payload, "title")
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE sessions
+            SET title = $2
+            WHERE session_id = $1
+            RETURNING session_id, course_id, session_date, title, status, created_at,
+                      file_kind, tag, icon, color, session_pdf, session_voicefile, summary_notes
+            """,
+            session_uuid,
+            title,
+        )
+
+    if row is None:
+        raise WorkspaceApiError("Session file not found.", status_code=404)
 
     return {
         "ok": True,
