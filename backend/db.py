@@ -29,14 +29,16 @@ async def create_session(session_id: str, title: str = "강의 녹음"):
     pool = await get_pool()
     import uuid
     from datetime import datetime, date
+    from db_api.workspace.default_folder import ensure_default_folder
     async with pool.acquire() as conn:
+        default_course_id = await ensure_default_folder(conn)
         await conn.execute("""
             INSERT INTO sessions (session_id, course_id, session_date, title, status, created_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT DO NOTHING
         """,
             uuid.UUID(session_id),
-            uuid.UUID("00000000-0000-0000-0000-000000000000"),  # 임시 course_id
+            default_course_id,
             date.today(),
             title,
             "recording",
