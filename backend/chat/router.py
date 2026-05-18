@@ -1,0 +1,115 @@
+"""AI 채팅 HTTP API 라우터.
+
+프론트의 채팅바 요청을 받아 컨텍스트 생성 서비스와 LLM 클라이언트를 연결합니다.
+엔드포인트 경로는 기존 프론트 호환성을 위해 /chat, /chat/stream, /register-llm을 유지합니다.
+"""
+
+import json
+import time
+
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from chat.context_service import build_prompt_and_citations, ensure_material_rag_for_chat
+from chat.llm_client import EmptyLLMResponse, complete_answer, set_llm_url, stream_answer
+
+
+router = APIRouter(tags=["chat"])
+
+
+class ChatRequest(BaseModel):
+    """AI 채팅 요청 본문.
+
+    session_id와 source_filter는 현재 워크스페이스/선택 파일 기준으로 RAG 근거를 제한할 때 사용합니다.
+    """
+
+    question: str
+    is_thinking: bool = False
+    # 선택 파일 기준 RAG 검색을 위해 session_id를 받는다.
+    session_id: str | None = None
+    # 왼쪽 사이드바에서 고른 PDF/녹음본만 AI 채팅 근거로 쓰기 위한 필터.
+    source_filter: dict | None = None
+
+
+class RegisterRequest(BaseModel):
+    """런타임에서 사용할 LLM 서버 URL 등록 요청 본문."""
+
+    url: str
+
+
+@router.post("/register-llm")
+async def register_llm(req: RegisterRequest):
+    """LLM 서버 URL을 변경해 로컬/원격 모델 서버를 전환합니다."""
+    return {"status": "ok", "url": set_llm_url(req.url)}
+
+
+@router.post("/chat")
+async def chat(req: ChatRequest):
+    """기존 비스트리밍 채팅 엔드포인트입니다.
+
+    PDF/RAG 인덱싱을 확인하고, 현재 워크스페이스 컨텍스트를 포함한 prompt를 만들어 한 번에 답변을 반환합니다.
+    """
+    print(f"[CHAT] 요청 수신: {req.question}")
+    try:
+        await ensure_material_rag_for_chat(req.session_id, req.source_filter)
+        prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
+        answer = await complete_answer(prompt, req.source_filter)
+        if not answer:
+            answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
+        return {"thinking": "", "answer": answer, "citations": citations}
+    except Exception as e:
+        print(f"[CHAT] 에러: {e}")
+        return {"thinking": "", "answer": f"오류: {e}", "citations": []}
+
+
+@router.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """SSE 방식으로 citations와 LLM 토큰을 순차 전송하는 채팅 엔드포인트입니다."""
+    request_started_at = time.perf_counter()
+    print(f"[CHAT STREAM] 요청 수신: {req.question}")
+
+    await ensure_material_rag_for_chat(req.session_id, req.source_filter)
+    prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
+    t_rag = time.perf_counter()
+    print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
+
+    async def generate():
+        """SSE 이벤트 형식으로 citations, token, error, DONE 메시지를 생성합니다."""
+        first_token_logged = False
+        first_token_elapsed = None
+        emitted_content = False
+        emitted_error = False
+
+        yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
+
+        try:
+            async for token in stream_answer(
+                prompt,
+                req.source_filter,
+                thinking=req.is_thinking,
+            ):
+                emitted_content = True
+                if not first_token_logged:
+                    first_token_logged = True
+                    first_token_elapsed = time.perf_counter() - request_started_at
+                    print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
+                yield f"data: {json.dumps({'type': 'token', 'token': token}, ensure_ascii=False)}\n\n"
+        except EmptyLLMResponse as e:
+            emitted_error = True
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            print(f"[CHAT STREAM] 에러: {e}")
+            emitted_error = True
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            total_elapsed = time.perf_counter() - request_started_at
+            first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"
+            print(
+                f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, "
+                f"content={emitted_content}, error={emitted_error}, total={total_elapsed:.3f}s"
+            )
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
