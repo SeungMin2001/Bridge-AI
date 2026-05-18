@@ -42,6 +42,7 @@ const {
   handleUpdateItem,
   handleDeleteEditingItem,
   deleteItemById,
+  deleteItemsByIds,
   handleEnterFolder,
   handleGoBack
 } = useHome(props, emit)
@@ -54,10 +55,26 @@ const draftFolderName = ref('')
 const folderCreateInputRef = ref(null)
 const openFolderMenuId = ref(null)
 
-const flattenItems = (nodes = []) => nodes.flatMap((node) => [
-  node,
-  ...flattenItems(node.children || [])
-])
+const isDefaultFolder = (item) => item?.isDefaultFolder || item?.name === '기본폴더' || item?.name === '기본파일'
+const getFolderDisplayName = (folder) => isDefaultFolder(folder) ? '기본폴더' : folder.name
+
+const withFolderLocation = (item, folderName = '') => (
+  item?.type === 'file'
+    ? { ...item, folderLocationName: folderName || item.folderLocationName || '기본폴더' }
+    : item
+)
+
+const flattenItems = (nodes = [], parentFolderName = '') => nodes.flatMap((node) => {
+  const currentFolderName = node.type === 'folder' ? getFolderDisplayName(node) : parentFolderName
+  return [
+    withFolderLocation(node, parentFolderName),
+    ...flattenItems(node.children || [], currentFolderName)
+  ]
+})
+
+const attachCurrentFolderLocation = (items = [], folderName = '') => (
+  items.map((item) => withFolderLocation(item, folderName))
+)
 
 const allFiles = computed(() => flattenItems(props.fileTree).filter((item) => item.type === 'file'))
 const favoriteItems = computed(() => flattenItems(props.fileTree).filter((item) => props.favorites.has(item.id)))
@@ -84,10 +101,30 @@ const currentItems = computed(() => {
     return null
   }
   const folder = findFolder(props.fileTree, currentFolderId)
-  return folder ? (folder.children || []) : []
+  return folder ? attachCurrentFolderLocation(folder.children || [], getFolderDisplayName(folder)) : []
 })
 
-const rootFolders = computed(() => props.fileTree.filter((item) => item.type === 'folder'))
+const rootFolders = computed(() => (
+  props.fileTree
+    .filter((item) => item.type === 'folder')
+    .sort((a, b) => Number(isDefaultFolder(b)) - Number(isDefaultFolder(a)))
+))
+const sidebarFolderEntries = computed(() => {
+  const defaultFolder = rootFolders.value.find((folder) => isDefaultFolder(folder))
+  const userFolders = rootFolders.value.filter((folder) => !isDefaultFolder(folder))
+  const entries = []
+
+  if (defaultFolder) {
+    entries.push({ type: 'folder', key: defaultFolder.id, folder: defaultFolder })
+  }
+
+  if (isCreatingFolder.value) {
+    entries.push({ type: 'create', key: '__folder-create' })
+  }
+
+  userFolders.forEach((folder) => entries.push({ type: 'folder', key: folder.id, folder }))
+  return entries
+})
 const activeFolderId = computed(() => navigationStack.value.at(-1)?.id || null)
 
 const showAllFiles = () => {
@@ -104,7 +141,7 @@ const enterFolderFromSidebar = (event, folder) => {
   event.stopPropagation()
   workViewMode.value = 'folder'
   openFolderMenuId.value = null
-  navigationStack.value = [{ id: folder.id, name: folder.name }]
+  navigationStack.value = [{ id: folder.id, name: getFolderDisplayName(folder) }]
 }
 
 const startInlineFolderCreate = async () => {
@@ -197,6 +234,7 @@ const deleteFolderFromSidebar = async (folder) => {
     <HomeSidebar 
       class="relative z-10"
       :isCollapsed="isSidebarCollapsed"
+      activeView="workfolder"
       :fileTree="fileTree"
       :favorites="favorites"
       @toggle="isSidebarCollapsed = !isSidebarCollapsed"
@@ -235,56 +273,58 @@ const deleteFolderFromSidebar = async (folder) => {
         </div>
 
         <div class="copy-folder-list">
-          <div v-if="isCreatingFolder" class="copy-folder-create-row">
-            <span class="material-symbols-outlined">folder</span>
-            <input
-              ref="folderCreateInputRef"
-              v-model="draftFolderName"
-              type="text"
-              aria-label="새 폴더 이름"
-              @compositionstart="handleFolderNameCompositionStart"
-              @compositionend="handleFolderNameCompositionEnd"
-              @keydown.enter="handleFolderNameEnter"
-              @keydown.esc.prevent="cancelInlineFolderCreate"
-              @blur="handleFolderNameBlur"
-            />
-          </div>
-          <div
-            v-for="folder in rootFolders"
-            :key="folder.id"
-            :class="[
-              'copy-folder-item',
-              {
-                'is-selected': activeFolderId === folder.id,
-                'has-menu': openFolderMenuId === folder.id
-              }
-            ]"
-            role="button"
-            tabindex="0"
-            @click="enterFolderFromSidebar($event, folder)"
-            @keydown.enter.prevent="enterFolderFromSidebar($event, folder)"
-          >
-            <span class="material-symbols-outlined">folder</span>
-            <span class="copy-folder-name">{{ folder.name }}</span>
-            <button
-              class="copy-folder-more"
-              type="button"
-              aria-label="폴더 메뉴"
-              @click="toggleFolderMenu($event, folder.id)"
-            >
-              <span class="material-symbols-outlined">more_horiz</span>
-            </button>
-            <div v-if="openFolderMenuId === folder.id" class="copy-folder-menu" @click.stop>
-              <button class="copy-folder-menu-action" type="button" @click="openFolderRename(folder)">
-                <span class="material-symbols-outlined">edit</span>
-                <span>이름 변경하기</span>
-              </button>
-              <button class="copy-folder-menu-action is-danger" type="button" @click="deleteFolderFromSidebar(folder)">
-                <span class="material-symbols-outlined">delete</span>
-                <span>삭제하기</span>
-              </button>
+          <template v-for="entry in sidebarFolderEntries" :key="entry.key">
+            <div v-if="entry.type === 'create'" class="copy-folder-create-row">
+              <span class="material-symbols-outlined">folder</span>
+              <input
+                ref="folderCreateInputRef"
+                v-model="draftFolderName"
+                type="text"
+                aria-label="새 폴더 이름"
+                @compositionstart="handleFolderNameCompositionStart"
+                @compositionend="handleFolderNameCompositionEnd"
+                @keydown.enter="handleFolderNameEnter"
+                @keydown.esc.prevent="cancelInlineFolderCreate"
+                @blur="handleFolderNameBlur"
+              />
             </div>
-          </div>
+            <div
+              v-else
+              :class="[
+                'copy-folder-item',
+                {
+                  'is-selected': activeFolderId === entry.folder.id,
+                  'has-menu': openFolderMenuId === entry.folder.id
+                }
+              ]"
+              role="button"
+              tabindex="0"
+              @click="enterFolderFromSidebar($event, entry.folder)"
+              @keydown.enter.prevent="enterFolderFromSidebar($event, entry.folder)"
+            >
+              <span class="material-symbols-outlined">folder</span>
+              <span class="copy-folder-name">{{ getFolderDisplayName(entry.folder) }}</span>
+              <button
+                v-if="!isDefaultFolder(entry.folder)"
+                class="copy-folder-more"
+                type="button"
+                aria-label="폴더 메뉴"
+                @click="toggleFolderMenu($event, entry.folder.id)"
+              >
+                <span class="material-symbols-outlined">more_horiz</span>
+              </button>
+              <div v-if="openFolderMenuId === entry.folder.id" class="copy-folder-menu" @click.stop>
+                <button class="copy-folder-menu-action" type="button" @click="openFolderRename(entry.folder)">
+                  <span class="material-symbols-outlined">edit</span>
+                  <span>이름 변경하기</span>
+                </button>
+                <button class="copy-folder-menu-action is-danger" type="button" @click="deleteFolderFromSidebar(entry.folder)">
+                  <span class="material-symbols-outlined">delete</span>
+                  <span>삭제하기</span>
+                </button>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </aside>
@@ -311,6 +351,7 @@ const deleteFolderFromSidebar = async (folder) => {
         @openFileModal="openFileCreateModal"
         @toggleStar="toggleStar"
         @openItemEditModal="openItemEditModal"
+        @deleteSelectedItems="deleteItemsByIds"
         @navigate="emit('navigate', $event)"
         @openFile="(item) => { emit('fileSelect', item.id, item); emit('navigate', 'workspace') }"
       />
@@ -621,12 +662,12 @@ const deleteFolderFromSidebar = async (folder) => {
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  border: 1.5px solid var(--copy-blue);
-  border-radius: 14px;
-  background: #fff;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
   color: var(--copy-text);
   overflow: hidden;
-  box-shadow: 0 10px 20px rgba(47, 128, 237, 0.06);
+  box-shadow: none;
 }
 
 .copy-folder-create-row .material-symbols-outlined {
@@ -645,11 +686,14 @@ const deleteFolderFromSidebar = async (folder) => {
   font-size: 14px;
   font-weight: 850;
   font-family: inherit;
-  caret-color: var(--copy-blue);
+  caret-color: var(--copy-text);
   appearance: none;
+  box-shadow: none;
 }
 
-.copy-folder-create-row input::selection {
-  background: rgba(47, 128, 237, 0.16);
+.copy-folder-create-row input:focus,
+.copy-folder-create-row input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 </style>
