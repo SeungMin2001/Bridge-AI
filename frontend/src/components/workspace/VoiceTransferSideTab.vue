@@ -21,6 +21,8 @@ const isSearchOpen = ref(false)
 const searchTrigger = ref(null)
 const searchInput = ref(null)
 const searchPopoverStyle = ref({})
+const searchResultRefs = ref([])
+const activeSearchIndex = ref(0)
 const isDiarizationBootstrapping = computed(() => (
   props.diarizationEnabled && props.diarizationStatus === 'bootstrapping'
 ))
@@ -31,10 +33,11 @@ const filteredTranscriptions = computed(() => (
 ))
 const hasSearchTerm = computed(() => transSearch.value.trim().length > 0)
 const normalizedSearchTerm = computed(() => transSearch.value.trim().toLowerCase())
+const hasSearchResults = computed(() => hasSearchTerm.value && filteredTranscriptions.value.length > 0)
 const searchStatusText = computed(() => {
   if (!hasSearchTerm.value) return '검색어를 입력해주세요.'
   if (!filteredTranscriptions.value.length) return `"${transSearch.value}"에 대한 검색 결과가 없습니다`
-  return `검색 결과 ${filteredTranscriptions.value.length}개`
+  return `검색 결과 ${filteredTranscriptions.value.length}개 · ${activeSearchIndex.value + 1}/${filteredTranscriptions.value.length}`
 })
 
 // 최하단으로 스크롤 이동
@@ -50,8 +53,18 @@ const scrollToBottom = async () => {
 
 // 전사 데이터가 변경될 때마다 스크롤 이동
 watch(() => props.transcriptions, () => {
+  if (hasSearchTerm.value) {
+    scrollToSearchResult(activeSearchIndex.value, 'auto')
+    return
+  }
   scrollToBottom()
 }, { deep: true })
+
+watch([normalizedSearchTerm, () => filteredTranscriptions.value.length], () => {
+  activeSearchIndex.value = 0
+  searchResultRefs.value = []
+  if (hasSearchResults.value) scrollToSearchResult(0, 'auto')
+})
 
 onMounted(() => {
   scrollToBottom()
@@ -65,7 +78,7 @@ onUnmounted(() => {
 const updateSearchPopoverPosition = () => {
   if (!searchTrigger.value) return
   const rect = searchTrigger.value.getBoundingClientRect()
-  const width = 260
+  const width = 320
   const gap = 8
   const viewportPadding = 12
   const preferredLeft = rect.right + gap
@@ -94,7 +107,28 @@ const closeSearchPopup = () => {
 
 const clearSearch = () => {
   transSearch.value = ''
+  activeSearchIndex.value = 0
   closeSearchPopup()
+}
+
+const setSearchResultRef = (element, index) => {
+  if (element) searchResultRefs.value[index] = element
+}
+
+const scrollToSearchResult = async (index = activeSearchIndex.value, behavior = 'smooth') => {
+  if (!hasSearchResults.value) return
+  await nextTick()
+  const safeIndex = Math.min(Math.max(index, 0), filteredTranscriptions.value.length - 1)
+  activeSearchIndex.value = safeIndex
+  const target = searchResultRefs.value[safeIndex]
+  target?.scrollIntoView?.({ behavior, block: 'center' })
+}
+
+const moveSearchResult = (direction = 1) => {
+  if (!hasSearchResults.value) return
+  const count = filteredTranscriptions.value.length
+  const nextIndex = (activeSearchIndex.value + direction + count) % count
+  scrollToSearchResult(nextIndex)
 }
 
 const isSearchHighlightedWord = (word = '') => (
@@ -237,7 +271,9 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
         <div 
           v-for="(t, idx) in filteredTranscriptions" 
           :key="idx" 
+          :ref="(el) => setSearchResultRef(el, idx)"
           class="flex flex-col gap-1.5 mt-2 transcription-item-enter"
+          :class="{ 'is-active-search-result': hasSearchTerm && idx === activeSearchIndex }"
           :style="{ animationDelay: `${idx * 0.06}s` }"
         >
           <span class="text-[11px] font-bold text-[#aeaeb2] px-1.5">{{ getTranscriptionTime(t) }}</span>
@@ -291,11 +327,24 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
             placeholder="검색어를 입력해주세요"
             type="text"
             @keydown.esc="closeSearchPopup"
+            @keydown.enter.prevent="moveSearchResult($event.shiftKey ? -1 : 1)"
           />
-          <button type="button" class="transcript-search-nav" aria-label="이전 검색 결과" disabled>
+          <button
+            type="button"
+            class="transcript-search-nav"
+            aria-label="이전 검색 결과"
+            :disabled="!hasSearchResults"
+            @click="moveSearchResult(-1)"
+          >
             <span class="material-symbols-outlined">keyboard_arrow_up</span>
           </button>
-          <button type="button" class="transcript-search-nav" aria-label="다음 검색 결과" disabled>
+          <button
+            type="button"
+            class="transcript-search-nav"
+            aria-label="다음 검색 결과"
+            :disabled="!hasSearchResults"
+            @click="moveSearchResult(1)"
+          >
             <span class="material-symbols-outlined">keyboard_arrow_down</span>
           </button>
           <button type="button" class="transcript-search-close" aria-label="검색 닫기" @click="clearSearch">
@@ -526,6 +575,11 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   border-color: rgba(220, 216, 227, 0.98);
 }
 
+.is-active-search-result .voice-message-bubble {
+  border-color: rgba(47, 128, 237, 0.72);
+  box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.12), 0 14px 30px rgba(47, 128, 237, 0.08);
+}
+
 .transcript-search-anchor {
   position: relative;
   z-index: 12;
@@ -630,6 +684,11 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 .transcript-search-nav:disabled {
   opacity: 0.7;
   cursor: default;
+}
+
+.transcript-search-nav:not(:disabled):hover {
+  color: #15161a;
+  background: rgba(229, 226, 235, 0.72);
 }
 
 .transcript-search-close:hover {
