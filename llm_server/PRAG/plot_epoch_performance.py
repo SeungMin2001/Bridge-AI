@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import re
 import subprocess
 import sys
@@ -164,7 +165,13 @@ def plot_objective_axis(ax, *, qp_log: str, ponly_log: str, colors: dict[str, st
     ax.set_ylabel("Objective Loss (log scale)")
     if qp_loss or ponly_loss:
         ax.set_yscale("log")
-        ax.set_ylim(1e-10, 1e6)
+        positive = [v for v in qp_loss + ponly_loss if v > 0]
+        if positive:
+            # Use a data-driven log range so the paper figure shows the full
+            # decline while avoiding excessive empty space above and below.
+            lower = 10 ** (math.floor(math.log10(min(positive))) - 0.35)
+            upper = 10 ** (math.ceil(math.log10(max(positive))) + 0.15)
+            ax.set_ylim(lower, upper)
     style_axis(ax)
     ax.grid(True, which="both", alpha=0.22)
     if has_lines:
