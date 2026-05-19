@@ -352,7 +352,9 @@ onUnmounted(() => {
     }"
   >
     <div class="copy-rail-inner" aria-label="주 메뉴">
-      <button class="copy-rail-logo" type="button" aria-label="홈" @click="emit('navigate', 'home')">da</button>
+      <button class="copy-rail-logo" type="button" aria-label="홈" @click="emit('navigate', 'home')">
+        <span class="material-symbols-outlined" aria-hidden="true">menu_book</span>
+      </button>
 
       <nav class="copy-rail-nav">
         <button
@@ -399,7 +401,6 @@ onUnmounted(() => {
 
       <div class="copy-rail-bottom">
         <span class="material-symbols-outlined">person</span>
-        <span class="copy-free-badge">Free</span>
       </div>
     </div>
 
@@ -692,21 +693,22 @@ onUnmounted(() => {
 }
 
 .copy-rail-logo {
-  width: 46px;
-  height: 46px;
+  width: 43px;
+  height: 43px;
   margin: 0 0 76px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 15px;
+  border-radius: 13px;
   background: var(--copy-black);
   color: #fff;
   box-shadow: 0 12px 26px rgba(21, 22, 26, 0.14);
-  font-size: 23px;
-  line-height: 1;
-  font-weight: 950;
-  letter-spacing: -0.08em;
   cursor: pointer;
+}
+
+.copy-rail-logo .material-symbols-outlined {
+  font-size: 24px;
+  font-variation-settings: 'FILL' 0, 'wght' 450, 'GRAD' 0, 'opsz' 24;
 }
 
 .copy-rail-nav {
@@ -758,19 +760,6 @@ onUnmounted(() => {
 
 .copy-rail-bottom .material-symbols-outlined {
   font-size: 18px;
-}
-
-.copy-free-badge {
-  min-width: 54px;
-  height: 26px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 999px;
-  background: #fff;
-  color: var(--copy-black);
-  box-shadow: 0 12px 24px rgba(48, 42, 58, 0.08);
-  font-size: 12px;
-  font-weight: 900;
 }
 
 .home-sidebar-kind-badge {
