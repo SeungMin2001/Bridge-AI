@@ -110,7 +110,7 @@ def moving_average(values: list[float], window: int) -> list[float]:
     return smoothed
 
 
-def read_loss_curve(path: str | Path, *, smooth: int = 800) -> tuple[list[float], list[float]]:
+def read_loss_curve(path: str | Path, *, smooth: int = 200) -> tuple[list[float], list[float]]:
     log_path = Path(path)
     if not str(path) or not log_path.exists():
         return [], []
@@ -154,18 +154,26 @@ def plot_objective_axis(ax, *, qp_log: str, ponly_log: str, colors: dict[str, st
     qp_x, qp_loss = read_loss_curve(qp_log)
     ponly_x, ponly_loss = read_loss_curve(ponly_log)
     has_lines = False
+    to_display = lambda values: [math.sqrt(max(v, 0.0)) for v in values]
     if qp_x and qp_loss:
-        ax.plot(qp_x, qp_loss, color=colors["qp"], linewidth=2.2, label="Question+Passage")
+        ax.plot(qp_x, to_display(qp_loss), color=colors["qp"], linewidth=2.2, label="Question+Passage")
         has_lines = True
     if ponly_x and ponly_loss:
-        ax.plot(ponly_x, ponly_loss, color=colors["ponly"], linewidth=2.2, label="Passage-only")
+        ax.plot(ponly_x, to_display(ponly_loss), color=colors["ponly"], linewidth=2.2, label="Passage-only")
         has_lines = True
     ax.set_title("(a) Training Objective")
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss")
+    ax.set_ylabel("Loss (sqrt scale)")
     if qp_loss or ponly_loss:
         max_loss = max(qp_loss + ponly_loss)
-        ax.set_ylim(-max_loss * 0.05, max_loss * 1.08)
+        max_display = math.sqrt(max(max_loss, 0.0))
+        ax.set_ylim(-max_display * 0.04, max_display * 1.08)
+        raw_ticks = [0, 1e-3, 1e-2, 1e-1, 1, 5, 10, 20, 30]
+        ticks = [t for t in raw_ticks if t <= max_loss * 1.10]
+        if max_loss > ticks[-1]:
+            ticks.append(max_loss)
+        ax.set_yticks([math.sqrt(t) for t in ticks])
+        ax.set_yticklabels([f"{t:g}" for t in ticks])
     style_axis(ax)
     ax.grid(True, which="both", alpha=0.22)
     if has_lines:
