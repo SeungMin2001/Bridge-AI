@@ -7,6 +7,7 @@ LLM에게 전달할 최종 prompt와 프론트에 보여줄 citations를 만듭�
 import json
 import logging
 import os
+import re
 
 from rag_search import search as rag_search
 
@@ -17,6 +18,64 @@ CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "5"))
 CHAT_SELECTED_MATERIAL_CONTEXT_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_CHARS", "12000"))
 CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS", "4000"))
 CHAT_WORKSPACE_INVENTORY_MAX_ITEMS = int(os.getenv("CHAT_WORKSPACE_INVENTORY_MAX_ITEMS", "40"))
+_ALNUM_TERM_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+#.-]*")
+_LOCATOR_SUBJECT_STOPWORDS = {
+    "혹시",
+    "무엇",
+    "뭐",
+    "어디",
+    "어느",
+    "위치",
+    "찾",
+    "찾아",
+    "검색",
+    "언급",
+    "부분",
+    "구간",
+    "파일",
+    "녹음",
+    "녹음본",
+    "전사",
+    "자료",
+    "내용",
+    "말",
+    "나오",
+    "포함",
+    "포함되",
+    "있는",
+    "있어",
+    "관련",
+    "해당",
+    "대한",
+    "대해",
+    "대해서",
+    "특정",
+    "단어",
+    "표현",
+    "키워드",
+    "근거",
+    "링크",
+    "보여",
+}
+_GROUNDED_CONTENT_QUESTION_TERMS = (
+    "누구",
+    "무엇",
+    "뭐야",
+    "뭐여",
+    "뭐냐",
+    "뭐임",
+    "뭐에요",
+    "뭐예요",
+    "뭔가",
+    "뭔데",
+    "무슨",
+    "의미",
+    "정의",
+    "설명",
+    "알려",
+    "개념",
+    "뜻",
+)
 
 
 async def build_prompt_and_citations(
@@ -36,7 +95,8 @@ async def build_prompt_and_citations(
     context = rag_result["context"]
     citations = rag_result["citations"]
 
-    if has_selected_material and not _has_material_citation(citations):
+    use_material_fallback = has_selected_material and _should_use_material_fallback(question, context)
+    if use_material_fallback and not _has_material_citation(citations):
         material_context, material_citations = await _build_material_context_fallback(
             question,
             session_id,
@@ -60,20 +120,59 @@ async def build_prompt_and_citations(
     )
 
     if reference_context:
+        reference_intro = (
+            "다음은 현재 워크스페이스 파일의 저장 목록과 강의 내용에서 검색된 참고자료입니다"
+            if inventory_context
+            else (
+                "다음은 워크스페이스 전체 강의 내용에서 검색된 참고자료입니다"
+                if not session_id
+                else "다음은 현재 워크스페이스 파일의 강의 내용에서 검색된 참고자료입니다"
+            )
+        )
+        inventory_instruction = (
+            "사용자가 현재 파일에 저장된 자료/녹음본 목록, 개수, 이름을 물으면 "
+            "[현재 워크스페이스 파일 저장 목록]을 우선 기준으로 답하세요. "
+            "저장 목록은 강의 내용 근거가 아니라 파일명/메타데이터 목록입니다. "
+            if inventory_context
+            else ""
+        )
+        scope_instruction = (
+            "사용자가 파일 위치나 어느 파일에 언급됐는지 물으면 [검색된 참고자료]의 파일명, 녹음본명, 시간 범위를 기준으로 답하세요. "
+            if not session_id
+            else ""
+        )
+        scope_boundary_instruction = (
+            "검색된 참고자료 밖의 내용은 추측하지 마세요. "
+            if not session_id
+            else "선택된 PDF/녹음본 밖의 내용은 추측하지 마세요. "
+        )
+        missing_locator_note = (
+            "사용자가 특정 표현/주제/파일이 어디에 언급됐는지 묻는데 [검색된 참고자료]가 없으면, "
+            "저장 목록이나 파일명만 보고 있다고 추측하지 말고 현재 선택된 파일에서 해당 언급을 찾지 못했다고 답하세요. "
+            if _is_locator_question(question) and not context
+            else ""
+        )
         missing_selected_material_note = (
             "현재 선택된 PDF에 대해 질문과 직접 관련된 근거 페이지를 찾지 못했습니다. "
             "저장 목록은 파일명/개수/시간 같은 메타데이터만 담고 있으므로, PDF 내용 질문이면 근거를 찾지 못했다고 답하세요. "
             if has_selected_material and not context
             else ""
         )
+        grounded_answer_instruction = (
+            "사용자가 인물/용어의 정체나 의미를 물으면 [검색된 참고자료]에 직접 나온 표현만 요약하세요. "
+            "소속, 직함, 역할이 명시되지 않았으면 단정하지 말고 '강의에서는 ...로 언급됩니다' 형식으로 답하세요. "
+            if _is_grounded_content_question(question)
+            else ""
+        )
         prompt = (
-            f"다음은 현재 워크스페이스 파일의 저장 목록과 강의 내용에서 검색된 참고자료입니다:\n\n{reference_context}\n\n"
-            f"사용자가 현재 파일에 저장된 자료/녹음본 목록, 개수, 이름을 물으면 "
-            f"[현재 워크스페이스 파일 저장 목록]을 우선 기준으로 답하세요. "
-            f"저장 목록은 강의 내용 근거가 아니라 파일명/메타데이터 목록입니다. "
+            f"{reference_intro}:\n\n{reference_context}\n\n"
+            f"{inventory_instruction}"
+            f"{scope_instruction}"
             f"{missing_selected_material_note}"
+            f"{missing_locator_note}"
+            f"{grounded_answer_instruction}"
             f"사용자가 강의 내용, PDF 페이지, 전사 내용의 의미를 물으면 [검색된 참고자료]를 바탕으로 답변하세요. "
-            f"선택된 PDF/녹음본 밖의 내용은 추측하지 마세요. "
+            f"{scope_boundary_instruction}"
             f"PDF 근거가 있으면 자료명과 p.페이지 번호를 답변 본문에 반드시 포함하세요. "
             f"페이지 위치를 묻는 질문이면 관련 페이지 번호를 먼저 답하세요. "
             f"답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
@@ -83,6 +182,18 @@ async def build_prompt_and_citations(
         prompt = (
             "사용자가 PDF 자료를 선택했지만, 선택된 PDF 안에서 질문과 직접 관련된 근거 페이지를 찾지 못했습니다. "
             "외부 웹사이트나 일반 지식으로 대체하지 말고, 선택된 PDF에서 근거를 찾지 못했다고 짧게 답하세요.\n\n"
+            f"질문: {question}"
+        )
+    elif _is_locator_question(question):
+        prompt = (
+            "워크스페이스 전체에서 질문과 직접 관련된 검색 근거를 찾지 못했습니다. "
+            "파일명이나 일반 지식으로 추측하지 말고, 저장된 자료/녹음본에서 해당 언급을 찾지 못했다고 짧게 답하세요.\n\n"
+            f"질문: {question}"
+        )
+    elif _is_grounded_content_question(question):
+        prompt = (
+            "워크스페이스 전체에서 질문과 직접 관련된 검색 근거를 찾지 못했습니다. "
+            "외부 지식이나 추측으로 답하지 말고, 저장된 자료/녹음본에서 관련 근거를 찾지 못했다고 짧게 답하세요.\n\n"
             f"질문: {question}"
         )
     else:
@@ -118,6 +229,194 @@ def source_filter_has_material(source_filter: dict | None) -> bool:
     if not isinstance(source_filter, dict):
         return False
     return bool(source_filter.get("material_ids") or source_filter.get("stored_names"))
+
+
+def build_direct_locator_answer(question: str, citations: list[dict]) -> str | None:
+    """언급 위치 찾기 질문은 citation 메타데이터만으로 짧고 안정적인 답변을 만듭니다."""
+    if not _is_locator_question(question):
+        return None
+
+    transcript_citations = [
+        cite for cite in citations or []
+        if (cite or {}).get("source_type", "transcript") == "transcript"
+    ]
+    if not transcript_citations:
+        return None
+
+    first = transcript_citations[0]
+    subject = _extract_locator_subject(question)
+    source_label = _locator_source_label(first)
+    time_range = _format_citation_time_range(first)
+
+    if not source_label or not time_range:
+        return None
+
+    return f"{subject}는 {source_label}에서 언급됩니다.\n해당 구간은 {time_range}입니다."
+
+
+def build_direct_no_evidence_answer(question: str, citations: list[dict]) -> str | None:
+    """근거 기반 질문인데 citation이 없으면 LLM 호출 없이 '찾지 못함'으로 답합니다."""
+    if citations:
+        return None
+    if not (_is_locator_question(question) or _is_grounded_content_question(question)):
+        return None
+    return "저장된 자료/녹음본에서 질문과 직접 관련된 근거를 찾지 못했습니다."
+
+
+def _is_locator_question(question: str) -> bool:
+    """특정 표현이 어느 파일/녹음/자료에 있는지 묻는 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+
+    locator_terms = ("어디", "어느", "몇 분", "몇초", "몇 초", "위치", "찾", "검색", "근거", "링크", "보여")
+    mention_terms = ("언급", "나오", "포함", "있어", "있는", "말했", "다룬", "등장")
+    strong_mention_terms = ("언급", "나오", "포함", "말했", "다룬", "등장")
+    target_terms = ("파일", "녹음", "전사", "자료", "내용", "부분", "구간", "문장", "대목")
+    has_subject_hint = bool(_extract_lookup_subjects(text) or _ALNUM_TERM_RE.search(text))
+    has_locator = any(term in text for term in locator_terms)
+    has_mention = any(term in text for term in mention_terms)
+    has_strong_mention = any(term in text for term in strong_mention_terms)
+    has_target = any(term in text for term in target_terms)
+
+    return (
+        has_subject_hint
+        and has_mention
+        and (has_locator or has_target or has_strong_mention or "에 대한" in text or "에대한" in text or "라고" in text)
+    )
+
+
+def _is_grounded_content_question(question: str) -> bool:
+    """저장된 강의/PDF/전사 내용의 의미나 정체를 묻는 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+    if not any(term in text for term in _GROUNDED_CONTENT_QUESTION_TERMS):
+        return False
+    return bool(_extract_lookup_subjects(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _should_use_material_fallback(question: str, transcript_context: str) -> bool:
+    """PDF 내용 질문일 때만 선택 PDF fallback을 붙입니다."""
+    text = str(question or "").lower()
+    material_terms = (
+        "pdf",
+        "페이지",
+        "page",
+        "p.",
+        "자료",
+        "강의자료",
+        "슬라이드",
+        "파일",
+        "문서",
+    )
+    has_material_signal = any(term in text for term in material_terms)
+    if has_material_signal:
+        return True
+
+    # 전사 근거가 이미 있으면 PDF 전체/페이지 fallback을 추가하지 않는다.
+    if transcript_context:
+        return False
+
+    return not _is_grounded_content_question(question)
+
+
+def _extract_locator_subject(question: str) -> str:
+    """질문에서 사용자가 찾으려는 표현명을 추출합니다."""
+    text = str(question or "").strip()
+    lookup_subjects = _extract_lookup_subjects(text)
+    if lookup_subjects:
+        return lookup_subjects[0]
+
+    alnum_terms = _ALNUM_TERM_RE.findall(text)
+    if alnum_terms:
+        return alnum_terms[0]
+
+    quoted_match = re.search(r"['\"“”‘’](.+?)['\"“”‘’]", text)
+    if quoted_match:
+        return quoted_match.group(1).strip()
+
+    marker_match = re.search(r"(.+?)(?:라고|이라는|라는|에 대한|에대한|이 어디|가 어디|은 어디|는 어디)", text)
+    if marker_match:
+        candidate = re.sub(r"^(혹시|그럼|그러면|저기|혹은)\s*", "", marker_match.group(1)).strip()
+        if candidate:
+            return candidate
+
+    return "질문하신 내용"
+
+
+def _clean_lookup_subject(value: str) -> str:
+    """질문에서 추출한 표현의 앞뒤 조사와 불필요한 말을 정리합니다."""
+    subject = re.sub(r"^(혹시|그럼|그러면|저기|혹은|그|이|저)\s*", "", str(value or "")).strip()
+    subject = re.sub(r"[\s,.:;!?？]+$", "", subject).strip()
+    subject = re.sub(r"(은|는|이|가|을|를|에|에서|으로|로|도|만)$", "", subject).strip()
+    return subject
+
+
+def _append_lookup_subject(subjects: list[str], value: str):
+    subject = _clean_lookup_subject(value)
+    if len(subject) < 2:
+        return
+    if subject.lower() in _LOCATOR_SUBJECT_STOPWORDS or subject in _LOCATOR_SUBJECT_STOPWORDS:
+        return
+    if subject not in subjects:
+        subjects.append(subject)
+
+
+def _extract_lookup_subjects(question: str) -> list[str]:
+    """언급/근거 찾기 질문에서 실제 찾으려는 표현을 추출합니다."""
+    text = " ".join(str(question or "").split())
+    subjects: list[str] = []
+
+    for match in re.finditer(r"['\"“”‘’](.+?)['\"“”‘’]", text):
+        _append_lookup_subject(subjects, match.group(1))
+
+    marker_patterns = (
+        r"([A-Za-z][A-Za-z0-9_+#.-]*|[가-힣A-Za-z0-9_+#.-]{2,30})\s*(?:에\s*대한|에대한|에\s*대해|에대해|에\s*대해서|에대해서)",
+        r"([A-Za-z][A-Za-z0-9_+#.-]*|[가-힣A-Za-z0-9_+#.-]{2,30})\s*(?:라고|이라는|라는)",
+        r"(?:단어|표현|키워드)\s*[\"'“”‘’]?\s*([A-Za-z][A-Za-z0-9_+#.-]*|[가-힣A-Za-z0-9_+#.-]{2,30})",
+    )
+    for pattern in marker_patterns:
+        for match in re.finditer(pattern, text):
+            _append_lookup_subject(subjects, match.group(1))
+
+    if subjects:
+        return subjects
+
+    for match in re.finditer(r"[A-Za-z][A-Za-z0-9_+#.-]*|[가-힣A-Za-z0-9_+#.-]{2,30}", text):
+        _append_lookup_subject(subjects, match.group(0))
+
+    return subjects
+
+
+def _format_seconds(seconds) -> str:
+    """초 단위 숫자를 m:ss 문자열로 변환합니다."""
+    try:
+        total_seconds = max(0, int(float(seconds or 0)))
+    except (TypeError, ValueError):
+        total_seconds = 0
+    return f"{total_seconds // 60}:{total_seconds % 60:02d}"
+
+
+def _format_citation_time_range(citation: dict) -> str:
+    """전사 citation의 start/end 값을 화면 답변용 시간 범위로 변환합니다."""
+    if citation.get("start_time") is None or citation.get("end_time") is None:
+        return ""
+    return f"{_format_seconds(citation.get('start_time'))}~{_format_seconds(citation.get('end_time'))}"
+
+
+def _locator_source_label(citation: dict) -> str:
+    """언급 위치 답변에 사용할 녹음본/파일명을 고릅니다."""
+    label = _compact_chat_text(
+        citation.get("recording_title")
+        or citation.get("session_title")
+        or citation.get("file_title")
+        or citation.get("citation"),
+        "녹음본",
+    )
+    if "녹음" not in label:
+        label = f"{label} 녹음본"
+    return label
 
 
 async def _build_material_context_fallback(
