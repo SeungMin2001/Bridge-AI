@@ -44,7 +44,8 @@ LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "4096"))
 
 #  LLM 프롬프트 템플릿
 QUIZ_SYSTEM_PROMPT = """당신은 대학 강의 내용을 기반으로 학습 퀴즈를 만드는 AI 교수입니다.
-반드시 아래 JSON 형식으로만 응답하세요. JSON 외의 텍스트는 절대 포함하지 마세요."""
+반드시 아래 JSON 형식으로만 응답하세요. JSON 외의 텍스트는 절대 포함하지 마세요.
+문제는 학습자가 실제로 복습할 수 있는 핵심 사실, 개념, 관계, 조건을 물어야 합니다."""
 
 QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 
@@ -56,6 +57,15 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 - MULTIPLE_CHOICE (객관식, 3~4지선다): {mc_count}개
 - OX (O/X 퀴즈): {ox_count}개
 - SHORT_ANSWER (단답형): {sa_count}개
+
+생성 규칙:
+- 제공된 강의 내용에 명시된 사실만 사용하고, 외부 지식을 추가하지 마세요.
+- 같은 질문이나 거의 같은 질문을 반복하지 마세요.
+- 자료의 단순 제목/라벨/단어만 보고 "'제목'의 의미는 무엇입니까?" 같은 빈약한 문제를 만들지 마세요.
+- MULTIPLE_CHOICE는 options를 반드시 3~4개 작성하고 correct_answer는 options 중 정확히 하나와 완전히 같아야 합니다.
+- OX는 반드시 참/거짓을 판단할 수 있는 평서문으로 작성하세요. "무엇입니까?", "어디입니까?", "왜입니까?" 같은 의문문은 OX로 만들면 안 됩니다.
+- OX의 options는 반드시 ["O", "X"]이고 correct_answer는 반드시 "O" 또는 "X"입니다.
+- SHORT_ANSWER는 options를 []로 두고, correct_answer는 짧은 핵심 답안으로 작성하세요.
 
 반드시 아래 JSON 배열 형식으로만 응답하세요:
 [
@@ -70,7 +80,7 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
   {{
     "question_index": 2,
     "type": "OX",
-    "question": "O/X 질문 텍스트",
+    "question": "O/X 평서문 텍스트",
     "options": ["O", "X"],
     "correct_answer": "X",
     "explanation": "해설 텍스트"
@@ -84,6 +94,31 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
     "explanation": "해설 텍스트"
   }}
 ]"""
+
+QUIZ_REPAIR_PROMPT_TEMPLATE = """아래 퀴즈 JSON은 품질 검증에 실패했습니다.
+문제점을 고쳐서 유효한 JSON 배열만 다시 응답하세요.
+
+[원본 강의 내용]
+{transcript_text}
+
+[필수 문항 수]
+- MULTIPLE_CHOICE: {mc_count}개
+- OX: {ox_count}개
+- SHORT_ANSWER: {sa_count}개
+
+[검증 실패 사유]
+{issues}
+
+[수정할 JSON]
+{quiz_json}
+
+수정 규칙:
+- OX는 반드시 참/거짓 평서문이어야 하며 options는 ["O", "X"]입니다.
+- 객관식은 options 3~4개와 그중 하나와 완전히 같은 correct_answer가 필요합니다.
+- 단답형은 options를 []로 두세요.
+- JSON 외 텍스트는 쓰지 마세요."""
+
+_OX_INTERROGATIVE_RE = re.compile(r"(무엇|어떤|어디|왜|어떻게|입니까|인가요|일까요|까요|[?？])")
 
 
 def _calculate_type_distribution(num_questions: int) -> tuple[int, int, int]:
@@ -244,6 +279,7 @@ def _coerce_quiz_questions(parsed: object) -> list[dict]:
         next_question = dict(question)
         next_question.setdefault("question_index", index)
         next_question.setdefault("type", "MULTIPLE_CHOICE")
+        next_question["type"] = _normalize_quiz_type(next_question.get("type"))
         next_question.setdefault("question", "")
         next_question.setdefault("correct_answer", "")
         next_question.setdefault("user_answer", None)
@@ -255,14 +291,80 @@ def _coerce_quiz_questions(parsed: object) -> list[dict]:
             options = [options]
         elif not isinstance(options, list):
             options = []
-        if next_question["type"] == "OX" and not options:
+        if next_question["type"] == "OX":
             options = ["O", "X"]
+            if str(next_question.get("correct_answer") or "").upper() in {"O", "X"}:
+                next_question["correct_answer"] = str(next_question["correct_answer"]).upper()
         if next_question["type"] == "SHORT_ANSWER":
             options = []
         next_question["options"] = options
         normalized_questions.append(next_question)
 
     return normalized_questions
+
+
+def _normalize_quiz_type(value) -> str:
+    """LLM이 흔히 섞어 쓰는 문항 타입 표기를 내부 타입으로 정규화합니다."""
+    normalized = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "MC": "MULTIPLE_CHOICE",
+        "MULTIPLE": "MULTIPLE_CHOICE",
+        "MULTIPLE_CHOICE": "MULTIPLE_CHOICE",
+        "객관식": "MULTIPLE_CHOICE",
+        "O/X": "OX",
+        "OX": "OX",
+        "TRUE_FALSE": "OX",
+        "TRUE/FALSE": "OX",
+        "단답형": "SHORT_ANSWER",
+        "SHORT": "SHORT_ANSWER",
+        "SHORT_ANSWER": "SHORT_ANSWER",
+    }
+    return aliases.get(normalized, "MULTIPLE_CHOICE")
+
+
+def _validate_quiz_quality(quiz_data: list[dict], expected_counts: dict[str, int]) -> list[str]:
+    """생성된 퀴즈가 프론트에서 풀 수 있는 형태인지 검증합니다."""
+    issues = []
+    seen_questions = set()
+    actual_counts = count_quiz_types(quiz_data)
+
+    for key, expected in expected_counts.items():
+        if actual_counts.get(key, 0) != expected:
+            issues.append(f"{key} 문항 수가 요청({expected})과 다릅니다: {actual_counts.get(key, 0)}개")
+
+    for index, question in enumerate(quiz_data, start=1):
+        question_type = question.get("type")
+        question_text = " ".join(str(question.get("question") or "").split())
+        options = question.get("options") if isinstance(question.get("options"), list) else []
+        correct_answer = str(question.get("correct_answer") or "").strip()
+
+        if not question_text:
+            issues.append(f"{index}번 문항 질문이 비어 있습니다.")
+        elif question_text in seen_questions:
+            issues.append(f"{index}번 문항이 이전 문항과 중복됩니다.")
+        seen_questions.add(question_text)
+
+        if question_type == "MULTIPLE_CHOICE":
+            if len(options) < 3:
+                issues.append(f"{index}번 객관식 문항의 보기가 3개 미만입니다.")
+            if correct_answer not in options:
+                issues.append(f"{index}번 객관식 문항의 correct_answer가 options 중 하나와 일치하지 않습니다.")
+        elif question_type == "OX":
+            if options != ["O", "X"]:
+                issues.append(f"{index}번 O/X 문항의 options가 ['O', 'X']가 아닙니다.")
+            if correct_answer not in {"O", "X"}:
+                issues.append(f"{index}번 O/X 문항의 correct_answer가 O 또는 X가 아닙니다.")
+            if _OX_INTERROGATIVE_RE.search(question_text):
+                issues.append(f"{index}번 O/X 문항이 참/거짓 평서문이 아니라 의문문입니다.")
+        elif question_type == "SHORT_ANSWER":
+            if options:
+                issues.append(f"{index}번 단답형 문항의 options는 비어 있어야 합니다.")
+            if not correct_answer:
+                issues.append(f"{index}번 단답형 문항의 correct_answer가 비어 있습니다.")
+        else:
+            issues.append(f"{index}번 문항 타입이 지원되지 않습니다: {question_type}")
+
+    return issues
 
 
 def _parse_quiz_json(raw_text: str) -> list[dict]:
@@ -368,6 +470,41 @@ async def generate_quiz(
                 raw_answer = repair_data["choices"][0]["message"]["content"]
                 logger.info(f"[QUIZ] LLM 복구 응답 수신: {len(raw_answer)} chars")
                 quiz_data = _parse_quiz_json(raw_answer)
+
+            quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
+            if quality_issues:
+                logger.warning("[QUIZ] 퀴즈 품질 검증 실패, 재작성 요청: %s", "; ".join(quality_issues[:5]))
+                repair_prompt = QUIZ_REPAIR_PROMPT_TEMPLATE.format(
+                    transcript_text=transcript_text[:6000],
+                    mc_count=normalized_counts["MULTIPLE_CHOICE"],
+                    ox_count=normalized_counts["OX"],
+                    sa_count=normalized_counts["SHORT_ANSWER"],
+                    issues="\n".join(f"- {issue}" for issue in quality_issues[:12]),
+                    quiz_json=json.dumps(quiz_data, ensure_ascii=False, indent=2),
+                )
+                repair_res = await client.post(
+                    f"{LLM_URL}/v1/chat/completions",
+                    json={
+                        "model": LLM_MODEL,
+                        "messages": [
+                            {"role": "system", "content": QUIZ_SYSTEM_PROMPT},
+                            {"role": "user", "content": repair_prompt},
+                        ],
+                        "max_tokens": max_tokens,
+                        "temperature": 0.0,
+                        "chat_template_kwargs": {"enable_thinking": False},
+                    },
+                    headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+                )
+                repair_res.raise_for_status()
+                repair_data = repair_res.json()
+                raw_answer = repair_data["choices"][0]["message"]["content"]
+                logger.info(f"[QUIZ] 퀴즈 품질 재작성 응답 수신: {len(raw_answer)} chars")
+                quiz_data = _parse_quiz_json(raw_answer)
+
+                quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
+                if quality_issues:
+                    raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
 
         logger.info(f"[QUIZ] {len(quiz_data)}개 문제 파싱 완료")
         return quiz_data
