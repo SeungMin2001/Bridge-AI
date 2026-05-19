@@ -2,6 +2,12 @@
 <script setup>
 import { ref, defineEmits, nextTick } from 'vue'
 import MultimodalInput from './MultimodalInput.vue'
+import { marked } from 'marked'
+
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
 
 const props = defineProps({
   recentFiles: { type: Array, default: () => [] }
@@ -79,6 +85,14 @@ const cleanAssistantContent = (content = '') => {
     .replace(/\s*\[출처\s*\d+\]/g, '')
     .replace(/\s*\[출처[:：]?[^\]]*\]\s*$/i, '')
     .trim()
+}
+
+const isAssistantTyping = (msg = {}) => {
+  return msg.role === 'assistant' && msg.phase === 'streaming' && !cleanAssistantContent(msg.content).trim()
+}
+
+const renderAssistantContent = (content = '') => {
+  return marked.parse(cleanAssistantContent(content) || '')
 }
 
 const mapCitationsToReferences = (citations = []) => {
@@ -247,41 +261,43 @@ const onStopGenerating = () => {
       <div v-if="messages.length > 0" 
            ref="chatScrollRef"
            class="absolute inset-0 overflow-y-auto px-4 w-full flex flex-col items-center custom-scrollbar z-10">
-        <div class="w-full max-w-[700px] flex flex-col gap-6 pt-12 pb-[160px]">
+        <div class="w-full max-w-[700px] flex flex-col gap-8 pt-12 pb-[160px]">
           
           <div v-for="(msg, idx) in messages" :key="idx" 
-               :class="['flex w-full gap-3', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row items-start']">
-            
-            <!-- AI Avatar (Animating when it's the latest message being generated) -->
-            <div v-if="msg.role === 'assistant'" class="flex-shrink-0 mt-1">
-              <div :class="[
-                'w-8 h-8 rounded-full bg-[#4f46e5] flex items-center justify-center border border-indigo-200/70 overflow-hidden',
-                isGenerating && idx === messages.length - 1 ? 'ring-2 ring-indigo-400/30' : ''
-              ]">
-                <span :class="[
-                  'material-symbols-outlined text-[18px] text-white',
-                  isGenerating && idx === messages.length - 1 ? 'animate-spin-slow' : ''
-                ]" style="font-variation-settings: 'FILL' 1">auto_awesome</span>
+               :class="['flex w-full', msg.role === 'user' ? 'justify-end' : 'justify-start']">
+
+            <div v-if="isAssistantTyping(msg)" class="home-chat-typing-shell">
+              <div class="home-typing-dots" role="status" aria-label="답변 생성 중">
+                <span></span>
+                <span></span>
+                <span></span>
               </div>
             </div>
 
-            <!-- Message Bubble -->
-            <div :class="[
-              'home-chat-bubble max-w-[85%] rounded-[24px] px-5 py-4 text-[15px] leading-relaxed break-words',
-              msg.role === 'user' 
-                ? 'home-chat-bubble-user text-white rounded-tr-none' 
-                : 'home-chat-bubble-assistant text-[#1e293b] rounded-tl-none',
-              msg.role === 'assistant' && msg.isRevealing ? 'reveal-message' : ''
-            ]">
+            <div
+              v-else-if="msg.role === 'user'"
+              class="home-chat-bubble home-chat-bubble-user max-w-[85%] rounded-[18px] px-4 py-2.5 text-[14px] leading-relaxed break-words"
+            >
               <div v-if="msg.attachments?.length" class="flex gap-2 mb-3">
                 <div v-for="att in msg.attachments" :key="att.url" class="w-14 h-14 rounded-lg overflow-hidden border border-black/10">
                   <img :src="att.url" class="w-full h-full object-cover" />
                 </div>
               </div>
-              <div :class="['whitespace-pre-wrap', msg.isRevealing ? 'reveal-content' : '']">{{ msg.role === 'assistant' ? cleanAssistantContent(msg.content) : msg.content }}</div>
-              
+              <div class="whitespace-pre-wrap">{{ msg.content }}</div>
+            </div>
+
+            <article
+              v-else
+              class="home-assistant-response"
+              :class="{ 'reveal-message': msg.isRevealing }"
+            >
+              <div
+                :class="['home-assistant-markdown', msg.isRevealing ? 'reveal-content' : '']"
+                v-html="renderAssistantContent(msg.content)"
+              ></div>
+
               <!-- Reference Links -->
-              <div v-if="msg.phase === 'done' && msg.references && msg.references.length > 0" :class="['mt-4 pt-4 border-t border-black/10', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
+              <div v-if="msg.phase === 'done' && msg.references && msg.references.length > 0" :class="['home-answer-references', msg.isRevealing ? 'reveal-content reveal-delay-2' : '']">
                 <button
                   type="button"
                   class="home-reference-toggle"
@@ -312,22 +328,19 @@ const onStopGenerating = () => {
                   </button>
                 </div>
               </div>
-            </div>
+            </article>
           </div>
 
           <!-- Thinking Dots Animation (Shown before the AI message starts typing) -->
           <Transition name="fade-fast">
             <div v-if="isGenerating && messages.length > 0 && messages[messages.length-1].role === 'user'" 
                  class="flex w-full gap-3 flex-row items-start">
-              <div class="flex-shrink-0 mt-1">
-                <div class="w-8 h-8 rounded-full bg-[#4f46e5] flex items-center justify-center border border-indigo-200/70 ring-2 ring-indigo-400/30 overflow-hidden animate-pulse-slow">
-                  <span class="material-symbols-outlined text-[18px] text-white animate-spin-slow" style="font-variation-settings: 'FILL' 1">auto_awesome</span>
+              <div class="home-chat-typing-shell">
+                <div class="home-typing-dots" role="status" aria-label="답변 생성 중">
+                  <span></span>
+                  <span></span>
+                  <span></span>
                 </div>
-              </div>
-              <div class="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl rounded-tl-none px-6 py-4 flex items-center gap-1.5">
-                <div class="thinking-dot w-1.5 h-1.5 bg-indigo-400 rounded-full animate-thinking-dot"></div>
-                <div class="thinking-dot w-1.5 h-1.5 bg-indigo-500 rounded-full animate-thinking-dot [animation-delay:0.2s]"></div>
-                <div class="thinking-dot w-1.5 h-1.5 bg-indigo-600 rounded-full animate-thinking-dot [animation-delay:0.4s]"></div>
               </div>
             </div>
           </Transition>
@@ -585,8 +598,125 @@ const onStopGenerating = () => {
 }
 
 .home-chat-bubble-user {
-  background: var(--copy-black);
-  border-color: var(--copy-black);
+  color: #fff;
+  background: linear-gradient(160deg, rgba(55, 53, 73, 0.94), rgba(34, 42, 68, 0.9));
+  border-color: transparent;
+  border-bottom-right-radius: 4px;
+  box-shadow: none;
+}
+
+.home-assistant-response {
+  width: 100%;
+  margin-left: 0;
+  padding-top: 18px;
+  color: var(--copy-text);
+}
+
+.home-assistant-markdown {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.78;
+  letter-spacing: 0;
+  word-break: keep-all;
+}
+
+.home-assistant-markdown :deep(h1),
+.home-assistant-markdown :deep(h2),
+.home-assistant-markdown :deep(h3) {
+  margin: 0 0 18px;
+  color: var(--copy-text);
+  font-weight: 900;
+  line-height: 1.22;
+  letter-spacing: 0;
+}
+
+.home-assistant-markdown :deep(h1) {
+  font-size: 26px;
+}
+
+.home-assistant-markdown :deep(h2) {
+  margin-top: 32px;
+  font-size: 23px;
+}
+
+.home-assistant-markdown :deep(h3) {
+  margin-top: 26px;
+  font-size: 20px;
+}
+
+.home-assistant-markdown :deep(p) {
+  margin: 0 0 18px;
+}
+
+.home-assistant-markdown :deep(strong) {
+  font-weight: 900;
+}
+
+.home-assistant-markdown :deep(ul),
+.home-assistant-markdown :deep(ol) {
+  margin: 8px 0 24px 24px;
+  padding: 0;
+}
+
+.home-assistant-markdown :deep(li) {
+  margin: 8px 0;
+  padding-left: 6px;
+}
+
+.home-answer-references {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(24, 28, 35, 0.08);
+}
+
+.home-chat-typing-shell {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 85%;
+  min-height: 34px;
+  margin-left: 0;
+  padding: 22px 4px 6px;
+}
+
+.home-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+}
+
+.home-typing-dots span {
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #aaa7a3;
+  animation: chatTypingDot 1.05s ease-in-out infinite;
+}
+
+.home-typing-dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.home-typing-dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes chatTypingDot {
+  0%, 80%, 100% {
+    opacity: 0.58;
+    transform: translateY(0) scale(0.86);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-typing-dots span {
+    animation: none;
+  }
 }
 
 .home-hero-title {
