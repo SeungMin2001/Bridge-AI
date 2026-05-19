@@ -130,6 +130,120 @@ def read_loss_curve(path: str | Path) -> tuple[list[float], list[float]]:
     return xs, moving_average(ys, 25)
 
 
+def percentile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    pos = (len(ordered) - 1) * q
+    low = int(pos)
+    high = min(low + 1, len(ordered) - 1)
+    frac = pos - low
+    return ordered[low] * (1 - frac) + ordered[high] * frac
+
+
+def style_axis(ax) -> None:
+    ax.grid(True, alpha=0.22)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def plot_objective_axis(ax, *, qp_log: str, ponly_log: str, colors: dict[str, str], with_zoom: bool = False) -> None:
+    qp_x, qp_loss = read_loss_curve(qp_log)
+    ponly_x, ponly_loss = read_loss_curve(ponly_log)
+    has_lines = False
+    if qp_x and qp_loss:
+        ax.plot(qp_x, qp_loss, color=colors["qp"], linewidth=2.2, label="Question+Passage")
+        has_lines = True
+    if ponly_x and ponly_loss:
+        ax.plot(ponly_x, ponly_loss, color=colors["ponly"], linewidth=2.2, label="Passage-only")
+        has_lines = True
+    ax.set_title("(a) Training Objective")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Objective Loss (symlog)")
+    if (qp_loss or ponly_loss):
+        # The objective drops sharply early in training. A symmetric log scale
+        # keeps the drop visible while still showing near-zero tail changes.
+        positive = [v for v in qp_loss + ponly_loss if v > 0]
+        linthresh = max(1e-6, percentile(positive, 0.10) * 0.2) if positive else 1e-4
+        ax.set_yscale("symlog", linthresh=linthresh)
+    style_axis(ax)
+    ax.grid(True, which="both", alpha=0.22)
+    if has_lines:
+        ax.legend(frameon=False)
+
+    if not with_zoom or not (qp_loss or ponly_loss):
+        return
+
+    tail_values: list[float] = []
+    for xs, ys in ((qp_x, qp_loss), (ponly_x, ponly_loss)):
+        tail_values.extend([y for x, y in zip(xs, ys) if x >= 1.0])
+    if len(tail_values) < 4:
+        return
+
+    try:
+        inset = ax.inset_axes([0.50, 0.50, 0.46, 0.42])
+    except Exception:
+        return
+    if qp_x and qp_loss:
+        inset.plot(qp_x, qp_loss, color=colors["qp"], linewidth=1.4)
+    if ponly_x and ponly_loss:
+        inset.plot(ponly_x, ponly_loss, color=colors["ponly"], linewidth=1.4)
+    y_low = percentile(tail_values, 0.05)
+    y_high = percentile(tail_values, 0.95)
+    if y_high <= y_low:
+        y_high = max(tail_values)
+        y_low = min(tail_values)
+    pad = max((y_high - y_low) * 0.20, abs(y_high) * 0.03, 1e-6)
+    inset.set_xlim(1.0, max(qp_x + ponly_x))
+    inset.set_ylim(max(0.0, y_low - pad), y_high + pad)
+    inset.set_title("Zoom after epoch 1", fontsize=8)
+    inset.tick_params(axis="both", labelsize=7)
+    inset.grid(True, alpha=0.20)
+    inset.spines["top"].set_visible(False)
+    inset.spines["right"].set_visible(False)
+
+
+def plot_metric_axis(
+    ax,
+    epochs: list[int],
+    qp_values: list[float],
+    ponly_values: list[float],
+    *,
+    title: str,
+    ylabel: str,
+    colors: dict[str, str],
+) -> None:
+    ax.plot(epochs, qp_values, marker="o", linewidth=2.4, color=colors["qp"], label="Question+Passage")
+    ax.plot(epochs, ponly_values, marker="s", linewidth=2.4, color=colors["ponly"], label="Passage-only")
+    ax.set_title(title)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(ylabel)
+    ax.set_xticks(epochs)
+    style_axis(ax)
+    ax.legend(frameon=False)
+
+
+def save_single_panel(path: Path, draw_fn) -> None:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # pragma: no cover - optional dependency.
+        print(f"[PRAG:epoch-performance] matplotlib unavailable; skipped single plot ({exc})")
+        return
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.4))
+    draw_fn(ax)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=260, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[PRAG:epoch-performance] plot saved: {path}")
+
+
 def plot_curves(path: Path, rows: list[dict], *, qp_log: str, ponly_log: str) -> None:
     try:
         import matplotlib
@@ -152,37 +266,44 @@ def plot_curves(path: Path, rows: list[dict], *, qp_log: str, ponly_log: str) ->
     fig.suptitle("Epoch-wise PRAG Performance", fontsize=16, fontweight="bold")
     colors = {"qp": "#2f5f9f", "ponly": "#c66a2e"}
 
-    ax = axes[0, 0]
-    qp_x, qp_loss = read_loss_curve(qp_log)
-    ponly_x, ponly_loss = read_loss_curve(ponly_log)
-    if qp_x and qp_loss:
-        ax.plot(qp_x, qp_loss, color=colors["qp"], linewidth=2.2, label="Question+Passage")
-    if ponly_x and ponly_loss:
-        ax.plot(ponly_x, ponly_loss, color=colors["ponly"], linewidth=2.2, label="Passage-only")
-    ax.set_title("(a) Training Objective")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss")
-    ax.grid(True, alpha=0.25)
-    ax.legend(frameon=False)
+    plot_objective_axis(axes[0, 0], qp_log=qp_log, ponly_log=ponly_log, colors=colors)
 
     panels = [
-        (axes[0, 1], "(b) MergePRAG Hit", qp_hit, ponly_hit, "Hit Rate (%)"),
+        (axes[0, 1], "(b) Hit Rate", qp_hit, ponly_hit, "Hit Rate (%)"),
         (axes[1, 0], "(c) Token F1", qp_f1, ponly_f1, "F1 (%)"),
         (axes[1, 1], "(d) QA Score", qp_qa, ponly_qa, "QA Score (%)"),
     ]
     for ax, title, qp_values, ponly_values, ylabel in panels:
-        ax.plot(epochs, qp_values, marker="o", linewidth=2.4, color=colors["qp"], label="Question+Passage")
-        ax.plot(epochs, ponly_values, marker="s", linewidth=2.4, color=colors["ponly"], label="Passage-only")
-        ax.set_title(title)
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel(ylabel)
-        ax.grid(True, alpha=0.25)
-        ax.legend(frameon=False)
+        plot_metric_axis(ax, epochs, qp_values, ponly_values, title=title, ylabel=ylabel, colors=colors)
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=220, bbox_inches="tight")
     plt.close(fig)
+
+    single_dir = path.parent / "single_panels"
+    save_single_panel(
+        single_dir / "training_objective.png",
+        lambda ax: plot_objective_axis(ax, qp_log=qp_log, ponly_log=ponly_log, colors=colors, with_zoom=True),
+    )
+    single_specs = [
+        ("hit_rate.png", "(b) Hit Rate", qp_hit, ponly_hit, "Hit Rate (%)"),
+        ("token_f1.png", "(c) Token F1", qp_f1, ponly_f1, "F1 (%)"),
+        ("qa_score.png", "(d) QA Score", qp_qa, ponly_qa, "QA Score (%)"),
+    ]
+    for filename, title, qp_values, ponly_values, ylabel in single_specs:
+        save_single_panel(
+            single_dir / filename,
+            lambda ax, title=title, qp_values=qp_values, ponly_values=ponly_values, ylabel=ylabel: plot_metric_axis(
+                ax,
+                epochs,
+                qp_values,
+                ponly_values,
+                title=title,
+                ylabel=ylabel,
+                colors=colors,
+            ),
+        )
 
 
 def main() -> None:
