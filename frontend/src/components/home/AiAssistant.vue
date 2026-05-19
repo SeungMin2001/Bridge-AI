@@ -83,7 +83,11 @@ async function sendMessage() {
       <div
         v-for="(msg, i) in messages"
         :key="i"
-        :class="['chat-bubble', msg.role === 'ai' ? 'bubble-ai' : 'bubble-user']"
+        :class="[
+          'chat-bubble',
+          msg.role === 'ai' ? 'bubble-ai' : 'bubble-user',
+          msg.phase === 'thinking' && !msg.text && !msg.thinking ? 'bubble-typing' : ''
+        ]"
       >
         <!-- Thinking 실시간 표시 -->
         <div v-if="msg.thinking" class="thinking-block mb-2">
@@ -114,8 +118,9 @@ async function sendMessage() {
         </div>
         <!-- 아직 thinking 중이고 답변 없을 때 -->
         <div v-if="msg.phase === 'thinking' && !msg.text && !msg.thinking" class="thinking-loading">
-          <span class="material-symbols-outlined text-[14px] thinking-spin">psychology</span>
-          <span class="text-[12px] text-[#8e8e93]">생각하는 중...</span>
+          <span></span>
+          <span></span>
+          <span></span>
         </div>
       </div>
     </div>
@@ -137,3 +142,52 @@ async function sendMessage() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.chat-bubble.bubble-typing {
+  padding: 6px 4px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.thinking-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+}
+
+.thinking-loading span {
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #aaa7a3;
+  animation: home-popup-typing-dot 1.05s ease-in-out infinite;
+}
+
+.thinking-loading span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.thinking-loading span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes home-popup-typing-dot {
+  0%, 80%, 100% {
+    opacity: 0.58;
+    transform: translateY(0) scale(0.86);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-loading span {
+    animation: none;
+  }
+}
+</style>
