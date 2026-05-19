@@ -164,6 +164,23 @@ class LegacyCourseMemoryManager:
         ]
 
 
+def _validate_adapter_dir(adapter_path: str) -> tuple[bool, str | None]:
+    """어댑터 디렉터리 필수 파일 존재 여부를 확인합니다."""
+    if not os.path.isdir(adapter_path):
+        return False, f"adapter dir not found: {adapter_path}"
+
+    config_path = os.path.join(adapter_path, "adapter_config.json")
+    if not os.path.isfile(config_path):
+        return False, f"adapter_config.json missing: {config_path}"
+
+    safetensors_path = os.path.join(adapter_path, "adapter_model.safetensors")
+    bin_path = os.path.join(adapter_path, "adapter_model.bin")
+    if not os.path.isfile(safetensors_path) and not os.path.isfile(bin_path):
+        return False, "adapter_model.safetensors/bin missing"
+
+    return True, None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """서비스 시작 시 기존 llm_server의 모델 + HyperNetwork를 로드한다."""
@@ -243,6 +260,17 @@ async def hotload_to_vllm(adapter_name: str, adapter_path: str) -> dict:
     """vLLM의 /v1/load_lora_adapter API로 어댑터를 핫로드한다."""
     relative = os.path.relpath(adapter_path, ADAPTER_ROOT)
     container_path = os.path.join(ADAPTER_CONTAINER_ROOT, relative).replace("\\", "/")
+
+    ok, error = _validate_adapter_dir(adapter_path)
+    if not ok:
+        stats.failed_hotloads += 1
+        stats.errors.append(f"{time.strftime('%H:%M:%S')} hotload: {error}")
+        return {
+            "success": False,
+            "error": error,
+            "adapter_path": adapter_path,
+            "container_path": container_path,
+        }
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
