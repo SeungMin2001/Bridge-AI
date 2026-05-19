@@ -164,7 +164,7 @@ def plot_objective_axis(ax, *, qp_log: str, ponly_log: str, colors: dict[str, st
     ax.set_ylabel("Objective Loss (log scale)")
     if qp_loss or ponly_loss:
         ax.set_yscale("log")
-        ax.set_ylim(1e-5, 50)
+        ax.set_ylim(1e-6, 100)
     style_axis(ax)
     ax.grid(True, which="both", alpha=0.22)
     if has_lines:
