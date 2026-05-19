@@ -1,6 +1,6 @@
 <!-- 워크스페이스 메모 탭에서 PDF 또는 PPT 강의 자료 미리보기를 표시하는 패널입니다. -->
 <script setup>
-import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { PPTXViewer } from 'pptxviewjs'
@@ -10,8 +10,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const props = defineProps({
   material: { type: Object, default: null },
-  evidenceRequest: { type: Object, default: null }
+  evidenceRequest: { type: Object, default: null },
+  pdfSearchQuery: { type: String, default: '' },
+  pdfSearchCommand: { type: Object, default: null }
 })
+
+const emit = defineEmits(['pdf-search-results'])
 
 const pptCanvasRef = ref(null)
 const pptViewer = ref(null)
@@ -30,6 +34,8 @@ let activePdfDocument = null
 let pdfRenderToken = 0
 let activePdfTextLayers = []
 let activePdfPageShells = []
+let activePdfSearchMatches = []
+let activePdfSearchActiveIndex = 0
 
 const PDF_ZOOM_MIN = 0.7
 const PDF_ZOOM_MAX = 1.8
@@ -37,6 +43,107 @@ const PDF_ZOOM_STEP = 0.1
 
 const isPdfAttachment = (file) => /\.pdf$/i.test(file?.name || '')
 const isPptAttachment = (file) => /\.(ppt|pptx)$/i.test(file?.name || '')
+const normalizedPdfSearchQuery = computed(() => String(props.pdfSearchQuery || '').trim().toLowerCase())
+const normalizePdfSearchText = (value = '') => String(value || '').toLowerCase().replace(/\s+/g, '')
+
+const emitPdfSearchResults = () => {
+  emit('pdf-search-results', {
+    total: activePdfSearchMatches.length,
+    activeIndex: activePdfSearchMatches.length ? activePdfSearchActiveIndex : 0
+  })
+}
+
+const setActivePdfSearchMatch = async (index = activePdfSearchActiveIndex, behavior = 'smooth') => {
+  if (!activePdfSearchMatches.length) {
+    emitPdfSearchResults()
+    return
+  }
+
+  activePdfSearchActiveIndex = (index + activePdfSearchMatches.length) % activePdfSearchMatches.length
+  activePdfSearchMatches.forEach((match) => {
+    match.elements.forEach((element) => {
+      element.classList.remove('is-active-pdf-search-match')
+    })
+  })
+  activePdfSearchMatches[activePdfSearchActiveIndex].elements.forEach((element) => {
+    element.classList.add('is-active-pdf-search-match')
+  })
+
+  await nextTick()
+  activePdfSearchMatches[activePdfSearchActiveIndex]?.elements?.[0]?.scrollIntoView?.({ behavior, block: 'center', inline: 'nearest' })
+  emitPdfSearchResults()
+}
+
+const clearPdfSearchMatches = () => {
+  activePdfSearchMatches.forEach((match) => {
+    match.elements.forEach((element) => {
+      element.classList.remove('pdf-search-match', 'is-active-pdf-search-match')
+    })
+  })
+  activePdfSearchMatches = []
+  activePdfSearchActiveIndex = 0
+  emitPdfSearchResults()
+}
+
+const refreshPdfSearchMatches = async () => {
+  activePdfSearchMatches.forEach((match) => {
+    match.elements.forEach((element) => {
+      element.classList.remove('pdf-search-match', 'is-active-pdf-search-match')
+    })
+  })
+  activePdfSearchMatches = []
+  activePdfSearchActiveIndex = 0
+
+  const query = normalizePdfSearchText(normalizedPdfSearchQuery.value)
+  if (!query || !pdfContainerRef.value) {
+    emitPdfSearchResults()
+    return
+  }
+
+  await nextTick()
+  const textItems = Array.from(pdfContainerRef.value.querySelectorAll('.pdf-text-layer span'))
+    .filter((element) => normalizePdfSearchText(element.textContent).length > 0)
+  let normalizedText = ''
+  const charElementMap = []
+
+  textItems.forEach((element) => {
+    Array.from(normalizePdfSearchText(element.textContent)).forEach((char) => {
+      normalizedText += char
+      charElementMap.push(element)
+    })
+  })
+
+  let cursor = 0
+  while (cursor < normalizedText.length) {
+    const matchStart = normalizedText.indexOf(query, cursor)
+    if (matchStart === -1) break
+
+    const matchEnd = matchStart + query.length
+    const elements = Array.from(new Set(charElementMap.slice(matchStart, matchEnd))).filter(Boolean)
+    if (elements.length) {
+      activePdfSearchMatches.push({ elements })
+    }
+    cursor = matchStart + Math.max(query.length, 1)
+  }
+
+  activePdfSearchMatches.forEach((match) => {
+    match.elements.forEach((element) => {
+      element.classList.add('pdf-search-match')
+    })
+  })
+
+  if (activePdfSearchMatches.length) {
+    await setActivePdfSearchMatch(0, 'auto')
+    return
+  }
+
+  emitPdfSearchResults()
+}
+
+const movePdfSearchMatch = (direction = 1) => {
+  if (!activePdfSearchMatches.length) return
+  setActivePdfSearchMatch(activePdfSearchActiveIndex + direction)
+}
 
 // PDF 미리보기 배율을 조절합니다. 다시 렌더링하지 않고 CSS 크기만 바꿉니다.
 const updatePdfZoom = (nextZoom) => {
@@ -76,6 +183,7 @@ const destroyPptViewer = () => {
 }
 
 const clearPdfPreview = () => {
+  clearPdfSearchMatches()
   pdfPageCount.value = 0
   pdfLoading.value = false
   pdfError.value = ''
@@ -278,6 +386,7 @@ const renderPdfPreview = async (file) => {
 
     if (renderToken === pdfRenderToken) {
       console.log('PDF JSON 추출 결과:', extractedPdfJson)
+      await refreshPdfSearchMatches()
       if (props.evidenceRequest) {
         await scrollToEvidencePage(props.evidenceRequest)
       }
@@ -382,6 +491,22 @@ watch(
   async (request) => {
     if (!request) return
     await scrollToEvidencePage(request)
+  },
+  { deep: true }
+)
+
+watch(
+  normalizedPdfSearchQuery,
+  () => refreshPdfSearchMatches()
+)
+
+watch(
+  () => props.pdfSearchCommand,
+  (command) => {
+    if (!command?.action) return
+    if (command.action === 'next') movePdfSearchMatch(1)
+    if (command.action === 'prev') movePdfSearchMatch(-1)
+    if (command.action === 'clear') clearPdfSearchMatches()
   },
   { deep: true }
 )
@@ -671,6 +796,19 @@ onBeforeUnmount(() => {
 
 :deep(.pdf-text-layer ::selection) {
   background: color-mix(in srgb, AccentColor, transparent 75%);
+}
+
+:deep(.pdf-text-layer .pdf-search-match) {
+  background: rgba(253, 224, 71, 0.45);
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.2);
+}
+
+:deep(.pdf-text-layer .pdf-search-match.is-active-pdf-search-match) {
+  background: rgba(250, 204, 21, 0.72);
+  box-shadow:
+    0 0 0 2px rgba(37, 99, 235, 0.72),
+    0 8px 18px rgba(37, 99, 235, 0.18);
 }
 
 :deep(.pdf-text-layer br::selection) {
