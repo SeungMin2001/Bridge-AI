@@ -109,7 +109,7 @@ def moving_average(values: list[float], window: int) -> list[float]:
     return smoothed
 
 
-def read_loss_curve(path: str | Path, *, smooth: int = 100) -> tuple[list[float], list[float]]:
+def read_loss_curve(path: str | Path, *, smooth: int = 200) -> tuple[list[float], list[float]]:
     log_path = Path(path)
     if not str(path) or not log_path.exists():
         return [], []
@@ -164,6 +164,7 @@ def plot_objective_axis(ax, *, qp_log: str, ponly_log: str, colors: dict[str, st
     ax.set_ylabel("Objective Loss (log scale)")
     if qp_loss or ponly_loss:
         ax.set_yscale("log")
+        ax.set_ylim(1e-4, 30)
     style_axis(ax)
     ax.grid(True, which="both", alpha=0.22)
     if has_lines:
