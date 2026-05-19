@@ -32,8 +32,10 @@ if _LLM_SERVER_DIR not in sys.path:
 
 # llm_server의 기존 코드를 수정 없이 import
 from run_model import run_model
-from mergePRAG.config import ALPHA, NUM_KV, load_critical_layer
+from mergePRAG.config import ALPHA, NUM_KV, load_critical_layer, load_hypernet_state_dict
+from mergePRAG.embedding import contextualize, token_embed
 from mergePRAG.main import CourseMemoryManager
+from mergePRAG.orthogonal_merge import orthogonal_merging
 
 # lora 모듈 (같은 폴더)
 from lora_converter import build_lora_adapter
@@ -67,7 +69,99 @@ stats = ConversionStats()
 # 글로벌 (lifespan에서 초기화)
 model = None
 tokenizer = None
-memory_manager: CourseMemoryManager | None = None
+memory_manager = None
+
+
+def _is_prag_hypernet_state(state_dict: dict) -> bool:
+    """PRAG HyperKVGenerator 형식의 state_dict인지 판별합니다."""
+    has_input_proj = any(key.startswith("input_proj.") for key in state_dict)
+    has_att_pool = any(key.startswith("att_pool.") for key in state_dict)
+    return has_input_proj and has_att_pool
+
+
+def _infer_prag_hypernet_dims(state_dict: dict, d_model: int) -> tuple[int, int, int]:
+    """PRAG HyperKVGenerator의 num_kv/hidden_dim/feature_dim을 추론합니다."""
+    att_pool_weight = state_dict.get("att_pool.weight")
+    num_kv = int(att_pool_weight.shape[0]) if att_pool_weight is not None else NUM_KV
+
+    mlp_weight = state_dict.get("mlp.0.weight")
+    hidden_dim = int(mlp_weight.shape[0]) if mlp_weight is not None else 1024
+
+    input_proj_weight = state_dict.get("input_proj.0.weight")
+    if input_proj_weight is not None:
+        feature_dim = int(input_proj_weight.shape[1])
+    else:
+        input_norm_weight = state_dict.get("input_norm.weight")
+        feature_dim = int(input_norm_weight.shape[0]) if input_norm_weight is not None else d_model
+
+    return num_kv, hidden_dim, feature_dim
+
+
+class LegacyCourseMemoryManager:
+    """PRAG HyperKVGenerator 가중치를 사용하는 호환 메모리 매니저."""
+
+    def __init__(self, model, tokenizer, device, hypernet, feature_dim: int):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.device = device
+        self.hypernet = hypernet
+        self.feature_dim = feature_dim
+        self.memories = {}
+
+    def _build_features(self, input_ids: torch.Tensor, attention_mask: torch.Tensor):
+        raw = token_embed(self.model, input_ids)
+        if raw.shape[-1] == self.feature_dim:
+            return raw
+        contextual = contextualize(self.model, input_ids, attention_mask=attention_mask)
+        features = torch.cat([raw, contextual], dim=-1)
+        if features.shape[-1] != self.feature_dim:
+            raise ValueError(
+                f"feature_dim mismatch: expected {self.feature_dim}, got {features.shape[-1]}"
+            )
+        return features
+
+    def encode_passage(self, passage: str):
+        encoded = self.tokenizer(passage, return_tensors="pt", truncation=True, max_length=512)
+        input_ids = encoded["input_ids"].to(self.device)
+        attention_mask = encoded["attention_mask"].to(self.device)
+        features = self._build_features(input_ids, attention_mask)
+        memory = self.hypernet(features, attention_mask)
+        return memory["K"], memory["V"]
+
+    def add_passage(self, course_id: str, passage: str):
+        new_K, new_V = self.encode_passage(passage)
+
+        if course_id not in self.memories:
+            self.memories[course_id] = {
+                "K": new_K.squeeze(0),
+                "V": new_V.squeeze(0),
+                "count": 1,
+                "passages": [passage],
+            }
+        else:
+            mem = self.memories[course_id]
+            mem["K"] = orthogonal_merging(mem["K"], new_K.squeeze(0))
+            mem["V"] = orthogonal_merging(mem["V"], new_V.squeeze(0))
+            mem["count"] += 1
+            mem.setdefault("passages", []).append(passage)
+
+        return self.memories[course_id]["count"]
+
+    def get_memory(self, course_id: str):
+        mem = self.memories.get(course_id)
+        if mem is None:
+            return None, None
+        return mem["K"].unsqueeze(0), mem["V"].unsqueeze(0)
+
+    def clear_memory(self, course_id: str):
+        if course_id in self.memories:
+            del self.memories[course_id]
+
+    def list_courses(self) -> list[dict]:
+        return [
+            {"course_id": cid, "passage_count": mem["count"]}
+            for cid, mem in self.memories.items()
+        ]
 
 
 @asynccontextmanager
@@ -78,8 +172,28 @@ async def lifespan(app: FastAPI):
     print("[LoRA Service] 모델 + HyperNetwork 로딩 중...")
     model, tokenizer = run_model()
     device = next(model.parameters()).device
-    # llm_server의 CourseMemoryManager를 그대로 사용
-    memory_manager = CourseMemoryManager(model, tokenizer, device)
+    state_dict, load_info = load_hypernet_state_dict(map_location=device)
+    if _is_prag_hypernet_state(state_dict):
+        from PRAG.memory import HyperKVGenerator
+
+        num_kv, hidden_dim, feature_dim = _infer_prag_hypernet_dims(state_dict, model.config.hidden_size)
+        hypernet = HyperKVGenerator(
+            model.config.hidden_size,
+            num_kv=num_kv,
+            hidden_dim=hidden_dim,
+            feature_dim=feature_dim,
+            legacy=False,
+        ).to(device).float()
+        hypernet.load_state_dict(state_dict)
+        hypernet.eval()
+        memory_manager = LegacyCourseMemoryManager(model, tokenizer, device, hypernet, feature_dim)
+        print(
+            "[LoRA Service] PRAG HyperKVGenerator weights detected "
+            f"(num_kv={num_kv}, hidden_dim={hidden_dim}, feature_dim={feature_dim}, source={load_info['source']})"
+        )
+    else:
+        # llm_server의 CourseMemoryManager를 그대로 사용
+        memory_manager = CourseMemoryManager(model, tokenizer, device)
 
     os.makedirs(ADAPTER_ROOT, exist_ok=True)
     print(
