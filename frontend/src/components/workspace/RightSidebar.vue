@@ -3,7 +3,6 @@
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useChat } from '../../composables/useChat'
 import { marked } from 'marked'
-import PdfEvidencePreview from './PdfEvidencePreview.vue'
 
 marked.setOptions({
   breaks: true,
@@ -29,7 +28,6 @@ const isLoading = ref(false)
 const isThinkingMode = ref(false)
 const aiTextarea = ref(null)
 const isSending = ref(false) // 중복 전송 방지용 플래그
-const expandedCitationMessages = ref(new Set())
 
 // 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
 // true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
@@ -52,6 +50,102 @@ const hasWorkspaceChatSource = computed(() => workspaceChatSources.value.length 
 
 function unique(values = []) {
   return Array.from(new Set(values.filter(Boolean).map((item) => String(item))))
+}
+
+function shouldUseWorkspaceWideSearch(question = '') {
+  const text = String(question || '').replace(/\s+/g, ' ').trim()
+  if (!text) return false
+
+  const currentScopeTerms = [
+    '현재 파일',
+    '이 파일',
+    '여기 파일',
+    '현재 여기에',
+    '여기에 저장',
+    '선택된',
+    '열려 있는',
+    '열려있는',
+    '지금 파일',
+    '이 강의',
+    '이 자료',
+    '이 내용',
+    '여기 내용',
+    '현재 내용'
+  ]
+  if (currentScopeTerms.some((term) => text.includes(term))) return false
+
+  const pageScopedTerms = [
+    /\d+\s*페이지/,
+    /\d+\s*p\b/i,
+    /p\.\s*\d+/i,
+    /pdf/i,
+  ]
+  if (pageScopedTerms.some((pattern) => pattern.test(text))) return false
+
+  const explicitGlobalTerms = [
+    '전체 파일',
+    '전체파일',
+    '모든 파일',
+    '모든파일',
+    '전체 자료',
+    '모든 자료',
+    '워크스페이스 전체',
+    '전체 워크스페이스',
+    '다른 파일',
+    '다른파일',
+    '파일들',
+    '전체에서',
+    '모든 곳'
+  ]
+  if (explicitGlobalTerms.some((term) => text.includes(term))) return true
+
+  const activeTitle = String(props.chatSource?.title || '').replace(/전체 자료$/, '').replace(/\s+/g, '').trim()
+  const sourceHintMatch = text.match(/^(.{2,30}?)(?:의|에서|에는|에)\s+.+/)
+  const sourceHint = String(sourceHintMatch?.[1] || '').replace(/\s+/g, '').trim()
+  const genericSourceHints = new Set(['이', '그', '저', '현재', '여기', '오늘', '강의', '자료', '내용', '파일'])
+  if (
+    sourceHint &&
+    !genericSourceHints.has(sourceHint) &&
+    (!activeTitle || (!activeTitle.includes(sourceHint) && !sourceHint.includes(activeTitle)))
+  ) {
+    return true
+  }
+
+  const locatorTerms = ['어디', '어느', '찾아', '찾아줘', '찾을', '검색', '근거', '링크', '보여', '보여줘']
+  const targetTerms = ['파일', '녹음', '녹음본', '전사', '자료', '부분', '구간', '문장', '대목', '내용', '말']
+  const mentionTerms = ['언급', '나오', '포함', '있는', '있어', '말했', '다룬', '등장']
+  const strongMentionTerms = ['언급', '나오', '포함', '말했', '다룬', '등장']
+  const knowledgeQuestionTerms = [
+    '누구', '무엇', '뭐야', '뭐여', '뭐냐', '뭐임', '뭐에요', '뭐예요',
+    '뭔가', '뭔데', '무슨', '의미', '정의', '설명', '알려', '개념', '뜻'
+  ]
+  const lookupStopwords = new Set([
+    '혹시', '무엇', '뭐', '어디', '어느', '위치', '찾아', '검색', '언급', '부분', '구간',
+    '파일', '녹음', '녹음본', '전사', '자료', '내용', '말', '나오', '포함', '있는',
+    '있어', '관련', '해당', '대한', '대해', '대해서', '특정', '단어', '표현',
+    '키워드', '근거', '링크', '보여', '보여줘'
+  ])
+  const hasLookupCandidate = (text.match(/[A-Za-z][A-Za-z0-9_+#.-]*|[가-힣A-Za-z0-9_+#.-]{2,30}/g) || [])
+    .some((term) => !lookupStopwords.has(term))
+  const hasSubjectHint = (
+    /[A-Za-z][A-Za-z0-9_+#.-]*/.test(text) ||
+    /[가-힣A-Za-z0-9_+#.-]{2,30}\s*(에\s*대한|에대한|에\s*대해|에대해|에\s*대해서|에대해서|라고|이라는|라는)/.test(text) ||
+    /(단어|표현|키워드)\s*['"“”‘’]?\s*[가-힣A-Za-z0-9_+#.-]{2,30}/.test(text) ||
+    hasLookupCandidate
+  )
+  const hasLocator = locatorTerms.some((term) => text.includes(term))
+  const hasMention = mentionTerms.some((term) => text.includes(term))
+  const hasStrongMention = strongMentionTerms.some((term) => text.includes(term))
+  const hasTarget = targetTerms.some((term) => text.includes(term))
+  const hasKnowledgeQuestion = knowledgeQuestionTerms.some((term) => text.includes(term))
+
+  if (hasSubjectHint && hasKnowledgeQuestion) return true
+
+  return (
+    hasSubjectHint &&
+    hasMention &&
+    (hasLocator || hasTarget || hasStrongMention || text.includes('에 대한') || text.includes('에대한') || text.includes('라고'))
+  )
 }
 
 function buildSourceFilter() {
@@ -142,6 +236,7 @@ async function sendMessage() {
   // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
   const t0 = performance.now()
   let ttftLogged = false
+  const workspaceWideSearch = shouldUseWorkspaceWideSearch(question)
 
   try {
     const res = await fetch('/chat/stream', {
@@ -150,8 +245,8 @@ async function sendMessage() {
       body: JSON.stringify({
         question,
         is_thinking: isThinkingMode.value,
-        session_id: props.chatSource?.sessionId || getActiveSessionId(),
-        source_filter: buildSourceFilter()
+        session_id: workspaceWideSearch ? null : props.chatSource?.sessionId || getActiveSessionId(),
+        source_filter: workspaceWideSearch ? null : buildSourceFilter()
       }),
     })
 
@@ -258,59 +353,89 @@ function getSourceChips(msg) {
   const citations = Array.isArray(msg?.citations) ? msg.citations : []
   const seen = new Set()
 
-  return citations.filter((cite) => {
-    if (!cite?.citation || seen.has(cite.citation)) return false
-    seen.add(cite.citation)
+  return citations.filter((cite, index) => {
+    const key = getCitationKey(cite, index)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
     return true
   })
 }
 
-function sourceGroupLabel(msg) {
-  const citations = Array.isArray(msg?.citations) ? msg.citations : []
-  const hasMaterial = citations.some((cite) => cite?.source_type === 'material')
-  const hasTranscript = citations.some((cite) => cite?.source_type !== 'material')
-  if (hasMaterial && hasTranscript) return '참고한 자료'
-  if (hasMaterial) return '참고한 PDF'
-  return '참고한 전사'
-}
-
-function toggleCitationMessage(index) {
-  const next = new Set(expandedCitationMessages.value)
-  if (next.has(index)) next.delete(index)
-  else next.add(index)
-  expandedCitationMessages.value = next
-}
-
-function isCitationMessageExpanded(index) {
-  return expandedCitationMessages.value.has(index)
+function getCitationKey(cite = {}, index = 0) {
+  return String(
+    cite.citation
+    || cite.material_id
+    || cite.transcript_id
+    || cite.recording_id
+    || cite.stored_name
+    || cite.text
+    || index
+  )
 }
 
 function isMaterialCitation(cite = {}) {
   return cite?.source_type === 'material'
 }
 
+function compactSourceLabel(value = '', fallback = '근거 자료') {
+  const label = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!label) return fallback
+  return label.length > 28 ? `${label.slice(0, 28).trim()}...` : label
+}
+
+function formatCitationSeconds(seconds) {
+  const value = Number(seconds)
+  if (!Number.isFinite(value)) return ''
+  const totalSeconds = Math.max(0, Math.floor(value))
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
+}
+
+function transcriptChipLabel(cite = {}, index = 0) {
+  const title = cite.recording_title || cite.session_title || cite.file_title || `전사 ${index + 1}`
+  const start = formatCitationSeconds(cite.start_time)
+  const end = formatCitationSeconds(cite.end_time)
+  if (start && end) return compactSourceLabel(`${title} > ${start}~${end}`, `전사 ${index + 1}`)
+  return compactSourceLabel(cite.citation || title, `전사 ${index + 1}`)
+}
+
+function sourceChipLabel(cite = {}, index = 0) {
+  if (isMaterialCitation(cite)) {
+    const title = cite.material_name || cite.file_title || cite.stored_name || `PDF ${index + 1}`
+    const page = Number(cite.page || 0)
+    return compactSourceLabel(page > 0 ? `${title} p.${page}` : title, `PDF ${index + 1}`)
+  }
+  return transcriptChipLabel(cite, index)
+}
+
+function sourceChipIcon(cite = {}) {
+  return isMaterialCitation(cite) ? 'picture_as_pdf' : 'graphic_eq'
+}
+
+function clampPosition(value, min, max) {
+  return Math.min(Math.max(value, min), max)
+}
+
 function handleCitationClick(event, cite) {
   if (!cite) return
 
-  if (isMaterialCitation(cite)) {
-    emit('openEvidenceSource', cite)
-    return
-  }
-  
-  // 🎯 중앙 메인 컨텐츠 카드의 위치를 찾습니다.
-  const mainCard = document.getElementById('tab-contents-container')
-  if (!mainCard) {
-    // 만약 요소를 못 찾는 경우 대비한 fallback
-    openCitePopover(cite, window.innerWidth / 2 + 50, 100)
+  const rect = event?.currentTarget?.getBoundingClientRect?.()
+  if (!rect) {
+    openCitePopover(cite, Math.max(16, window.innerWidth - 380), 96)
     return
   }
 
-  const rect = mainCard.getBoundingClientRect()
-  
   const popoverWidth = 340
-  const edgeInset = 0
-  const topInset = 0
-  openCitePopover(cite, rect.right - popoverWidth - edgeInset, rect.top + topInset)
+  const estimatedPopoverHeight = 430
+  const viewportInset = 16
+  const maxLeft = Math.max(viewportInset, window.innerWidth - popoverWidth - viewportInset)
+  const left = clampPosition(rect.left, viewportInset, maxLeft)
+
+  let top = rect.bottom + 10
+  if (top + estimatedPopoverHeight > window.innerHeight - viewportInset) {
+    top = Math.max(viewportInset, rect.top - estimatedPopoverHeight - 10)
+  }
+
+  openCitePopover(cite, left, top)
 }
 
 const width = ref(420)
@@ -429,70 +554,32 @@ watch(messages, () => {
                 >
                 </div>
 
+                <div v-if="msg.phase === 'done' && getSourceChips(msg).length" class="answer-citation-row" aria-label="근거 자료">
+                  <button
+                    v-for="(cite, ci) in getSourceChips(msg)"
+                    :key="getCitationKey(cite, ci)"
+                    type="button"
+                    class="answer-citation-pill"
+                    :class="{ 'is-material': isMaterialCitation(cite) }"
+                    :title="cite.citation || cite.text || sourceChipLabel(cite, ci)"
+                    @click="handleCitationClick($event, cite)"
+                  >
+                    <span class="material-symbols-outlined">{{ sourceChipIcon(cite) }}</span>
+                    <span>{{ sourceChipLabel(cite, ci) }}</span>
+                  </button>
+                </div>
+
                 <div
-                  v-if="msg.phase === 'streaming' && !msg.text"
+                  v-if="(msg.phase === 'streaming' || msg.phase === 'thinking') && !msg.text && !msg.thinking"
                   class="ai-stream-wait"
                   role="status"
                   aria-live="polite"
                 >
-                  <span class="ai-stream-ring" aria-hidden="true"></span>
-                  <span class="ai-stream-wait-text">답변 생성 중...</span>
-                </div>
-
-                <div v-if="msg.phase === 'done' && getSourceChips(msg).length" class="answer-source-summary">
-                  <button
-                    class="answer-source-toggle"
-                    type="button"
-                    @click="toggleCitationMessage(i)"
-                  >
-                    <span class="material-symbols-outlined text-[15px]">link</span>
-                    <span>{{ sourceGroupLabel(msg) }} {{ getSourceChips(msg).length }}개 보기</span>
-                    <span
-                      class="material-symbols-outlined answer-source-chevron"
-                      :class="{ 'is-open': isCitationMessageExpanded(i) }"
-                    >
-                      expand_more
-                    </span>
-                  </button>
-                </div>
-
-                <div v-if="msg.phase === 'done' && getSourceChips(msg).length && isCitationMessageExpanded(i)" class="answer-source-panel">
-                  <div class="answer-source-panel-head">
-                    <span class="material-symbols-outlined">format_quote</span>
-                    <span>근거 자료</span>
-                  </div>
-                  <div class="answer-source-list">
-                    <button
-                      v-for="cite in getSourceChips(msg)"
-                      :key="cite.citation"
-                      type="button"
-                      class="answer-source-card"
-                      :class="{ 'is-material-preview': isMaterialCitation(cite) }"
-                      @click="handleCitationClick($event, cite)"
-                      :title="cite.citation"
-                    >
-                      <template v-if="isMaterialCitation(cite)">
-                        <PdfEvidencePreview :cite="cite" />
-                      </template>
-                      <template v-else>
-                        <span class="answer-source-card-index"></span>
-                        <span class="answer-source-card-main">
-                          <span class="answer-source-card-text">{{ cite.text }}</span>
-                          <span class="answer-source-card-meta">
-                            <span class="material-symbols-outlined">link</span>
-                            <span>{{ cite.citation }}</span>
-                          </span>
-                        </span>
-                      </template>
-                      <span class="material-symbols-outlined answer-source-card-arrow">open_in_new</span>
-                    </button>
-                  </div>
-                </div>
-
-                <!-- thinking 중 데이터가 오기 전 대기 -->
-                <div v-if="msg.phase === 'thinking' && !msg.text && !msg.thinking" class="flex items-center gap-2 mt-1">
-                  <span class="material-symbols-outlined text-[15px] thinking-spin text-[#8e8e93]">psychology</span>
-                  <span class="text-[#8e8e93] text-[13px]">생각하는 중...</span>
+                  <span class="ai-typing-dots" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </span>
                 </div>
               </template>
             </div>
@@ -595,233 +682,110 @@ watch(messages, () => {
 .ai-stream-wait {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
   width: fit-content;
   max-width: 100%;
-  margin-top: 2px;
-  padding: 8px 13px;
-  border: 1px solid rgba(220, 232, 211, 0.95);
+  min-height: 32px;
+  margin-top: 4px;
+  padding: 5px 2px;
+}
+
+.ai-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+}
+
+.ai-typing-dots span {
+  width: 13px;
+  height: 13px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  color: #4b6a4e;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  background: #aaa7a3;
+  animation: ai-typing-dot 1.05s ease-in-out infinite;
 }
 
-.ai-stream-ring {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-  border: 2px solid rgba(75, 106, 78, 0.18);
-  border-top-color: #4b6a4e;
-  border-radius: 50%;
-  animation: ai-stream-ring-spin 0.78s linear infinite;
+.ai-typing-dots span:nth-child(2) {
+  animation-delay: 0.16s;
 }
 
-.ai-stream-wait-text {
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.2;
-  white-space: nowrap;
+.ai-typing-dots span:nth-child(3) {
+  animation-delay: 0.32s;
 }
 
-@keyframes ai-stream-ring-spin {
-  to {
-    transform: rotate(360deg);
+@keyframes ai-typing-dot {
+  0%, 80%, 100% {
+    opacity: 0.58;
+    transform: translateY(0) scale(0.86);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ai-stream-ring {
+  .ai-typing-dots span {
     animation: none;
   }
 }
 
-/* ═══════════════════════════════════════
-   전역 근거 배지(팝오버 트리거) 스타일
-   ═══════════════════════════════════════ */
-:deep(.cite-grounding-badge-wrap) {
-  margin-top: 8px;
-  margin-bottom: 4px;
-}
-
-:deep(.cite-chip-inline) {
-  display: inline-flex;
+/* 답변 끝에 붙는 ChatGPT 스타일 근거 pill */
+.answer-citation-row {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-radius: 100px;
-  background: #eef4e8;
-  color: #4b6a4e;
-  font-size: 12px;
-  font-weight: 500;
-  vertical-align: middle;
-  white-space: nowrap;
-  border: 1px solid #dce8d3;
-  line-height: 1.4;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  gap: 7px;
+  margin-top: 10px;
+  margin-bottom: 2px;
 }
 
-:deep(.cite-chip-inline:hover) {
-  background: #dce8d3;
-  border-color: #b8cfae;
-  box-shadow: 0 1px 4px rgba(72, 101, 74, 0.15);
-}
-
-:deep(.cite-chip-extra) {
-  font-size: 10px;
-  color: #7a9a7c;
-  font-weight: 600;
-}
-
-.answer-source-summary {
-  margin-top: 14px;
-}
-
-.answer-source-toggle {
+.answer-citation-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 100%;
-  padding: 5px 12px;
-  border-radius: 100px;
-  background: #eef4e8;
-  color: #4b6a4e;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  border: 1px solid #dce8d3;
-  line-height: 1.4;
+  min-width: 0;
+  max-width: min(100%, 220px);
+  padding: 6px 10px;
+  color: #475569;
+  background: rgba(241, 245, 249, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 750;
+  line-height: 1.25;
   cursor: pointer;
-  transition: all 0.2s ease;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.86) inset;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
-.answer-source-toggle:hover {
-  background: #dce8d3;
-  border-color: #b8cfae;
-  box-shadow: 0 1px 4px rgba(72, 101, 74, 0.15);
-}
-
-.answer-source-chevron {
-  font-size: 15px;
-  transition: transform 0.2s ease;
-}
-
-.answer-source-chevron.is-open {
-  transform: rotate(180deg);
-}
-
-.answer-source-panel {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid #eef2f7;
-}
-
-.answer-source-panel-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 10px;
-  color: #334155;
-  font-size: 13px;
-  font-weight: 850;
-}
-
-.answer-source-panel-head .material-symbols-outlined {
-  color: #64748b;
-  font-size: 17px;
-}
-
-.answer-source-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.answer-source-card {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 6px minmax(0, 1fr) 18px;
-  gap: 12px;
-  padding: 13px 14px;
-  text-align: left;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  cursor: pointer;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-}
-
-.answer-source-card:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
+.answer-citation-pill:hover {
+  color: #111827;
+  background: rgba(226, 232, 240, 0.98);
+  border-color: rgba(203, 213, 225, 1);
   transform: translateY(-1px);
 }
 
-.answer-source-card.is-material-preview {
-  grid-template-columns: minmax(0, 1fr) 18px;
-  gap: 10px;
-  padding: 12px;
+.answer-citation-pill.is-material {
+  color: #1d4ed8;
+  background: rgba(239, 246, 255, 0.96);
+  border-color: rgba(191, 219, 254, 0.98);
 }
 
-.answer-source-card-index {
-  width: 6px;
-  min-height: 100%;
-  border-radius: 999px;
-  background: #dbeafe;
+.answer-citation-pill.is-material:hover {
+  color: #1e40af;
+  background: rgba(219, 234, 254, 0.98);
 }
 
-.answer-source-card-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-.answer-source-card-text {
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.65;
-  word-break: keep-all;
-}
-
-.answer-source-card-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  width: fit-content;
-  max-width: 100%;
-  padding: 5px 12px;
-  color: #4b6a4e;
-  background: #eef4e8;
-  border: 1px solid #dce8d3;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.answer-source-card-meta .material-symbols-outlined {
+.answer-citation-pill .material-symbols-outlined {
   font-size: 15px;
-  color: #4b6a4e;
   flex: 0 0 auto;
 }
 
-.answer-source-card-meta span:last-child {
+.answer-citation-pill span:last-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.answer-source-card-arrow {
-  align-self: center;
-  color: #94a3b8;
-  font-size: 17px;
 }
 
 :deep(.ai-doc-feed p) {
