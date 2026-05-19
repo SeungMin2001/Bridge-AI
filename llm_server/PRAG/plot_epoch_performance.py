@@ -162,16 +162,10 @@ def plot_objective_axis(ax, *, qp_log: str, ponly_log: str, colors: dict[str, st
         has_lines = True
     ax.set_title("(a) Training Objective")
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Objective Loss (log scale)")
+    ax.set_ylabel("Loss")
     if qp_loss or ponly_loss:
-        ax.set_yscale("log")
-        positive = [v for v in qp_loss + ponly_loss if v > 0]
-        if positive:
-            # Use a data-driven log range so the paper figure shows the full
-            # decline while avoiding excessive empty space above and below.
-            lower = 10 ** (math.floor(math.log10(min(positive))) - 0.35)
-            upper = 10 ** (math.ceil(math.log10(max(positive))) + 0.15)
-            ax.set_ylim(lower, upper)
+        max_loss = max(qp_loss + ponly_loss)
+        ax.set_ylim(-max_loss * 0.05, max_loss * 1.08)
     style_axis(ax)
     ax.grid(True, which="both", alpha=0.22)
     if has_lines:
