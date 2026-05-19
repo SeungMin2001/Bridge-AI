@@ -60,6 +60,10 @@ const tabAnim = ref('tab-slide-right')
 const isMaterialDragOver = ref(false)
 const showDiarizationChoice = ref(false)
 const materialInputRef = ref(null)
+const pdfSearchQuery = ref('')
+const pdfSearchCommand = ref(null)
+const pdfSearchState = ref({ total: 0, activeIndex: 0 })
+const pdfSearchCommandSeq = ref(0)
 let prevTab = 'materials'
 
 const TAB_ORDER = ['materials', 'summary', 'quiz']
@@ -72,6 +76,11 @@ const tabs = computed(() => [
 
 const materialTitle = computed(() => props.activeFileName || '파일을 선택하세요')
 const materialCards = computed(() => Array.isArray(props.currentAttachments) ? props.currentAttachments : [])
+const isCurrentPreviewPdf = computed(() => {
+  const material = props.currentPreviewMaterial
+  if (!material) return false
+  return material.type === 'application/pdf' || /\.pdf$/i.test(material.name || material.storedName || '')
+})
 
 const allowedMaterialTypes = [
   'application/pdf',
@@ -110,10 +119,17 @@ watch(
 watch(
   () => props.currentPreviewMaterial,
   (nextMaterial, prevMaterial) => {
+    if (!nextMaterial || nextMaterial.id !== prevMaterial?.id) {
+      resetPdfSearch()
+    }
     if (!nextMaterial || nextMaterial.id === prevMaterial?.id) return
     handleTabChange('materials')
   }
 )
+
+watch(isCurrentPreviewPdf, (isPdf) => {
+  if (!isPdf) resetPdfSearch()
+})
 
 watch(
   () => props.materialEvidenceRequest,
@@ -159,6 +175,28 @@ const handleDroppedMaterial = (event) => {
 
 const triggerMaterialUpload = () => {
   materialInputRef.value?.click()
+}
+
+const sendPdfSearchCommand = (action) => {
+  pdfSearchCommandSeq.value += 1
+  pdfSearchCommand.value = { action, nonce: pdfSearchCommandSeq.value }
+}
+
+const resetPdfSearch = () => {
+  pdfSearchQuery.value = ''
+  pdfSearchState.value = { total: 0, activeIndex: 0 }
+  sendPdfSearchCommand('clear')
+}
+
+const handlePdfSearchChange = (query) => {
+  pdfSearchQuery.value = query
+}
+
+const handlePdfSearchResults = (payload = {}) => {
+  pdfSearchState.value = {
+    total: Number(payload.total || 0),
+    activeIndex: Number(payload.activeIndex || 0)
+  }
 }
 
 const handleMaterialInputChange = (event) => {
@@ -281,6 +319,9 @@ const postRecordingProcessing = computed(() => {
         :tabs="tabs"
         :active-tab="activeTab"
         :show-close-preview="activeTab === 'materials' && !!currentPreviewMaterial"
+        :show-pdf-search="activeTab === 'materials' && isCurrentPreviewPdf"
+        :pdf-search-total="pdfSearchState.total"
+        :pdf-search-active-index="pdfSearchState.activeIndex"
         :has-word-insight="!!selectedWordData"
         :word-insight-visible="!!selectedWordData && isWordCardVisible"
         @start-recording="handleStartRecording"
@@ -293,6 +334,10 @@ const postRecordingProcessing = computed(() => {
         @material-selected="handleMaterialSelection"
         @word-insight-click="handleWordInsightButtonClick"
         @close-preview-material="emit('closePreviewMaterial')"
+        @pdf-search-change="handlePdfSearchChange"
+        @pdf-search-next="sendPdfSearchCommand('next')"
+        @pdf-search-prev="sendPdfSearchCommand('prev')"
+        @pdf-search-clear="resetPdfSearch"
       />
 
       <transition name="post-processing">
@@ -338,6 +383,9 @@ const postRecordingProcessing = computed(() => {
               <LecturePreviewPanel
                 :material="currentPreviewMaterial"
                 :evidence-request="materialEvidenceRequest"
+                :pdf-search-query="pdfSearchQuery"
+                :pdf-search-command="pdfSearchCommand"
+                @pdf-search-results="handlePdfSearchResults"
               />
             </div>
 
