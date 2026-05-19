@@ -496,7 +496,7 @@ const activeWorkspaceSource = computed(() => {
             <button
               type="button"
               class="cite-source-title"
-              @click="openCitationSource(currentCite)"
+              @click="openEvidenceSource(currentCite)"
               :title="currentCite?.file_title || currentCite?.session_title || ''"
             >
               <span class="material-symbols-outlined">{{ currentCitationSourceIcon }}</span>
