@@ -22,7 +22,7 @@ from .config import KORQUAD_SERVICE_AUGMENTED_TRAIN_PATH, KORQUAD_SERVICE_AUGMEN
 from .prepare_korquad import iter_hf_records, iter_local_records, sentence_for_answer, service_full_answer, write_jsonl
 
 
-DEFAULT_MODEL = "Qwen/Qwen3.5-4B"
+DEFAULT_MODEL = "Qwen/Qwen2.5-3B"
 
 
 def normalize_text(text: str) -> str:

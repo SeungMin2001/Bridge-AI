@@ -36,7 +36,7 @@ from .config import (
 from .data import default_full_answer, iter_json_records, jsonl_snapshot, write_jsonl
 
 
-DEFAULT_AUGMENT_MODEL = os.getenv("PRAG_TRANSCRIPT_AUGMENT_MODEL", "Qwen/Qwen3.5-4B")
+DEFAULT_AUGMENT_MODEL = os.getenv("PRAG_TRANSCRIPT_AUGMENT_MODEL", "Qwen/Qwen2.5-3B")
 
 
 def facts_text(source: dict, key: str) -> str:

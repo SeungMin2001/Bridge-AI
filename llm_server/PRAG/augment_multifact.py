@@ -10,7 +10,7 @@ import os
 
 from .augment import build_parser, run
 from .config import MULTIFACT_AUGMENTED_TRAIN_PATH, MULTIFACT_AUGMENTED_VALID_PATH, MULTIFACT_SOURCE_PATH
-DEFAULT_AUGMENT_MODEL = os.getenv("PRAG_MULTIFACT_AUGMENT_MODEL", "Qwen/Qwen3.5-4B")
+DEFAULT_AUGMENT_MODEL = os.getenv("PRAG_MULTIFACT_AUGMENT_MODEL", "Qwen/Qwen2.5-3B")
 
 
 def main() -> None:
