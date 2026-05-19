@@ -8,6 +8,7 @@ RAG 검색 모듈
 import logging
 import os
 import json
+import re
 from datetime import datetime, timedelta
 import psycopg2
 from kiwipiepy import Kiwi
@@ -20,7 +21,83 @@ from materials.material_citation_service import build_material_citation, format_
 _kiwi = Kiwi()
 
 # 키워드 검색에 사용할 품사 태그 (명사, 동사 어간, 형용사 어간)
-_KEYWORD_TAGS = {"NNG", "NNP", "VV", "VA"}  # 일반명사, 고유명사, 동사, 형용사
+_KEYWORD_TAGS = {"NNG", "NNP", "VV", "VA", "SL"}  # 일반명사, 고유명사, 동사, 형용사, 외국어
+_ALNUM_TERM_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+#.-]*")
+_LOCATOR_QUERY_STOPWORDS = {
+    "혹시",
+    "무엇",
+    "뭐",
+    "어디",
+    "어느",
+    "위치",
+    "찾",
+    "찾아",
+    "검색",
+    "언급",
+    "부분",
+    "구간",
+    "파일",
+    "녹음",
+    "녹음본",
+    "전사",
+    "자료",
+    "내용",
+    "말",
+    "나오",
+    "포함",
+    "포함되",
+    "있는",
+    "있어",
+    "있나요",
+    "관련",
+    "해당",
+    "대한",
+    "대해",
+    "대해서",
+    "특정",
+    "단어",
+    "표현",
+    "키워드",
+    "근거",
+    "링크",
+    "보여",
+    "보여줘",
+}
+_GROUNDED_LOOKUP_TERMS = (
+    "누구",
+    "무엇",
+    "뭐야",
+    "뭐여",
+    "뭐냐",
+    "뭐임",
+    "뭐에요",
+    "뭐예요",
+    "뭔가",
+    "뭔데",
+    "무슨",
+    "의미",
+    "정의",
+    "설명",
+    "알려",
+    "개념",
+    "뜻",
+)
+_GROUNDED_LOOKUP_STOPWORDS = _LOCATOR_QUERY_STOPWORDS | {
+    "강의",
+    "교수",
+    "교수님",
+    "녹음",
+    "녹음본",
+    "내용",
+    "데이터",
+    "비정형",
+    "비정형데이터",
+    "세션",
+    "자료",
+    "파일",
+    "페이지",
+    "pdf",
+}
 
 
 def extract_keywords(text: str) -> list[str]:
@@ -30,7 +107,175 @@ def extract_keywords(text: str) -> list[str]:
     for token in tokens:
         if token.tag in _KEYWORD_TAGS and len(token.form) >= 2:
             keywords.append(token.form)
-    return keywords
+
+    # 신창영: 수정 이유 - Kiwi 품사 필터만 쓰면 MMC 같은 영문 약어가 누락될 수 있어 원문에서 별도로 보존합니다.
+    keywords.extend(_ALNUM_TERM_RE.findall(str(text or "")))
+
+    deduped = []
+    seen = set()
+    for keyword in keywords:
+        clean_keyword = str(keyword or "").strip()
+        if not clean_keyword:
+            continue
+        key = clean_keyword.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(clean_keyword)
+    return deduped
+
+
+def _extract_search_terms(
+    query: str,
+    *,
+    locator_query: bool = False,
+    grounded_lookup_query: bool = False,
+) -> list[str]:
+    """질문 유형에 맞게 DB 키워드 검색어를 정리합니다."""
+    keywords = extract_keywords(query)
+    if not locator_query and not grounded_lookup_query:
+        return keywords
+
+    if grounded_lookup_query:
+        grounded_terms = _extract_grounded_lookup_terms(query)
+        if grounded_terms:
+            return grounded_terms
+
+    lookup_terms = _extract_lookup_terms(query)
+    if lookup_terms:
+        return lookup_terms
+
+    filtered = [
+        keyword
+        for keyword in keywords
+        if keyword.lower() not in _LOCATOR_QUERY_STOPWORDS
+        and keyword not in _LOCATOR_QUERY_STOPWORDS
+    ]
+    return filtered or keywords
+
+
+def _clean_lookup_term(value: str) -> str:
+    """질문에서 추출한 검색 대상 표현의 조사/불필요한 말을 정리합니다."""
+    term = re.sub(r"^(혹시|그럼|그러면|저기|혹은|그|이|저)\s*", "", str(value or "")).strip()
+    term = re.sub(r"[\s,.:;!?？]+$", "", term).strip()
+    term = re.sub(r"(은|는|이|가|을|를|에|에서|으로|로|도|만)$", "", term).strip()
+    return term
+
+
+def _append_lookup_term(terms: list[str], value: str):
+    term = _clean_lookup_term(value)
+    if len(term) < 2:
+        return
+    if term.lower() in _LOCATOR_QUERY_STOPWORDS or term in _LOCATOR_QUERY_STOPWORDS:
+        return
+    if term not in terms:
+        terms.append(term)
+
+
+def _extract_lookup_terms(query: str) -> list[str]:
+    """언급 위치/근거 찾기 질문에서 사용자가 찾는 실제 표현을 우선 추출합니다."""
+    text = " ".join(str(query or "").split())
+    terms: list[str] = []
+
+    for match in re.finditer(r"['\"“”‘’](.+?)['\"“”‘’]", text):
+        _append_lookup_term(terms, match.group(1))
+
+    marker_patterns = (
+        r"([A-Za-z][A-Za-z0-9_+#.-]*|[가-힣A-Za-z0-9_+#.-]{2,30})\s*(?:에\s*대한|에대한|에\s*대해|에대해|에\s*대해서|에대해서)",
+        r"([A-Za-z][A-Za-z0-9_+#.-]*|[가-힣A-Za-z0-9_+#.-]{2,30})\s*(?:라고|이라는|라는)",
+        r"(?:단어|표현|키워드)\s*[\"'“”‘’]?\s*([A-Za-z][A-Za-z0-9_+#.-]*|[가-힣A-Za-z0-9_+#.-]{2,30})",
+    )
+    for pattern in marker_patterns:
+        for match in re.finditer(pattern, text):
+            _append_lookup_term(terms, match.group(1))
+
+    if terms:
+        return terms
+
+    for keyword in extract_keywords(text):
+        if keyword.lower() in _LOCATOR_QUERY_STOPWORDS or keyword in _LOCATOR_QUERY_STOPWORDS:
+            continue
+        _append_lookup_term(terms, keyword)
+
+    return terms
+
+
+def _is_current_scope_query(question: str) -> bool:
+    """사용자가 명시적으로 현재/선택 파일만 묻는지 판별합니다."""
+    text = str(question or "")
+    current_scope_terms = (
+        "현재 파일",
+        "이 파일",
+        "여기 파일",
+        "현재 여기에",
+        "여기에 저장",
+        "선택된",
+        "열려 있는",
+        "열려있는",
+        "지금 파일",
+        "이 강의",
+        "이 자료",
+        "이 내용",
+        "여기 내용",
+        "현재 내용",
+    )
+    return any(term in text for term in current_scope_terms)
+
+
+def _is_grounded_lookup_query(question: str) -> bool:
+    """특정 인물/용어의 정체나 의미를 저장 자료 근거로 묻는 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+    if not any(term in text for term in _GROUNDED_LOOKUP_TERMS):
+        return False
+    return bool(_extract_grounded_lookup_terms(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _extract_grounded_lookup_terms(query: str) -> list[str]:
+    """'오태진 교수 누구야' 같은 질문에서 실제 조회할 핵심 표현을 추출합니다."""
+    text = " ".join(str(query or "").split())
+    focus = text
+
+    question_match = re.search(
+        r"(.+?)(?:누구|무엇|뭐야|뭐여|뭐냐|뭐임|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻)",
+        text,
+    )
+    if question_match:
+        focus = question_match.group(1)
+
+    source_parts = re.split(r"\s*(?:의|에서|에는|에)\s+", focus)
+    source_parts = [part.strip() for part in source_parts if part.strip()]
+    if len(source_parts) > 1:
+        focus = source_parts[-1]
+
+    focus = re.sub(r"(은|는|이|가|을|를|에|에서|으로|로|도|만)\s*$", "", focus).strip()
+
+    alnum_terms = _ALNUM_TERM_RE.findall(focus)
+    if alnum_terms:
+        return alnum_terms
+
+    terms = []
+    for match in re.finditer(r"[가-힣A-Za-z0-9_+#.-]{2,30}", focus):
+        term = _clean_lookup_term(match.group(0))
+        if len(term) < 2:
+            continue
+        if term.lower() in _GROUNDED_LOOKUP_STOPWORDS or term in _GROUNDED_LOOKUP_STOPWORDS:
+            continue
+        if term not in terms:
+            terms.append(term)
+    if terms:
+        return terms
+
+    for keyword in extract_keywords(focus):
+        term = _clean_lookup_term(keyword)
+        if len(term) < 2:
+            continue
+        if term.lower() in _GROUNDED_LOOKUP_STOPWORDS or term in _GROUNDED_LOOKUP_STOPWORDS:
+            continue
+        if term not in terms:
+            terms.append(term)
+    return terms
 
 # ── 임베딩 모델 (서버 시작 시 1회 초기화) ──
 _embed_model = None
@@ -453,6 +698,29 @@ def _selected_transcript_context_search(
     return results
 
 
+def _is_locator_query(question: str) -> bool:
+    """특정 단어/주제가 어디에 언급됐는지 찾는 질문인지 간단히 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+
+    locator_terms = ("어디", "어느", "몇 분", "몇초", "몇 초", "위치", "찾", "검색", "근거", "링크", "보여")
+    mention_terms = ("언급", "나오", "포함", "있어", "있는", "말했", "다룬", "등장")
+    strong_mention_terms = ("언급", "나오", "포함", "말했", "다룬", "등장")
+    target_terms = ("파일", "녹음", "전사", "자료", "내용", "부분", "구간", "문장", "대목")
+    has_lookup_term = bool(_extract_lookup_terms(text) or _ALNUM_TERM_RE.search(text))
+    has_locator = any(term in text for term in locator_terms)
+    has_mention = any(term in text for term in mention_terms)
+    has_strong_mention = any(term in text for term in strong_mention_terms)
+    has_target = any(term in text for term in target_terms)
+
+    return (
+        has_lookup_term
+        and has_mention
+        and (has_locator or has_target or has_strong_mention or "에 대한" in text or "에대한" in text or "라고" in text)
+    )
+
+
 def _normalize_source_filter(source_filter: dict | None) -> dict:
     if not isinstance(source_filter, dict):
         return {
@@ -574,6 +842,8 @@ def _keyword_search(
     top_k: int = 5,
     session_id: str | None = None,
     source_filter: dict | None = None,
+    locator_query: bool | None = None,
+    grounded_lookup_query: bool | None = None,
 ) -> list[dict]:
     """PostgreSQL ts_rank + LIKE 기반 키워드 검색"""
     filters = _normalize_source_filter(source_filter)
@@ -588,8 +858,14 @@ def _keyword_search(
     conn = psycopg2.connect(**_db_config())
     cur = conn.cursor()
 
-    # 형태소 분석으로 명사/동사/형용사 키워드 추출
-    words = extract_keywords(query)
+    # 형태소 분석으로 명사/동사/형용사/영문 약어 키워드 추출
+    words = _extract_search_terms(
+        query,
+        locator_query=_is_locator_query(query) if locator_query is None else locator_query,
+        grounded_lookup_query=_is_grounded_lookup_query(query)
+        if grounded_lookup_query is None
+        else grounded_lookup_query,
+    )
     if not words:
         cur.close()
         conn.close()
@@ -907,6 +1183,28 @@ def _run_hybrid_search(
     return _merge_results(all_vector, all_keyword, top_k=top_k)
 
 
+def _run_keyword_only_search(
+    queries: list[str],
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+    locator_query: bool = False,
+    grounded_lookup_query: bool = False,
+) -> list[dict]:
+    """정확한 언급 위치를 찾는 질문에서는 키워드 매칭 결과를 우선 사용합니다."""
+    all_keyword = []
+    for query in queries:
+        all_keyword.extend(_keyword_search(
+            query,
+            top_k=top_k,
+            session_id=session_id,
+            source_filter=source_filter,
+            locator_query=locator_query,
+            grounded_lookup_query=grounded_lookup_query,
+        ))
+    return _merge_results([], all_keyword, top_k=top_k)
+
+
 # ── Citation 포맷 ──
 def _format_citation(result: dict) -> str:
     """출처 문자열 생성"""
@@ -914,7 +1212,8 @@ def _format_citation(result: dict) -> str:
         return format_material_citation(result)
 
     time_range = f"{_format_time(result['start_time'])}~{_format_time(result['end_time'])}"
-    return f"{result['session_title']} > {time_range}"
+    source_title = result.get("recording_title") or result.get("session_title") or result.get("file_title") or "녹음본"
+    return f"{source_title} > {time_range}"
 
 
 # ══════════════════════════════════════
@@ -949,17 +1248,53 @@ def search(
     # all_keyword.extend(_keyword_search(q, top_k=3))
     filters = _normalize_source_filter(source_filter)
     has_filter = _has_source_filter(filters)
-    results = _run_vector_similarity_search(queries, top_k=top_k, session_id=session_id, source_filter=source_filter)
-    search_scope = "current_file" if session_id else "all_files"
-    if not results:
+    locator_query = _is_locator_query(question)
+    grounded_lookup_query = _is_grounded_lookup_query(question)
+    strict_keyword_query = locator_query or grounded_lookup_query
+    current_scope_query = _is_current_scope_query(question)
+
+    if strict_keyword_query:
+        results = _run_keyword_only_search(
+            queries,
+            top_k=top_k,
+            session_id=session_id,
+            source_filter=source_filter,
+            locator_query=locator_query,
+            grounded_lookup_query=grounded_lookup_query,
+        )
+        search_scope = "current_file_keyword" if session_id else "all_files_keyword"
+    else:
+        results = _run_vector_similarity_search(queries, top_k=top_k, session_id=session_id, source_filter=source_filter)
+        search_scope = "current_file" if session_id else "all_files"
+
+    if not results and not strict_keyword_query:
         results = _run_hybrid_search(queries, top_k=top_k, session_id=session_id, source_filter=source_filter)
         if results:
             search_scope = f"{search_scope}_keyword_fallback"
-    if not results and session_id and (filters["recording_ids"] or filters["transcript_ids"]):
+
+    if strict_keyword_query and session_id and not results and not current_scope_query:
+        results = _run_keyword_only_search(
+            queries,
+            top_k=top_k,
+            session_id=None,
+            source_filter=None,
+            locator_query=locator_query,
+            grounded_lookup_query=grounded_lookup_query,
+        )
+        if results:
+            search_scope = "all_files_keyword_fallback"
+
+    if (
+        not results
+        and session_id
+        and (filters["recording_ids"] or filters["transcript_ids"])
+        and not strict_keyword_query
+    ):
         results = _selected_transcript_context_search(session_id, source_filter)
         if results:
             search_scope = "selected_source_context"
-    if session_id and not results and not has_filter:
+
+    if session_id and not results and not has_filter and not strict_keyword_query:
         results = _run_vector_similarity_search(queries, top_k=top_k, session_id=None, source_filter=None)
         if not results:
             results = _run_hybrid_search(queries, top_k=top_k, session_id=None, source_filter=None)
@@ -1015,6 +1350,8 @@ def search(
         citations.append({
             "text": r["text"],
             "citation": citation,
+            "file_title": r.get("file_title", ""),
+            "recording_title": r.get("recording_title", ""),
             "course_title": r["course_title"],
             "session_title": r["session_title"],
             "session_date": r["session_date"],
