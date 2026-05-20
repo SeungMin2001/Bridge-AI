@@ -50,6 +50,8 @@ const isResizing = ref(false)
 const selectedTranscriptSource = ref(null)
 const activePlaybackRecording = ref(null)
 const localEmbeddedFolderOpen = ref(false)
+const playbackAudioRef = ref(null)
+const playbackMediaDuration = ref(0)
 const isPlaybackPlaying = ref(false)
 const playbackProgress = ref(0)
 const playbackSpeed = ref(1)
@@ -248,7 +250,9 @@ const getRecordingTranscriptDuration = (recording = {}) => {
 const playbackDurationSeconds = computed(() => {
   const recording = activePlaybackRecording.value
   if (!recording) return 0
-  return parsePlaybackDuration(recording.durationText)
+  return playbackMediaDuration.value
+    || Number(recording.durationSeconds)
+    || parsePlaybackDuration(recording.durationText)
     || getRecordingTranscriptDuration(recording)
     || 540
 })
@@ -270,6 +274,10 @@ const setPlaybackSecond = (seconds) => {
   const duration = playbackDurationSeconds.value || 1
   const next = Math.min(duration, Math.max(0, Number(seconds) || 0))
   playbackProgress.value = Number(((next / duration) * 100).toFixed(2))
+  const audio = playbackAudioRef.value
+  if (activePlaybackRecording.value?.audioUrl && audio && Number.isFinite(audio.duration)) {
+    audio.currentTime = next
+  }
 }
 
 const clearPlaybackTimer = () => {
@@ -280,9 +288,11 @@ const clearPlaybackTimer = () => {
 
 const closePlaybackBar = () => {
   clearPlaybackTimer()
+  playbackAudioRef.value?.pause()
   activePlaybackRecording.value = null
   isPlaybackPlaying.value = false
   playbackProgress.value = 0
+  playbackMediaDuration.value = 0
 }
 
 const setActivePlaybackRecording = (recording = {}, sessionId = '') => {
@@ -292,11 +302,31 @@ const setActivePlaybackRecording = (recording = {}, sessionId = '') => {
     recordingId: recording?.id || recording?.recordingId || ''
   }
   playbackProgress.value = 0
+  playbackMediaDuration.value = 0
   isPlaybackPlaying.value = false
 }
 
-const togglePlayback = () => {
+const togglePlayback = async () => {
   if (!activePlaybackRecording.value) return
+  const audio = playbackAudioRef.value
+  if (activePlaybackRecording.value?.audioUrl && audio) {
+    audio.playbackRate = playbackSpeed.value
+    if (isPlaybackPlaying.value) {
+      audio.pause()
+      isPlaybackPlaying.value = false
+      return
+    }
+
+    try {
+      await audio.play()
+      isPlaybackPlaying.value = true
+    } catch (error) {
+      console.error('[workspace] audio playback failed:', error)
+      isPlaybackPlaying.value = false
+    }
+    return
+  }
+
   isPlaybackPlaying.value = !isPlaybackPlaying.value
 }
 
@@ -307,6 +337,31 @@ const skipPlayback = (amount) => {
 const cyclePlaybackSpeed = () => {
   const index = playbackSpeeds.indexOf(playbackSpeed.value)
   playbackSpeed.value = playbackSpeeds[(index + 1) % playbackSpeeds.length]
+}
+
+const handlePlaybackLoadedMetadata = () => {
+  const duration = Number(playbackAudioRef.value?.duration)
+  playbackMediaDuration.value = Number.isFinite(duration) ? Math.round(duration) : 0
+}
+
+const handlePlaybackTimeUpdate = () => {
+  const audio = playbackAudioRef.value
+  const duration = Number(audio?.duration)
+  const currentTime = Number(audio?.currentTime)
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(currentTime)) return
+  playbackProgress.value = Number(((currentTime / duration) * 100).toFixed(2))
+}
+
+const handlePlaybackRangeInput = () => {
+  const audio = playbackAudioRef.value
+  if (!activePlaybackRecording.value?.audioUrl || !audio) return
+  const duration = Number(audio.duration) || playbackDurationSeconds.value
+  audio.currentTime = Math.min(duration, Math.max(0, (Number(playbackProgress.value) || 0) * duration / 100))
+}
+
+const handlePlaybackEnded = () => {
+  setPlaybackSecond(playbackDurationSeconds.value)
+  isPlaybackPlaying.value = false
 }
 
 const handleMouseMove = (e) => {
@@ -336,6 +391,7 @@ onUnmounted(() => {
 
 watch(isPlaybackPlaying, (playing) => {
   clearPlaybackTimer()
+  if (activePlaybackRecording.value?.audioUrl) return
   if (!playing) return
 
   playbackTimer = setInterval(() => {
@@ -347,6 +403,12 @@ watch(isPlaybackPlaying, (playing) => {
     }
     setPlaybackSecond(nextSecond)
   }, 1000)
+})
+
+watch(playbackSpeed, (speed) => {
+  if (playbackAudioRef.value) {
+    playbackAudioRef.value.playbackRate = speed
+  }
 })
 
 watch(() => props.activeFileId, () => {
@@ -722,6 +784,15 @@ watch(() => props.citationSourceRequest, (request) => {
                 :class="{ 'is-unified-audio-player': embedded }"
                 aria-label="녹음 재생바"
               >
+                <audio
+                  v-if="activePlaybackRecording.audioUrl"
+                  ref="playbackAudioRef"
+                  :src="activePlaybackRecording.audioUrl"
+                  preload="metadata"
+                  @loadedmetadata="handlePlaybackLoadedMetadata"
+                  @timeupdate="handlePlaybackTimeUpdate"
+                  @ended="handlePlaybackEnded"
+                ></audio>
                 <div class="sidebar-audio-source-header">
                   <div class="sidebar-audio-source-text">
                     <p>{{ playbackSourceTitle }}</p>
@@ -749,6 +820,7 @@ watch(() => props.citationSourceRequest, (request) => {
                     max="100"
                     step="0.1"
                     aria-label="녹음 재생 위치"
+                    @input="handlePlaybackRangeInput"
                   />
                   <span>{{ formatPlaybackTime(playbackDurationSeconds) }}</span>
                 </div>
