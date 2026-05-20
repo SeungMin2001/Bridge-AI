@@ -1,10 +1,9 @@
 <!-- 음성 녹음, 실시간 전사, AI 분석 및 교차 참조가 이루어지는 작업실 페이지 컴포넌트입니다. -->
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
-import InfiniteGrid from '../../components/home/InfiniteGrid.vue'
 import { useChat } from '../../composables/useChat'
 
 const props = defineProps({
@@ -59,6 +58,88 @@ const { showCitePopover, currentCite, citePopoverPos, closeCitePopover, clearHis
 const citationSourceRequest = ref(null)
 const materialEvidenceRequest = ref(null)
 const mainContentTabRequest = ref(null)
+const isEmbeddedFolderOpen = ref(false)
+const workspaceActiveMainTab = ref('materials')
+const workspaceUnifiedCardRef = ref(null)
+const scriptPaneWidth = ref(50)
+const isScriptPaneResizing = ref(false)
+
+const DEFAULT_SCRIPT_PANE_PERCENT = 50
+const MIN_SCRIPT_PANE_WIDTH = 280
+const RESIZE_KEY_STEP = 2
+
+function getScriptPaneMinPercent() {
+  const cardWidth = workspaceUnifiedCardRef.value?.getBoundingClientRect().width || 0
+  if (!cardWidth) return 28
+  return Math.min(DEFAULT_SCRIPT_PANE_PERCENT, Math.max(24, (MIN_SCRIPT_PANE_WIDTH / cardWidth) * 100))
+}
+
+function setScriptPaneWidth(nextPercent) {
+  const minPercent = getScriptPaneMinPercent()
+  const clamped = Math.min(DEFAULT_SCRIPT_PANE_PERCENT, Math.max(minPercent, nextPercent))
+  scriptPaneWidth.value = Number(clamped.toFixed(2))
+}
+
+function setScriptPaneWidthFromPointer(clientX) {
+  const rect = workspaceUnifiedCardRef.value?.getBoundingClientRect()
+  if (!rect?.width) return
+  setScriptPaneWidth(((clientX - rect.left) / rect.width) * 100)
+}
+
+function stopScriptPaneResize() {
+  if (!isScriptPaneResizing.value) return
+  isScriptPaneResizing.value = false
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  document.body.classList.remove('is-resizing')
+  window.removeEventListener('pointermove', handleScriptPanePointerMove)
+  window.removeEventListener('pointerup', stopScriptPaneResize)
+  window.removeEventListener('pointercancel', stopScriptPaneResize)
+}
+
+function handleScriptPanePointerMove(event) {
+  if (!isScriptPaneResizing.value) return
+  setScriptPaneWidthFromPointer(event.clientX)
+}
+
+function handleScriptPanePointerDown(event) {
+  if (event.button !== undefined && event.button !== 0) return
+  event.preventDefault()
+  isScriptPaneResizing.value = true
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  document.body.classList.add('is-resizing')
+  setScriptPaneWidthFromPointer(event.clientX)
+  window.addEventListener('pointermove', handleScriptPanePointerMove)
+  window.addEventListener('pointerup', stopScriptPaneResize)
+  window.addEventListener('pointercancel', stopScriptPaneResize)
+}
+
+function handleScriptPaneResizeKeydown(event) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+
+  if (event.key === 'Home') {
+    setScriptPaneWidth(getScriptPaneMinPercent())
+    return
+  }
+
+  if (event.key === 'End') {
+    setScriptPaneWidth(DEFAULT_SCRIPT_PANE_PERCENT)
+    return
+  }
+
+  const direction = event.key === 'ArrowLeft' ? -1 : 1
+  setScriptPaneWidth(scriptPaneWidth.value + (direction * RESIZE_KEY_STEP))
+}
+
+function resetScriptPaneWidth() {
+  setScriptPaneWidth(DEFAULT_SCRIPT_PANE_PERCENT)
+}
+
+onUnmounted(() => {
+  stopScriptPaneResize()
+})
 
 watch(() => props.activeFileId, () => {
   citationSourceRequest.value = null
@@ -320,13 +401,11 @@ const activeWorkspaceSource = computed(() => {
 
 <template>
   <div 
-    class="p-[12px] flex relative h-full w-full bg-transparent text-[#1e293b] overflow-hidden transition-all duration-400"
+    class="workspace-page-shell p-[12px] flex relative h-full w-full text-[#1e293b] overflow-hidden transition-all duration-400"
     :class="[
       { 'gap-[12px]': !isLeftSidebarCollapsed || isRightSidebarVisible }
     ]"
   >
-    <InfiniteGrid class="absolute inset-0 z-0" />
-
     <transition name="schedule-notice-fade">
       <section
         v-if="scheduleNoticeItems.length"
@@ -377,73 +456,109 @@ const activeWorkspaceSource = computed(() => {
       </section>
     </transition>
 
-    <LeftSidebar
-      class="relative z-10"
-      :isCollapsed="isLeftSidebarCollapsed"
-      :isRecording="isRecording"
-      :isRecordingPaused="isRecordingPaused"
-      :recordingMode="recordingMode"
-      :recordingTimeText="recordingTimeText"
-      :recordingAudioLevel="recordingAudioLevel"
-      :diarization-enabled="diarizationEnabled"
-      :diarization-status="diarizationStatus"
-      :transcriptions="transcriptions"
-      :fileTree="fileTree"
-      :favorites="favorites"
-      :activeFileName="activeFileName"
-      :activeFileId="activeFileId"
-      :activeFileType="activeFileType"
-      :citationSourceRequest="citationSourceRequest"
-      @toggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
-      @navigateHome="emit('navigateHome')"
-      @fileSelect="(id, node) => emit('fileSelect', id, node)"
-      @update:fileTree="emit('update:fileTree', $event)"
-      @update:favorites="emit('update:favorites', $event)"
-      @addToNote="(text, source) => emit('addToNote', text, source)"
-      @askAi="(word) => emit('askAi', word)"
-      @openStoredMaterial="emit('openStoredMaterial', $event)"
-      @openRecording="handleOpenRecording"
-      @startRecording="emit('startRecording', $event)"
-      @pauseRecording="emit('pauseRecording')"
-      @resumeRecording="emit('resumeRecording')"
-      @stopRecording="emit('stopRecording')"
-    />
-    
-    <MainContent
-      class="relative z-10"
-      :isRecording="isRecording"
-      :isRecordingPaused="isRecordingPaused"
-      :recordingMode="recordingMode"
-      :recordingTimeText="recordingTimeText"
-      :recordingAudioLevel="recordingAudioLevel"
-      :diarization-enabled="diarizationEnabled"
-      :diarization-status="diarizationStatus"
-      :activeFileName="activeFileName"
-      :activeFileId="activeFileId"
-      :activeFileType="activeFileType"
-      :currentAttachments="currentAttachments"
-      :currentRecordings="currentRecordings"
-      :transcriptions="transcriptions"
-      :currentPreviewMaterial="currentPreviewMaterial"
-      :materialEvidenceRequest="materialEvidenceRequest"
-      :summaryState="summaryState"
-      :summaryNotes="summaryNotes"
-      :quizSource="activeWorkspaceSource"
-      :tabRequest="mainContentTabRequest"
-      @startRecording="emit('startRecording', $event)"
-      @pauseRecording="emit('pauseRecording')"
-      @resumeRecording="emit('resumeRecording')"
-      @stopRecording="emit('stopRecording')"
-      @generateMaterialSummary="emit('generateMaterialSummary', $event)"
-      @deleteSummary="emit('deleteSummary', $event)"
-      @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
-      @rightSidebarToggle="emit('rightSidebarToggle')"
-      @askAi="(word) => emit('askAi', word)"
-      @addToNote="(text, source) => emit('addToNote', text, source)"
-      @uploadLectureMaterials="emit('uploadLectureMaterials', $event)"
-      @closePreviewMaterial="emit('closePreviewMaterial')"
-      @openStoredMaterial="emit('openStoredMaterial', $event)"
-    />
+    <section
+      ref="workspaceUnifiedCardRef"
+      class="workspace-unified-card card relative z-10"
+      :class="{
+        'has-script-tab-line': workspaceActiveMainTab === 'materials' || workspaceActiveMainTab === 'quiz',
+        'is-resizing-script-pane': isScriptPaneResizing
+      }"
+      :style="{ '--workspace-script-pane-width': `${scriptPaneWidth}%` }"
+    >
+      <div id="workspace-unified-folder-drawer-host" class="workspace-unified-folder-drawer-host"></div>
+      <div id="workspace-unified-audio-player-host" class="workspace-unified-audio-player-host"></div>
+
+      <LeftSidebar
+        embedded
+        class="workspace-unified-script-pane"
+        :isCollapsed="false"
+        :isRecording="isRecording"
+        :isRecordingPaused="isRecordingPaused"
+        :recordingMode="recordingMode"
+        :recordingTimeText="recordingTimeText"
+        :recordingAudioLevel="recordingAudioLevel"
+        :diarization-enabled="diarizationEnabled"
+        :diarization-status="diarizationStatus"
+        :transcriptions="transcriptions"
+        :fileTree="fileTree"
+        :favorites="favorites"
+        :activeFileName="activeFileName"
+        :activeFileId="activeFileId"
+        :activeFileType="activeFileType"
+        :citationSourceRequest="citationSourceRequest"
+        :embedded-folder-open="isEmbeddedFolderOpen"
+        :script-tab-line-visible="true"
+        @update:embeddedFolderOpen="isEmbeddedFolderOpen = $event"
+        @update:embedded-folder-open="isEmbeddedFolderOpen = $event"
+        @navigateHome="emit('navigateHome')"
+        @fileSelect="(id, node) => emit('fileSelect', id, node)"
+        @update:fileTree="emit('update:fileTree', $event)"
+        @update:favorites="emit('update:favorites', $event)"
+        @addToNote="(text, source) => emit('addToNote', text, source)"
+        @askAi="(word) => emit('askAi', word)"
+        @openStoredMaterial="emit('openStoredMaterial', $event)"
+        @openRecording="handleOpenRecording"
+        @startRecording="emit('startRecording', $event)"
+        @pauseRecording="emit('pauseRecording')"
+        @resumeRecording="emit('resumeRecording')"
+        @stopRecording="emit('stopRecording')"
+      />
+
+      <div
+        class="workspace-unified-resizer"
+        role="separator"
+        aria-label="스크립트 영역 너비 조절"
+        aria-orientation="vertical"
+        aria-valuemin="24"
+        aria-valuemax="50"
+        :aria-valuenow="Math.round(scriptPaneWidth)"
+        tabindex="0"
+        title="드래그해서 스크립트 영역 너비 조절"
+        @pointerdown="handleScriptPanePointerDown"
+        @keydown="handleScriptPaneResizeKeydown"
+        @dblclick="resetScriptPaneWidth"
+      ></div>
+
+      <MainContent
+        embedded
+        class="workspace-unified-main-pane"
+        :isRecording="isRecording"
+        :isRecordingPaused="isRecordingPaused"
+        :recordingMode="recordingMode"
+        :recordingTimeText="recordingTimeText"
+        :recordingAudioLevel="recordingAudioLevel"
+        :diarization-enabled="diarizationEnabled"
+        :diarization-status="diarizationStatus"
+        :activeFileName="activeFileName"
+        :activeFileId="activeFileId"
+        :activeFileType="activeFileType"
+        :currentAttachments="currentAttachments"
+        :currentRecordings="currentRecordings"
+        :transcriptions="transcriptions"
+        :currentPreviewMaterial="currentPreviewMaterial"
+        :materialEvidenceRequest="materialEvidenceRequest"
+        :summaryState="summaryState"
+        :summaryNotes="summaryNotes"
+        :quizSource="activeWorkspaceSource"
+        :tabRequest="mainContentTabRequest"
+        :folder-drawer-open="isEmbeddedFolderOpen"
+        @startRecording="emit('startRecording', $event)"
+        @pauseRecording="emit('pauseRecording')"
+        @resumeRecording="emit('resumeRecording')"
+        @stopRecording="emit('stopRecording')"
+        @generateMaterialSummary="emit('generateMaterialSummary', $event)"
+        @deleteSummary="emit('deleteSummary', $event)"
+        @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
+        @rightSidebarToggle="emit('rightSidebarToggle')"
+        @askAi="(word) => emit('askAi', word)"
+        @addToNote="(text, source) => emit('addToNote', text, source)"
+        @uploadLectureMaterials="emit('uploadLectureMaterials', $event)"
+        @closePreviewMaterial="emit('closePreviewMaterial')"
+        @openStoredMaterial="emit('openStoredMaterial', $event)"
+        @toggleFolderDrawer="isEmbeddedFolderOpen = !isEmbeddedFolderOpen"
+        @activeTabChange="workspaceActiveMainTab = $event"
+      />
+    </section>
     
     <RightSidebar 
       class="relative z-10"
@@ -528,6 +643,149 @@ const activeWorkspaceSource = computed(() => {
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+}
+
+.workspace-unified-card {
+  --workspace-script-pane-width: 50%;
+  flex: 1 1 0%;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(226, 224, 232, 0.9);
+  border-radius: 24px;
+  box-shadow:
+    0 26px 52px rgba(148, 163, 184, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.workspace-unified-card.is-resizing-script-pane,
+.workspace-unified-card.is-resizing-script-pane * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.workspace-unified-card::before,
+.workspace-unified-card::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 12;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.06);
+  pointer-events: none;
+}
+
+.workspace-unified-card::before {
+  top: 82px;
+  display: none;
+}
+
+.workspace-unified-card.has-script-tab-line::before {
+  display: none;
+}
+
+.workspace-unified-card::after {
+  top: 48px;
+}
+
+.workspace-unified-folder-drawer-host {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.workspace-unified-folder-drawer-host :deep(.embedded-folder-drawer) {
+  pointer-events: auto;
+}
+
+.workspace-unified-audio-player-host {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 75;
+  height: 64px;
+  pointer-events: none;
+}
+
+.workspace-unified-audio-player-host :deep(*) {
+  pointer-events: auto;
+}
+
+.workspace-unified-script-pane {
+  position: relative;
+  flex: 0 0 var(--workspace-script-pane-width);
+  width: var(--workspace-script-pane-width) !important;
+  transition: flex-basis 0.16s ease, width 0.16s ease;
+}
+
+.workspace-unified-script-pane::after {
+  display: none;
+}
+
+.workspace-unified-main-pane {
+  flex: 1 1 0%;
+  min-width: 50% !important;
+}
+
+.workspace-unified-resizer {
+  position: relative;
+  z-index: 68;
+  flex: 0 0 12px;
+  width: 12px;
+  align-self: stretch;
+  margin-left: -7px;
+  margin-right: -5px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.workspace-unified-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: rgba(226, 224, 232, 0.95);
+  transition: width 0.16s ease, background-color 0.16s ease;
+}
+
+.workspace-unified-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 54px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: #c7ccd6;
+  opacity: 0;
+  transition: opacity 0.16s ease, background-color 0.16s ease;
+}
+
+.workspace-unified-resizer:hover::before,
+.workspace-unified-resizer:focus-visible::before,
+.workspace-unified-card.is-resizing-script-pane .workspace-unified-resizer::before {
+  width: 3px;
+  background: #9aa3b2;
+}
+
+.workspace-unified-resizer:hover::after,
+.workspace-unified-resizer:focus-visible::after,
+.workspace-unified-card.is-resizing-script-pane .workspace-unified-resizer::after {
+  opacity: 1;
+}
+
+.workspace-unified-card.is-resizing-script-pane .workspace-unified-script-pane {
+  transition: none;
 }
 
 .workspace-schedule-notice-top {
