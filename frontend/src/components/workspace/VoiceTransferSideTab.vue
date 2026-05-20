@@ -8,6 +8,8 @@ const { selectWord } = useChat()
 
 const props = defineProps({
   transcriptions: { type: Array, default: () => [] },
+  transcriptSourceKey: { type: String, default: '' },
+  playbackCurrentSeconds: { type: Number, default: null },
   recordingMode: { type: String, default: 'lecture' },
   diarizationEnabled: { type: Boolean, default: false },
   diarizationStatus: { type: String, default: 'idle' },
@@ -22,7 +24,7 @@ const props = defineProps({
   folderOpen: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['addToNote', 'askAi', 'toggleFolder', 'startTranscription'])
+const emit = defineEmits(['addToNote', 'askAi', 'toggleFolder', 'startTranscription', 'seekPlayback'])
 
 const transSearch = ref('')
 const scrollContainer = ref(null)
@@ -74,14 +76,32 @@ const scrollToBottom = async () => {
   }
 }
 
+const scrollToTop = async (behavior = 'auto') => {
+  await nextTick()
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTo({
+      top: 0,
+      behavior
+    })
+  }
+}
+
 // 전사 데이터가 변경될 때마다 스크롤 이동
 watch(() => props.transcriptions, () => {
   if (hasSearchTerm.value) {
     scrollToSearchResult(activeSearchIndex.value, 'auto')
     return
   }
+  if (props.transcriptSourceKey) {
+    scrollToTop()
+    return
+  }
   scrollToBottom()
 }, { deep: true })
+
+watch(() => props.transcriptSourceKey, () => {
+  if (props.transcriptSourceKey) scrollToTop()
+})
 
 watch([normalizedSearchTerm, () => filteredTranscriptions.value.length], () => {
   activeSearchIndex.value = 0
@@ -90,7 +110,11 @@ watch([normalizedSearchTerm, () => filteredTranscriptions.value.length], () => {
 })
 
 onMounted(() => {
-  scrollToBottom()
+  if (props.transcriptSourceKey) {
+    scrollToTop()
+  } else {
+    scrollToBottom()
+  }
   window.addEventListener('resize', updateSearchPopoverPosition)
 })
 
@@ -173,6 +197,48 @@ const getFiniteNumber = (value) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
 }
+
+const getTimeRange = (item = {}) => {
+  const starts = []
+  const ends = []
+  const start = getFiniteNumber(item.start ?? item.start_time ?? item.startTime)
+  const end = getFiniteNumber(item.end ?? item.end_time ?? item.endTime)
+  if (start !== null) starts.push(start)
+  if (end !== null) ends.push(end)
+
+  if (Array.isArray(item.segments)) {
+    item.segments.forEach((segment) => {
+      const segmentStart = getFiniteNumber(segment?.start ?? segment?.start_time ?? segment?.startTime)
+      const segmentEnd = getFiniteNumber(segment?.end ?? segment?.end_time ?? segment?.endTime)
+      if (segmentStart !== null) starts.push(segmentStart)
+      if (segmentEnd !== null) ends.push(segmentEnd)
+    })
+  }
+
+  if (!starts.length) return null
+  const safeStart = Math.min(...starts)
+  const safeEnd = ends.length ? Math.max(...ends) : safeStart + 0.75
+  return {
+    start: safeStart,
+    end: safeEnd > safeStart ? safeEnd : safeStart + 0.75
+  }
+}
+
+const isCurrentPlaybackRange = (range) => {
+  const current = getFiniteNumber(props.playbackCurrentSeconds)
+  if (current === null || !range) return false
+  return current >= range.start - 0.08 && current < range.end + 0.08
+}
+
+const isCurrentPlaybackTranscription = (transcription = {}) => (
+  isCurrentPlaybackRange(getTimeRange(transcription))
+)
+
+const isCurrentPlaybackSegment = (segment = {}, fallbackTranscription = {}) => (
+  isCurrentPlaybackRange(getTimeRange(segment) || getTimeRange(fallbackTranscription))
+)
+
+const getTranscriptionStartSecond = (transcription = {}) => getTimeRange(transcription)?.start ?? null
 
 const getTranscriptionTime = (transcription = {}) => {
   const starts = []
@@ -304,9 +370,14 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
     >
       <template v-if="filteredTranscriptions.length === 0">
         <div v-if="isUploadedTranscriptionProcessing" class="transcription-preparing-state" role="status" aria-live="polite">
-          <div class="transcription-preparing-icon">
-            <span class="material-symbols-outlined">graphic_eq</span>
-          </div>
+          <LoadingHourglass
+            class="transcription-preparing-animation"
+            src="/animations/Loading%20Yeti.json"
+            width="168px"
+            height="168px"
+            :content-scale="1.24"
+            fallback-icon="graphic_eq"
+          />
           <strong>스크립트를 준비 중입니다</strong>
           <p>업로드한 음성파일을 전사하고 있습니다. 완료되면 여기에 바로 표시됩니다.</p>
         </div>
@@ -371,17 +442,32 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
           :key="idx" 
           :ref="(el) => setSearchResultRef(el, idx)"
           class="transcription-row flex flex-col gap-1.5 mt-2 transcription-item-enter"
-          :class="{ 'is-active-search-result': hasSearchTerm && idx === activeSearchIndex }"
+          :class="{
+            'is-active-search-result': hasSearchTerm && idx === activeSearchIndex,
+            'is-current-playback': isCurrentPlaybackTranscription(t)
+          }"
           :style="{ animationDelay: `${idx * 0.06}s` }"
         >
-          <span class="transcription-time text-[11px] font-bold text-[#aeaeb2] px-1.5">{{ getTranscriptionTime(t) }}</span>
+          <button
+            type="button"
+            class="transcription-time text-[11px] font-bold text-[#aeaeb2] px-1.5"
+            :disabled="getTranscriptionStartSecond(t) === null"
+            :aria-label="`${getTranscriptionTime(t)}부터 재생`"
+            @click="emit('seekPlayback', getTranscriptionStartSecond(t))"
+          >
+            {{ getTranscriptionTime(t) }}
+          </button>
           <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[15px] leading-[1.6]" :class="{ 'is-content': variant === 'content', 'is-meeting': shouldShowSpeaker(t) }">
             <template v-if="t.segments && t.segments.length">
               <span
                 v-for="(seg, sIdx) in t.segments"
                 :key="seg.id ?? sIdx"
                 class="segment-wrap"
-                :class="{ 'segment-pending': seg.status === 'pending', 'segment-confirmed': seg.status === 'confirmed' }"
+                :class="{
+                  'segment-pending': seg.status === 'pending',
+                  'segment-confirmed': seg.status === 'confirmed',
+                  'is-current-playback-segment': isCurrentPlaybackSegment(seg, t)
+                }"
               >
                 <span
                   v-for="(word, wIdx) in seg.text.split(' ')"
@@ -530,6 +616,15 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   padding: 28px 18px;
   color: #475569;
   text-align: center;
+}
+
+.transcription-preparing-animation {
+  margin-bottom: -14px;
+  filter: drop-shadow(0 14px 28px rgba(15, 23, 42, 0.08));
+}
+
+.transcription-preparing-state {
+  transform: translateY(42px);
 }
 
 .diarization-preparing-icon,
@@ -726,6 +821,42 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.12), 0 14px 30px rgba(47, 128, 237, 0.08);
 }
 
+.transcription-time {
+  width: fit-content;
+  text-align: left;
+  font-family: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.16s ease, transform 0.16s ease;
+}
+
+.transcription-time:hover:not(:disabled) {
+  color: #2f7df6;
+  transform: translateY(-1px);
+}
+
+.transcription-time:disabled {
+  cursor: default;
+}
+
+.transcription-row.is-current-playback .transcription-time {
+  color: #2f7df6;
+}
+
+.transcription-row.is-current-playback .voice-message-bubble:not(.is-content) {
+  color: #111827;
+  border-color: rgba(47, 125, 246, 0.34);
+  background: rgba(47, 125, 246, 0.08);
+  box-shadow: 0 0 0 3px rgba(47, 125, 246, 0.08);
+}
+
+.segment-wrap.is-current-playback-segment .clickable-word {
+  color: #111827;
+  background: rgba(47, 125, 246, 0.1);
+  box-shadow: none;
+}
+
 .transcript-panel-content .transcript-list {
   gap: 34px;
   padding: 18px 18px 96px 0;
@@ -737,6 +868,7 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 }
 
 .transcript-panel-content .transcription-time {
+  width: fit-content;
   padding: 0;
   color: #9aa1ad;
   font-size: 13px;
@@ -781,6 +913,21 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 .transcript-panel-content .voice-message-bubble.is-content .clickable-word.search-highlighted-word {
   color: #2f3742;
   background: #d7e2ec;
+  box-shadow: none;
+}
+
+.transcript-panel-content .transcription-row.is-current-playback .voice-message-bubble.is-content {
+  color: #15161a;
+}
+
+.transcript-panel-content .transcription-row.is-current-playback .transcription-time {
+  color: #2f7df6;
+}
+
+.transcript-panel-content .segment-wrap.is-current-playback-segment .clickable-word,
+.transcript-panel-content .transcription-row.is-current-playback .voice-message-bubble.is-content > .clickable-word {
+  color: #111827;
+  background: rgba(47, 125, 246, 0.1);
   box-shadow: none;
 }
 
