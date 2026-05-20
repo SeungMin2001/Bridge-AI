@@ -189,15 +189,20 @@ def get_workspace_material_file(stored_name: str) -> FileResponse:
 
 
 def get_workspace_recording_file(stored_name: str) -> FileResponse:
-    safe_name = Path(stored_name).name
-    if safe_name != stored_name:
+    return FileResponse(get_workspace_recording_path(stored_name))
+
+
+def get_workspace_recording_path(stored_name: str) -> Path:
+    """Return a validated uploaded recording path for playback or transcription."""
+    safe_name = Path(stored_name or "").name
+    if not safe_name or safe_name != stored_name:
         raise WorkspaceApiError("Invalid file name.", status_code=400)
 
     target_path = RECORDING_UPLOAD_DIR / safe_name
     if not target_path.is_file():
         raise WorkspaceApiError("Recording file not found.", status_code=404)
 
-    return FileResponse(target_path)
+    return target_path
 
 
 def _iter_resource_items(value, resource_key: str):
