@@ -128,6 +128,14 @@ export const uploadWorkspaceRecording = async (sessionId, file, options = {}) =>
   return result
 }
 
+export const transcribeWorkspaceRecording = async (sessionId, recordingId) => {
+  return requestWorkspaceJson(
+    `sessions/${sessionId}/recordings/${encodeURIComponent(recordingId)}/transcribe`,
+    { method: 'POST' },
+    '음성파일 전사에 실패했습니다.'
+  )
+}
+
 export const deleteWorkspaceFile = async (fileId) => {
   return requestWorkspaceJson(
     `sessions/${fileId}`,
