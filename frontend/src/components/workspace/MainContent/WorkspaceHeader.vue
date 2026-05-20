@@ -193,8 +193,8 @@ watch(
       </button>
 
       <button
-        v-if="hasWordInsight && !embedded"
-        class="btn-ghost-icon p-2 rounded-lg shrink-0 word-insight-btn text-[#8e8e93]"
+        v-if="hasWordInsight"
+        class="word-insight-toggle-btn"
         :aria-label="wordInsightVisible ? 'AI 결과 카드 접기' : 'AI 결과 카드 다시 보기'"
         :title="wordInsightVisible ? 'AI 결과 카드 접기' : 'AI 결과 카드 다시 보기'"
         @click="emit('word-insight-click')"
@@ -499,6 +499,29 @@ watch(
   margin-left: 6px;
   font-size: 18px;
   font-weight: 700;
+}
+
+.word-insight-toggle-btn {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  color: #8e95a3;
+  background: transparent;
+  transition: color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.word-insight-toggle-btn:hover {
+  color: #15161a;
+  background: rgba(245, 246, 250, 0.92);
+}
+
+.word-insight-toggle-btn:active {
+  transform: scale(0.96);
 }
 
 .recording-control-bar {
