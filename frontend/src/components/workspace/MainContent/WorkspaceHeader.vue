@@ -14,7 +14,9 @@ const props = defineProps({
   pdfSearchTotal: { type: Number, default: 0 },
   pdfSearchActiveIndex: { type: Number, default: 0 },
   hasWordInsight: Boolean,
-  wordInsightVisible: Boolean
+  wordInsightVisible: Boolean,
+  embedded: { type: Boolean, default: false },
+  folderDrawerOpen: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -28,6 +30,7 @@ const emit = defineEmits([
   'material-selected',
   'word-insight-click',
   'close-preview-material',
+  'toggle-folder-drawer',
   'pdf-search-change',
   'pdf-search-next',
   'pdf-search-prev',
@@ -92,7 +95,12 @@ watch(
 <template>
   <header class="workspace-embedded-header flex items-center px-6 shrink-0">
     <div class="flex items-center gap-2.5 shrink-0 min-w-0">
-      <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93] shrink-0" title="사이드바 토글" @click="emit('main-sidebar-toggle')">
+      <button
+        v-if="!embedded"
+        class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93] shrink-0"
+        title="사이드바 토글"
+        @click="emit('main-sidebar-toggle')"
+      >
         <span class="material-symbols-outlined text-[20px]">side_navigation</span>
       </button>
 
@@ -185,7 +193,7 @@ watch(
       </button>
 
       <button
-        v-if="hasWordInsight"
+        v-if="hasWordInsight && !embedded"
         class="btn-ghost-icon p-2 rounded-lg shrink-0 word-insight-btn text-[#8e8e93]"
         :aria-label="wordInsightVisible ? 'AI 결과 카드 접기' : 'AI 결과 카드 다시 보기'"
         :title="wordInsightVisible ? 'AI 결과 카드 접기' : 'AI 결과 카드 다시 보기'"
@@ -196,10 +204,6 @@ watch(
         </span>
       </button>
 
-      <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" title="강의 자료 열기" @click="triggerMaterialPicker">
-        <span class="material-symbols-outlined text-[20px]">folder_open</span>
-      </button>
-
       <input
         ref="fileInputRef"
         type="file"
@@ -208,7 +212,12 @@ watch(
         @change="handleMaterialInputChange"
       />
 
-      <button class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]" title="우측 사이드바 토글" @click="emit('right-sidebar-toggle')">
+      <button
+        v-if="!embedded"
+        class="btn-ghost-icon p-2 rounded-lg text-[#8e8e93]"
+        title="우측 사이드바 토글"
+        @click="emit('right-sidebar-toggle')"
+      >
         <span class="material-symbols-outlined text-[20px] scale-x-[-1]">side_navigation</span>
       </button>
     </div>
@@ -221,7 +230,7 @@ watch(
 .workspace-embedded-header {
   position: relative;
   background: #ffffff;
-  min-height: 56px;
+  min-height: 48px;
 }
 
 .workspace-embedded-divider {
@@ -231,21 +240,18 @@ watch(
 }
 
 .workspace-header-tabs {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 26px;
-  height: 42px;
-  margin-left: 0;
+  height: 38px;
+  margin-left: 8px;
   z-index: 1;
 }
 
 .workspace-header-tab {
   position: relative;
-  height: 42px;
+  height: 38px;
   border: 0;
   background: transparent;
   color: #8e8e93;
@@ -267,7 +273,7 @@ watch(
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -8px;
+  bottom: -6px;
   height: 3px;
   border-radius: 999px;
   background: #1d1d1f;
@@ -431,6 +437,68 @@ watch(
 
 .preview-close-header-btn:active {
   transform: scale(0.98);
+}
+
+.folder-drawer-header-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: #8e95a3;
+  background: transparent;
+  transition: color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.folder-drawer-header-btn:hover,
+.folder-drawer-header-btn.is-open {
+  color: #5f6472;
+  background: rgba(245, 246, 250, 0.92);
+}
+
+.folder-drawer-header-btn:active {
+  transform: scale(0.96);
+}
+
+.folder-drawer-header-glyph {
+  position: relative;
+  width: 28px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-drawer-header-glyph::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 2px;
+  width: 18px;
+  height: 20px;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+  opacity: 0.92;
+}
+
+.folder-drawer-header-panel {
+  position: absolute;
+  right: 1px;
+  top: 2px;
+  width: 18px;
+  height: 20px;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.folder-drawer-header-chevron {
+  position: relative;
+  z-index: 1;
+  margin-left: 6px;
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .recording-control-bar {
