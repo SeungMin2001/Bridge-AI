@@ -2,6 +2,7 @@
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useChat } from '../../composables/useChat'
+import LoadingHourglass from '../ui/LoadingHourglass.vue'
 
 const { selectWord } = useChat()
 
@@ -10,10 +11,14 @@ const props = defineProps({
   recordingMode: { type: String, default: 'lecture' },
   diarizationEnabled: { type: Boolean, default: false },
   diarizationStatus: { type: String, default: 'idle' },
-  variant: { type: String, default: 'sidebar' }
+  variant: { type: String, default: 'sidebar' },
+  showToolbar: { type: Boolean, default: false },
+  toolbarTitle: { type: String, default: '스크립트' },
+  showFolderToggle: { type: Boolean, default: false },
+  folderOpen: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['addToNote', 'askAi'])
+const emit = defineEmits(['addToNote', 'askAi', 'toggleFolder'])
 
 const transSearch = ref('')
 const scrollContainer = ref(null)
@@ -23,6 +28,7 @@ const searchInput = ref(null)
 const searchPopoverStyle = ref({})
 const searchResultRefs = ref([])
 const activeSearchIndex = ref(0)
+const emptyTranscriptAnimationRef = ref(null)
 const isDiarizationBootstrapping = computed(() => (
   props.diarizationEnabled && props.diarizationStatus === 'bootstrapping'
 ))
@@ -31,6 +37,10 @@ const filteredTranscriptions = computed(() => (
     String(item.text || '').toLowerCase().includes(transSearch.value.toLowerCase())
   ))
 ))
+
+const playEmptyTranscriptAnimation = () => {
+  emptyTranscriptAnimationRef.value?.playFromStart?.()
+}
 const hasSearchTerm = computed(() => transSearch.value.trim().length > 0)
 const normalizedSearchTerm = computed(() => transSearch.value.trim().toLowerCase())
 const hasSearchResults = computed(() => hasSearchTerm.value && filteredTranscriptions.value.length > 0)
@@ -228,8 +238,40 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 
 <template>
   <div class="flex flex-col flex-1 overflow-hidden" :class="{ 'transcript-panel-content': variant === 'content' }">
+    <div
+      v-if="showToolbar"
+      class="transcript-toolbar"
+      :class="{ 'has-folder-toggle': showFolderToggle }"
+    >
+      <span class="transcript-toolbar-title">{{ toolbarTitle }}</span>
+      <div class="transcript-toolbar-actions">
+        <button
+          v-if="showFolderToggle"
+          type="button"
+          class="transcript-source-toggle"
+          :class="{ 'is-open': folderOpen }"
+          :aria-label="folderOpen ? '소스파일 닫기' : '소스파일 열기'"
+          @click="emit('toggleFolder')"
+        >
+          <span class="transcript-source-toggle-arrow" aria-hidden="true">
+            {{ folderOpen ? '>' : '<' }}
+          </span>
+          <span>소스파일</span>
+        </button>
+        <button
+          ref="searchTrigger"
+          type="button"
+          class="transcript-search-trigger transcript-toolbar-search"
+          :class="{ 'is-active': isSearchOpen || hasSearchTerm }"
+          aria-label="전사 내용 검색"
+          @click="isSearchOpen ? closeSearchPopup() : openSearchPopup()"
+        >
+          <span class="material-symbols-outlined">search</span>
+        </button>
+      </div>
+    </div>
     <!-- 검색 팝업 -->
-    <div class="transcript-search-anchor">
+    <div v-else class="transcript-search-anchor">
       <button
         ref="searchTrigger"
         type="button"
@@ -256,12 +298,23 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
           <p>처음 몇 초의 음성을 분석한 뒤 전사를 표시합니다.</p>
         </div>
         <div v-else class="empty-transcript-state flex flex-col items-center justify-center h-full py-10">
-          <img
-            class="empty-transcript-image"
-            src="/images/novoice.png"
-            alt=""
-            aria-hidden="true"
-          />
+          <button
+            type="button"
+            class="empty-transcript-animation-trigger"
+            aria-label="전사 없음 애니메이션 재생"
+            @click="playEmptyTranscriptAnimation"
+          >
+            <LoadingHourglass
+              ref="emptyTranscriptAnimationRef"
+              class="empty-transcript-animation"
+              src="/animations/Boy%20And%20Girl%20Chat%20on%20Social%20Media.json"
+              width="min(82%, 320px)"
+              height="250px"
+              :autoplay="false"
+              :loop="false"
+              fallback-icon="forum"
+            />
+          </button>
           <p class="text-[13px] font-medium text-[#8e8e93]">
             {{ recordingMode === 'meeting' ? '화자 분리된 회의 스크립트가 여기에 표시됩니다.' : '전사된 데이터가 없습니다.' }}
           </p>
@@ -272,11 +325,11 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
           v-for="(t, idx) in filteredTranscriptions" 
           :key="idx" 
           :ref="(el) => setSearchResultRef(el, idx)"
-          class="flex flex-col gap-1.5 mt-2 transcription-item-enter"
+          class="transcription-row flex flex-col gap-1.5 mt-2 transcription-item-enter"
           :class="{ 'is-active-search-result': hasSearchTerm && idx === activeSearchIndex }"
           :style="{ animationDelay: `${idx * 0.06}s` }"
         >
-          <span class="text-[11px] font-bold text-[#aeaeb2] px-1.5">{{ getTranscriptionTime(t) }}</span>
+          <span class="transcription-time text-[11px] font-bold text-[#aeaeb2] px-1.5">{{ getTranscriptionTime(t) }}</span>
           <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[15px] leading-[1.6]" :class="{ 'is-content': variant === 'content', 'is-meeting': shouldShowSpeaker(t) }">
             <template v-if="t.segments && t.segments.length">
               <span
@@ -505,11 +558,26 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   text-align: center;
 }
 
-.empty-transcript-image {
-  width: min(72%, 178px);
-  height: auto;
-  opacity: 0.5;
-  filter: grayscale(1);
+.empty-transcript-animation-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: min(82%, 320px);
+  height: 250px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.empty-transcript-animation-trigger:focus-visible {
+  outline: 2px solid rgba(47, 128, 237, 0.54);
+  outline-offset: 8px;
+  border-radius: 14px;
+}
+
+.empty-transcript-animation {
+  opacity: 0.9;
   user-select: none;
   pointer-events: none;
 }
@@ -556,19 +624,6 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   background: #dcfce7;
 }
 
-.transcript-panel-content .voice-message-bubble.is-content {
-  max-width: min(100%, 860px);
-}
-
-.transcript-panel-content .transcript-list {
-  padding-right: 0;
-}
-
-.transcript-panel-content .empty-transcript-image {
-  width: min(42%, 260px);
-  opacity: 0.46;
-}
-
 .voice-message-bubble.is-meeting {
   background:
     linear-gradient(160deg, rgba(255, 255, 255, 0.97), rgba(238, 240, 255, 0.86));
@@ -578,6 +633,173 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 .is-active-search-result .voice-message-bubble {
   border-color: rgba(47, 128, 237, 0.72);
   box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.12), 0 14px 30px rgba(47, 128, 237, 0.08);
+}
+
+.transcript-panel-content .transcript-list {
+  gap: 34px;
+  padding: 18px 18px 96px 0;
+}
+
+.transcript-panel-content .transcription-row {
+  margin-top: 0;
+  gap: 10px;
+}
+
+.transcript-panel-content .transcription-time {
+  padding: 0;
+  color: #9aa1ad;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.transcript-panel-content .voice-message-bubble.is-content {
+  width: 100%;
+  max-width: 100%;
+  padding: 0 !important;
+  overflow: visible;
+  color: #444b55;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.85;
+  letter-spacing: 0;
+}
+
+.transcript-panel-content .voice-message-bubble.is-content .clickable-word {
+  font-weight: 500;
+}
+
+.transcript-panel-content .voice-message-bubble.is-content::before {
+  display: none;
+}
+
+.transcript-panel-content .voice-message-bubble.is-content.is-meeting {
+  background: transparent;
+  border-color: transparent;
+}
+
+.transcript-panel-content .voice-message-bubble.is-content .clickable-word:hover {
+  color: #111827;
+  background: rgba(226, 232, 240, 0.78);
+}
+
+.transcript-panel-content .voice-message-bubble.is-content .clickable-word.search-highlighted-word {
+  color: #2f3742;
+  background: #d7e2ec;
+  box-shadow: none;
+}
+
+.transcript-panel-content .is-active-search-result .voice-message-bubble {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.transcript-panel-content .empty-transcript-animation {
+  opacity: 0.86;
+}
+
+.transcript-panel-content .empty-transcript-animation-trigger {
+  width: min(54%, 340px);
+}
+
+.transcript-toolbar {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 34px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(226, 224, 232, 0.78);
+}
+
+.transcript-panel-content .transcript-toolbar {
+  margin-top: 0;
+  border-bottom: 0;
+}
+
+.transcript-toolbar.has-folder-toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.transcript-toolbar-title {
+  position: relative;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.transcript-toolbar-title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: #1d1d1f;
+}
+
+.transcript-source-toggle {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  gap: 6px;
+  padding: 0 11px;
+  border-radius: 999px;
+  color: #5f6472;
+  background: rgba(248, 249, 252, 0.96);
+  border: 1px solid rgba(218, 223, 232, 0.98);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  font-size: 11.5px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.transcript-source-toggle:hover,
+.transcript-source-toggle.is-open {
+  color: #15161a;
+  border-color: rgba(156, 163, 175, 0.5);
+  background: #ffffff;
+}
+
+.transcript-source-toggle:active {
+  transform: scale(0.96);
+}
+
+.transcript-source-toggle-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  color: #8e95a3;
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.transcript-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+  gap: 6px;
+}
+
+.transcript-toolbar-search {
+  justify-self: end;
 }
 
 .transcript-search-anchor {
