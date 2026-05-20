@@ -17,7 +17,9 @@ const props = defineProps({
   currentItems: { type: Array, default: () => [] },
   favorites: { type: Set, default: () => new Set() },
   navigationStack: { type: Array, default: () => [] },
-  currentTitle: { type: String, default: '' }
+  currentTitle: { type: String, default: '' },
+  sortType: { type: String, default: 'latest' },
+  viewMode: { type: String, default: 'list' }
 })
 
 const emit = defineEmits([
@@ -33,7 +35,6 @@ const emit = defineEmits([
 ])
 
 const filterType = ref('all')
-const isFilterOpen = ref(false)
 const selectedIds = ref(new Set())
 
 const filterLabels = {
@@ -42,9 +43,55 @@ const filterLabels = {
   file: '파일만 보기'
 }
 
+const parseKoreanDate = (value) => {
+  if (!value) return 0
+  const directTime = new Date(value).getTime()
+  if (!Number.isNaN(directTime)) return directTime
+
+  const normalized = String(value).replace(/\s+/g, ' ').trim()
+  const match = normalized.match(/(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(오전|오후)?\s*(\d{1,2})?:?(\d{1,2})?/)
+  if (!match) return 0
+
+  const [, year, month, day, meridiem, rawHour = '0', rawMinute = '0'] = match
+  let hour = Number(rawHour)
+  const minute = Number(rawMinute)
+  if (meridiem === '오후' && hour < 12) hour += 12
+  if (meridiem === '오전' && hour === 12) hour = 0
+  return new Date(Number(year), Number(month) - 1, Number(day), hour, minute).getTime()
+}
+
+const getItemTime = (item) => (
+  parseKoreanDate(item?.updatedAt || item?.updated_at || item?.createdAt || item?.created_at || item?.date)
+)
+
+const getSourceCount = (item) => {
+  const materials = Array.isArray(item?.attachments) ? item.attachments.length : 0
+  const recordings = Array.isArray(item?.recordings) ? item.recordings.length : 0
+  const weekMaterials = Array.isArray(item?.weeks)
+    ? item.weeks.reduce((count, week) => count + (Array.isArray(week?.materials) ? week.materials.length : 0), 0)
+    : 0
+  const weekRecordings = Array.isArray(item?.weeks)
+    ? item.weeks.reduce((count, week) => count + (Array.isArray(week?.recordings) ? week.recordings.length : 0), 0)
+    : 0
+
+  return Math.max(materials + recordings, weekMaterials + weekRecordings)
+}
+
 const filteredItems = computed(() => {
-  if (filterType.value === 'all') return props.currentItems
-  return props.currentItems.filter(item => item.type === filterType.value)
+  const items = filterType.value === 'all'
+    ? props.currentItems
+    : props.currentItems.filter(item => item.type === filterType.value)
+
+  return [...items].sort((a, b) => {
+    if (props.sortType === 'title') {
+      return String(a?.name || '').localeCompare(String(b?.name || ''), 'ko-KR', {
+        numeric: true,
+        sensitivity: 'base'
+      })
+    }
+
+    return getItemTime(b) - getItemTime(a)
+  })
 })
 
 const selectedCount = computed(() => selectedIds.value.size)
@@ -67,15 +114,6 @@ const toggleAllVisible = () => {
     return
   }
   selectedIds.value = new Set(filteredItems.value.map((item) => item.id))
-}
-
-const toggleFilter = () => {
-  isFilterOpen.value = !isFilterOpen.value
-}
-
-const selectFilter = (type) => {
-  filterType.value = type
-  isFilterOpen.value = false
 }
 
 const handleDeleteSelected = () => {
@@ -158,22 +196,13 @@ const getRowStyle = (item) => ({
   '--row-accent-soft': colorWithAlpha(item?.color, item.type === 'folder' ? 0.12 : 0.14),
 })
 
-// Close dropdown on outside click
-import { onMounted, onUnmounted } from 'vue'
-const handleGlobalClick = (e) => {
-  if (!e.target.closest('.filter-dropdown-wrapper')) {
-    isFilterOpen.value = false
-  }
-}
-onMounted(() => window.addEventListener('click', handleGlobalClick))
-onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 </script>
 
 <template>
   <div class="flex-1 mt-0"> 
     <div class="shrink-0">
-      <div class="grid-header flex items-center justify-between">
-        <div class="flex items-center gap-3">
+      <div class="grid-header flex items-center">
+        <div class="work-title-row">
           <button 
             v-if="navigationStack.length > 0"
             @click="emit('goBack')"
@@ -183,50 +212,9 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
           </button>
           <span class="section-title !m-0 transition-all duration-300">{{ currentTitle }}</span>
         </div>
-
-        <div class="grid-header-actions flex items-center gap-4">
-          <div class="flex items-center gap-2">
-            <button class="header-action-btn group" @click="emit('openFolderModal')">
-              <span class="material-symbols-outlined group-hover:scale-110 transition-transform">create_new_folder</span>
-              <span>새 폴더</span>
-            </button>
-            <button class="header-action-btn group" @click="emit('openFileModal')">
-              <span class="material-symbols-outlined group-hover:scale-110 transition-transform">description</span>
-              <span>새 파일</span>
-            </button>
-          </div>
-
-          <div class="w-[1px] h-4 bg-black/10 mx-1"></div>
-
-          <div class="flex items-center">
-            <div class="filter-dropdown-wrapper">
-              <button 
-                @click.stop="toggleFilter"
-                :class="['filter-trigger-btn shadow-sm', { active: isFilterOpen }]"
-              >
-                <span>{{ filterLabels[filterType] }}</span>
-                <span :class="['material-symbols-outlined dropdown-icon', { rotate: isFilterOpen }]">expand_more</span>
-              </button>
-              
-              <Transition name="dropdown">
-                <div v-if="isFilterOpen" class="filter-menu shadow-xl">
-                  <div 
-                    v-for="(label, type) in filterLabels" 
-                    :key="type"
-                    @click="selectFilter(type)"
-                    :class="['filter-item', { selected: filterType === type }]"
-                  >
-                    {{ label }}
-                    <span v-if="filterType === type" class="material-symbols-outlined check-icon">check</span>
-                  </div>
-                </div>
-              </Transition>
-            </div>
-          </div>
-        </div>
       </div>
       
-      <div class="work-list-shell">
+      <div v-if="props.viewMode === 'list'" class="work-list-shell">
         <div class="work-list-head">
           <div class="work-head-main">
             <button
@@ -235,7 +223,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
               aria-label="전체 선택"
               @click="toggleAllVisible"
             ></button>
-            <span>보드 이름</span>
+            <span>파일 이름</span>
             <div v-if="selectedCount" class="work-selection-toolbar">
               <button class="work-selection-action delete" type="button" @click="handleDeleteSelected">
                 <span class="material-symbols-outlined">delete</span>
@@ -247,6 +235,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
               </button>
             </div>
           </div>
+          <div class="work-source-head">소스</div>
           <div class="work-folder-head">폴더 위치</div>
           <button class="work-sort-btn" type="button">
             <span>생성일</span>
@@ -282,6 +271,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
               <strong>{{ item.name }}</strong>
               <span class="work-row-tag" :style="{ color: item.color || '#6366f1' }">{{ getItemTag(item) }}</span>
             </div>
+            <div class="work-row-source">소스 {{ getSourceCount(item) }}개</div>
             <div class="work-row-folder-location">
               <span class="material-symbols-outlined">folder</span>
               <span>{{ getFolderLocation(item) }}</span>
@@ -294,6 +284,54 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
         </template>
         </div>
       </div>
+
+      <div v-else class="work-card-grid">
+        <button
+          class="work-grid-create-card"
+          type="button"
+          @click="emit('openFileModal')"
+        >
+          <span class="work-grid-create-icon">
+            <span class="material-symbols-outlined">add</span>
+          </span>
+          <span class="work-grid-create-label">새 파일 만들기</span>
+        </button>
+
+        <article
+          v-for="item in filteredItems"
+          :key="item.id"
+          class="work-grid-card"
+          :style="{ '--grid-card-accent': item.color || '#6366f1', '--grid-card-accent-soft': colorWithAlpha(item.color, 0.13) }"
+          @click="openItem($event, item)"
+        >
+          <button
+            :class="['work-grid-star', { starred: favorites.has(item.id) }]"
+            type="button"
+            aria-label="즐겨찾기"
+            @click.stop="emit('toggleStar', $event, item.id)"
+          >
+            <span class="material-symbols-outlined" :style="{ fontVariationSettings: `'FILL' ${favorites.has(item.id) ? 1 : 0}` }">star</span>
+          </button>
+          <button
+            class="work-grid-more"
+            title="설정"
+            type="button"
+            @click.stop="emit('openItemEditModal', item.id)"
+          >
+            <span class="material-symbols-outlined">more_vert</span>
+          </button>
+          <div class="work-grid-icon">
+            <span class="material-symbols-outlined">{{ getItemIcon(item) }}</span>
+          </div>
+          <div class="work-grid-body">
+            <strong>{{ item.name }}</strong>
+            <span>{{ item.date || '-' }} · 소스 {{ getSourceCount(item) }}개</span>
+          </div>
+          <div class="work-grid-tag" :style="{ color: item.color || '#6366f1' }">
+            {{ getItemTag(item) }}
+          </div>
+        </article>
+      </div>
     </div>
 
     <div class="h-[60px] shrink-0"></div>
@@ -301,17 +339,42 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 </template>
 
 <style scoped>
+.grid-header {
+  padding-right: 430px;
+}
+
+.work-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.work-view-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .filter-dropdown-wrapper {
   position: relative;
   display: flex;
   align-items: center;
 }
 
+.sort-dropdown-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .filter-trigger-btn {
+  height: 42px;
   background: white;
   border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: 12px;
-  padding: 8px 16px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -330,6 +393,68 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 .filter-trigger-btn.active {
   background: #f2f2f7;
   border-color: #1d1d1f;
+}
+
+.sort-trigger-btn {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid rgba(25, 25, 31, 0.12);
+  border-radius: 999px;
+  background: #fff;
+  color: #1d1d1f;
+  box-shadow: 0 10px 22px rgba(31, 34, 43, 0.05);
+  font-size: 13.5px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.sort-trigger-btn:hover,
+.sort-trigger-btn.active {
+  background: #f8f8fb;
+  border-color: rgba(25, 25, 31, 0.26);
+  box-shadow: 0 12px 26px rgba(31, 34, 43, 0.08);
+}
+
+.work-view-segment {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid rgba(25, 25, 31, 0.14);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 10px 22px rgba(31, 34, 43, 0.05);
+}
+
+.work-view-mode-btn {
+  width: 36px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #5f6571;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.work-view-mode-btn:hover {
+  color: #1d1d1f;
+  transform: translateY(-1px);
+}
+
+.work-view-mode-btn.active {
+  background: #edf0fb;
+  color: #1d1d1f;
+}
+
+.work-view-mode-btn .material-symbols-outlined {
+  font-size: 21px;
 }
 
 .dropdown-icon {
@@ -354,25 +479,45 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
   transform-origin: top right;
 }
 
-.filter-item {
+.sort-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 142px;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  background: #fff;
+  z-index: 100;
+  transform-origin: top right;
+}
+
+.filter-item,
+.sort-item {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
   border-radius: 10px;
+  border: 0;
+  background: transparent;
   font-size: 13px;
   font-weight: 600;
   color: #3a3a3c;
   cursor: pointer;
   transition: all 0.2s;
+  text-align: left;
 }
 
-.filter-item:hover {
+.filter-item:hover,
+.sort-item:hover {
   background: #f2f2f7;
   color: #1d1d1f;
 }
 
-.filter-item.selected {
+.filter-item.selected,
+.sort-item.selected {
   background: #f2f2f7;
   color: #3b82f6;
 }
@@ -480,6 +625,189 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
   box-shadow: 0 8px 18px rgba(244, 180, 0, 0.16);
 }
 
+.work-card-grid {
+  --work-grid-card-height: 210px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 260px));
+  grid-auto-rows: var(--work-grid-card-height);
+  align-items: start;
+  justify-content: center;
+  gap: 14px;
+}
+
+.work-grid-create-card,
+.work-grid-card {
+  height: var(--work-grid-card-height);
+  min-height: var(--work-grid-card-height);
+  box-sizing: border-box;
+}
+
+.work-grid-create-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 22px 20px 18px;
+  border: 1px solid rgba(207, 215, 229, 0.88);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgba(24, 28, 35, 0.035);
+  color: var(--copy-text);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.work-grid-create-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(47, 128, 237, 0.36);
+  box-shadow: 0 24px 56px rgba(24, 28, 35, 0.07);
+}
+
+.work-grid-create-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef1ff;
+  color: #355cff;
+}
+
+.work-grid-create-icon .material-symbols-outlined {
+  font-size: 24px;
+}
+
+.work-grid-create-label {
+  font-size: 18px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.work-grid-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  overflow: hidden;
+  padding: 22px 20px 18px;
+  border: 1px solid rgba(226, 232, 240, 0.76);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.26)),
+    var(--grid-card-accent-soft);
+  box-shadow: 0 18px 42px rgba(24, 28, 35, 0.05);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.work-grid-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--grid-card-accent) 32%, #d8deea);
+  box-shadow: 0 24px 56px rgba(24, 28, 35, 0.09);
+}
+
+.work-grid-star,
+.work-grid-more {
+  position: absolute;
+  top: 14px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #7d8490;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.work-grid-star {
+  right: 48px;
+}
+
+.work-grid-more {
+  right: 14px;
+}
+
+.work-grid-star:hover,
+.work-grid-more:hover {
+  transform: translateY(-1px);
+  background: transparent;
+  color: #1d1d1f;
+}
+
+.work-grid-star.starred {
+  color: #f4b400;
+  background: transparent;
+}
+
+.work-grid-star .material-symbols-outlined,
+.work-grid-more .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.work-grid-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin-bottom: auto;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--grid-card-accent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+}
+
+.work-grid-icon .material-symbols-outlined {
+  font-size: 26px;
+  font-variation-settings: 'FILL' 0;
+}
+
+.work-grid-body {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 34px;
+}
+
+.work-grid-body strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--copy-text);
+  font-size: 20px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.work-grid-body span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #686f7b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.work-grid-tag {
+  max-width: 100%;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 14px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .work-list-shell {
   width: 100%;
   margin: 0 auto;
@@ -488,7 +816,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 .work-list-head,
 .work-row-card {
   display: grid;
-  grid-template-columns: 30px 30px 36px minmax(0, 1fr) 180px 250px 30px;
+  grid-template-columns: 30px 30px 36px minmax(0, 1fr) 112px 170px 230px 30px;
   align-items: center;
   gap: 11px;
 }
@@ -509,6 +837,14 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 }
 
 .work-folder-head {
+  grid-column: 6;
+  justify-self: start;
+  color: #515866;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.work-source-head {
   grid-column: 5;
   justify-self: start;
   color: #515866;
@@ -583,7 +919,7 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 }
 
 .work-sort-btn {
-  grid-column: 6 / 8;
+  grid-column: 7 / 9;
   display: inline-flex;
   align-items: center;
   justify-self: start;
@@ -657,8 +993,8 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 }
 
 .work-row-star.starred {
-  color: var(--copy-text);
-  background: rgba(255, 255, 255, 0.82);
+  color: #f4b400;
+  background: rgba(255, 255, 255, 0.88);
 }
 
 .work-row-star .material-symbols-outlined,
@@ -730,6 +1066,15 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
   z-index: 1;
 }
 
+.work-row-source {
+  color: #6f7682;
+  font-size: 13px;
+  font-weight: 850;
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
+}
+
 .work-row-folder-location .material-symbols-outlined {
   flex: 0 0 auto;
   color: #b6bac2;
@@ -753,12 +1098,33 @@ onUnmounted(() => window.removeEventListener('click', handleGlobalClick))
 }
 
 @media (max-width: 900px) {
+  .grid-header {
+    padding-right: 0;
+  }
+
+  .work-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .work-view-toolbar {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .work-card-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 260px));
+  }
+
   .work-list-head,
   .work-row-card {
     grid-template-columns: 28px 34px 38px minmax(0, 1fr) 30px;
   }
 
   .work-folder-head,
+  .work-source-head,
+  .work-row-source,
   .work-row-folder-location,
   .work-row-date,
   .work-sort-btn {
