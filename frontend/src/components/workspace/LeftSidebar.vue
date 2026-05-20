@@ -3,7 +3,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import FolderSideTab from './FolderSideTab.vue'
 import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
-import { isWorkspaceUuid, updateWorkspaceFile } from '../../api/workspaceApi.js'
+import { isWorkspaceUuid, transcribeWorkspaceRecording, updateWorkspaceFile } from '../../api/workspaceApi.js'
 
 const props = defineProps({
   fileTree: { type: Array, default: () => [] },
@@ -55,6 +55,7 @@ const playbackMediaDuration = ref(0)
 const isPlaybackPlaying = ref(false)
 const playbackProgress = ref(0)
 const playbackSpeed = ref(1)
+const isTranscriptionRequesting = ref(false)
 const isEditingFileTitle = ref(false)
 const isFileTitleSaving = ref(false)
 const fileTitleDraft = ref('')
@@ -77,6 +78,26 @@ const isEmbeddedFolderOpen = computed({
 })
 
 const visibleTranscriptions = computed(() => selectedTranscriptSource.value?.transcriptions || props.transcriptions)
+const visibleTranscriptionStatus = computed(() => (
+  selectedTranscriptSource.value?.transcriptionStatus
+  || activePlaybackRecording.value?.transcriptionStatus
+  || ''
+))
+const visibleTranscriptionError = computed(() => (
+  selectedTranscriptSource.value?.transcriptionError
+  || activePlaybackRecording.value?.transcriptionError
+  || ''
+))
+const normalizedVisibleTranscriptionStatus = computed(() => (
+  String(visibleTranscriptionStatus.value || '').toLowerCase()
+))
+const canStartUploadedTranscription = computed(() => {
+  const recording = activePlaybackRecording.value
+  if (!recording?.recordingId || !recording?.sessionId) return false
+  if (visibleTranscriptions.value.length > 0) return false
+  if (isTranscriptionRequesting.value) return true
+  return !['queued', 'pending', 'processing'].includes(normalizedVisibleTranscriptionStatus.value)
+})
 const sidebarFileTitle = computed(() => props.activeFileName || '파일을 선택하세요')
 const playbackSourceTitle = computed(() => (
   selectedTranscriptSource.value?.title
@@ -225,6 +246,17 @@ const formatTranscriptSourceDate = (endedAt) => {
   return `${year}.${month}.${day} · ${weekday} · ${hour}:${minute}`
 }
 
+const getRecordingId = (recording = {}) => recording?.id || recording?.recordingId || ''
+
+const buildTranscriptSourceFromRecording = (recording = {}, fallbackTitle = '저장된 녹음') => ({
+  title: recording?.title || fallbackTitle,
+  meta: formatTranscriptSourceDate(recording?.endedAt),
+  transcriptions: recording?.transcriptions || [],
+  transcriptionStatus: recording?.transcriptionStatus || '',
+  transcriptionError: recording?.transcriptionError || '',
+  recordingId: getRecordingId(recording)
+})
+
 const parsePlaybackDuration = (durationText = '') => {
   const parts = String(durationText || '').split(':').map((part) => Number(part))
   if (!parts.length || parts.some((part) => Number.isNaN(part))) return 0
@@ -304,6 +336,24 @@ const setActivePlaybackRecording = (recording = {}, sessionId = '') => {
   playbackProgress.value = 0
   playbackMediaDuration.value = 0
   isPlaybackPlaying.value = false
+}
+
+const applyLocalTranscriptionState = (patch = {}) => {
+  if (activePlaybackRecording.value) {
+    activePlaybackRecording.value = {
+      ...activePlaybackRecording.value,
+      ...patch
+    }
+  }
+
+  if (selectedTranscriptSource.value) {
+    selectedTranscriptSource.value = {
+      ...selectedTranscriptSource.value,
+      transcriptionStatus: patch.transcriptionStatus ?? selectedTranscriptSource.value.transcriptionStatus,
+      transcriptionError: patch.transcriptionError ?? selectedTranscriptSource.value.transcriptionError,
+      transcriptions: patch.transcriptions ?? selectedTranscriptSource.value.transcriptions
+    }
+  }
 }
 
 const togglePlayback = async () => {
@@ -451,11 +501,7 @@ const handleOpenMaterial = ({ fileId, node, materialId, material, recording, rec
   const relatedRecordings = recordings.length ? recordings : (recording ? [recording] : [])
 
   if (relatedRecordings[0]) {
-    selectedTranscriptSource.value = {
-      title: relatedRecordings[0].title || '연결된 녹음',
-      meta: formatTranscriptSourceDate(relatedRecordings[0].endedAt),
-      transcriptions: relatedRecordings[0].transcriptions || []
-    }
+    selectedTranscriptSource.value = buildTranscriptSourceFromRecording(relatedRecordings[0], '연결된 녹음')
   } else {
     selectedTranscriptSource.value = null
   }
@@ -469,11 +515,7 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
     emit('fileSelect', fileId, node)
   }
 
-  selectedTranscriptSource.value = {
-    title: recording?.title || '저장된 녹음',
-    meta: formatTranscriptSourceDate(recording?.endedAt),
-    transcriptions: recording?.transcriptions || []
-  }
+  selectedTranscriptSource.value = buildTranscriptSourceFromRecording(recording, '저장된 녹음')
   if (recording) {
     setActivePlaybackRecording(recording, fileId)
   }
@@ -483,6 +525,47 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
     recording
   })
   activeTab.value = 'voice'
+}
+
+const handleStartUploadedTranscription = async () => {
+  const recording = activePlaybackRecording.value
+  const sessionId = recording?.sessionId
+  const recordingId = recording?.recordingId
+  if (!sessionId || !recordingId || isTranscriptionRequesting.value) return
+
+  isTranscriptionRequesting.value = true
+  applyLocalTranscriptionState({
+    transcriptionStatus: 'processing',
+    transcriptionError: '',
+    transcriptions: []
+  })
+
+  try {
+    const result = await transcribeWorkspaceRecording(sessionId, recordingId)
+    if (result.node) {
+      emit('update:fileTree', replaceNodeById(props.fileTree, sessionId, result.node))
+      emit('fileSelect', sessionId, result.node)
+    }
+
+    const updatedRecording = result.recording || recording
+    selectedTranscriptSource.value = buildTranscriptSourceFromRecording(updatedRecording, '저장된 녹음')
+    setActivePlaybackRecording(updatedRecording, sessionId)
+    emit('openRecording', {
+      sessionId,
+      recordingId,
+      recording: updatedRecording
+    })
+    showToast('음성파일 전사가 완료되었습니다.')
+  } catch (error) {
+    console.error('[workspace] uploaded recording transcription failed:', error)
+    applyLocalTranscriptionState({
+      transcriptionStatus: 'failed',
+      transcriptionError: error?.message || '음성파일 전사에 실패했습니다.'
+    })
+    showToast(error?.message || '음성파일 전사에 실패했습니다.')
+  } finally {
+    isTranscriptionRequesting.value = false
+  }
 }
 
 const getNodeRecordings = (node) => {
@@ -547,7 +630,10 @@ watch(() => props.citationSourceRequest, (request) => {
     selectedTranscriptSource.value = {
       title: recording.title || request.cite.recording_title || '저장된 녹음',
       meta: formatTranscriptSourceDate(recording.endedAt),
-      transcriptions: recording.transcriptions || []
+      transcriptions: recording.transcriptions || [],
+      transcriptionStatus: recording.transcriptionStatus || '',
+      transcriptionError: recording.transcriptionError || '',
+      recordingId: getRecordingId(recording)
     }
     setActivePlaybackRecording(recording, request.node?.id || request.cite?.session_id || '')
   } else {
@@ -767,6 +853,10 @@ watch(() => props.citationSourceRequest, (request) => {
             :recording-mode="recordingMode"
             :diarization-enabled="diarizationEnabled"
             :diarization-status="diarizationStatus"
+            :transcription-status="visibleTranscriptionStatus"
+            :transcription-error="visibleTranscriptionError"
+            :can-start-transcription="canStartUploadedTranscription"
+            :is-transcription-submitting="isTranscriptionRequesting"
             :variant="embedded ? 'content' : 'sidebar'"
             :show-toolbar="embedded"
             :show-folder-toggle="embedded"
@@ -775,6 +865,7 @@ watch(() => props.citationSourceRequest, (request) => {
             @addToNote="(text, source) => emit('addToNote', text, source)"
             @askAi="emit('askAi', $event)"
             @toggleFolder="isEmbeddedFolderOpen = !isEmbeddedFolderOpen"
+            @startTranscription="handleStartUploadedTranscription"
           />
           <Teleport defer to="#workspace-unified-audio-player-host" :disabled="!embedded">
             <transition name="sidebar-audio-player">
@@ -1053,7 +1144,7 @@ watch(() => props.citationSourceRequest, (request) => {
 }
 
 .workspace-sidebar-card.is-embedded .has-sidebar-audio-player {
-  padding-bottom: 76px;
+  padding-bottom: 108px;
 }
 
 .workspace-file-heading {
@@ -1523,8 +1614,8 @@ watch(() => props.citationSourceRequest, (request) => {
   bottom: 0;
   z-index: 70;
   width: auto;
-  height: 64px;
-  min-height: 64px;
+  height: 96px;
+  min-height: 96px;
   display: block;
   margin: 0;
   padding: 0 18px 8px;
@@ -1536,12 +1627,48 @@ watch(() => props.citationSourceRequest, (request) => {
 }
 
 .sidebar-audio-player.is-unified-audio-player .sidebar-audio-source-header {
+  position: absolute;
+  top: 6px;
+  left: 18px;
+  right: 18px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  z-index: 2;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-source-text {
+  min-width: 0;
+  max-width: min(420px, calc(100% - 96px));
+  text-align: center;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-source-text p {
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-source-text span {
   display: none;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-close {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  color: #8d93a1;
+  background: rgba(239, 242, 247, 0.96);
 }
 
 .sidebar-audio-player.is-unified-audio-player .sidebar-audio-track-row {
   position: absolute;
-  top: 0;
+  top: 32px;
   left: 0;
   right: 0;
   min-width: 0;
@@ -1584,7 +1711,7 @@ watch(() => props.citationSourceRequest, (request) => {
 .sidebar-audio-player.is-unified-audio-player .sidebar-audio-actions {
   position: absolute;
   left: 50%;
-  bottom: 8px;
+  bottom: 6px;
   transform: translateX(-50%);
   justify-content: center;
   gap: 16px;
@@ -1632,7 +1759,7 @@ watch(() => props.citationSourceRequest, (request) => {
 
 @media (max-width: 1280px) {
   .sidebar-audio-player.is-unified-audio-player {
-    height: 66px;
+    height: 98px;
   }
 
   .sidebar-audio-player.is-unified-audio-player .sidebar-audio-track-row {
