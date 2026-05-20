@@ -1656,7 +1656,7 @@ watch(() => props.citationSourceRequest, (request) => {
 
 .sidebar-audio-player.is-unified-audio-player .sidebar-audio-source-header {
   position: absolute;
-  top: 6px;
+  top: 8px;
   left: 18px;
   right: 18px;
   height: 28px;
@@ -1675,7 +1675,7 @@ watch(() => props.citationSourceRequest, (request) => {
 }
 
 .sidebar-audio-player.is-unified-audio-player .sidebar-audio-source-text p {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -1696,7 +1696,7 @@ watch(() => props.citationSourceRequest, (request) => {
 
 .sidebar-audio-player.is-unified-audio-player .sidebar-audio-track-row {
   position: absolute;
-  top: 32px;
+  top: 38px;
   left: 0;
   right: 0;
   min-width: 0;
@@ -1739,7 +1739,7 @@ watch(() => props.citationSourceRequest, (request) => {
 .sidebar-audio-player.is-unified-audio-player .sidebar-audio-actions {
   position: absolute;
   left: 50%;
-  bottom: 6px;
+  bottom: 2px;
   transform: translateX(-50%);
   justify-content: center;
   gap: 16px;
