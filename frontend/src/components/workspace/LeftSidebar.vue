@@ -56,6 +56,7 @@ const isPlaybackPlaying = ref(false)
 const playbackProgress = ref(0)
 const playbackSpeed = ref(1)
 const isTranscriptionRequesting = ref(false)
+const transcriptViewResetKey = ref(0)
 const isEditingFileTitle = ref(false)
 const isFileTitleSaving = ref(false)
 const fileTitleDraft = ref('')
@@ -97,6 +98,10 @@ const canStartUploadedTranscription = computed(() => {
   if (visibleTranscriptions.value.length > 0) return false
   if (isTranscriptionRequesting.value) return true
   return !['queued', 'pending', 'processing'].includes(normalizedVisibleTranscriptionStatus.value)
+})
+const visibleTranscriptSourceKey = computed(() => {
+  const sourceId = activePlaybackRecording.value?.recordingId || selectedTranscriptSource.value?.recordingId || ''
+  return sourceId ? `${sourceId}:${transcriptViewResetKey.value}` : ''
 })
 const sidebarFileTitle = computed(() => props.activeFileName || '파일을 선택하세요')
 const playbackSourceTitle = computed(() => (
@@ -384,6 +389,24 @@ const skipPlayback = (amount) => {
   setPlaybackSecond(playbackCurrentSeconds.value + amount)
 }
 
+const handleSeekTranscriptPlayback = async (seconds) => {
+  if (seconds === null || seconds === undefined || !activePlaybackRecording.value) return
+  setPlaybackSecond(seconds)
+  await nextTick()
+
+  const audio = playbackAudioRef.value
+  if (!activePlaybackRecording.value?.audioUrl || !audio) return
+  audio.playbackRate = playbackSpeed.value
+
+  try {
+    await audio.play()
+    isPlaybackPlaying.value = true
+  } catch (error) {
+    console.error('[workspace] audio seek playback failed:', error)
+    isPlaybackPlaying.value = false
+  }
+}
+
 const cyclePlaybackSpeed = () => {
   const index = playbackSpeeds.indexOf(playbackSpeed.value)
   playbackSpeed.value = playbackSpeeds[(index + 1) % playbackSpeeds.length]
@@ -502,6 +525,7 @@ const handleOpenMaterial = ({ fileId, node, materialId, material, recording, rec
 
   if (relatedRecordings[0]) {
     selectedTranscriptSource.value = buildTranscriptSourceFromRecording(relatedRecordings[0], '연결된 녹음')
+    transcriptViewResetKey.value += 1
   } else {
     selectedTranscriptSource.value = null
   }
@@ -516,6 +540,7 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
   }
 
   selectedTranscriptSource.value = buildTranscriptSourceFromRecording(recording, '저장된 녹음')
+  transcriptViewResetKey.value += 1
   if (recording) {
     setActivePlaybackRecording(recording, fileId)
   }
@@ -850,6 +875,8 @@ watch(() => props.citationSourceRequest, (request) => {
           </div>
           <VoiceTransferSideTab
             :transcriptions="visibleTranscriptions"
+            :transcript-source-key="visibleTranscriptSourceKey"
+            :playback-current-seconds="activePlaybackRecording ? playbackCurrentSeconds : null"
             :recording-mode="recordingMode"
             :diarization-enabled="diarizationEnabled"
             :diarization-status="diarizationStatus"
@@ -866,6 +893,7 @@ watch(() => props.citationSourceRequest, (request) => {
             @askAi="emit('askAi', $event)"
             @toggleFolder="isEmbeddedFolderOpen = !isEmbeddedFolderOpen"
             @startTranscription="handleStartUploadedTranscription"
+            @seekPlayback="handleSeekTranscriptPlayback"
           />
           <Teleport defer to="#workspace-unified-audio-player-host" :disabled="!embedded">
             <transition name="sidebar-audio-player">
