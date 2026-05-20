@@ -206,6 +206,16 @@ def train_command(
                 str(epoch_dir_for_suffix(output_suffix, args.epoch_checkpoint_root)),
             ]
         )
+    if args.save_step_checkpoints:
+        cmd.extend(
+            [
+                "--save-step-checkpoints",
+                "--step-checkpoint-dir",
+                str(step_dir_for_suffix(output_suffix, args.step_checkpoint_root)),
+                "--step-checkpoint-steps",
+                args.step_checkpoint_steps,
+            ]
+        )
     cmd.append("--question-conditioned-memory" if question_conditioned else "--no-question-conditioned-memory")
     cmd.append("--resume" if args.resume_train else "--no-resume")
     return cmd
@@ -238,6 +248,8 @@ def eval_command(args: argparse.Namespace) -> list[str]:
         str(args.test_alpha),
         "--report-dir",
         args.report_dir,
+        "--scoring-style",
+        args.scoring_style,
     ]
     if args.include_loss:
         cmd.append("--include-loss")
@@ -276,6 +288,8 @@ def epoch_eval_command(args: argparse.Namespace) -> list[str]:
         str(args.test_alpha),
         "--report-dir",
         str(Path(args.report_dir) / "epoch_performance"),
+        "--scoring-style",
+        args.scoring_style,
         "--qp-log",
         str(train_log_path_for_suffix(args.qp_output_suffix)),
         "--ponly-log",
@@ -286,6 +300,48 @@ def epoch_eval_command(args: argparse.Namespace) -> list[str]:
     if args.quiet_eval:
         cmd.append("--quiet-cases")
     cmd.append("--resume" if args.resume_epoch_eval else "--no-resume")
+    return cmd
+
+
+def step_dir_for_suffix(output_suffix: str, root: str) -> Path:
+    return Path(root) / output_suffix
+
+
+def step_eval_command(args: argparse.Namespace) -> list[str]:
+    cmd = [
+        sys.executable,
+        "-m",
+        "llm_server.PRAG.plot_step_performance",
+        "--qp-step-dir",
+        str(step_dir_for_suffix(args.qp_output_suffix, args.step_checkpoint_root)),
+        "--ponly-step-dir",
+        str(step_dir_for_suffix(args.ponly_output_suffix, args.step_checkpoint_root)),
+        "--data",
+        args.test_data,
+        "--case-index",
+        str(args.test_case_index),
+        "--max-cases",
+        str(args.step_test_max_cases),
+        "--dataset-merge-max-passages",
+        str(args.merge_max_passages),
+        "--max-new-tokens",
+        str(args.test_max_new_tokens),
+        "--prompt-style",
+        args.test_prompt_style,
+        "--injection-mode",
+        args.injection_mode,
+        "--alpha",
+        str(args.test_alpha),
+        "--report-dir",
+        str(Path(args.report_dir) / "step_performance"),
+        "--scoring-style",
+        args.scoring_style,
+    ]
+    if args.include_loss:
+        cmd.append("--include-loss")
+    if args.quiet_eval:
+        cmd.append("--quiet-cases")
+    cmd.append("--resume" if args.resume_step_eval else "--no-resume")
     return cmd
 
 
@@ -324,6 +380,7 @@ def main() -> None:
     parser.add_argument("--test-max-new-tokens", type=int, default=32)
     parser.add_argument("--test-prompt-style", choices=("service", "short-chat", "memory-cued", "paper"), default="service")
     parser.add_argument("--test-alpha", type=float, default=1.0)
+    parser.add_argument("--scoring-style", choices=("prag", "mergeprag"), default="prag")
     parser.add_argument("--report-dir", default=DEFAULT_REPORT_DIR)
     parser.add_argument("--include-loss", action="store_true")
     parser.add_argument("--include-baselines", action="store_true")
@@ -346,6 +403,30 @@ def main() -> None:
         help="After final evaluation, evaluate each epoch checkpoint pair and plot paper-style epoch performance.",
     )
     parser.add_argument("--resume-epoch-eval", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--save-step-checkpoints",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save selected step checkpoints during both trainings for early learning-curve figures.",
+    )
+    parser.add_argument(
+        "--step-checkpoint-root",
+        default="llm_server/PRAG/step_checkpoints",
+        help="Root directory for selected step checkpoints.",
+    )
+    parser.add_argument(
+        "--step-checkpoint-steps",
+        default="0,100,250,500,1000,1600,2400,3200",
+        help="Comma-separated training steps saved when --save-step-checkpoints is set.",
+    )
+    parser.add_argument(
+        "--eval-step-performance",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="After final evaluation, evaluate selected step checkpoint pairs and plot early-stage performance.",
+    )
+    parser.add_argument("--step-test-max-cases", type=int, default=100)
+    parser.add_argument("--resume-step-eval", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--qp-output-suffix", default=DEFAULT_QP_SUFFIX)
     parser.add_argument("--ponly-output-suffix", default=DEFAULT_PONLY_SUFFIX)
     parser.add_argument("--qp-scan-output", default=DEFAULT_QP_SCAN)
@@ -381,8 +462,11 @@ def main() -> None:
         args.resume_train = True
         args.resume_eval = True
         args.resume_epoch_eval = True
+        args.resume_step_eval = True
     if args.eval_epoch_performance:
         args.save_epoch_checkpoints = True
+    if args.eval_step_performance:
+        args.save_step_checkpoints = True
 
     default_qp_suffix_requested = args.qp_output_suffix == DEFAULT_QP_SUFFIX
     default_qp_scan_requested = args.qp_scan_output == DEFAULT_QP_SCAN
@@ -461,6 +545,8 @@ def main() -> None:
     )
     if not args.skip_eval:
         run_command(eval_command(args), dry_run=args.dry_run)
+        if args.eval_step_performance:
+            run_command(step_eval_command(args), dry_run=args.dry_run)
         if args.eval_epoch_performance:
             run_command(epoch_eval_command(args), dry_run=args.dry_run)
     print("\n[PRAG:related-experiment] done", flush=True)

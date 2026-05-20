@@ -1521,6 +1521,55 @@ def epoch_checkpoint_path(base_checkpoint_path: Path, epoch_checkpoint_dir: str,
     return out_dir / f"epoch_{epoch_number:03d}.pt"
 
 
+def step_checkpoint_path(base_checkpoint_path: Path, step_checkpoint_dir: str, step_number: int) -> Path:
+    if step_checkpoint_dir:
+        out_dir = Path(step_checkpoint_dir)
+    else:
+        out_dir = base_checkpoint_path.with_name(f"{base_checkpoint_path.stem}_steps")
+    return out_dir / f"step_{step_number:06d}.pt"
+
+
+def parse_checkpoint_steps(text: str, *, total_steps: int) -> set[int]:
+    """Parse a comma-separated step list.
+
+    The syntax intentionally stays simple for Windows cmd friendliness:
+    ``0,100,250,500,1000,1600,2400,3200``.
+    """
+    steps: set[int] = set()
+    for chunk in str(text or "").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        step = int(chunk)
+        if step < 0:
+            raise ValueError(f"Step checkpoint must be non-negative: {step}")
+        if step <= total_steps:
+            steps.add(step)
+    return steps
+
+
+def maybe_save_step_checkpoint(
+    *,
+    enabled: bool,
+    checkpoint_path: Path,
+    step_checkpoint_dir: str,
+    hypernet,
+    optimizer,
+    scheduler,
+    step: int,
+    best_val: float,
+    run_config: dict,
+    target_steps: set[int],
+    saved_steps: set[int],
+) -> None:
+    if not enabled or step not in target_steps or step in saved_steps:
+        return
+    step_path = step_checkpoint_path(checkpoint_path, step_checkpoint_dir, step)
+    save_checkpoint(step_path, hypernet, optimizer, scheduler, step, best_val, run_config)
+    saved_steps.add(step)
+    print(f"  [PRAG:step-checkpoint] saved step {step}: {step_path}")
+
+
 def maybe_save_epoch_checkpoint(
     *,
     enabled: bool,
@@ -1994,6 +2043,25 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--save-step-checkpoints",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save additional checkpoints at selected training steps for early learning-curve figures.",
+    )
+    parser.add_argument(
+        "--step-checkpoint-dir",
+        default="",
+        help=(
+            "Directory for --save-step-checkpoints. Defaults to a sibling "
+            "'<checkpoint_stem>_steps' directory."
+        ),
+    )
+    parser.add_argument(
+        "--step-checkpoint-steps",
+        default="0,100,250,500,1000,1600,2400,3200",
+        help="Comma-separated non-negative training steps to save, e.g. 0,100,250,500,1000,1600,2400,3200.",
+    )
+    parser.add_argument(
         "--injection-mode",
         choices=("attention", "add_all", "add_last", "hybrid"),
         default="attention",
@@ -2359,6 +2427,21 @@ def main() -> None:
     hypernet.train()
     steps_per_epoch = max(len(train_units), 1)
     saved_epoch_checkpoints: set[int] = set()
+    step_checkpoint_targets = parse_checkpoint_steps(args.step_checkpoint_steps, total_steps=total_steps)
+    saved_step_checkpoints: set[int] = set()
+    maybe_save_step_checkpoint(
+        enabled=args.save_step_checkpoints,
+        checkpoint_path=checkpoint_path,
+        step_checkpoint_dir=args.step_checkpoint_dir,
+        hypernet=hypernet,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        step=step,
+        best_val=best_val,
+        run_config=run_config,
+        target_steps=step_checkpoint_targets,
+        saved_steps=saved_step_checkpoints,
+    )
     for _epoch in range(args.epochs):
         epoch_start_step = step
         indices = list(range(len(train_units)))
@@ -2444,6 +2527,19 @@ def main() -> None:
             optimizer.step()
             scheduler.step()
             step += 1
+            maybe_save_step_checkpoint(
+                enabled=args.save_step_checkpoints,
+                checkpoint_path=checkpoint_path,
+                step_checkpoint_dir=args.step_checkpoint_dir,
+                hypernet=hypernet,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                step=step,
+                best_val=best_val,
+                run_config=run_config,
+                target_steps=step_checkpoint_targets,
+                saved_steps=saved_step_checkpoints,
+            )
             maybe_save_epoch_checkpoint(
                 enabled=args.save_epoch_checkpoints,
                 checkpoint_path=checkpoint_path,
