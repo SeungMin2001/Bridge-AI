@@ -29,10 +29,12 @@
   width: 42px;
   height: 42px;
   border-radius: 14px;
-  background: var(--copy-black);
+  overflow: hidden;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 10px 22px rgba(21, 22, 26, 0.1);
 }
 
 .home-sidebar .sidebar-logo-text {
