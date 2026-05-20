@@ -20,7 +20,10 @@ const props = defineProps({
   diarizationStatus: { type: String, default: 'idle' },
   activeFileId: { type: String, default: '' },
   citationSourceRequest: { type: Object, default: null },
-  isCollapsed: { type: Boolean, default: false }
+  isCollapsed: { type: Boolean, default: false },
+  embedded: { type: Boolean, default: false },
+  embeddedFolderOpen: { type: Boolean, default: false },
+  scriptTabLineVisible: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -36,7 +39,8 @@ const emit = defineEmits([
   'startRecording',
   'pauseRecording',
   'resumeRecording',
-  'stopRecording'
+  'stopRecording',
+  'update:embeddedFolderOpen'
 ])
 
 const activeTab = ref('voice')
@@ -45,6 +49,7 @@ const toastMsg = ref('')
 const isResizing = ref(false)
 const selectedTranscriptSource = ref(null)
 const activePlaybackRecording = ref(null)
+const localEmbeddedFolderOpen = ref(false)
 const isPlaybackPlaying = ref(false)
 const playbackProgress = ref(0)
 const playbackSpeed = ref(1)
@@ -57,6 +62,17 @@ const shouldCommitTitleAfterComposition = ref(false)
 let playbackTimer = null
 
 const playbackSpeeds = [1, 1.25, 1.5, 2]
+
+const isEmbeddedFolderOpen = computed({
+  get: () => props.embedded ? props.embeddedFolderOpen : localEmbeddedFolderOpen.value,
+  set: (value) => {
+    if (props.embedded) {
+      emit('update:embeddedFolderOpen', value)
+      return
+    }
+    localEmbeddedFolderOpen.value = value
+  }
+})
 
 const visibleTranscriptions = computed(() => selectedTranscriptSource.value?.transcriptions || props.transcriptions)
 const sidebarFileTitle = computed(() => props.activeFileName || '파일을 선택하세요')
@@ -365,6 +381,7 @@ const handleCloseTranscriptSource = () => {
 
 const handleOpenMaterial = ({ fileId, node, materialId, material, recording, recordings = [] }) => {
   closePlaybackBar()
+  isEmbeddedFolderOpen.value = false
   if (fileId && node) {
     emit('fileSelect', fileId, node)
   }
@@ -378,17 +395,14 @@ const handleOpenMaterial = ({ fileId, node, materialId, material, recording, rec
       transcriptions: relatedRecordings[0].transcriptions || []
     }
   } else {
-    selectedTranscriptSource.value = {
-      title: '연결된 전사 없음',
-      meta: '날짜 정보 없음',
-      transcriptions: []
-    }
+    selectedTranscriptSource.value = null
   }
 
   emit('openStoredMaterial', materialId)
 }
 
 const handleOpenRecording = ({ fileId, node, recording }) => {
+  isEmbeddedFolderOpen.value = false
   if (fileId && node) {
     emit('fileSelect', fileId, node)
   }
@@ -489,22 +503,75 @@ watch(() => props.citationSourceRequest, (request) => {
 
 <template>
   <aside
-    :class="[{ 'sidebar-collapsed': isCollapsed }]"
+    :class="[{
+      'sidebar-collapsed': isCollapsed && !embedded,
+      'workspace-left-embedded': embedded,
+      'has-script-tab-line': embedded && scriptTabLineVisible
+    }]"
     id="sidebar"
     class="transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden rounded-[24px]"
-    :style="{ width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
+    :style="embedded ? { width: '100%', flexShrink: 0 } : { width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
   >
-    <div class="card workspace-sidebar-card h-full flex flex-col p-5 overflow-hidden min-w-[280px]">
+    <div
+      class="card workspace-sidebar-card h-full flex flex-col p-5 overflow-hidden min-w-[280px]"
+      :class="{ 'is-embedded': embedded }"
+    >
+      <Teleport defer to="#workspace-unified-folder-drawer-host" :disabled="!embedded">
+        <transition name="embedded-folder-drawer">
+          <aside
+            v-if="embedded && isEmbeddedFolderOpen"
+            class="embedded-folder-drawer"
+            aria-label="워크스페이스 폴더"
+          >
+            <div class="embedded-folder-drawer-header">
+              <div class="embedded-folder-session-heading">
+                <button
+                  class="embedded-folder-session-home"
+                  type="button"
+                  aria-label="홈으로 이동"
+                  title="홈으로 이동"
+                  @click="emit('navigateHome')"
+                >
+                  <img class="embedded-folder-session-logo" src="/images/logo.png" alt="" draggable="false" />
+                </button>
+                <strong>{{ sidebarFileTitle }}</strong>
+              </div>
+              <button
+                class="embedded-folder-drawer-close"
+                type="button"
+                aria-label="폴더 닫기"
+                @click="isEmbeddedFolderOpen = false"
+              >
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <FolderSideTab
+              :fileTree="fileTree"
+              :favorites="favorites"
+              :active-file-id="activeFileId"
+              :show-search="false"
+              @update:fileTree="emit('update:fileTree', $event)"
+              @update:favorites="emit('update:favorites', $event)"
+              @fileSelect="(id, node) => { isEmbeddedFolderOpen = false; emit('fileSelect', id, node) }"
+              @openMaterial="handleOpenMaterial"
+              @openRecording="handleOpenRecording"
+              @showToast="showToast"
+            />
+          </aside>
+        </transition>
+      </Teleport>
+
       <!-- Header -->
-      <div class="flex items-center justify-between mb-5">
+      <div class="workspace-file-header flex items-center justify-between mb-5">
         <div class="workspace-file-heading">
           <button
             class="workspace-file-back-btn"
             type="button"
-            aria-label="뒤로가기"
+            aria-label="홈으로 이동"
+            title="홈으로 이동"
             @click="emit('navigateHome')"
           >
-            <span class="material-symbols-outlined">arrow_back_ios_new</span>
+            <img class="workspace-file-back-logo" src="/images/logo.png" alt="" draggable="false" />
           </button>
           <input
             v-if="isEditingFileTitle"
@@ -530,7 +597,7 @@ watch(() => props.citationSourceRequest, (request) => {
             {{ sidebarFileTitle }}
           </button>
         </div>
-        <div v-if="activeTab === 'voice'" class="sidebar-recording-control">
+        <div v-if="embedded || activeTab === 'voice'" class="sidebar-recording-control">
           <transition-group name="sidebar-recording-control" tag="div" class="sidebar-recording-inner">
             <button
               v-if="!isRecording"
@@ -586,7 +653,10 @@ watch(() => props.citationSourceRequest, (request) => {
       </div>
 
       <!-- Tab Buttons -->
-      <div class="workspace-inset-shell p-1 rounded-[18px] flex gap-1.5 mb-3 collapsible-content">
+      <div
+        v-if="!embedded"
+        class="workspace-inset-shell p-1 rounded-[18px] flex gap-1.5 mb-3 collapsible-content"
+      >
         <button
           class="workspace-inset-pill flex-1 py-2.5 rounded-[15px] text-[12px] font-bold text-gray-500"
           :class="{ 'is-active text-black': activeTab === 'voice' }"
@@ -602,7 +672,7 @@ watch(() => props.citationSourceRequest, (request) => {
       <!-- Tab Content -->
       <div class="flex-1 flex flex-col overflow-hidden">
         <div
-          v-show="activeTab === 'folders'"
+          v-show="!embedded && activeTab === 'folders'"
           class="flex flex-col flex-1 min-h-0 sidebar-content-animate"
         >
           <FolderSideTab
@@ -618,13 +688,12 @@ watch(() => props.citationSourceRequest, (request) => {
           />
         </div>
         <div
-          v-show="activeTab === 'voice'"
+          v-show="embedded || activeTab === 'voice'"
           class="flex flex-col flex-1 min-h-0 sidebar-content-animate"
           :class="{ 'has-sidebar-audio-player': activePlaybackRecording }"
         >
           <div v-if="selectedTranscriptSource && !activePlaybackRecording" class="selected-transcript-source">
             <div class="min-w-0">
-              <p>{{ selectedTranscriptSource.title }}</p>
               <span>{{ selectedTranscriptSource.meta }}</span>
             </div>
             <button type="button" title="스크립트로 돌아가기" @click="handleCloseTranscriptSource">
@@ -636,69 +705,78 @@ watch(() => props.citationSourceRequest, (request) => {
             :recording-mode="recordingMode"
             :diarization-enabled="diarizationEnabled"
             :diarization-status="diarizationStatus"
+            :variant="embedded ? 'content' : 'sidebar'"
+            :show-toolbar="embedded"
+            :show-folder-toggle="embedded"
+            :folder-open="isEmbeddedFolderOpen"
+            toolbar-title="스크립트"
             @addToNote="(text, source) => emit('addToNote', text, source)"
             @askAi="emit('askAi', $event)"
+            @toggleFolder="isEmbeddedFolderOpen = !isEmbeddedFolderOpen"
           />
-          <transition name="sidebar-audio-player">
-            <section
-              v-if="activePlaybackRecording"
-              class="sidebar-audio-player"
-              aria-label="녹음 재생바"
-            >
-              <div class="sidebar-audio-source-header">
-                <div class="sidebar-audio-source-text">
-                  <p>{{ playbackSourceTitle }}</p>
-                  <span>{{ playbackSourceMeta }}</span>
+          <Teleport defer to="#workspace-unified-audio-player-host" :disabled="!embedded">
+            <transition name="sidebar-audio-player">
+              <section
+                v-if="activePlaybackRecording"
+                class="sidebar-audio-player"
+                :class="{ 'is-unified-audio-player': embedded }"
+                aria-label="녹음 재생바"
+              >
+                <div class="sidebar-audio-source-header">
+                  <div class="sidebar-audio-source-text">
+                    <p>{{ playbackSourceTitle }}</p>
+                    <span>{{ playbackSourceMeta }}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="sidebar-audio-close"
+                    title="스크립트로 돌아가기"
+                    aria-label="스크립트로 돌아가기"
+                    @click="handleCloseTranscriptSource"
+                  >
+                    <span class="material-symbols-outlined">close</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  class="sidebar-audio-close"
-                  title="스크립트로 돌아가기"
-                  aria-label="스크립트로 돌아가기"
-                  @click="handleCloseTranscriptSource"
-                >
-                  <span class="material-symbols-outlined">close</span>
-                </button>
-              </div>
 
-              <div class="sidebar-audio-track-row">
-                <span>{{ formatPlaybackTime(playbackCurrentSeconds) }}</span>
-                <input
-                  v-model.number="playbackProgress"
-                  class="sidebar-audio-range"
-                  :style="{ '--progress': `${playbackProgress}%` }"
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  aria-label="녹음 재생 위치"
-                />
-                <span>{{ formatPlaybackTime(playbackDurationSeconds) }}</span>
-              </div>
+                <div class="sidebar-audio-track-row">
+                  <span>{{ formatPlaybackTime(playbackCurrentSeconds) }}</span>
+                  <input
+                    v-model.number="playbackProgress"
+                    class="sidebar-audio-range"
+                    :style="{ '--progress': `${playbackProgress}%` }"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    aria-label="녹음 재생 위치"
+                  />
+                  <span>{{ formatPlaybackTime(playbackDurationSeconds) }}</span>
+                </div>
 
-              <div class="sidebar-audio-actions">
-                <button type="button" aria-label="5초 뒤로" @click="skipPlayback(-5)">
-                  <span class="material-symbols-outlined">replay_5</span>
-                </button>
-                <button
-                  type="button"
-                  class="sidebar-audio-play-compact"
-                  :aria-label="isPlaybackPlaying ? '일시정지' : '재생'"
-                  @click="togglePlayback"
-                >
-                  <span class="material-symbols-outlined">
-                    {{ isPlaybackPlaying ? 'pause' : 'play_arrow' }}
-                  </span>
-                </button>
-                <button type="button" class="sidebar-audio-speed" @click="cyclePlaybackSpeed">
-                  {{ playbackSpeed }}x
-                </button>
-                <button type="button" aria-label="5초 앞으로" @click="skipPlayback(5)">
-                  <span class="material-symbols-outlined">forward_5</span>
-                </button>
-              </div>
-            </section>
-          </transition>
+                <div class="sidebar-audio-actions">
+                  <button type="button" aria-label="5초 뒤로" @click="skipPlayback(-5)">
+                    <span class="material-symbols-outlined">replay_5</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="sidebar-audio-play-compact"
+                    :aria-label="isPlaybackPlaying ? '일시정지' : '재생'"
+                    @click="togglePlayback"
+                  >
+                    <span class="material-symbols-outlined">
+                      {{ isPlaybackPlaying ? 'pause' : 'play_arrow' }}
+                    </span>
+                  </button>
+                  <button type="button" class="sidebar-audio-speed" @click="cyclePlaybackSpeed">
+                    {{ playbackSpeed }}x
+                  </button>
+                  <button type="button" aria-label="5초 앞으로" @click="skipPlayback(5)">
+                    <span class="material-symbols-outlined">forward_5</span>
+                  </button>
+                </div>
+              </section>
+            </transition>
+          </Teleport>
         </div>
       </div>
 
@@ -707,6 +785,7 @@ watch(() => props.citationSourceRequest, (request) => {
 
   <!-- Resizer -->
   <div
+    v-if="!embedded"
     v-show="!isCollapsed"
     class="w-1.5 hover:bg-[#d1d1d6] transition-colors cursor-col-resize flex items-center justify-center group active:bg-[#aeaeb2] mx-[-6px] z-20"
     id="resizer-left"
@@ -738,6 +817,171 @@ watch(() => props.citationSourceRequest, (request) => {
 
 .workspace-sidebar-card::after {
   border-color: var(--workspace-sidebar-card-inner-border);
+}
+
+.workspace-left-embedded {
+  position: relative;
+  min-width: 0;
+  overflow: visible !important;
+  border-radius: 0 !important;
+  border-right: 2px solid rgba(226, 224, 232, 0.9);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.workspace-left-embedded::after {
+  content: '';
+  position: absolute;
+  top: 82px;
+  left: 0;
+  right: 2px;
+  z-index: 60;
+  display: none;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.06);
+  pointer-events: none;
+}
+
+.workspace-left-embedded.has-script-tab-line::after {
+  display: block;
+}
+
+.workspace-sidebar-card.is-embedded {
+  position: static;
+  padding: 10px 22px 18px 32px !important;
+  min-width: 0;
+  overflow: visible !important;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.workspace-sidebar-card.is-embedded::before,
+.workspace-sidebar-card.is-embedded::after {
+  display: none;
+}
+
+.embedded-folder-drawer {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 40;
+  width: min(360px, calc(100% - 42px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 18px 18px;
+  background: rgba(255, 255, 255, 0.98);
+  border-right: 1px solid rgba(226, 224, 232, 0.9);
+  box-shadow: 24px 0 48px rgba(48, 42, 58, 0.12);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+.embedded-folder-drawer-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.embedded-folder-session-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.embedded-folder-session-home {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.embedded-folder-session-home:hover {
+  box-shadow: 0 0 0 4px rgba(29, 29, 31, 0.06);
+}
+
+.embedded-folder-session-home:active {
+  transform: scale(0.96);
+}
+
+.embedded-folder-session-logo {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.12));
+}
+
+.embedded-folder-session-heading strong {
+  overflow: hidden;
+  color: #15161a;
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embedded-folder-drawer-close {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #8e8e93;
+  background: rgba(239, 237, 244, 0.88);
+  transition: color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.embedded-folder-drawer-close:hover {
+  color: #15161a;
+  background: rgba(229, 226, 235, 0.94);
+}
+
+.embedded-folder-drawer-close:active {
+  transform: scale(0.96);
+}
+
+.embedded-folder-drawer-close .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.embedded-folder-drawer-enter-active,
+.embedded-folder-drawer-leave-active {
+  transition: opacity 0.22s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.embedded-folder-drawer-enter-from,
+.embedded-folder-drawer-leave-to {
+  opacity: 0;
+  transform: translateX(-18px);
+}
+
+.workspace-sidebar-card.is-embedded .workspace-file-header {
+  margin-bottom: 6px !important;
+}
+
+.workspace-sidebar-card.is-embedded .workspace-file-heading {
+  margin-left: 0;
+}
+
+.workspace-sidebar-card.is-embedded .has-sidebar-audio-player {
+  padding-bottom: 76px;
 }
 
 .workspace-file-heading {
@@ -773,8 +1017,14 @@ watch(() => props.citationSourceRequest, (request) => {
   transform: scale(0.96);
 }
 
-.workspace-file-back-btn .material-symbols-outlined {
-  font-size: 21px;
+.workspace-file-back-logo {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: 999px;
+  user-select: none;
+  pointer-events: none;
 }
 
 .workspace-file-title {
@@ -858,7 +1108,7 @@ watch(() => props.citationSourceRequest, (request) => {
   font-size: 11px;
   font-weight: 900;
   letter-spacing: -0.01em;
-  box-shadow: 0 14px 26px rgba(21, 22, 26, 0.12);
+  box-shadow: none;
   transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
@@ -1192,6 +1442,130 @@ watch(() => props.citationSourceRequest, (request) => {
 
 .sidebar-audio-speed {
   padding: 0 10px;
+}
+
+.sidebar-audio-player.is-unified-audio-player {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 70;
+  width: auto;
+  height: 64px;
+  min-height: 64px;
+  display: block;
+  margin: 0;
+  padding: 0 18px 8px;
+  border: 0;
+  border-top: 1px solid rgba(226, 224, 232, 0.92);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -10px 24px rgba(48, 42, 58, 0.08);
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-source-header {
+  display: none;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-track-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  min-width: 0;
+  height: 30px;
+  grid-template-columns: 54px minmax(0, 1fr) 54px;
+  gap: 8px;
+  padding: 0 18px;
+  align-items: start;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-track-row span {
+  padding-top: 14px;
+  font-size: 10px;
+  font-weight: 850;
+  color: #8d93a1;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-range {
+  height: 8px;
+  margin-top: 1px;
+  background: linear-gradient(90deg, #2f7df6 0%, #2f7df6 var(--progress, 0%), rgba(230, 234, 241, 0.96) var(--progress, 0%), rgba(230, 234, 241, 0.96) 100%);
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-range::-webkit-slider-thumb {
+  width: 8px;
+  height: 18px;
+  border-width: 0;
+  border-radius: 999px;
+  background: #2f7df6;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-range::-moz-range-thumb {
+  width: 8px;
+  height: 18px;
+  border-width: 0;
+  border-radius: 999px;
+  background: #2f7df6;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-actions {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  justify-content: center;
+  gap: 16px;
+  margin-top: 0;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-actions button {
+  min-width: 32px;
+  width: 32px;
+  height: 32px;
+  color: #6f7582;
+  background: transparent;
+  border: 0;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-actions .sidebar-audio-play-compact {
+  width: 34px;
+  height: 34px;
+  color: #15161a;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-actions .sidebar-audio-play-compact:hover {
+  color: #15161a;
+  background: transparent;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-actions .sidebar-audio-play-compact .material-symbols-outlined {
+  font-size: 28px;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-actions .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.sidebar-audio-player.is-unified-audio-player .sidebar-audio-speed {
+  order: 4;
+  width: auto;
+  min-width: 30px;
+  padding: 0 2px;
+  color: #15161a;
+}
+
+@media (max-width: 1280px) {
+  .sidebar-audio-player.is-unified-audio-player {
+    height: 66px;
+  }
+
+  .sidebar-audio-player.is-unified-audio-player .sidebar-audio-track-row {
+    grid-template-columns: 50px minmax(0, 1fr) 50px;
+  }
 }
 
 .sidebar-audio-player-enter-active,
