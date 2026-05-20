@@ -177,7 +177,7 @@ export function useHome(props, emit) {
 
   // 입력한 이름과 색상으로 새 파일 생성
   const handleCreateFile = async (fileKind = selectedTag.value === '회의' ? 'meeting' : 'lecture') => {
-    if (!newFileName.value.trim()) return
+    if (!newFileName.value.trim()) return null
 
     const currentFolderId = getCurrentFolderId()
     const targetFolderId = isWorkspaceUuid(currentFolderId) ? currentFolderId : getDefaultFolderId()
@@ -193,6 +193,7 @@ export function useHome(props, emit) {
     emit('update:fileTree', addItemToTree(props.fileTree, targetFolderId, newFile))
     isFileModalOpen.value = false
     newFileName.value = ''
+    return newFile
   }
 
   const openItemEditModal = (targetId) => {
