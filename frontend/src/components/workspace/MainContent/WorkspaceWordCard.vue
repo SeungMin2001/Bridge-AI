@@ -4,21 +4,27 @@ defineProps({
   wordData: { type: Object, required: true }
 })
 
-defineEmits(['close', 'ask-ai', 'add-to-note'])
+defineEmits(['close', 'ask-ai'])
 </script>
 
 <template>
   <div class="word-info-card card shrink-0">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-2.5">
         <div class="word-badge">
           <span class="material-symbols-outlined text-[14px]">dictionary</span>
         </div>
         <span class="text-[15px] font-extrabold text-[#1d1d1f] tracking-tight">{{ wordData.word }}</span>
       </div>
-      <button class="p-1.5 rounded-full hover:bg-black/5 transition-colors cursor-pointer" @click="$emit('close')">
-        <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">close</span>
-      </button>
+      <div class="word-card-header-actions">
+        <button class="word-card-ai-link" @click="$emit('ask-ai')">
+          <span class="material-symbols-outlined text-[13px]">auto_awesome</span>
+          AI 질문
+        </button>
+        <button class="word-card-close-btn" @click="$emit('close')">
+          <span class="material-symbols-outlined text-[16px] text-[#8e8e93]">close</span>
+        </button>
+      </div>
     </div>
     <p class="text-[13px] text-[#3a3a3c] leading-[1.7] font-medium mt-2 mb-0">
       {{ wordData.desc }}
@@ -26,23 +32,6 @@ defineEmits(['close', 'ask-ai', 'add-to-note'])
     <p v-if="wordData.error" class="word-card-error">
       {{ wordData.error }}
     </p>
-    <div class="flex items-center justify-between mt-2.5 pt-2.5 border-t border-black/5">
-      <div class="flex items-center gap-1.5">
-        <span class="material-symbols-outlined text-[13px] text-[#8e8e93]">link</span>
-        <span class="text-[10px] font-bold text-[#8e8e93] uppercase tracking-wider">Source:</span>
-        <span class="text-[10px] font-bold text-blue-500">{{ wordData.source }}</span>
-      </div>
-      <div class="flex gap-1.5">
-        <button class="word-card-btn word-card-btn-primary" @click="$emit('ask-ai')">
-          <span class="material-symbols-outlined text-[13px]">auto_awesome</span>
-          AI 질문
-        </button>
-        <button class="word-card-btn word-card-btn-secondary" :disabled="wordData.isLoading" @click="$emit('add-to-note')">
-          <span class="material-symbols-outlined text-[13px]">note_add</span>
-          노트 추가
-        </button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -50,6 +39,8 @@ defineEmits(['close', 'ask-ai', 'add-to-note'])
 .word-info-card {
   padding: 14px 18px;
   border-left: 1px solid var(--workspace-sidebar-card-border);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0 !important;
   background: var(--workspace-sidebar-card-bg);
   border-color: var(--workspace-sidebar-card-border);
   box-shadow: var(--workspace-sidebar-card-shadow);
@@ -58,10 +49,12 @@ defineEmits(['close', 'ask-ai', 'add-to-note'])
 }
 
 .word-info-card::before {
+  border-radius: 0 !important;
   background: var(--workspace-sidebar-card-overlay);
 }
 
 .word-info-card::after {
+  border-radius: 0 !important;
   border-color: var(--workspace-sidebar-card-inner-border);
 }
 
@@ -78,23 +71,61 @@ defineEmits(['close', 'ask-ai', 'add-to-note'])
   box-shadow: 0 10px 20px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
-.word-card-btn {
-  display: flex;
+.word-card-ai-link {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  border: none;
+  min-height: 30px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #2f7df6;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 900;
+  letter-spacing: 0;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.16s ease, text-decoration-color 0.16s ease;
 }
 
-.word-card-btn:disabled {
-  cursor: wait;
-  opacity: 0.62;
-  transform: none;
+.word-card-ai-link:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.word-card-ai-link .material-symbols-outlined {
+  color: #8e8e93;
+  transition: color 0.16s ease;
+}
+
+.word-card-ai-link:hover .material-symbols-outlined {
+  color: #1d4ed8;
+}
+
+.word-card-header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.word-card-close-btn {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+}
+
+.word-card-close-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .word-card-error {
@@ -105,28 +136,4 @@ defineEmits(['close', 'ask-ai', 'add-to-note'])
   line-height: 1.5;
 }
 
-.word-card-btn-primary {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.72));
-  color: #1d1d1f;
-  border: 1px solid rgba(255, 255, 255, 0.84);
-  box-shadow: 0 12px 24px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
-}
-
-.word-card-btn-primary:hover {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.78));
-  transform: translateY(-1px);
-  box-shadow: 0 14px 28px rgba(148, 163, 184, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.98);
-}
-
-.word-card-btn-secondary {
-  background: rgba(255, 255, 255, 0.48);
-  color: #1d1d1f;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.word-card-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.68);
-  transform: translateY(-1px);
-}
 </style>
