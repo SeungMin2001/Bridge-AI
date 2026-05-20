@@ -1,6 +1,6 @@
 <!-- 사용자의 폴더 구조를 관리하고 파일들을 탐색할 수 있는 워크폴더 페이지 컴포넌트입니다. -->
 <script setup>
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import HomeSidebar from '../../components/home/HomeSidebar.vue'
 import HomeGrid from '../../components/home/HomeGrid.vue'
 import HomeModals from '../../components/home/HomeModals.vue'
@@ -54,6 +54,45 @@ const shouldCommitFolderAfterComposition = ref(false)
 const draftFolderName = ref('')
 const folderCreateInputRef = ref(null)
 const openFolderMenuId = ref(null)
+const WORKFOLDER_VIEW_MODE_KEY = 'lecto_workfolder_view_mode'
+const WORKFOLDER_SORT_TYPE_KEY = 'lecto_workfolder_sort_type'
+const savedViewMode = localStorage.getItem(WORKFOLDER_VIEW_MODE_KEY)
+const savedSortType = localStorage.getItem(WORKFOLDER_SORT_TYPE_KEY)
+
+const sortType = ref(['latest', 'title'].includes(savedSortType) ? savedSortType : 'latest')
+const isSortOpen = ref(false)
+const viewMode = ref(['list', 'grid'].includes(savedViewMode) ? savedViewMode : 'list')
+
+const sortLabels = {
+  latest: '최신 항목',
+  title: '제목'
+}
+
+const closeFloatingMenus = () => {
+  openFolderMenuId.value = null
+  isSortOpen.value = false
+}
+
+const toggleSort = () => {
+  isSortOpen.value = !isSortOpen.value
+}
+
+const selectSort = (type) => {
+  sortType.value = type
+  isSortOpen.value = false
+}
+
+const setViewMode = (mode) => {
+  viewMode.value = mode
+}
+
+watch(viewMode, (nextMode) => {
+  localStorage.setItem(WORKFOLDER_VIEW_MODE_KEY, nextMode)
+})
+
+watch(sortType, (nextSortType) => {
+  localStorage.setItem(WORKFOLDER_SORT_TYPE_KEY, nextSortType)
+})
 
 const isDefaultFolder = (item) => item?.isDefaultFolder || item?.name === '기본폴더' || item?.name === '기본파일'
 const getFolderDisplayName = (folder) => isDefaultFolder(folder) ? '기본폴더' : folder.name
@@ -226,10 +265,17 @@ const deleteFolderFromSidebar = async (folder) => {
   }
   await deleteItemById(folder.id)
 }
+
+const handleCreateAndOpenFile = async () => {
+  const newFile = await handleCreateFile()
+  if (!newFile?.id) return
+  emit('fileSelect', newFile.id, newFile)
+  emit('navigate', 'workspace')
+}
 </script>
 
 <template>
-  <div class="copy-app-frame flex relative h-full w-full text-[#1e293b] overflow-hidden" @click="openFolderMenuId = null">
+  <div class="copy-app-frame flex relative h-full w-full text-[#1e293b] overflow-hidden" @click="closeFloatingMenus">
     <InfiniteGrid />
     <HomeSidebar 
       class="relative z-10"
@@ -243,10 +289,6 @@ const deleteFolderFromSidebar = async (folder) => {
     />
 
     <aside class="copy-work-sidebar relative z-10">
-      <button class="copy-collapse-btn" type="button" aria-label="사이드바 접기">
-        <span class="material-symbols-outlined">keyboard_double_arrow_left</span>
-      </button>
-
       <div class="copy-work-inner">
         <button
           :class="['copy-work-item', { 'is-selected': workViewMode === 'all' && navigationStack.length === 0 }]"
@@ -280,6 +322,7 @@ const deleteFolderFromSidebar = async (folder) => {
                 ref="folderCreateInputRef"
                 v-model="draftFolderName"
                 type="text"
+                placeholder="폴더 이름"
                 aria-label="새 폴더 이름"
                 @compositionstart="handleFolderNameCompositionStart"
                 @compositionend="handleFolderNameCompositionEnd"
@@ -331,6 +374,51 @@ const deleteFolderFromSidebar = async (folder) => {
 
     <main id="home-main-content" class="work-main-shell custom-scrollbar flex-1 overflow-y-auto relative z-10">
       <div class="copy-work-topbar">
+        <div class="work-view-segment" aria-label="파일 보기 방식">
+          <button
+            type="button"
+            :class="['work-view-mode-btn', { active: viewMode === 'grid' }]"
+            aria-label="그리드 보기"
+            @click="setViewMode('grid')"
+          >
+            <span class="material-symbols-outlined">grid_view</span>
+          </button>
+          <button
+            type="button"
+            :class="['work-view-mode-btn', { active: viewMode === 'list' }]"
+            aria-label="리스트 보기"
+            @click="setViewMode('list')"
+          >
+            <span class="material-symbols-outlined">view_list</span>
+          </button>
+        </div>
+
+        <div class="sort-dropdown-wrapper">
+          <button
+            type="button"
+            :class="['sort-trigger-btn', { active: isSortOpen }]"
+            @click.stop="toggleSort"
+          >
+            <span>{{ sortLabels[sortType] }}</span>
+            <span :class="['material-symbols-outlined dropdown-icon', { rotate: isSortOpen }]">expand_more</span>
+          </button>
+
+          <Transition name="dropdown">
+            <div v-if="isSortOpen" class="sort-menu shadow-xl" @click.stop>
+              <button
+                v-for="(label, type) in sortLabels"
+                :key="type"
+                type="button"
+                :class="['sort-item', { selected: sortType === type }]"
+                @click="selectSort(type)"
+              >
+                <span>{{ label }}</span>
+                <span v-if="sortType === type" class="material-symbols-outlined check-icon">check</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
+
         <button class="copy-new-file-btn" type="button" @click="openFileCreateModal">
           <span class="material-symbols-outlined">add</span>
           <span>새 파일</span>
@@ -345,6 +433,8 @@ const deleteFolderFromSidebar = async (folder) => {
         :currentTitle="currentTitle"
         :navigationStack="navigationStack"
         :favorites="favorites"
+        :sortType="sortType"
+        :viewMode="viewMode"
         @goBack="handleGoBack"
         @enterFolder="handleEnterFolder"
         @openFolderModal="isFolderModalOpen = true"
@@ -383,7 +473,7 @@ const deleteFolderFromSidebar = async (folder) => {
       @update:newFolderName="newFolderName = $event"
       @update:newFileName="newFileName = $event"
       @createFolder="handleCreateFolder"
-      @createFile="handleCreateFile()"
+      @createFile="handleCreateAndOpenFile"
       @updateItem="handleUpdateItem"
       @deleteEditingItem="handleDeleteEditingItem"
     />
@@ -392,7 +482,8 @@ const deleteFolderFromSidebar = async (folder) => {
 <style src="./Workfolder.css"></style>
 <style scoped>
 .copy-app-frame {
-  background: var(--copy-bg);
+  --copy-bg: #050506;
+  background: #050506;
 }
 
 #home-main-content.work-main-shell {
@@ -416,26 +507,166 @@ const deleteFolderFromSidebar = async (folder) => {
   right: 34px;
   display: inline-flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .copy-new-file-btn {
-  height: 44px;
+  height: 42px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0 19px;
-  border: 0;
-  border-radius: 15px;
+  padding: 0 17px;
+  border: 1px solid #0f1014;
+  border-radius: 999px;
   background: var(--copy-black);
   color: #fff;
   box-shadow: 0 14px 28px rgba(21, 22, 26, 0.14);
-  font-size: 14px;
-  font-weight: 900;
+  font-size: 13.5px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.copy-new-file-btn:hover {
+  background: #272930;
+  border-color: #272930;
+  box-shadow: 0 16px 32px rgba(21, 22, 26, 0.18);
+  transform: translateY(-1px);
 }
 
 .copy-new-file-btn .material-symbols-outlined {
-  font-size: 20px;
+  font-size: 19px;
+  color: #fff;
+}
+
+.sort-dropdown-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sort-trigger-btn {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid rgba(25, 25, 31, 0.12);
+  border-radius: 999px;
+  background: #fff;
+  color: #1d1d1f;
+  box-shadow: 0 10px 22px rgba(31, 34, 43, 0.05);
+  font-size: 13.5px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.sort-trigger-btn:hover,
+.sort-trigger-btn.active {
+  background: #f8f8fb;
+  border-color: rgba(25, 25, 31, 0.26);
+  box-shadow: 0 12px 26px rgba(31, 34, 43, 0.08);
+}
+
+.dropdown-icon {
+  font-size: 18px;
+  transition: transform 0.3s ease;
+}
+
+.dropdown-icon.rotate {
+  transform: rotate(180deg);
+}
+
+.sort-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 142px;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  background: #fff;
+  z-index: 100;
+  transform-origin: top right;
+}
+
+.sort-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #3a3a3c;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.sort-item:hover,
+.sort-item.selected {
+  background: #f2f2f7;
+  color: #3b82f6;
+}
+
+.check-icon {
+  margin-left: auto;
+  color: #3b82f6;
+  font-size: 16px;
+}
+
+.work-view-segment {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid rgba(25, 25, 31, 0.14);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 10px 22px rgba(31, 34, 43, 0.05);
+}
+
+.work-view-mode-btn {
+  width: 36px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #5f6571;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.work-view-mode-btn:hover {
+  color: #1d1d1f;
+  transform: translateY(-1px);
+}
+
+.work-view-mode-btn.active {
+  background: #edf0fb;
+  color: #1d1d1f;
+}
+
+.work-view-mode-btn .material-symbols-outlined {
+  font-size: 21px;
+}
+
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
 }
 
 .copy-bell-btn {
@@ -464,8 +695,8 @@ const deleteFolderFromSidebar = async (folder) => {
   width: 260px;
   min-width: 260px;
   height: 100vh;
-  background: var(--copy-bg);
-  color: var(--copy-text);
+  background: #050506;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .copy-collapse-btn {
@@ -478,7 +709,7 @@ const deleteFolderFromSidebar = async (folder) => {
   place-items: center;
   border: 0;
   background: transparent;
-  color: var(--copy-black);
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .copy-collapse-btn .material-symbols-outlined {
@@ -505,7 +736,7 @@ const deleteFolderFromSidebar = async (folder) => {
   border: 0;
   border-radius: 18px;
   background: transparent;
-  color: #1f2026;
+  color: rgba(255, 255, 255, 0.82);
   font-size: 14px;
   font-weight: 850;
   text-align: left;
@@ -514,10 +745,14 @@ const deleteFolderFromSidebar = async (folder) => {
 }
 
 .copy-work-item:hover,
+.copy-folder-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .copy-work-item.is-selected,
-.copy-folder-item:hover,
 .copy-folder-item.is-selected {
-  background: #fff;
+  background: #27282e;
+  color: #f7f7f8;
   box-shadow: 0 14px 28px rgba(48, 42, 58, 0.08);
 }
 
@@ -543,11 +778,11 @@ const deleteFolderFromSidebar = async (folder) => {
   margin-left: auto;
   border: 0;
   border-radius: 12px;
-  background: rgba(227, 228, 234, 0.78);
-  color: #5d626c;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
   opacity: 0;
   transform: scale(0.94);
-  transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease;
+  transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
 .copy-folder-more .material-symbols-outlined {
@@ -562,7 +797,12 @@ const deleteFolderFromSidebar = async (folder) => {
 }
 
 .copy-folder-item.has-menu .copy-folder-more {
-  background: #dfe0e6;
+  color: #fff;
+}
+
+.copy-folder-more:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
 }
 
 .copy-folder-menu {
@@ -626,7 +866,7 @@ const deleteFolderFromSidebar = async (folder) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: rgba(21, 22, 26, 0.45);
+  color: rgba(255, 255, 255, 0.48);
   font-size: 13px;
   font-weight: 900;
 }
@@ -638,9 +878,9 @@ const deleteFolderFromSidebar = async (folder) => {
   place-items: center;
   border: 0;
   border-radius: 13px;
-  background: #fff;
-  color: var(--copy-black);
-  box-shadow: 0 10px 22px rgba(48, 42, 58, 0.07);
+  background: #27282e;
+  color: #f7f7f8;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .copy-folder-add .material-symbols-outlined {
@@ -664,10 +904,10 @@ const deleteFolderFromSidebar = async (folder) => {
   padding: 0 12px;
   border: 0;
   border-radius: 18px;
-  background: transparent;
-  color: var(--copy-text);
+  background: #27282e;
+  color: #f7f7f8;
   overflow: hidden;
-  box-shadow: none;
+  box-shadow: 0 14px 28px rgba(48, 42, 58, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .copy-folder-create-row .material-symbols-outlined {
@@ -682,13 +922,43 @@ const deleteFolderFromSidebar = async (folder) => {
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--copy-text);
+  color: #f7f7f8;
   font-size: 14px;
   font-weight: 850;
   font-family: inherit;
-  caret-color: var(--copy-text);
+  caret-color: #f7f7f8;
   appearance: none;
   box-shadow: none;
+}
+
+.copy-folder-create-row input::placeholder {
+  color: rgba(247, 247, 248, 0.62);
+}
+
+.copy-app-frame :deep(.home-left-sidebar-card) {
+  background: #050506;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.copy-app-frame :deep(.home-left-sidebar-card::before),
+.copy-app-frame :deep(.home-left-sidebar-card::after) {
+  opacity: 0;
+}
+
+.copy-app-frame :deep(.copy-rail-item),
+.copy-app-frame :deep(.copy-rail-bottom) {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.copy-app-frame :deep(.copy-rail-item:hover) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.copy-app-frame :deep(.copy-rail-item.is-active) {
+  background: #27282e;
+  color: #f7f7f8;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .copy-folder-create-row input:focus,
