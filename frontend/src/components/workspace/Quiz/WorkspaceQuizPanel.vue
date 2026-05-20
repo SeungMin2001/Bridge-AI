@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { isWorkspaceUuid } from '../../../api/workspaceApi.js'
 import { isPdfMaterial } from '../../../utils/pdfMaterial.js'
+import LoadingHourglass from '../../ui/LoadingHourglass.vue'
 
 const QUIZ_API_BASE = '/quiz'
 
@@ -485,7 +486,7 @@ watch(
       </div>
 
       <div v-else-if="quizProgressText" class="quiz-empty">
-        <span class="material-symbols-outlined">hourglass_top</span>
+        <LoadingHourglass :size="76" />
         <p>{{ quizProgressText }}</p>
       </div>
 
