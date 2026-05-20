@@ -7,7 +7,9 @@ const props = defineProps({
   isCollapsed: Boolean,
   activeView: { type: String, default: 'home' },
   fileTree: { type: Array, default: () => [] },
-  favorites: { type: Set, default: () => new Set() }
+  favorites: { type: Set, default: () => new Set() },
+  showRailNav: { type: Boolean, default: true },
+  showRailLogo: { type: Boolean, default: true }
 })
 
 const emit = defineEmits(['toggle', 'navigate', 'openScheduleSource', 'openFileCreate'])
@@ -343,7 +345,9 @@ onUnmounted(() => {
     id="sidebar"
     :class="[
       'home-sidebar flex flex-col h-full shrink-0 overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] relative z-10 rounded-[24px]',
-      { 'sidebar-collapsed': isCollapsed }
+      {
+        'sidebar-collapsed': isCollapsed
+      }
     ]"
     :style="{
       width: `${isCollapsed ? collapsedSidebarWidth : expandedSidebarWidth}px`,
@@ -352,22 +356,24 @@ onUnmounted(() => {
     }"
   >
     <div class="copy-rail-inner" aria-label="주 메뉴">
-      <button class="copy-rail-logo" type="button" aria-label="홈" @click="emit('navigate', 'home')">
-        <span class="material-symbols-outlined" aria-hidden="true">menu_book</span>
+      <button v-if="showRailLogo" class="copy-rail-logo" type="button" aria-label="홈" @click="emit('navigate', 'home')">
+        <img class="copy-rail-logo-img" src="/images/logo.png" alt="" draggable="false" />
       </button>
 
-      <nav class="copy-rail-nav">
+      <nav v-if="showRailNav" class="copy-rail-nav">
         <button
+          v-if="showRailNav"
           :class="['copy-rail-item', { 'is-active': activeRailKey === 'create' }]"
           type="button"
           aria-label="새 작업"
           title="새 작업"
           @click="handleCreateClick"
         >
-          <span class="material-symbols-outlined">add_circle</span>
+          <span class="material-symbols-outlined">add</span>
           <span>새 작업</span>
         </button>
         <button
+          v-if="showRailNav"
           :class="['copy-rail-item', { 'is-active': activeRailKey === 'workfolder' }]"
           type="button"
           aria-label="내 작업"
@@ -378,16 +384,7 @@ onUnmounted(() => {
           <span>내 작업</span>
         </button>
         <button
-          :class="['copy-rail-item', { 'is-active': activeRailKey === 'home' }]"
-          type="button"
-          aria-label="AI 채팅"
-          title="AI 채팅"
-          @click="handleRailNavigate('home', 'home')"
-        >
-          <span class="material-symbols-outlined">auto_awesome</span>
-          <span>AI 채팅</span>
-        </button>
-        <button
+          v-if="showRailNav"
           :class="['copy-rail-item', { 'is-active': activeRailKey === 'schedule' }]"
           type="button"
           aria-label="캘린더"
@@ -408,7 +405,7 @@ onUnmounted(() => {
       <div class="sidebar-header transition-all">
         <div class="sidebar-logo-section">
           <div class="sidebar-logo-box">
-            <span class="material-symbols-outlined text-white text-[20px]">menu_book</span>
+            <img class="sidebar-logo-img" src="/images/logo.png" alt="" draggable="false" />
           </div>
           <span class="collapsible-content sidebar-logo-text font-extrabold">LectoAI</span>
         </div>
@@ -695,20 +692,26 @@ onUnmounted(() => {
 .copy-rail-logo {
   width: 43px;
   height: 43px;
-  margin: 0 0 76px;
+  margin: 0 0 9px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 13px;
-  background: var(--copy-black);
+  border-radius: 999px;
+  background: transparent;
   color: #fff;
-  box-shadow: 0 12px 26px rgba(21, 22, 26, 0.14);
+  box-shadow: 0 12px 26px rgba(21, 22, 26, 0.1);
   cursor: pointer;
+  overflow: hidden;
 }
 
-.copy-rail-logo .material-symbols-outlined {
-  font-size: 24px;
-  font-variation-settings: 'FILL' 0, 'wght' 450, 'GRAD' 0, 'opsz' 24;
+.copy-rail-logo-img,
+.sidebar-logo-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  user-select: none;
+  pointer-events: none;
 }
 
 .copy-rail-nav {
@@ -727,18 +730,19 @@ onUnmounted(() => {
   border: 0;
   border-radius: 15px;
   background: transparent;
-  color: #1f2026;
+  color: rgba(255, 255, 255, 0.82);
   cursor: pointer;
   transition: background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .copy-rail-item:hover {
-  background: rgba(255, 255, 255, 0.36);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .copy-rail-item.is-active {
-  background: #fff;
-  box-shadow: 0 16px 30px rgba(48, 42, 58, 0.08);
+  background: #27282e;
+  color: #f7f7f8;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .copy-rail-item .material-symbols-outlined {
@@ -755,7 +759,7 @@ onUnmounted(() => {
   display: grid;
   justify-items: center;
   gap: 8px;
-  color: var(--copy-black);
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .copy-rail-bottom .material-symbols-outlined {
@@ -778,18 +782,18 @@ onUnmounted(() => {
 <style scoped>
 .home-left-sidebar-card {
   background: var(--copy-bg);
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
 .home-left-sidebar-card::before {
-  background: rgba(255, 255, 255, 0.22);
+  opacity: 0;
 }
 
 .home-left-sidebar-card::after {
-  border-color: rgba(255, 255, 255, 0.42);
+  opacity: 0;
 }
 
 .home-sidebar-icon-btn {
