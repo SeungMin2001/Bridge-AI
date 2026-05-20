@@ -109,6 +109,25 @@ export const uploadWorkspaceMaterial = async (sessionId, file) => {
   return result.material
 }
 
+export const uploadWorkspaceRecording = async (sessionId, file, options = {}) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (options.title) formData.append('title', options.title)
+  if (Number.isFinite(Number(options.durationSeconds))) {
+    formData.append('duration_seconds', String(Number(options.durationSeconds)))
+  }
+
+  const result = await requestWorkspaceJson(
+    `sessions/${sessionId}/recordings`,
+    {
+      method: 'POST',
+      body: formData
+    },
+    '음성파일 업로드에 실패했습니다.'
+  )
+  return result
+}
+
 export const deleteWorkspaceFile = async (fileId) => {
   return requestWorkspaceJson(
     `sessions/${fileId}`,
