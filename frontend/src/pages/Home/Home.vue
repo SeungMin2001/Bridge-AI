@@ -83,6 +83,13 @@ const openRecentFileHandler = (file) => {
   emit('fileSelect', file.id, file.node)
   emit('navigate', 'workspace')
 }
+
+const handleCreateAndOpenFile = async () => {
+  const newFile = await handleCreateFile()
+  if (!newFile?.id) return
+  emit('fileSelect', newFile.id, newFile)
+  emit('navigate', 'workspace')
+}
 </script>
 
 <template>
@@ -175,7 +182,7 @@ const openRecentFileHandler = (file) => {
       @update:newFolderName="newFolderName = $event"
       @update:newFileName="newFileName = $event"
       @createFolder="handleCreateFolder"
-      @createFile="handleCreateFile()"
+      @createFile="handleCreateAndOpenFile"
       @updateItem="handleUpdateItem"
       @deleteEditingItem="handleDeleteEditingItem"
     />
