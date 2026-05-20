@@ -11,6 +11,10 @@ const props = defineProps({
   recordingMode: { type: String, default: 'lecture' },
   diarizationEnabled: { type: Boolean, default: false },
   diarizationStatus: { type: String, default: 'idle' },
+  transcriptionStatus: { type: String, default: '' },
+  transcriptionError: { type: String, default: '' },
+  canStartTranscription: { type: Boolean, default: false },
+  isTranscriptionSubmitting: { type: Boolean, default: false },
   variant: { type: String, default: 'sidebar' },
   showToolbar: { type: Boolean, default: false },
   toolbarTitle: { type: String, default: '스크립트' },
@@ -18,7 +22,7 @@ const props = defineProps({
   folderOpen: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['addToNote', 'askAi', 'toggleFolder'])
+const emit = defineEmits(['addToNote', 'askAi', 'toggleFolder', 'startTranscription'])
 
 const transSearch = ref('')
 const scrollContainer = ref(null)
@@ -31,6 +35,15 @@ const activeSearchIndex = ref(0)
 const emptyTranscriptAnimationRef = ref(null)
 const isDiarizationBootstrapping = computed(() => (
   props.diarizationEnabled && props.diarizationStatus === 'bootstrapping'
+))
+const hasAnyTranscriptions = computed(() => props.transcriptions.length > 0)
+const normalizedTranscriptionStatus = computed(() => String(props.transcriptionStatus || '').toLowerCase())
+const isUploadedTranscriptionProcessing = computed(() => (
+  !hasAnyTranscriptions.value
+  && ['queued', 'pending', 'processing'].includes(normalizedTranscriptionStatus.value)
+))
+const isUploadedTranscriptionFailed = computed(() => (
+  !hasAnyTranscriptions.value && normalizedTranscriptionStatus.value === 'failed'
 ))
 const filteredTranscriptions = computed(() => (
   props.transcriptions.filter((item) => (
@@ -290,7 +303,30 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
       class="transcript-list flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4"
     >
       <template v-if="filteredTranscriptions.length === 0">
-        <div v-if="isDiarizationBootstrapping" class="diarization-preparing-state" role="status" aria-live="polite">
+        <div v-if="isUploadedTranscriptionProcessing" class="transcription-preparing-state" role="status" aria-live="polite">
+          <div class="transcription-preparing-icon">
+            <span class="material-symbols-outlined">graphic_eq</span>
+          </div>
+          <strong>스크립트를 준비 중입니다</strong>
+          <p>업로드한 음성파일을 전사하고 있습니다. 완료되면 여기에 바로 표시됩니다.</p>
+        </div>
+        <div v-else-if="isUploadedTranscriptionFailed" class="transcription-failed-state" role="status" aria-live="polite">
+          <div class="transcription-failed-icon">
+            <span class="material-symbols-outlined">error</span>
+          </div>
+          <strong>전사에 실패했습니다</strong>
+          <p>{{ transcriptionError || '음성파일을 다시 업로드하거나 잠시 후 다시 시도해 주세요.' }}</p>
+          <button
+            v-if="canStartTranscription"
+            type="button"
+            class="transcription-start-button"
+            :disabled="isTranscriptionSubmitting"
+            @click="emit('startTranscription')"
+          >
+            전사 다시 시작
+          </button>
+        </div>
+        <div v-else-if="isDiarizationBootstrapping" class="diarization-preparing-state" role="status" aria-live="polite">
           <div class="diarization-preparing-icon">
             <span class="material-symbols-outlined">graphic_eq</span>
           </div>
@@ -318,6 +354,15 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
           <p class="text-[13px] font-medium text-[#8e8e93]">
             {{ recordingMode === 'meeting' ? '화자 분리된 회의 스크립트가 여기에 표시됩니다.' : '전사된 데이터가 없습니다.' }}
           </p>
+          <button
+            v-if="canStartTranscription"
+            type="button"
+            class="transcription-start-button"
+            :disabled="isTranscriptionSubmitting"
+            @click="emit('startTranscription')"
+          >
+            {{ isTranscriptionSubmitting ? '전사 준비 중' : '전사 시작' }}
+          </button>
         </div>
       </template>
       <template v-else>
@@ -473,7 +518,9 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   background-color: rgba(226, 224, 232, 0.86);
 }
 
-.diarization-preparing-state {
+.diarization-preparing-state,
+.transcription-preparing-state,
+.transcription-failed-state {
   min-height: 220px;
   display: flex;
   flex-direction: column;
@@ -485,7 +532,9 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   text-align: center;
 }
 
-.diarization-preparing-icon {
+.diarization-preparing-icon,
+.transcription-preparing-icon,
+.transcription-failed-icon {
   width: 46px;
   height: 46px;
   display: flex;
@@ -498,23 +547,65 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   animation: diarizationPulse 1.4s ease-in-out infinite;
 }
 
-.diarization-preparing-icon .material-symbols-outlined {
+.transcription-failed-icon {
+  color: #ef4444;
+  background: #fff1f2;
+  border-color: #ffe4e6;
+  animation: none;
+}
+
+.diarization-preparing-icon .material-symbols-outlined,
+.transcription-preparing-icon .material-symbols-outlined,
+.transcription-failed-icon .material-symbols-outlined {
   font-size: 25px;
 }
 
-.diarization-preparing-state strong {
+.diarization-preparing-state strong,
+.transcription-preparing-state strong,
+.transcription-failed-state strong {
   color: #1f2937;
   font-size: 14px;
   font-weight: 950;
 }
 
-.diarization-preparing-state p {
+.diarization-preparing-state p,
+.transcription-preparing-state p,
+.transcription-failed-state p {
   margin: 0;
   color: #94a3b8;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.5;
   word-break: keep-all;
+}
+
+.transcription-start-button {
+  min-width: 116px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #111318;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.16s ease, background 0.16s ease, opacity 0.16s ease;
+}
+
+.transcription-start-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #1f232b;
+}
+
+.transcription-start-button:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 @keyframes diarizationPulse {
