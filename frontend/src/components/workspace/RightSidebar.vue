@@ -2,6 +2,7 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useChat } from '../../composables/useChat'
+import LoadingHourglass from '../ui/LoadingHourglass.vue'
 import { marked } from 'marked'
 
 marked.setOptions({
@@ -28,6 +29,8 @@ const isLoading = ref(false)
 const isThinkingMode = ref(false)
 const aiTextarea = ref(null)
 const isSending = ref(false) // 중복 전송 방지용 플래그
+const workspaceChatbotAnimationRef = ref(null)
+let workspaceChatbotTimer = null
 
 // 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
 // true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
@@ -442,6 +445,22 @@ function handleCitationClick(event, cite) {
 const width = ref(420)
 const isResizing = ref(false)
 
+const stopWorkspaceChatbotTimer = () => {
+  if (!workspaceChatbotTimer) return
+  window.clearInterval(workspaceChatbotTimer)
+  workspaceChatbotTimer = null
+}
+
+const startWorkspaceChatbotTimer = async () => {
+  stopWorkspaceChatbotTimer()
+  if (!props.visible || messages.value.length > 0) return
+
+  await nextTick()
+  workspaceChatbotTimer = window.setInterval(() => {
+    workspaceChatbotAnimationRef.value?.playFromStart?.()
+  }, 15000)
+}
+
 const handleMouseDown = (e) => {
   isResizing.value = true
   document.body.style.cursor = 'col-resize'
@@ -466,11 +485,13 @@ const handleMouseUp = () => {
 onMounted(() => {
   document.addEventListener('mousemove', handleMouseMove)
   document.addEventListener('mouseup', handleMouseUp)
+  startWorkspaceChatbotTimer()
 })
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', handleMouseUp)
+  stopWorkspaceChatbotTimer()
 })
 
 const scrollContainer = ref(null)
@@ -488,6 +509,13 @@ const scrollToBottom = async () => {
 watch(messages, () => {
   scrollToBottom()
 }, { deep: true })
+
+watch(
+  () => [messages.value.length, props.visible],
+  () => {
+    startWorkspaceChatbotTimer()
+  }
+)
 
 </script>
 
@@ -511,7 +539,16 @@ watch(messages, () => {
       <transition name="fade-slide-switch" mode="out-in">
         <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
           <div class="mb-6 flex items-center justify-center">
-            <img src="/images/image.png" alt="AI chat" class="w-20 h-auto object-contain" />
+            <LoadingHourglass
+              ref="workspaceChatbotAnimationRef"
+              class="workspace-chatbot-animation"
+              src="/animations/Chatbot.json"
+              width="112px"
+              height="112px"
+              :autoplay="false"
+              :loop="false"
+              fallback-icon="smart_toy"
+            />
           </div>
           <h3 class="text-[18px] font-bold text-[#1d1d1f] mb-8">무엇을 도와드릴까요?</h3>
           <div class="w-full flex flex-col gap-3 mb-10">
@@ -577,9 +614,14 @@ watch(messages, () => {
                   aria-live="polite"
                 >
                   <span class="ai-typing-dots" aria-hidden="true">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                    <LoadingHourglass
+                      class="chat-loading-dots-lottie"
+                      src="/animations/Loading%20Dots%20Blue.json"
+                      width="160px"
+                      height="90px"
+                      :content-scale="4.3"
+                      fallback-icon="more_horiz"
+                    />
                   </span>
                 </div>
               </template>
@@ -637,19 +679,40 @@ watch(messages, () => {
 
 <style scoped>
 .workspace-right-sidebar-card {
-  background: var(--workspace-sidebar-card-bg);
-  border: 1px solid var(--workspace-sidebar-card-border);
-  box-shadow: var(--workspace-sidebar-card-shadow);
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  background: #fff;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  box-shadow: -10px 0 34px rgba(48, 42, 58, 0.05);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .workspace-right-sidebar-card::before {
-  background: var(--workspace-sidebar-card-overlay);
+  opacity: 0;
 }
 
 .workspace-right-sidebar-card::after {
-  border-color: var(--workspace-sidebar-card-inner-border);
+  border-color: rgba(226, 232, 240, 0.78);
+}
+
+.chat-input-glow {
+  background: #f8fafc;
+  border: 1.5px solid #d6dee9;
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.chat-input-glow:focus-within {
+  background: #fff;
+  border-color: #94a3b8;
+  box-shadow: 0 20px 38px rgba(15, 23, 42, 0.11);
+  transform: translateY(-1px);
+}
+
+.workspace-chatbot-animation {
+  display: block;
+  user-select: none;
+  pointer-events: none;
 }
 
 /* 화면 전환 애니메이션 */
@@ -691,43 +754,20 @@ watch(messages, () => {
 }
 
 .ai-typing-dots {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  width: 55px;
   height: 24px;
+  overflow: visible;
 }
 
-.ai-typing-dots span {
-  width: 13px;
-  height: 13px;
-  border-radius: 999px;
-  background: #aaa7a3;
-  animation: ai-typing-dot 1.05s ease-in-out infinite;
-}
-
-.ai-typing-dots span:nth-child(2) {
-  animation-delay: 0.16s;
-}
-
-.ai-typing-dots span:nth-child(3) {
-  animation-delay: 0.32s;
-}
-
-@keyframes ai-typing-dot {
-  0%, 80%, 100% {
-    opacity: 0.58;
-    transform: translateY(0) scale(0.86);
-  }
-  40% {
-    opacity: 1;
-    transform: translateY(-4px) scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-typing-dots span {
-    animation: none;
-  }
+.ai-typing-dots :deep(.chat-loading-dots-lottie) {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 /* 답변 끝에 붙는 ChatGPT 스타일 근거 pill */
