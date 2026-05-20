@@ -320,10 +320,36 @@ const getAudioDuration = (file) => new Promise((resolve) => {
   audio.src = objectUrl
 })
 
-const replaceCurrentFileNode = (nodeId, nextNode) => {
-  const nextTree = updateNodeById(normalizeFileTree(props.fileTree), nodeId, () => nextNode)
-  emit('update:fileTree', nextTree)
-  emit('fileSelect', nodeId, findNode(nodeId, nextTree))
+const getRecordingId = (recording = {}) => recording?.id || recording?.recordingId || ''
+
+const isSameRecording = (recording = {}, recordingId = '') => (
+  getRecordingId(recording) === recordingId
+)
+
+const findRecordingInNode = (node, recordingId = '') => {
+  if (!node || !recordingId) return null
+  const direct = Array.isArray(node.recordings)
+    ? node.recordings.find((recording) => isSameRecording(recording, recordingId))
+    : null
+  if (direct) return direct
+
+  const weeks = Array.isArray(node.weeks) ? node.weeks : []
+  for (const week of weeks) {
+    const recording = Array.isArray(week?.recordings)
+      ? week.recordings.find((item) => isSameRecording(item, recordingId))
+      : null
+    if (recording) return recording
+  }
+  return null
+}
+
+const openUploadedRecording = (fileId, node, recording) => {
+  if (!recording) return
+  emit('openRecording', {
+    fileId,
+    node,
+    recording
+  })
 }
 
 const handleUploadMaterialFile = async (event) => {
@@ -380,21 +406,35 @@ const handleUploadRecordingFile = async (event) => {
       title: getFileStem(file.name),
       durationSeconds
     })
+    let workingTree = normalizeFileTree(props.fileTree)
+    let updatedNode = null
+
     if (result.node) {
-      replaceCurrentFileNode(targetFileId, result.node)
+      workingTree = updateNodeById(workingTree, targetFileId, () => result.node)
+      updatedNode = findNode(targetFileId, workingTree)
+      emit('update:fileTree', workingTree)
+      emit('fileSelect', targetFileId, updatedNode)
     } else if (result.recording) {
-      const nextTree = updateNodeById(
-        normalizeFileTree(props.fileTree),
+      workingTree = updateNodeById(
+        workingTree,
         targetFileId,
         (node) => addRecordingToCurrentWeek(node, result.recording)
       )
-      const updatedNode = findNode(targetFileId, nextTree)
-      emit('update:fileTree', nextTree)
+      updatedNode = findNode(targetFileId, workingTree)
+      emit('update:fileTree', workingTree)
       emit('fileSelect', targetFileId, updatedNode)
       if (updatedNode?.weeks) {
         await saveSessionResources(targetFileId, updatedNode.weeks)
       }
     }
+    const recordingId = result.recording?.id || result.recording?.recordingId
+    if (!recordingId) {
+      emit('showToast', `"${file.name}" 음성파일 업로드 완료`)
+      return
+    }
+
+    const uploadedRecording = findRecordingInNode(updatedNode, recordingId) || result.recording
+    openUploadedRecording(targetFileId, updatedNode, uploadedRecording)
     emit('showToast', `"${file.name}" 음성파일 업로드 완료`)
   } catch (error) {
     console.error('[workspace] recording upload failed:', error)
