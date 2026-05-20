@@ -14,114 +14,31 @@ import json
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 from starlette.websockets import WebSocketDisconnect
-import torchaudio
 from data.save_transcript import save_transcript
 # 신창영 : 워크스페이스 DB API 라우터를 main 서버에 연결
 from db_api.workspace.router import router as workspace_router
 from db import create_session, update_transcript_speakers
-from correction import load_correction_model, correct_text
 from rag_search import init as rag_init, add_document as rag_add_document
-import torch
 import uuid
 import httpx
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 # 신창영 : 현재 main 서버에서는 워크스페이스 기능 확인을 우선하여 quiz 라우터를 임시 제외
 from quiz.quiz import router as quiz_router
 from summary.summary import router as summary_router
 from summary.test import router as summary_test_router
 from schedule.schedule import router as schedule_router
 from chat.router import router as chat_router
+from stt.whisper_service import (
+    correction_enabled,
+    correction_pool,
+    correct_transcript_text,
+    resample_pcm48_to_16k,
+    transcribe_16k_chunk,
+    transcribe_pool,
+)
 import logging
 
 logger = logging.getLogger(__name__)
-
-STT_BACKEND = os.getenv("STT_BACKEND", "faster-whisper").strip().lower().replace("_", "-")
-requested_stt_device = os.getenv("STT_DEVICE", "").strip().lower()
-requested_stt_model = os.getenv("STT_MODEL", "").strip()
-
-
-def _mps_available() -> bool:
-    """현재 PyTorch 런타임에서 Apple MPS 장치를 사용할 수 있는지 확인합니다."""
-    return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-
-
-def _load_stt_model():
-    """STT_BACKEND 환경변수에 맞는 Whisper 백엔드를 로드합니다."""
-    if STT_BACKEND in {"faster", "faster-whisper"}:
-        from faster_whisper import WhisperModel
-
-        if requested_stt_device in {"cuda", "cpu"}:
-            device = requested_stt_device
-        elif requested_stt_device == "mps":
-            # 신창영: 수정 이유 - faster-whisper는 CTranslate2 기반이라 Apple MPS를 직접 사용할 수 없습니다.
-            print("[STT] faster-whisper는 mps를 지원하지 않아 cpu로 실행합니다.")
-            device = "cpu"
-        else:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        model_name = requested_stt_model or "large-v3-turbo"
-        return (
-            WhisperModel(
-                model_name,
-                device=device,
-                compute_type="float16" if device == "cuda" else "float32",
-            ),
-            device,
-            model_name,
-        )
-
-    if STT_BACKEND in {"openai", "openai-whisper", "whisper"}:
-        import whisper as openai_whisper
-
-        if not hasattr(openai_whisper, "load_model"):
-            raise RuntimeError(
-                "openai-whisper 패키지가 아니라 다른 whisper 패키지가 import되었습니다. "
-                "requirements의 whisper==1.1.10을 제거한 뒤 다시 설치해주세요."
-            )
-
-        if requested_stt_device == "mps":
-            if _mps_available():
-                device = "mps"
-            else:
-                print("[STT] 요청한 mps를 사용할 수 없어 cpu로 실행합니다.")
-                device = "cpu"
-        elif requested_stt_device == "cuda":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-        elif requested_stt_device == "cpu":
-            device = "cpu"
-        else:
-            # 신창영: 수정 이유 - Mac에서는 openai-whisper가 MPS를 쓸 수 있으므로 자동 선택 우선순위에 넣습니다.
-            device = "mps" if _mps_available() else ("cuda" if torch.cuda.is_available() else "cpu")
-
-        model_name = requested_stt_model or "turbo"
-        if device == "mps":
-            # 신창영: 수정 이유 - openai-whisper의 alignment_heads sparse buffer는 MPS 이동 시 SparseMPS 에러가 날 수 있어 CPU에서 dense로 바꾼 뒤 이동합니다.
-            stt_model = openai_whisper.load_model(model_name, device="cpu")
-            alignment_heads = getattr(stt_model, "alignment_heads", None)
-            if alignment_heads is not None and getattr(alignment_heads, "is_sparse", False):
-                stt_model.register_buffer("alignment_heads", alignment_heads.to_dense(), persistent=False)
-            return stt_model.to("mps"), device, model_name
-
-        return openai_whisper.load_model(model_name, device=device), device, model_name
-
-    raise ValueError(
-        "지원하지 않는 STT_BACKEND입니다. "
-        "faster-whisper 또는 openai-whisper 중 하나를 사용하세요."
-    )
-
-
-model, stt_device, stt_model_name = _load_stt_model()
-audio_device = "cuda" if stt_device == "cuda" else "cpu"
-print(f"[STT] backend={STT_BACKEND}, model={stt_model_name}, device={stt_device}")
-
-correction_enabled = load_correction_model()
-
-transcribe_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
-correction_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="correction")
-
-# 신창영: 수정 이유 - STT가 mps여도 torchaudio resample은 CPU/CUDA 쪽이 안정적이라 별도 장치로 처리합니다.
-resampler = torchaudio.transforms.Resample(orig_freq=48000, new_freq=16000).to(audio_device)
 
 app = FastAPI()
 
@@ -152,85 +69,6 @@ app.include_router(chat_router)
 # 화자분리 서버
 DIARIZE_URL = os.getenv("DIARIZE_URL", "http://localhost:8003/diart/raw")
 DIARIZE_ENABLED = os.getenv("DIARIZE_ENABLED", "true").lower() == "true"
-
-
-def _filter_whisper_segments(segments: list[dict]) -> str:
-    """Whisper segment 신뢰도 값으로 무음/환각 전사를 줄입니다."""
-    result_parts = []
-    for seg in segments:
-        text = str(seg.get("text") or "").strip()
-        if not text:
-            continue
-        no_speech_prob = float(seg.get("no_speech_prob") or 0.0)
-        avg_logprob = float(seg.get("avg_logprob") or 0.0)
-        if no_speech_prob > 0.6:
-            print(f"[필터] no_speech_prob={no_speech_prob:.2f} → 제거: {text!r}")
-            continue
-        if avg_logprob < -1.0:
-            print(f"[필터] avg_logprob={avg_logprob:.2f} → 제거: {text!r}")
-            continue
-        result_parts.append(text)
-    return " ".join(result_parts).strip()
-
-
-def _transcribe_with_faster_whisper(audio_16k: np.ndarray) -> str:
-    """faster-whisper 백엔드로 16kHz 오디오 청크를 한국어 텍스트로 전사합니다."""
-    segments, _ = model.transcribe(
-        audio_16k,
-        language="ko",
-        task="transcribe",
-        temperature=0.0,
-        condition_on_previous_text=False,
-        vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
-        no_speech_threshold=0.6,
-        log_prob_threshold=-1.0,
-        compression_ratio_threshold=2.4,
-    )
-
-    return _filter_whisper_segments([
-        {
-            "text": seg.text,
-            "no_speech_prob": seg.no_speech_prob,
-            "avg_logprob": seg.avg_logprob,
-        }
-        for seg in segments
-    ])
-
-
-def _transcribe_with_openai_whisper(audio_16k: np.ndarray) -> str:
-    """openai-whisper 백엔드로 16kHz 오디오 청크를 한국어 텍스트로 전사합니다."""
-    # 신창영: 수정 이유 - openai-whisper는 torch 기반이라 Mac에서 STT_DEVICE=mps로 Apple GPU를 사용할 수 있습니다.
-    result = model.transcribe(
-        audio_16k.astype(np.float32),
-        language="ko",
-        task="transcribe",
-        temperature=0.0,
-        condition_on_previous_text=False,
-        fp16=stt_device == "cuda",
-        # 신창영: 수정 이유 - openai-whisper에서 verbose=False는 tqdm 진행률을 켜므로, 실시간 청크마다 100% 로그가 반복되지 않게 None을 사용합니다.
-        verbose=None,
-    )
-    filtered = _filter_whisper_segments(result.get("segments") or [])
-    return filtered or str(result.get("text") or "").strip()
-
-
-def _transcribe_chunk(audio_16k: np.ndarray) -> str:
-    """선택된 STT_BACKEND로 한 오디오 청크를 전사합니다."""
-    if STT_BACKEND in {"faster", "faster-whisper"}:
-        return _transcribe_with_faster_whisper(audio_16k)
-    if STT_BACKEND in {"openai", "openai-whisper", "whisper"}:
-        return _transcribe_with_openai_whisper(audio_16k)
-    return ""
-
-
-def _correct_chunk(text: str) -> str:
-    """KoBART 교정 모델로 STT 결과를 후처리합니다."""
-    try:
-        return correct_text(text)
-    except Exception as e:
-        print(f"[교정] 교정 실패, raw_text 사용: {e}")
-        return text
 
 
 CHUNK_SIZE = 240000  # ~2.5초 (체감 응답 빠르게)
@@ -380,7 +218,7 @@ async def websocket_endpoint(ws: WebSocket):
     async def process_transcript_chunk(audio_16k: np.ndarray, start_time: float, end_time: float):
         """STT, 교정, 저장, RAG 추가를 한 청크 단위로 처리합니다."""
         try:
-            raw_text = await loop.run_in_executor(transcribe_pool, _transcribe_chunk, audio_16k)
+            raw_text = await loop.run_in_executor(transcribe_pool, transcribe_16k_chunk, audio_16k)
         except Exception as e:
             # 신창영: 수정 이유 - MPS/STT 런타임 에러가 나도 WebSocket 전체가 500으로 죽지 않게 프론트에 에러만 전달합니다.
             logger.exception("[STT] 전사 실패")
@@ -411,7 +249,7 @@ async def websocket_endpoint(ws: WebSocket):
         })
 
         if correction_enabled and raw_text:
-            corrected_text = await loop.run_in_executor(correction_pool, _correct_chunk, raw_text)
+            corrected_text = await loop.run_in_executor(correction_pool, correct_transcript_text, raw_text)
             if corrected_text != raw_text:
                 await send_ws_json({
                     "type": "corrected",
@@ -591,8 +429,7 @@ async def websocket_endpoint(ws: WebSocket):
         audio_float = audio_np.astype(np.float32) / 32768.0
         rms = np.sqrt(np.mean(audio_float ** 2))
 
-        audio_tensor = torch.from_numpy(audio_float).to(audio_device)
-        audio_16k = resampler(audio_tensor).cpu().numpy()
+        audio_16k = resample_pcm48_to_16k(audio_float)
 
         if effective_diarize:
             if len(diarize_buffer) == 0:
