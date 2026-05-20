@@ -6,8 +6,16 @@ import {
   deleteWorkspaceFolder,
   deleteWorkspaceRecordingData,
   isWorkspaceUuid,
-  saveSessionResources
+  saveSessionResources,
+  uploadWorkspaceMaterial,
+  uploadWorkspaceRecording
 } from '../../api/workspaceApi.js'
+import {
+  addMaterialToCurrentWeek,
+  addRecordingToCurrentWeek,
+  normalizeFileTree,
+  updateNodeById
+} from '../../composables/appState/fileTreeState.js'
 
 const props = defineProps({
   fileTree: { type: Array, default: () => [] },
@@ -66,6 +74,10 @@ const localActiveFileId = ref(null)
 const searchQuery = ref('')
 const ctxMenu = ref({ visible: false, x: 0, y: 0, targetId: null })
 const materialMenu = ref({ visible: false, x: 0, y: 0, fileId: null, weekId: null, materialId: null, recordingId: null })
+const materialFileInput = ref(null)
+const recordingFileInput = ref(null)
+const isUploadingMaterial = ref(false)
+const isUploadingRecording = ref(false)
 
 // --- Computed ---
 const selectedFileId = computed(() => props.activeFileId || localActiveFileId.value)
@@ -267,6 +279,131 @@ const handleOpenRecording = (payload) => {
   emit('openRecording', payload)
 }
 
+const getFileStem = (filename = '') => (
+  String(filename || '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+)
+
+const getAudioDuration = (file) => new Promise((resolve) => {
+  if (!file) {
+    resolve(0)
+    return
+  }
+
+  const audio = document.createElement('audio')
+  const objectUrl = URL.createObjectURL(file)
+  const cleanup = () => {
+    URL.revokeObjectURL(objectUrl)
+    audio.removeAttribute('src')
+    audio.load()
+  }
+
+  const timer = window.setTimeout(() => {
+    cleanup()
+    resolve(0)
+  }, 5000)
+
+  audio.preload = 'metadata'
+  audio.onloadedmetadata = () => {
+    window.clearTimeout(timer)
+    const duration = Number.isFinite(audio.duration) ? audio.duration : 0
+    cleanup()
+    resolve(duration)
+  }
+  audio.onerror = () => {
+    window.clearTimeout(timer)
+    cleanup()
+    resolve(0)
+  }
+  audio.src = objectUrl
+})
+
+const replaceCurrentFileNode = (nodeId, nextNode) => {
+  const nextTree = updateNodeById(normalizeFileTree(props.fileTree), nodeId, () => nextNode)
+  emit('update:fileTree', nextTree)
+  emit('fileSelect', nodeId, findNode(nodeId, nextTree))
+}
+
+const handleUploadMaterialFile = async (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  const targetFileId = activeNode.value?.id
+  if (!file || !targetFileId) return
+  if (!isWorkspaceUuid(targetFileId)) {
+    emit('showToast', 'DB에 저장된 파일에서만 업로드할 수 있습니다.')
+    return
+  }
+
+  isUploadingMaterial.value = true
+  try {
+    const material = await uploadWorkspaceMaterial(targetFileId, file)
+    const nextTree = updateNodeById(
+      normalizeFileTree(props.fileTree),
+      targetFileId,
+      (node) => addMaterialToCurrentWeek(node, material)
+    )
+    const updatedNode = findNode(targetFileId, nextTree)
+    emit('update:fileTree', nextTree)
+    emit('fileSelect', targetFileId, updatedNode)
+    if (updatedNode?.weeks) {
+      await saveSessionResources(targetFileId, updatedNode.weeks)
+    }
+    emit('showToast', `"${material.name}" 강의자료 업로드 완료`)
+  } catch (error) {
+    console.error('[workspace] material upload failed:', error)
+    emit('showToast', error.message || '강의자료 업로드 실패')
+  } finally {
+    isUploadingMaterial.value = false
+  }
+}
+
+const handleUploadRecordingFile = async (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  const targetFileId = activeNode.value?.id
+  if (!file || !targetFileId) return
+  if (!file.type?.startsWith('audio/') && !/\.(aac|flac|m4a|mp3|ogg|opus|wav|webm)$/i.test(file.name)) {
+    emit('showToast', '음성파일만 업로드할 수 있습니다.')
+    return
+  }
+  if (!isWorkspaceUuid(targetFileId)) {
+    emit('showToast', 'DB에 저장된 파일에서만 업로드할 수 있습니다.')
+    return
+  }
+
+  isUploadingRecording.value = true
+  try {
+    const durationSeconds = await getAudioDuration(file)
+    const result = await uploadWorkspaceRecording(targetFileId, file, {
+      title: getFileStem(file.name),
+      durationSeconds
+    })
+    if (result.node) {
+      replaceCurrentFileNode(targetFileId, result.node)
+    } else if (result.recording) {
+      const nextTree = updateNodeById(
+        normalizeFileTree(props.fileTree),
+        targetFileId,
+        (node) => addRecordingToCurrentWeek(node, result.recording)
+      )
+      const updatedNode = findNode(targetFileId, nextTree)
+      emit('update:fileTree', nextTree)
+      emit('fileSelect', targetFileId, updatedNode)
+      if (updatedNode?.weeks) {
+        await saveSessionResources(targetFileId, updatedNode.weeks)
+      }
+    }
+    emit('showToast', `"${file.name}" 음성파일 업로드 완료`)
+  } catch (error) {
+    console.error('[workspace] recording upload failed:', error)
+    emit('showToast', error.message || '음성파일 업로드 실패')
+  } finally {
+    isUploadingRecording.value = false
+  }
+}
+
 const handleToggleFolder = (id) => {
   const copy = JSON.parse(JSON.stringify(props.fileTree))
   const node = findNode(id, copy)
@@ -381,9 +518,47 @@ const handleContextAction = async (action) => {
     <div class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6">
       <!-- 현재 파일 구조 -->
       <section>
-        <div class="flex items-center justify-between px-1 mb-2">
-          <span class="text-[13px] font-bold text-[#3a3a3c]">현재 파일</span>
-          <span v-if="activeNode" class="current-file-chip">{{ activeNode.name }}</span>
+        <div class="current-file-header">
+          <div class="current-file-title-row">
+            <span class="text-[13px] font-bold text-[#3a3a3c]">현재 파일</span>
+            <span v-if="activeNode" class="current-file-chip">{{ activeNode.name }}</span>
+          </div>
+          <div v-if="activeNode?.type === 'file'" class="current-file-upload-actions">
+            <button
+              class="current-file-upload-btn material"
+              type="button"
+              :disabled="isUploadingMaterial"
+              title="강의자료 파일 업로드"
+              @click="materialFileInput?.click()"
+            >
+              <span class="material-symbols-outlined">upload_file</span>
+              자료
+            </button>
+            <button
+              class="current-file-upload-btn recording"
+              type="button"
+              :disabled="isUploadingRecording"
+              title="음성파일 업로드"
+              @click="recordingFileInput?.click()"
+            >
+              <span class="material-symbols-outlined">graphic_eq</span>
+              음성
+            </button>
+            <input
+              ref="materialFileInput"
+              class="hidden"
+              type="file"
+              accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              @change="handleUploadMaterialFile"
+            />
+            <input
+              ref="recordingFileInput"
+              class="hidden"
+              type="file"
+              accept="audio/*,.aac,.flac,.m4a,.mp3,.ogg,.opus,.wav,.webm"
+              @change="handleUploadRecordingFile"
+            />
+          </div>
         </div>
         
         <div id="file-tree">
@@ -966,6 +1141,74 @@ export default {
   font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.current-file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 0 4px;
+}
+
+.current-file-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.current-file-upload-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.current-file-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(221, 224, 232, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.current-file-upload-btn:hover:not(:disabled) {
+  border-color: rgba(21, 101, 192, 0.32);
+  background: rgba(239, 246, 255, 0.95);
+  color: #1d4ed8;
+}
+
+.current-file-upload-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.current-file-upload-btn:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.current-file-upload-btn .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.current-file-upload-btn.recording {
+  color: #9a6700;
+}
+
+.current-file-upload-btn.recording:hover:not(:disabled) {
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(255, 248, 225, 0.95);
+  color: #b45309;
 }
 
 .resource-toggle-btn {
