@@ -1,11 +1,11 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 import logging
 
 from db_api.workspace.common import WorkspaceApiError
 from db_api.workspace.courses_api import create_course, delete_course, update_course
-from db_api.workspace.files_api import get_workspace_material_file, save_workspace_material
-from db_api.workspace.sessions_api import create_session_file, delete_session_file, delete_session_recording, update_session_file, update_session_resources
+from db_api.workspace.files_api import get_workspace_material_file, get_workspace_recording_file, save_workspace_material
+from db_api.workspace.sessions_api import create_session_file, delete_session_file, delete_session_recording, update_session_file, update_session_resources, upload_session_recording
 from db_api.workspace.tree_api import get_workspace_tree
 
 
@@ -150,10 +150,38 @@ async def workspace_upload_material(session_id: str, file: UploadFile = File(...
         _raise_http_error(error)
 
 
+@router.post("/sessions/{session_id}/recordings")
+async def workspace_upload_recording(
+    session_id: str,
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+    duration_seconds: float | None = Form(None),
+):
+    # 업로드한 음성파일을 서버에 저장하고 현재 파일의 녹음본 목록에 연결
+    try:
+        return await upload_session_recording(
+            session_id,
+            file,
+            title=title,
+            duration_seconds=duration_seconds,
+        )
+    except Exception as error:
+        _raise_http_error(error)
+
+
 @router.get("/uploads/materials/{stored_name}")
 async def workspace_material_file(stored_name: str):
     # 저장된 강의자료 파일 반환
     try:
         return get_workspace_material_file(stored_name)
+    except Exception as error:
+        _raise_http_error(error)
+
+
+@router.get("/uploads/recordings/{stored_name}")
+async def workspace_recording_file(stored_name: str):
+    # 저장된 음성파일 반환
+    try:
+        return get_workspace_recording_file(stored_name)
     except Exception as error:
         _raise_http_error(error)
