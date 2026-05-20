@@ -708,7 +708,7 @@ const activeWorkspaceSource = computed(() => {
   right: 0;
   bottom: 0;
   z-index: 75;
-  height: 64px;
+  height: 96px;
   pointer-events: none;
 }
 
