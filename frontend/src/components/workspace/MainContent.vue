@@ -7,6 +7,7 @@ import WorkspaceHeader from './MainContent/WorkspaceHeader.vue'
 import LecturePreviewPanel from './MainContent/LecturePreviewPanel.vue'
 import WorkspaceQuizPanel from './Quiz/WorkspaceQuizPanel.vue'
 import WorkspaceSummaryPanel from './Summary/WorkspaceSummaryPanel.vue'
+import LoadingHourglass from '../ui/LoadingHourglass.vue'
 
 const {
   selectedWordData,
@@ -35,7 +36,9 @@ const props = defineProps({
   summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] },
   quizSource: { type: Object, default: null },
-  tabRequest: { type: Object, default: null }
+  tabRequest: { type: Object, default: null },
+  embedded: { type: Boolean, default: false },
+  folderDrawerOpen: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -51,15 +54,17 @@ const emit = defineEmits([
   'addToNote',
   'uploadLectureMaterials',
   'openStoredMaterial',
-  'closePreviewMaterial'
+  'closePreviewMaterial',
+  'toggleFolderDrawer',
+  'activeTabChange'
 ])
 
 const activeTab = ref('materials')
-const activeSummaryTab = ref('summary')
 const tabAnim = ref('tab-slide-right')
 const isMaterialDragOver = ref(false)
 const showDiarizationChoice = ref(false)
 const materialInputRef = ref(null)
+const folderOpenAnimationRef = ref(null)
 const pdfSearchQuery = ref('')
 const pdfSearchCommand = ref(null)
 const pdfSearchState = ref({ total: 0, activeIndex: 0 })
@@ -96,6 +101,7 @@ const handleTabChange = (newTab) => {
   tabAnim.value = nextIdx > prevIdx ? 'tab-slide-right' : 'tab-slide-left'
   prevTab = newTab
   activeTab.value = newTab
+  emit('activeTabChange', newTab)
 }
 
 watch(activeTab, (newVal) => {
@@ -112,6 +118,7 @@ watch(
     const defaultTab = getDefaultTabByFileType(nextFileType)
     prevTab = defaultTab
     activeTab.value = defaultTab
+    emit('activeTabChange', defaultTab)
   },
   { immediate: true }
 )
@@ -143,7 +150,6 @@ watch(
   () => props.tabRequest,
   (request) => {
     if (!request || !TAB_ORDER.includes(request.tab)) return
-    if (request.summaryTab) activeSummaryTab.value = request.summaryTab
     handleTabChange(request.tab)
   }
 )
@@ -175,6 +181,10 @@ const handleDroppedMaterial = (event) => {
 
 const triggerMaterialUpload = () => {
   materialInputRef.value?.click()
+}
+
+const playFolderOpenAnimation = () => {
+  folderOpenAnimationRef.value?.playFromStart?.()
 }
 
 const sendPdfSearchCommand = (action) => {
@@ -299,7 +309,13 @@ const postRecordingProcessing = computed(() => {
 </script>
 
 <template>
-  <main class="flex-1 flex flex-col gap-[12px] h-full min-w-0" style="flex: 1 1 0%; min-width: 300px;">
+  <main
+    class="flex-1 flex flex-col gap-[12px] h-full min-w-0"
+    :class="{ 'main-content-embedded': embedded }"
+    :style="embedded
+      ? { flex: '1 1 0%', minWidth: '50%' }
+      : { flex: '1 1 0%', minWidth: '300px' }"
+  >
     <transition name="word-card">
       <WorkspaceWordCard
         v-if="selectedWordData && isWordCardVisible"
@@ -310,8 +326,13 @@ const postRecordingProcessing = computed(() => {
       />
     </transition>
 
-    <div id="tab-contents-container" class="card workspace-shell-card flex-1 flex flex-col relative min-h-0 min-w-0 overflow-hidden">
+    <div
+      id="tab-contents-container"
+      class="card workspace-shell-card flex-1 flex flex-col relative min-h-0 min-w-0 overflow-hidden"
+      :class="{ 'is-embedded': embedded }"
+    >
       <WorkspaceHeader
+        :embedded="embedded"
         :is-recording="isRecording"
         :is-recording-paused="isRecordingPaused"
         :recording-time-text="recordingTimeText"
@@ -324,6 +345,7 @@ const postRecordingProcessing = computed(() => {
         :pdf-search-active-index="pdfSearchState.activeIndex"
         :has-word-insight="!!selectedWordData"
         :word-insight-visible="!!selectedWordData && isWordCardVisible"
+        :folder-drawer-open="folderDrawerOpen"
         @start-recording="handleStartRecording"
         @pause-recording="emit('pauseRecording')"
         @resume-recording="emit('resumeRecording')"
@@ -334,6 +356,7 @@ const postRecordingProcessing = computed(() => {
         @material-selected="handleMaterialSelection"
         @word-insight-click="handleWordInsightButtonClick"
         @close-preview-material="emit('closePreviewMaterial')"
+        @toggle-folder-drawer="emit('toggleFolderDrawer')"
         @pdf-search-change="handlePdfSearchChange"
         @pdf-search-next="sendPdfSearchCommand('next')"
         @pdf-search-prev="sendPdfSearchCommand('prev')"
@@ -395,10 +418,6 @@ const postRecordingProcessing = computed(() => {
                   <h1>강의자료</h1>
                   <p>{{ materialTitle }}</p>
                 </div>
-                <button type="button" class="materials-upload-btn" @click="triggerMaterialUpload">
-                  <span class="material-symbols-outlined">upload_file</span>
-                  <span>자료 추가</span>
-                </button>
               </div>
 
               <div
@@ -427,10 +446,29 @@ const postRecordingProcessing = computed(() => {
                 </button>
               </div>
 
-              <div v-else class="materials-empty-state" :class="{ 'is-drag-over': isMaterialDragOver }">
-                <span class="material-symbols-outlined">folder_open</span>
+              <button
+                v-else
+                type="button"
+                class="materials-empty-state"
+                :class="{ 'is-drag-over': isMaterialDragOver }"
+                aria-label="강의자료 추가"
+                @click="triggerMaterialUpload"
+                @pointerenter="playFolderOpenAnimation"
+                @mouseenter="playFolderOpenAnimation"
+                @focus="playFolderOpenAnimation"
+              >
+                <LoadingHourglass
+                  ref="folderOpenAnimationRef"
+                  class="materials-empty-animation"
+                  src="/animations/Folder%20Open.json"
+                  width="88px"
+                  height="88px"
+                  :autoplay="false"
+                  :loop="false"
+                  fallback-icon="folder_open"
+                />
                 <strong>강의자료가 없습니다</strong>
-              </div>
+              </button>
             </template>
 
             <input
@@ -446,7 +484,6 @@ const postRecordingProcessing = computed(() => {
         <WorkspaceSummaryPanel
           v-else-if="activeTab === 'summary'"
           :key="'tab-summary'"
-          v-model:active-summary-tab="activeSummaryTab"
           :tab-anim="tabAnim"
           :is-recording="isRecording"
           :is-recording-paused="isRecordingPaused"
@@ -456,9 +493,6 @@ const postRecordingProcessing = computed(() => {
           :summary-state="summaryState"
           :current-recordings="currentRecordings"
           :active-file-id="activeFileId"
-          :current-preview-material="currentPreviewMaterial"
-          :quiz-source="quizSource"
-          @generateMaterialSummary="emit('generateMaterialSummary', $event)"
           @deleteSummary="emit('deleteSummary', $event)"
           @askAi="emit('askAi', $event)"
           @addToNote="(text, source) => emit('addToNote', text, source)"
@@ -521,6 +555,23 @@ const postRecordingProcessing = computed(() => {
 }
 
 .workspace-shell-card::after {
+  display: none;
+}
+
+.main-content-embedded {
+  gap: 0;
+  min-width: 50% !important;
+}
+
+.workspace-shell-card.is-embedded {
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.workspace-shell-card.is-embedded::before,
+.workspace-shell-card.is-embedded::after {
   display: none;
 }
 
@@ -680,34 +731,6 @@ const postRecordingProcessing = computed(() => {
   font-weight: 800;
 }
 
-.materials-upload-btn {
-  flex: 0 0 auto;
-  height: 38px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 14px;
-  border-radius: 8px;
-  background: #15161a;
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 900;
-  box-shadow: 0 12px 24px rgba(21, 22, 26, 0.12);
-  transition: transform 0.18s ease, background-color 0.18s ease;
-}
-
-.materials-upload-btn:hover {
-  background: #22242a;
-}
-
-.materials-upload-btn:active {
-  transform: scale(0.98);
-}
-
-.materials-upload-btn .material-symbols-outlined {
-  font-size: 18px;
-}
-
 .materials-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -795,11 +818,26 @@ const postRecordingProcessing = computed(() => {
   border-radius: 8px;
   color: #9ca3af;
   background: rgba(248, 250, 252, 0.74);
+  cursor: pointer;
+  text-align: center;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.materials-empty-state .material-symbols-outlined {
-  font-size: 38px;
-  color: #b8bec8;
+.materials-empty-state:hover,
+.materials-empty-state:focus-visible {
+  border-color: rgba(59, 130, 246, 0.34);
+  background: rgba(239, 246, 255, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+}
+
+.materials-empty-state:active {
+  transform: scale(0.995);
+}
+
+.materials-empty-animation {
+  opacity: 0.9;
+  user-select: none;
+  pointer-events: none;
 }
 
 .materials-empty-state strong {
