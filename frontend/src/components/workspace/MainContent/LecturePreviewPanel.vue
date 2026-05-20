@@ -5,6 +5,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { PPTXViewer } from 'pptxviewjs'
 import PptPreviewToolbar from './PptPreviewToolbar.vue'
+import LoadingHourglass from '../../ui/LoadingHourglass.vue'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -529,7 +530,16 @@ onBeforeUnmount(() => {
             :class="{ 'is-hidden': pdfLoading || pdfError }"
             :style="{ '--pdf-zoom': pdfZoom }"
           ></div>
-          <div v-if="pdfLoading" class="pdf-preview-placeholder">PDF를 불러오는 중입니다.</div>
+          <div v-if="pdfLoading" class="pdf-preview-placeholder pdf-preview-loading-state">
+            <LoadingHourglass
+              class="pdf-upload-animation"
+              src="/animations/upload%20file.json"
+              width="190px"
+              height="190px"
+              fallback-icon="upload_file"
+            />
+            <span>PDF를 불러오는 중입니다.</span>
+          </div>
           <div v-else-if="pdfError" class="pdf-preview-placeholder">{{ pdfError }}</div>
           <div v-else class="pdf-zoom-controls" aria-label="PDF 확대 축소">
             <button type="button" class="pdf-zoom-btn" :disabled="pdfZoom <= PDF_ZOOM_MIN" title="축소" @click="zoomOutPdf">
@@ -606,6 +616,11 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   pointer-events: none;
+  transition: bottom 0.22s ease;
+}
+
+:global(.workspace-unified-card:has(.is-unified-audio-player) .pdf-zoom-controls) {
+  bottom: 96px;
 }
 
 .pdf-zoom-btn {
@@ -653,6 +668,17 @@ onBeforeUnmount(() => {
   color: #64748b;
   font-size: 14px;
   font-weight: 600;
+}
+
+.pdf-preview-loading-state {
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pdf-upload-animation {
+  opacity: 0.92;
+  user-select: none;
+  pointer-events: none;
 }
 
 .lecture-preview-fallback {
