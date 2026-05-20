@@ -1,20 +1,11 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { marked } from 'marked'
-import { isPdfMaterial } from '../../../utils/pdfMaterial.js'
-
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-})
+import { computed } from 'vue'
+import LoadingHourglass from '../../ui/LoadingHourglass.vue'
 
 const props = defineProps({
   tabAnim: { type: String, default: 'tab-slide-right' },
-  activeSummaryTab: { type: String, default: 'summary' },
   activeFileId: { type: String, default: '' },
   currentRecordings: { type: Array, default: () => [] },
-  currentPreviewMaterial: { type: Object, default: null },
-  quizSource: { type: Object, default: null },
   isRecording: Boolean,
   isRecordingPaused: Boolean,
   recordingMode: { type: String, default: 'lecture' },
@@ -24,16 +15,10 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
-  'update:activeSummaryTab',
-  'generateMaterialSummary',
   'deleteSummary',
   'askAi',
   'addToNote'
 ])
-
-const setSummaryTab = (tab) => {
-  emit('update:activeSummaryTab', tab)
-}
 
 const getTranscriptText = (transcription) => {
   if (transcription?.segments?.length) {
@@ -143,106 +128,6 @@ const formatSummaryTime = (value = '') => {
   return parsed.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 
-const materialFromSource = (source = {}) => (
-  source?.material || (
-    source?.type === 'material'
-      ? {
-          id: source.id,
-          name: source.title,
-          title: source.title,
-          type: source.fileType || source.mimeType || source.contentType || '',
-          url: source.url || '',
-          storedName: source.storedName || ''
-        }
-      : null
-  )
-)
-
-const selectedPdfMaterials = computed(() => {
-  const materials = []
-  const seen = new Set()
-
-  const addMaterial = (material) => {
-    if (!material || !isPdfMaterial(material)) return
-    const key = material.id || material.storedName || material.url || material.name
-    if (!key || seen.has(key)) return
-    seen.add(key)
-    materials.push(material)
-  }
-
-  if (Array.isArray(props.quizSource?.sources)) {
-    props.quizSource.sources.forEach((source) => addMaterial(materialFromSource(source)))
-  }
-
-  addMaterial(props.quizSource?.material)
-
-  if (props.quizSource?.type !== 'recording' && isPdfMaterial(props.currentPreviewMaterial)) {
-    addMaterial(props.currentPreviewMaterial)
-  }
-
-  return materials
-})
-
-const selectedMaterialLabel = computed(() => {
-  if (!selectedPdfMaterials.value.length) return 'PDF 없음'
-  const first = selectedPdfMaterials.value[0]
-  return selectedPdfMaterials.value.length === 1
-    ? (first.name || first.title || 'PDF 강의자료')
-    : `${first.name || first.title || 'PDF 강의자료'} 외 ${selectedPdfMaterials.value.length - 1}개`
-})
-
-const selectedMaterialMeta = computed(() => (
-  selectedPdfMaterials.value.length
-    ? `현재 파일 PDF ${selectedPdfMaterials.value.length}개 연결됨`
-    : '현재 파일에 PDF 강의자료가 없습니다.'
-))
-
-const materialSummaryLevels = [
-  { value: 'brief', label: '간단', icon: 'short_text', topicCount: 4 },
-  { value: 'standard', label: '표준', icon: 'format_list_bulleted', topicCount: 8 },
-  { value: 'detailed', label: '상세', icon: 'subject', topicCount: 14 },
-  { value: 'page', label: '페이지별', icon: 'view_agenda', topicCount: 20 }
-]
-
-const selectedMaterialSummaryLevel = ref('standard')
-
-const selectedMaterialSummaryOption = computed(() => (
-  materialSummaryLevels.find((level) => level.value === selectedMaterialSummaryLevel.value)
-  || materialSummaryLevels[1]
-))
-
-const getMaterialSummaryLevelLabel = (value = 'standard') => (
-  value === 'textrank'
-    ? 'TextRank'
-    : materialSummaryLevels.find((level) => level.value === value)?.label || '표준'
-)
-
-const materialSummaryItems = computed(() => (
-  Array.isArray(props.summaryState?.materialSummaries)
-    ? props.summaryState.materialSummaries
-    : []
-))
-
-const renderMaterialSummary = (summary = '') => marked.parse(String(summary || ''))
-
-const isMaterialSummaryGenerating = computed(() => props.summaryState?.materialStatus === 'generating')
-const materialSummaryError = computed(() => props.summaryState?.materialError || '')
-
-const canGenerateMaterialSummary = computed(() => (
-  !!props.activeFileId &&
-  selectedPdfMaterials.value.length > 0 &&
-  !isMaterialSummaryGenerating.value
-))
-
-const handleGenerateMaterialSummary = () => {
-  if (!canGenerateMaterialSummary.value) return
-  emit('generateMaterialSummary', {
-    sessionId: props.quizSource?.sessionId || props.activeFileId,
-    materials: selectedPdfMaterials.value,
-    summaryLevel: selectedMaterialSummaryLevel.value,
-    summarySentences: selectedMaterialSummaryOption.value.topicCount
-  })
-}
 
 const handleDeleteSummary = (summaryId) => {
   if (!summaryId) return
@@ -350,28 +235,14 @@ const sessionSummaryTitle = computed(() => {
 const isSummaryGenerating = computed(() => ['loading', 'generating'].includes(props.summaryState?.status))
 const isLiveSummary = computed(() => props.summaryState?.status === 'live')
 const hasSpeakerSummaries = computed(() => displayedSpeakerSummaryItems.value.length > 0)
-const hasMaterialSummaries = computed(() => materialSummaryItems.value.length > 0)
 </script>
 
 <template>
-  <section :class="['tab-content flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar pt-4', tabAnim]">
+  <section :class="['summary-tab-content tab-content flex-1 flex flex-col relative overflow-hidden note-canvas p-10 overflow-y-auto custom-scrollbar', tabAnim]">
     <div class="max-w-5xl mx-auto w-full h-full flex flex-col min-h-0">
-      <div class="flex items-center justify-between border-b border-[#e5e5ea] mb-5 pb-0">
-        <nav class="flex gap-8">
-          <div class="relative cursor-pointer summary-subtab-btn group" @click="setSummaryTab('summary')">
-            <button :class="['text-[15px] py-3 pointer-events-none transition-colors', activeSummaryTab === 'summary' ? 'text-[#1d1d1f] font-bold' : 'text-[#8e8e93] font-medium group-hover:text-[#1d1d1f]']">요약&nbsp;&nbsp;</button>
-            <div :class="['summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] transition-colors', activeSummaryTab === 'summary' ? 'bg-[#1d1d1f]' : 'bg-transparent group-hover:bg-[#1d1d1f]']"></div>
-          </div>
-          <div class="relative cursor-pointer summary-subtab-btn group" @click="setSummaryTab('material')">
-            <button :class="['text-[15px] py-3 pointer-events-none transition-colors', activeSummaryTab === 'material' ? 'text-[#1d1d1f] font-bold' : 'text-[#8e8e93] font-medium group-hover:text-[#1d1d1f]']">자료요약&nbsp;&nbsp;</button>
-            <div :class="['summary-subtab-indicator absolute bottom-0 left-0 right-0 h-[3px] transition-colors', activeSummaryTab === 'material' ? 'bg-[#1d1d1f]' : 'bg-transparent group-hover:bg-[#1d1d1f]']"></div>
-          </div>
-        </nav>
-      </div>
-
-      <div v-show="activeSummaryTab === 'summary'" class="summary-subcontent ai-summary-panel flex-1 min-h-0">
+      <div class="summary-subcontent ai-summary-panel flex-1 min-h-0">
         <div v-if="isSummaryGenerating" class="ai-summary-empty">
-          <span class="material-symbols-outlined text-[42px] text-[#c7c7cc]">hourglass_top</span>
+          <LoadingHourglass :size="76" />
           <p>{{ summaryState?.status === 'generating' ? 'AI 요약을 생성하고 있습니다.' : '저장된 요약을 불러오고 있습니다.' }}</p>
         </div>
 
@@ -459,126 +330,6 @@ const hasMaterialSummaries = computed(() => materialSummaryItems.value.length > 
             <div v-if="speaker.latestText" class="speaker-summary-latest">
               <span class="material-symbols-outlined">graphic_eq</span>
               <span>{{ speaker.latestText }}</span>
-            </div>
-          </article>
-        </div>
-      </div>
-
-      <div v-show="activeSummaryTab === 'material'" class="summary-subcontent ai-summary-panel flex-1 min-h-0">
-        <section :class="['material-summary-source-card', { empty: !selectedPdfMaterials.length }]">
-          <div class="material-source-icon">
-            <span class="material-symbols-outlined">draft</span>
-          </div>
-          <div class="material-source-main">
-            <span class="material-source-label">선택된 파일</span>
-            <strong>{{ selectedMaterialLabel }}</strong>
-            <p>{{ selectedMaterialMeta }}</p>
-            <div v-if="selectedPdfMaterials.length" class="material-source-list">
-              <span
-                v-for="material in selectedPdfMaterials.slice(0, 4)"
-                :key="material.id || material.storedName || material.url || material.name"
-                class="material-source-chip"
-              >
-                <span class="material-symbols-outlined">picture_as_pdf</span>
-                {{ material.name || material.title || material.storedName || 'PDF 강의자료' }}
-              </span>
-              <span v-if="selectedPdfMaterials.length > 4" class="material-source-more">
-                +{{ selectedPdfMaterials.length - 4 }}
-              </span>
-            </div>
-            <div class="material-summary-levels" role="radiogroup" aria-label="자료 요약 단계">
-              <button
-                v-for="level in materialSummaryLevels"
-                :key="level.value"
-                type="button"
-                :class="['material-summary-level-button', { active: selectedMaterialSummaryLevel === level.value }]"
-                :aria-checked="selectedMaterialSummaryLevel === level.value"
-                role="radio"
-                :title="`${level.label} 요약`"
-                @click="selectedMaterialSummaryLevel = level.value"
-              >
-                <span class="material-symbols-outlined">{{ level.icon }}</span>
-                <span>{{ level.label }}</span>
-              </button>
-            </div>
-          </div>
-          <button
-            type="button"
-            class="material-summary-button"
-            :disabled="!canGenerateMaterialSummary"
-            @click="handleGenerateMaterialSummary"
-          >
-            <span class="material-symbols-outlined">{{ isMaterialSummaryGenerating ? 'hourglass_top' : 'summarize' }}</span>
-            <span>{{ isMaterialSummaryGenerating ? '요약 중' : '요약 생성' }}</span>
-          </button>
-        </section>
-
-        <div v-if="materialSummaryError" class="material-summary-error">
-          <span class="material-symbols-outlined">error</span>
-          <span>{{ materialSummaryError }}</span>
-        </div>
-
-        <div v-if="isMaterialSummaryGenerating" class="ai-summary-empty compact">
-          <span class="material-symbols-outlined text-[42px] text-[#c7c7cc]">hourglass_top</span>
-          <p>선택한 PDF 강의자료를 요약하고 있습니다.</p>
-        </div>
-
-        <div v-else-if="!hasMaterialSummaries" class="ai-summary-empty compact">
-          <span class="material-symbols-outlined text-[42px] text-[#c7c7cc]">picture_as_pdf</span>
-          <p>아직 생성된 자료 요약이 없습니다.</p>
-        </div>
-
-        <div v-else class="ai-summary-list">
-          <article
-            v-for="material in materialSummaryItems"
-            :key="material.key"
-            class="speaker-summary-card material-summary-card transcription-item-enter"
-          >
-            <div class="speaker-summary-top">
-              <div class="speaker-summary-identity">
-                <div class="speaker-summary-avatar material-summary-avatar">
-                  <span class="material-symbols-outlined">picture_as_pdf</span>
-                </div>
-                <div class="min-w-0">
-                  <h3>{{ material.title || 'PDF 요약' }}</h3>
-                  <p>{{ formatSummaryTime(material.createdAt) || '저장된 파일 요약' }}</p>
-                </div>
-              </div>
-
-              <div class="speaker-summary-actions">
-                <div class="speaker-summary-status material-summary-status">
-                  <span class="speaker-summary-dot speaker-summary-dot-rose"></span>
-                  <span>PDF · {{ getMaterialSummaryLevelLabel(material.summaryLevel) }}</span>
-                </div>
-                <button
-                  v-if="material.id"
-                  type="button"
-                  class="summary-delete-button"
-                  title="요약 삭제"
-                  @click="handleDeleteSummary(material.id)"
-                >
-                  <span class="material-symbols-outlined">delete</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="material-summary-markdown-wrap">
-              <div
-                class="material-summary-markdown"
-                v-html="renderMaterialSummary(material.summary)"
-              ></div>
-            </div>
-
-            <div v-if="material.sourceMaterials?.length" class="material-summary-sources">
-              <span
-                v-for="source in material.sourceMaterials.slice(0, 3)"
-                :key="source.id || source.storedName || source.name"
-              >
-                {{ source.name || source.storedName || 'PDF 강의자료' }}
-              </span>
-              <span v-if="material.sourceMaterials.length > 3">
-                +{{ material.sourceMaterials.length - 3 }}
-              </span>
             </div>
           </article>
         </div>
