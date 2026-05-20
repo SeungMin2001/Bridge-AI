@@ -5,6 +5,7 @@ import logging
 from db_api.workspace.common import WorkspaceApiError
 from db_api.workspace.courses_api import create_course, delete_course, update_course
 from db_api.workspace.files_api import get_workspace_material_file, get_workspace_recording_file, save_workspace_material
+from db_api.workspace.recording_transcription_api import transcribe_session_recording
 from db_api.workspace.sessions_api import create_session_file, delete_session_file, delete_session_recording, update_session_file, update_session_resources, upload_session_recording
 from db_api.workspace.tree_api import get_workspace_tree
 
@@ -165,6 +166,15 @@ async def workspace_upload_recording(
             title=title,
             duration_seconds=duration_seconds,
         )
+    except Exception as error:
+        _raise_http_error(error)
+
+
+@router.post("/sessions/{session_id}/recordings/{recording_id}/transcribe")
+async def workspace_transcribe_recording(session_id: str, recording_id: str):
+    # 업로드된 음성파일을 Whisper로 전사하고 transcripts/RAG/session_voicefile을 동기화
+    try:
+        return await transcribe_session_recording(session_id, recording_id)
     except Exception as error:
         _raise_http_error(error)
 
