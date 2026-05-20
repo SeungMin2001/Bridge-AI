@@ -2,6 +2,7 @@
 <script setup>
 import { ref, defineEmits, nextTick } from 'vue'
 import MultimodalInput from './MultimodalInput.vue'
+import LoadingHourglass from '../ui/LoadingHourglass.vue'
 import { marked } from 'marked'
 
 marked.setOptions({
@@ -268,9 +269,14 @@ const onStopGenerating = () => {
 
             <div v-if="isAssistantTyping(msg)" class="home-chat-typing-shell">
               <div class="home-typing-dots" role="status" aria-label="답변 생성 중">
-                <span></span>
-                <span></span>
-                <span></span>
+                <LoadingHourglass
+                  class="chat-loading-dots-lottie"
+                  src="/animations/Loading%20Dots%20Blue.json"
+                  width="160px"
+                  height="90px"
+                  :content-scale="4.3"
+                  fallback-icon="more_horiz"
+                />
               </div>
             </div>
 
@@ -337,9 +343,14 @@ const onStopGenerating = () => {
                  class="flex w-full gap-3 flex-row items-start">
               <div class="home-chat-typing-shell">
                 <div class="home-typing-dots" role="status" aria-label="답변 생성 중">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+                  <LoadingHourglass
+                    class="chat-loading-dots-lottie"
+                    src="/animations/Loading%20Dots%20Blue.json"
+                    width="160px"
+                    height="90px"
+                    :content-scale="4.3"
+                    fallback-icon="more_horiz"
+                  />
                 </div>
               </div>
             </div>
@@ -365,10 +376,12 @@ const onStopGenerating = () => {
       <!-- Title (Hides when chat starts) -->
       <Transition name="fade">
         <div v-if="messages.length === 0" class="flex flex-col items-center text-center gap-3 pb-[50px] pointer-events-auto shrink-0 w-full transition-all duration-500">
-          <img
-            class="home-hero-image"
-            src="/images/what.png"
-            alt="무엇을 도와드릴까요?"
+          <LoadingHourglass
+            class="home-hero-animation"
+            src="/animations/welcome.json"
+            width="clamp(420px, 48vw, 760px)"
+            height="clamp(118px, 14vw, 214px)"
+            fallback-icon="waving_hand"
           />
         </div>
       </Transition>
@@ -680,43 +693,20 @@ const onStopGenerating = () => {
 }
 
 .home-typing-dots {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  width: 55px;
   height: 24px;
+  overflow: visible;
 }
 
-.home-typing-dots span {
-  width: 13px;
-  height: 13px;
-  border-radius: 999px;
-  background: #aaa7a3;
-  animation: chatTypingDot 1.05s ease-in-out infinite;
-}
-
-.home-typing-dots span:nth-child(2) {
-  animation-delay: 0.16s;
-}
-
-.home-typing-dots span:nth-child(3) {
-  animation-delay: 0.32s;
-}
-
-@keyframes chatTypingDot {
-  0%, 80%, 100% {
-    opacity: 0.58;
-    transform: translateY(0) scale(0.86);
-  }
-  40% {
-    opacity: 1;
-    transform: translateY(-4px) scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .home-typing-dots span {
-    animation: none;
-  }
+.home-typing-dots :deep(.chat-loading-dots-lottie) {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .home-hero-title {
@@ -727,12 +717,8 @@ const onStopGenerating = () => {
   line-height: 1.15;
 }
 
-.home-hero-image {
-  width: clamp(300px, 34vw, 440px);
-  height: 110px;
+.home-hero-animation {
   display: block;
-  object-fit: cover;
-  object-position: center 56%;
   user-select: none;
   pointer-events: none;
 }
