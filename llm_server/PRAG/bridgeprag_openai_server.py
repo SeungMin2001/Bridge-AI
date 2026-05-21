@@ -201,6 +201,7 @@ async def chat_completions(payload: dict[str, Any]):
     max_tokens = int(payload.get("max_tokens") or payload.get("max_new_tokens") or DEFAULT_MAX_NEW_TOKENS)
     stream = bool(payload.get("stream", False))
     request = _build_request(messages, max_tokens=max_tokens)
+    request["alpha"] = _payload_alpha(payload)
 
     if stream:
         return StreamingResponse(_stream_openai_chunks(request), media_type="text/event-stream")
@@ -238,6 +239,18 @@ def _validate_model(requested_model: str | None) -> None:
                 }
             },
         )
+
+
+def _payload_alpha(payload: dict[str, Any]) -> float | None:
+    value = payload.get("bridgeprag_alpha")
+    if value is None:
+        value = payload.get("alpha")
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="bridgeprag_alpha must be a float")
 
 
 def _build_request(messages: list[dict[str, Any]], *, max_tokens: int) -> dict[str, Any]:
@@ -338,7 +351,7 @@ def _generate_text(request: dict[str, Any]) -> str:
     with generation_lock, torch.no_grad():
         memory = _encode_memory_for_request(request)
         _log_request_trace(request, memory)
-        hook = _register_memory_hook(memory)
+        hook = _register_memory_hook(memory, request.get("alpha"))
         kwargs = _generation_kwargs(request)
         try:
             generated = model.generate(**kwargs)
@@ -357,7 +370,7 @@ def _stream_openai_chunks(request: dict[str, Any]):
     with generation_lock, torch.no_grad():
         memory = _encode_memory_for_request(request)
         _log_request_trace(request, memory)
-        hook = _register_memory_hook(memory)
+        hook = _register_memory_hook(memory, request.get("alpha"))
         def _worker():
             with torch.no_grad():
                 model.generate(**_generation_kwargs(request, streamer=streamer))
@@ -384,15 +397,16 @@ def _stream_openai_chunks(request: dict[str, Any]):
         yield done_payload
 
 
-def _register_memory_hook(memory: dict[str, Any] | None):
+def _register_memory_hook(memory: dict[str, Any] | None, request_alpha: float | None = None):
     if not memory:
         return None
+    alpha = float(runtime_config.get("alpha", 1.0) if request_alpha is None else request_alpha)
     return target_layer.register_forward_hook(
         make_memory_hook(
             memory["K"],
             memory["V"],
             model_num_heads(model),
-            alpha=float(runtime_config.get("alpha", 1.0)),
+            alpha=alpha,
             injection_mode=str(runtime_config.get("injection_mode", "attention")),
         )
     )
@@ -411,6 +425,7 @@ def _request_trace(request: dict[str, Any], memory: dict[str, Any] | None = None
         "question_fusion": runtime_config.get("question_fusion"),
         "injection_mode": runtime_config.get("injection_mode"),
         "generation_prompt_mode": runtime_config.get("generation_prompt_mode"),
+        "alpha": request.get("alpha") if request.get("alpha") is not None else runtime_config.get("alpha"),
     }
 
 
@@ -430,6 +445,7 @@ def _log_request_trace(request: dict[str, Any], memory: dict[str, Any] | None) -
         f"num_kv={trace['num_kv']} "
         f"fusion={trace['question_fusion']} "
         f"injection={trace['injection_mode']} "
+        f"alpha={trace['alpha']} "
         f"prompt={trace['generation_prompt_mode']} "
         f"question={question!r}"
     )

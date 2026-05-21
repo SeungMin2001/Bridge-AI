@@ -187,7 +187,7 @@ def _ollama_chat_payload(messages: list[dict], source_filter: dict | None, *, st
 
 def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, stream: bool, thinking: bool = False) -> dict:
     """OpenAI 호환 /v1/chat/completions 요청 payload를 생성합니다."""
-    return {
+    payload = {
         "model": llm_model_name,
         "messages": messages,
         "max_tokens": _chat_max_tokens(source_filter),
@@ -195,6 +195,20 @@ def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, st
         "stream": stream,
         "chat_template_kwargs": {"enable_thinking": bool(thinking)},
     }
+    bridgeprag_alpha = _bridgeprag_alpha_for_prompt(messages)
+    if bridgeprag_alpha is not None:
+        payload["bridgeprag_alpha"] = bridgeprag_alpha
+    return payload
+
+
+def _bridgeprag_alpha_for_prompt(messages: list[dict]) -> float | None:
+    """여러 근거를 종합하는 질문에서는 RAG 텍스트가 주도권을 갖도록 PRAG 주입을 약하게 둡니다."""
+    prompt = "\n".join(str(item.get("content") or "") for item in messages)
+    if "검색된 참고자료 전체를 종합" in prompt:
+        return 0.05
+    if "[검색된 참고자료]" in prompt:
+        return 0.15
+    return None
 
 
 async def _raise_for_llm_stream_error(stream):

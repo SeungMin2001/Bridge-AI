@@ -66,6 +66,17 @@ _LOCATOR_QUERY_STOPWORDS = {
 }
 _GROUNDED_LOOKUP_TERMS = (
     "누구",
+    "언제",
+    "언제까지",
+    "몇 시",
+    "몇시",
+    "마감",
+    "마감일",
+    "기한",
+    "제출",
+    "제출일",
+    "제출해야",
+    "까지",
     "무엇",
     "뭐야",
     "뭐여",
@@ -98,6 +109,12 @@ _GROUNDED_LOOKUP_STOPWORDS = _LOCATOR_QUERY_STOPWORDS | {
     "파일",
     "페이지",
     "pdf",
+    "어떻게",
+    "왜",
+    "설명",
+    "설명했어",
+    "설명해",
+    "알려",
 }
 
 
@@ -257,7 +274,7 @@ def _extract_grounded_lookup_terms(query: str) -> list[str]:
     focus = text
 
     question_match = re.search(
-        r"(.+?)(?:누구|무엇|뭐야|뭐여|뭐냐|뭐임|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻)",
+        r"(.+?)(?:누구|언제까지|언제|몇\s*시|마감일|마감|기한|제출일|제출해야|제출|까지|무엇|뭐야|뭐여|뭐냐|뭐임|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻)",
         text,
     )
     if question_match:
