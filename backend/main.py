@@ -17,6 +17,7 @@ from starlette.websockets import WebSocketDisconnect
 from data.save_transcript import save_transcript
 # 신창영 : 워크스페이스 DB API 라우터를 main 서버에 연결
 from db_api.workspace.router import router as workspace_router
+from db_api.workspace.files_api import save_workspace_realtime_recording_file
 from db import create_session, update_transcript_speakers
 from rag_search import init as rag_init, add_document as rag_add_document
 import uuid
@@ -72,6 +73,9 @@ DIARIZE_ENABLED = os.getenv("DIARIZE_ENABLED", "true").lower() == "true"
 
 
 CHUNK_SIZE = 240000  # ~2.5초 (체감 응답 빠르게)
+CLIENT_AUDIO_SAMPLE_RATE = 48000
+CLIENT_AUDIO_SAMPLE_WIDTH = 2
+CLIENT_AUDIO_CHANNELS = 1
 DIARIZE_SAMPLE_RATE = 16000
 DIARIZE_BOOTSTRAP_SECONDS = 8
 # 신창영: 수정 이유 - 전사는 2.5초 단위로 즉시 보내고, 화자분리는 별도 창 길이로 모아 분석하기 위해 분리 가능한 설정으로 둡니다.
@@ -144,6 +148,7 @@ async def websocket_endpoint(ws: WebSocket):
     """브라우저 실시간 녹음 스트림을 받아 전사/저장/화자분리를 수행하는 WebSocket 엔드포인트입니다."""
     await ws.accept()
     audio_buffer = bytearray()
+    recording_pcm_buffer = bytearray()  # 재생 가능한 WAV 파일로 저장할 브라우저 원본 PCM
     diarize_buffer = bytearray()  # 화자분리용 (STT와 별도로 더 긴 오디오 수집)
     full_diarize_buffer = bytearray()  # 녹음 종료 후 전체 오디오 기준으로 화자를 다시 보정하기 위한 RAM 버퍼
     requested_session_id = ws.query_params.get("session_id")
@@ -418,7 +423,7 @@ async def websocket_endpoint(ws: WebSocket):
         if not pcm_chunk:
             return
 
-        chunk_duration = (len(pcm_chunk) / 2) / 48000  # int16 = 2 bytes, 48kHz
+        chunk_duration = (len(pcm_chunk) / CLIENT_AUDIO_SAMPLE_WIDTH) / CLIENT_AUDIO_SAMPLE_RATE
         start_time = processed_seconds
         end_time = processed_seconds + chunk_duration
 
@@ -436,7 +441,7 @@ async def websocket_endpoint(ws: WebSocket):
                 diarize_buffer_start_time = start_time
             audio_16k_bytes = audio_16k.astype(np.float32).tobytes()
             diarize_buffer.extend(audio_16k_bytes)
-            # 신창영: 수정 이유 - 파일 저장 없이 녹음 종료 후 전체 오디오 기준으로 speaker_id를 다시 계산하기 위해 RAM에만 누적합니다.
+            # 신창영: 수정 이유 - 녹음 종료 후 전체 오디오 기준으로 speaker_id를 다시 계산하기 위해 RAM에 누적합니다.
             full_diarize_buffer.extend(audio_16k_bytes)
 
             if len(diarize_buffer) >= DIARIZE_BUFFER_SIZE:
@@ -450,12 +455,44 @@ async def websocket_endpoint(ws: WebSocket):
         # 신창영: 수정 이유 - 화자분리를 기다리지 않고 STT 결과를 즉시 프론트로 보냅니다.
         await process_transcript_chunk(audio_16k, start_time, end_time)
 
+    async def save_realtime_audio_file() -> dict:
+        """WebSocket으로 받은 원본 PCM을 WAV 파일로 저장하고 프론트 메타데이터를 반환합니다."""
+        if not recording_pcm_buffer:
+            return {}
+
+        try:
+            saved = await save_workspace_realtime_recording_file(
+                session_id,
+                recording_id,
+                bytes(recording_pcm_buffer),
+                sample_rate=CLIENT_AUDIO_SAMPLE_RATE,
+                sample_width=CLIENT_AUDIO_SAMPLE_WIDTH,
+                channels=CLIENT_AUDIO_CHANNELS,
+                duration_seconds=processed_seconds,
+            )
+            recording = saved.get("recording") or {}
+            return {
+                "audioUrl": recording.get("audioUrl"),
+                "storedName": recording.get("storedName"),
+                "audioSize": recording.get("size"),
+                "audioType": recording.get("type"),
+                "durationSeconds": recording.get("durationSeconds"),
+                "durationText": recording.get("durationText"),
+            }
+        except Exception as e:
+            logger.exception("[WS] 실시간 녹음 파일 저장 실패")
+            return {
+                "audioSaveError": str(e),
+            }
+
     async def finalize_recording():
         """녹음 종료 시 RAM에 모아 둔 전체 오디오로 화자분리를 다시 수행합니다."""
         nonlocal diarize_segments
         if audio_buffer:
             await process_pcm_chunk(bytes(audio_buffer))
             audio_buffer.clear()
+
+        audio_file_payload = await save_realtime_audio_file()
 
         if diarize_tasks:
             await asyncio.gather(*list(diarize_tasks), return_exceptions=True)
@@ -467,6 +504,7 @@ async def websocket_endpoint(ws: WebSocket):
                 "status": "skipped",
                 "reason": "diarization_disabled",
                 "recording_id": recording_id,
+                **audio_file_payload,
             })
             return
 
@@ -480,6 +518,7 @@ async def websocket_endpoint(ws: WebSocket):
                 "status": "skipped",
                 "reason": "empty_audio_or_transcripts",
                 "recording_id": recording_id,
+                **audio_file_payload,
             })
             return
 
@@ -541,6 +580,7 @@ async def websocket_endpoint(ws: WebSocket):
                 "recording_id": recording_id,
                 "updated_count": len(speaker_updates),
                 "db_updated_count": db_updated_count,
+                **audio_file_payload,
             })
         except Exception as e:
             logger.exception("[DIARIZE] 전체 오디오 최종 화자분리 실패")
@@ -549,6 +589,7 @@ async def websocket_endpoint(ws: WebSocket):
                 "status": "error",
                 "recording_id": recording_id,
                 "message": str(e),
+                **audio_file_payload,
             })
 
     try:
@@ -571,6 +612,7 @@ async def websocket_endpoint(ws: WebSocket):
             data = message.get("bytes")
             if not data:
                 continue
+            recording_pcm_buffer.extend(data)
             audio_buffer.extend(data)
 
             while len(audio_buffer) >= CHUNK_SIZE:
