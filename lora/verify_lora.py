@@ -15,11 +15,13 @@ VLLM_URL = "http://localhost:8001"
 LORA_SERVICE_URL = "http://localhost:9001"
 BASE_MODEL = "Qwen/Qwen2.5-3B"
 COURSE_ID = "test_verify"
+SYSTEM_PROMPT = "질문에 한국어로 간단히 답하세요."
+USE_CHAT_API = "instruct" in BASE_MODEL.lower()
 
 # 모델이 절대 모르는 가상 지식
 PASSAGE = (
-    "2026년 새롭게 발표된 mtg 알고리즘(MTG-Algo)은 데이터베이스 트랜잭션의 처리 속도를 "
-    "기존 대비 500% 향상시킨 혁신적인 스케줄링 기법입니다. 이 알고리즘은 기존의 ACID 속성에 "
+    "mtg 알고리즘(MTG-Algo)은 데이터베이스 트랜잭션의 처리 속도를 "
+    "기존 대비 500% 향상시킨 스케줄링 기법입니다. 이 알고리즘은 기존의 ACID 속성에 "
     "Q(Quantum) 속성을 추가하여 ACID-Q 모델을 제안했습니다."
 )
 QUESTION = "mtg 알고리즘(MTG-Algo)이 제안한 모델의 이름은 무엇인지 알려주세요."
@@ -35,7 +37,10 @@ def vllm_chat(prompt, model_name=BASE_MODEL):
         f"{VLLM_URL}/v1/chat/completions",
         json={
             "model": model_name,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
             "max_tokens": 128,
             "temperature": 0,
         },
@@ -43,6 +48,34 @@ def vllm_chat(prompt, model_name=BASE_MODEL):
     )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
+
+
+def vllm_completion(prompt, model_name=BASE_MODEL):
+    """vLLM completions API로 질문을 보낸다."""
+    completion_prompt = (
+        f"{SYSTEM_PROMPT}\n"
+        f"질문: {prompt}\n"
+        "답변:"
+    )
+    resp = requests.post(
+        f"{VLLM_URL}/v1/completions",
+        json={
+            "model": model_name,
+            "prompt": completion_prompt,
+            "max_tokens": 128,
+            "temperature": 0,
+        },
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["text"].strip()
+
+
+def vllm_ask(prompt, model_name=BASE_MODEL):
+    """모델 특성에 맞는 API로 질문한다."""
+    if USE_CHAT_API:
+        return vllm_chat(prompt, model_name=model_name)
+    return vllm_completion(prompt, model_name=model_name)
 
 
 def main():
@@ -70,7 +103,8 @@ def main():
     # Step 2: 주입 전 답변
     box("Step 2: 주입 전 일반 답변")
     print(f"질문: {QUESTION}")
-    base_answer = vllm_chat(QUESTION)
+    print(f"모드: {'chat' if USE_CHAT_API else 'completion'}")
+    base_answer = vllm_ask(QUESTION)
     print(f"답변: {base_answer}")
 
     # Step 3: LoRA 변환 + 핫로드
@@ -116,7 +150,7 @@ def main():
     box("Step 5: LoRA 모델 답변")
     print(f"모델: {adapter_model}")
     try:
-        lora_answer = vllm_chat(QUESTION, model_name=adapter_model)
+        lora_answer = vllm_ask(QUESTION, model_name=adapter_model)
         print(f"답변: {lora_answer}")
     except Exception as e:
         print(f"LoRA 답변 실패: {e}")
