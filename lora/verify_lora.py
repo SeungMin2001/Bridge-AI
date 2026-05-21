@@ -22,7 +22,7 @@ PASSAGE = (
     "기존 대비 500% 향상시킨 혁신적인 스케줄링 기법입니다. 이 알고리즘은 기존의 ACID 속성에 "
     "Q(Quantum) 속성을 추가하여 ACID-Q 모델을 제안했습니다."
 )
-QUESTION = "mtg 알고리즘(MTG-Algo)이 제안한 새로운 트랜잭션 모델의 이름은 무엇인가요?"
+QUESTION = "mtg 알고리즘(MTG-Algo)이 제안한 모델의 이름은 무엇인지 알려주세요."
 
 
 def box(title):

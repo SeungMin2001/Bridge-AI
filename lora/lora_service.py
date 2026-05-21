@@ -50,6 +50,11 @@ ADAPTER_CONTAINER_ROOT = os.getenv("LORA_ADAPTER_CONTAINER_ROOT", "/lora/adapter
 # 서비스 포트
 SERVICE_PORT = int(os.getenv("LORA_SERVICE_PORT", "9001"))
 
+# LoRA 스케일/랭크 제어
+LORA_ALPHA = float(os.getenv("LORA_ALPHA", "0.02"))
+LORA_RANK = int(os.getenv("LORA_RANK", "8"))
+LORA_LORA_ALPHA = int(os.getenv("LORA_LORA_ALPHA", str(LORA_RANK)))
+
 CRITICAL_LAYER = load_critical_layer()
 
 
@@ -219,7 +224,8 @@ async def lifespan(app: FastAPI):
         f"  vLLM: {VLLM_URL}\n"
         f"  어댑터 저장: {ADAPTER_ROOT}\n"
         f"  컨테이너 경로: {ADAPTER_CONTAINER_ROOT}\n"
-        f"  critical_layer={CRITICAL_LAYER}, num_kv={NUM_KV}, alpha={ALPHA}"
+        f"  critical_layer={CRITICAL_LAYER}, num_kv={NUM_KV}, alpha={ALPHA}\n"
+        f"  lora_alpha={LORA_ALPHA}, lora_rank={LORA_RANK}, lora_scale={LORA_LORA_ALPHA}"
     )
     yield
 
@@ -297,9 +303,10 @@ def _convert_and_save(course_id: str) -> dict | None:
         return None
     return build_lora_adapter(
         K=K, V=V,
-        alpha=ALPHA,
+        alpha=LORA_ALPHA,
         target_layer=CRITICAL_LAYER,
-        rank=NUM_KV,
+        rank=LORA_RANK,
+        lora_alpha=LORA_LORA_ALPHA,
         adapter_name=f"mergeprag-{course_id}",
         adapter_root=ADAPTER_ROOT,
     )
@@ -394,6 +401,9 @@ async def get_stats():
         "critical_layer": CRITICAL_LAYER,
         "num_kv": NUM_KV,
         "alpha": ALPHA,
+        "lora_alpha": LORA_ALPHA,
+        "lora_rank": LORA_RANK,
+        "lora_scale": LORA_LORA_ALPHA,
         "vllm_url": VLLM_URL,
     }
 
