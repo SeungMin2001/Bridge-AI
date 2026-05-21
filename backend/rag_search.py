@@ -1226,6 +1226,28 @@ def _run_keyword_only_search(
     return _merge_results([], all_keyword, top_k=top_k)
 
 
+def _run_keyword_only_search(
+    queries: list[str],
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+    locator_query: bool = False,
+    grounded_lookup_query: bool = False,
+) -> list[dict]:
+    """정확한 언급 위치를 찾는 질문에서는 키워드 매칭 결과를 우선 사용합니다."""
+    all_keyword = []
+    for query in queries:
+        all_keyword.extend(_keyword_search(
+            query,
+            top_k=top_k,
+            session_id=session_id,
+            source_filter=source_filter,
+            locator_query=locator_query,
+            grounded_lookup_query=grounded_lookup_query,
+        ))
+    return _merge_results([], all_keyword, top_k=top_k)
+
+
 # ── Citation 포맷 ──
 def _format_citation(result: dict) -> str:
     """출처 문자열 생성"""
