@@ -46,6 +46,7 @@ DEFAULT_MAX_NEW_TOKENS = int(os.getenv("BRIDGEPRAG_MAX_NEW_TOKENS", "512"))
 GENERATION_PROMPT_MODE = os.getenv("BRIDGEPRAG_GENERATION_PROMPT", "question").strip().lower()
 DTYPE = os.getenv("BRIDGEPRAG_DTYPE", "float16").strip().lower()
 STRICT_MODEL_ID = os.getenv("BRIDGEPRAG_STRICT_MODEL_ID", "0").strip().lower() in {"1", "true", "yes", "on"}
+LOG_REQUESTS = os.getenv("BRIDGEPRAG_LOG_REQUESTS", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 
 model = None
@@ -193,6 +194,7 @@ async def chat_completions(payload: dict[str, Any]):
         "object": "chat.completion",
         "created": int(time.time()),
         "model": MODEL_ID,
+        "bridgeprag": _request_trace(request),
         "choices": [
             {
                 "index": 0,
@@ -233,6 +235,7 @@ def _build_request(messages: list[dict[str, Any]], *, max_tokens: int) -> dict[s
         "passages": passages,
         "generation_text": generation_text,
         "max_tokens": max_tokens,
+        "reference_prompt": "[검색된 참고자료]" in user_prompt,
     }
 
 
@@ -317,6 +320,7 @@ def _generation_kwargs(request: dict[str, Any], streamer: TextIteratorStreamer |
 def _generate_text(request: dict[str, Any]) -> str:
     with generation_lock, torch.no_grad():
         memory = _encode_memory_for_request(request)
+        _log_request_trace(request, memory)
         hook = _register_memory_hook(memory)
         kwargs = _generation_kwargs(request)
         try:
@@ -335,6 +339,7 @@ def _stream_openai_chunks(request: dict[str, Any]):
 
     with generation_lock, torch.no_grad():
         memory = _encode_memory_for_request(request)
+        _log_request_trace(request, memory)
         hook = _register_memory_hook(memory)
         def _worker():
             with torch.no_grad():
@@ -373,6 +378,41 @@ def _register_memory_hook(memory: dict[str, Any] | None):
             alpha=float(runtime_config.get("alpha", 1.0)),
             injection_mode=str(runtime_config.get("injection_mode", "attention")),
         )
+    )
+
+
+def _request_trace(request: dict[str, Any], memory: dict[str, Any] | None = None) -> dict[str, Any]:
+    passages = request.get("passages") or []
+    return {
+        "memory_active": bool(passages),
+        "passage_count": len(passages),
+        "reference_prompt": bool(request.get("reference_prompt")),
+        "merged_count": int((memory or {}).get("merged_count") or len(passages) or 0),
+        "merge_mode": (memory or {}).get("merge_mode", "orthogonal" if len(passages) > 1 else "single"),
+        "critical_layer": runtime_config.get("critical_layer"),
+        "num_kv": runtime_config.get("num_kv"),
+        "question_fusion": runtime_config.get("question_fusion"),
+        "injection_mode": runtime_config.get("injection_mode"),
+    }
+
+
+def _log_request_trace(request: dict[str, Any], memory: dict[str, Any] | None) -> None:
+    if not LOG_REQUESTS:
+        return
+    trace = _request_trace(request, memory)
+    question = re.sub(r"\s+", " ", str(request.get("question") or "")).strip()
+    if len(question) > 80:
+        question = f"{question[:77]}..."
+    print(
+        "[BridgePRAG:request] "
+        f"memory_active={trace['memory_active']} "
+        f"passages={trace['passage_count']} "
+        f"merged={trace['merged_count']} "
+        f"layer={trace['critical_layer']} "
+        f"num_kv={trace['num_kv']} "
+        f"fusion={trace['question_fusion']} "
+        f"injection={trace['injection_mode']} "
+        f"question={question!r}"
     )
 
 
