@@ -470,7 +470,9 @@ const handleMouseDown = (e) => {
 const handleMouseMove = (e) => {
   if (!isResizing.value) return
   const newWidth = window.innerWidth - e.clientX - 12
-  if (newWidth > 180 && newWidth < 600) width.value = newWidth
+  const maxWidth = Math.max(280, Math.min(600, window.innerWidth - 24))
+  const minWidth = Math.min(300, maxWidth)
+  if (newWidth > minWidth && newWidth < maxWidth) width.value = newWidth
 }
 
 const handleMouseUp = () => {
@@ -529,12 +531,12 @@ watch(
   </div>
 
   <aside
-    class="h-full shrink-0 overflow-hidden rounded-[24px] transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)]"
+    class="workspace-right-sidebar h-full shrink-0 overflow-hidden rounded-[24px] transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)]"
     id="right-sidebar"
     :class="{ 'sidebar-collapsed': !visible }"
-    :style="{ width: visible ? `${width}px` : '0px', minWidth: visible ? `${width}px` : '0px', maxWidth: visible ? `${width}px` : '0px' }"
+    :style="{ '--right-sidebar-width': visible ? `${width}px` : '0px' }"
   >
-    <div class="card workspace-right-sidebar-card h-full flex flex-col p-4 pt-3.5 relative min-w-[300px]">
+    <div class="card workspace-right-sidebar-card h-full flex flex-col p-4 pt-3.5 relative min-w-0">
       <transition name="fade-slide-switch" mode="out-in">
         <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
           <div class="mb-6 flex items-center justify-center">
@@ -677,6 +679,12 @@ watch(
 </template>
 
 <style scoped>
+.workspace-right-sidebar {
+  width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
+  min-width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
+  max-width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
+}
+
 .workspace-right-sidebar-card {
   background: #fff;
   border: 1px solid rgba(226, 232, 240, 0.78);
@@ -712,6 +720,59 @@ watch(
   display: block;
   user-select: none;
   pointer-events: none;
+}
+
+@media (max-width: 1280px) {
+  .workspace-right-sidebar {
+    width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+    min-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+    max-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+  }
+}
+
+@media (max-width: 1024px) {
+  #resizer-right {
+    display: none !important;
+  }
+
+  .workspace-right-sidebar {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 120;
+    width: min(420px, calc(100vw - 24px)) !important;
+    min-width: min(420px, calc(100vw - 24px)) !important;
+    max-width: min(420px, calc(100vw - 24px)) !important;
+    height: auto !important;
+    box-shadow: -18px 0 48px rgba(15, 23, 42, 0.16);
+  }
+
+  .workspace-right-sidebar.sidebar-collapsed {
+    width: min(420px, calc(100vw - 24px)) !important;
+    min-width: min(420px, calc(100vw - 24px)) !important;
+    max-width: min(420px, calc(100vw - 24px)) !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translateX(calc(100% + 24px));
+  }
+}
+
+@media (max-width: 560px) {
+  .workspace-right-sidebar {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: calc(100vw - 16px) !important;
+    min-width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    border-radius: 20px;
+  }
+
+  .workspace-right-sidebar-card {
+    padding: 14px;
+  }
 }
 
 /* 화면 전환 애니메이션 */
