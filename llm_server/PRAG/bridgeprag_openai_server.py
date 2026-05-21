@@ -43,7 +43,7 @@ CHECKPOINT_PATH = os.getenv("BRIDGEPRAG_CHECKPOINT", DEFAULT_CHECKPOINT)
 MAX_PASSAGES = int(os.getenv("BRIDGEPRAG_MAX_PASSAGES", "4"))
 MAX_INPUT_TOKENS = int(os.getenv("BRIDGEPRAG_MAX_INPUT_TOKENS", "2048"))
 DEFAULT_MAX_NEW_TOKENS = int(os.getenv("BRIDGEPRAG_MAX_NEW_TOKENS", "512"))
-GENERATION_PROMPT_MODE = os.getenv("BRIDGEPRAG_GENERATION_PROMPT", "question").strip().lower()
+GENERATION_PROMPT_MODE = os.getenv("BRIDGEPRAG_GENERATION_PROMPT", "full").strip().lower()
 DTYPE = os.getenv("BRIDGEPRAG_DTYPE", "float16").strip().lower()
 STRICT_MODEL_ID = os.getenv("BRIDGEPRAG_STRICT_MODEL_ID", "0").strip().lower() in {"1", "true", "yes", "on"}
 LOG_REQUESTS = os.getenv("BRIDGEPRAG_LOG_REQUESTS", "1").strip().lower() in {"1", "true", "yes", "on"}
@@ -142,6 +142,7 @@ async def lifespan(app: FastAPI):
         "question_conditioned_memory": bool(config.get("question_conditioned_memory", True)),
         "question_fusion": str(config.get("question_fusion", getattr(hypernet, "question_fusion", "none"))),
         "injection_mode": str(config.get("injection_mode", "attention")),
+        "generation_prompt_mode": GENERATION_PROMPT_MODE,
         "alpha": float(os.getenv("BRIDGEPRAG_ALPHA", config.get("alpha", 1.0))),
         "device": str(device),
     }
@@ -393,6 +394,7 @@ def _request_trace(request: dict[str, Any], memory: dict[str, Any] | None = None
         "num_kv": runtime_config.get("num_kv"),
         "question_fusion": runtime_config.get("question_fusion"),
         "injection_mode": runtime_config.get("injection_mode"),
+        "generation_prompt_mode": runtime_config.get("generation_prompt_mode"),
     }
 
 
@@ -412,6 +414,7 @@ def _log_request_trace(request: dict[str, Any], memory: dict[str, Any] | None) -
         f"num_kv={trace['num_kv']} "
         f"fusion={trace['question_fusion']} "
         f"injection={trace['injection_mode']} "
+        f"prompt={trace['generation_prompt_mode']} "
         f"question={question!r}"
     )
 
