@@ -7,8 +7,8 @@ HyperNetwork → K,V → LoRA 변환 → vLLM 핫로드 → 답변 비교까지
 
 사용법: python verify_lora.py
 """
+import re
 import requests
-import sys
 
 # ── 서버 주소 ──
 VLLM_URL = "http://localhost:8001"
@@ -17,6 +17,22 @@ BASE_MODEL = "Qwen/Qwen2.5-3B"
 COURSE_ID = "test_verify"
 SYSTEM_PROMPT = "질문에 한국어로 간단히 답하세요."
 USE_CHAT_API = "instruct" in BASE_MODEL.lower()
+FEWSHOT_Q = "대한민국의 수도는 무엇인가요?"
+FEWSHOT_A = "서울입니다."
+DEFAULT_GEN_PARAMS = {
+    "max_tokens": 128,
+    "temperature": 0.0,
+}
+FALLBACK_GEN_PARAMS = {
+    "max_tokens": 128,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "repetition_penalty": 1.15,
+    "presence_penalty": 0.2,
+    "frequency_penalty": 0.2,
+}
+COMPLETION_STOP = ["\n질문:", "\n\n"]
+_HANGUL_RE = re.compile(r"[가-힣]")
 
 # 모델이 절대 모르는 가상 지식
 PASSAGE = (
@@ -31,40 +47,77 @@ def box(title):
     print(f"\n{'='*60}\n {title}\n{'='*60}")
 
 
-def vllm_chat(prompt, model_name=BASE_MODEL):
+def _looks_garbled(text: str) -> bool:
+    cleaned = re.sub(r"\s+", "", text or "")
+    if len(cleaned) < 40:
+        return False
+    for size in range(2, 7):
+        unit = cleaned[:size]
+        if unit and unit * (len(cleaned) // size) == cleaned[: (len(cleaned) // size) * size]:
+            return True
+    return False
+
+
+def _needs_retry(text: str) -> bool:
+    return _looks_garbled(text) or not _HANGUL_RE.search(text or "")
+
+
+def _chat_messages(prompt: str, fewshot: bool) -> list[dict]:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if fewshot:
+        messages.extend([
+            {"role": "user", "content": FEWSHOT_Q},
+            {"role": "assistant", "content": FEWSHOT_A},
+        ])
+    messages.append({"role": "user", "content": prompt})
+    return messages
+
+
+def _completion_prompt(prompt: str, fewshot: bool) -> str:
+    if fewshot:
+        return (
+            f"{SYSTEM_PROMPT}\n"
+            "예시:\n"
+            f"질문: {FEWSHOT_Q}\n"
+            f"답변: {FEWSHOT_A}\n"
+            f"질문: {prompt}\n"
+            "답변:"
+        )
+    return (
+        f"{SYSTEM_PROMPT}\n"
+        f"질문: {prompt}\n"
+        "답변:"
+    )
+
+
+def vllm_chat(prompt, model_name=BASE_MODEL, gen_params=None, fewshot=False):
     """vLLM OpenAI 호환 API로 질문을 보낸다."""
+    payload = {
+        "model": model_name,
+        "messages": _chat_messages(prompt, fewshot=fewshot),
+        **(DEFAULT_GEN_PARAMS | (gen_params or {})),
+    }
     resp = requests.post(
         f"{VLLM_URL}/v1/chat/completions",
-        json={
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            "max_tokens": 128,
-            "temperature": 0,
-        },
+        json=payload,
         timeout=60,
     )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
 
 
-def vllm_completion(prompt, model_name=BASE_MODEL):
+def vllm_completion(prompt, model_name=BASE_MODEL, gen_params=None, fewshot=False):
     """vLLM completions API로 질문을 보낸다."""
-    completion_prompt = (
-        f"{SYSTEM_PROMPT}\n"
-        f"질문: {prompt}\n"
-        "답변:"
-    )
+    completion_prompt = _completion_prompt(prompt, fewshot=fewshot)
+    payload = {
+        "model": model_name,
+        "prompt": completion_prompt,
+        "stop": COMPLETION_STOP,
+        **(DEFAULT_GEN_PARAMS | (gen_params or {})),
+    }
     resp = requests.post(
         f"{VLLM_URL}/v1/completions",
-        json={
-            "model": model_name,
-            "prompt": completion_prompt,
-            "max_tokens": 128,
-            "temperature": 0,
-        },
+        json=payload,
         timeout=60,
     )
     resp.raise_for_status()
@@ -74,8 +127,26 @@ def vllm_completion(prompt, model_name=BASE_MODEL):
 def vllm_ask(prompt, model_name=BASE_MODEL):
     """모델 특성에 맞는 API로 질문한다."""
     if USE_CHAT_API:
-        return vllm_chat(prompt, model_name=model_name)
-    return vllm_completion(prompt, model_name=model_name)
+        answer = vllm_chat(prompt, model_name=model_name)
+        if _needs_retry(answer):
+            print("⚠️  응답이 반복 패턴이라 재샘플링합니다.")
+            answer = vllm_chat(
+                prompt,
+                model_name=model_name,
+                gen_params=FALLBACK_GEN_PARAMS,
+                fewshot=True,
+            )
+        return answer
+    answer = vllm_completion(prompt, model_name=model_name)
+    if _needs_retry(answer):
+        print("⚠️  응답이 반복 패턴이라 재샘플링합니다.")
+        answer = vllm_completion(
+            prompt,
+            model_name=model_name,
+            gen_params=FALLBACK_GEN_PARAMS,
+            fewshot=True,
+        )
+    return answer
 
 
 def main():
