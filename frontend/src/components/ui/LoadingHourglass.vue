@@ -1,6 +1,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import lottie from 'lottie-web/build/player/lottie_light'
+//import lottie from 'lottie-web/build/player/lottie_light'
+import lottie from 'lottie-web/build/player/lottie_light.js'
+
 
 const props = defineProps({
   src: { type: String, default: '/animations/Remix%20Hourglass.json' },
