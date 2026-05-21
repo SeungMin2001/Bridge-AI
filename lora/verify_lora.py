@@ -88,6 +88,10 @@ def main():
     hotload = result.get("hotload", {})
     print(f"\n  Passages: {result.get('passage_count')}")
     print(f"  ΔW Norm: {lora.get('delta_w_norm')}")
+    if lora.get("delta_w_norm_raw") is not None:
+        print(f"  ΔW Norm Raw: {lora.get('delta_w_norm_raw')}")
+    if lora.get("delta_w_scale") is not None:
+        print(f"  ΔW Scale: {lora.get('delta_w_scale')}")
     print(f"  Energy Ratio: {lora.get('energy_ratio')}")
     print(f"  Rank: {lora.get('rank')}")
     print(f"  핫로드: {'성공' if hotload.get('success') else '❌ 실패: ' + str(hotload.get('error', ''))}")
