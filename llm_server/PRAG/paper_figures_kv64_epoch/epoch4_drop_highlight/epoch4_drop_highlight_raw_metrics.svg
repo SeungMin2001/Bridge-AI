@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1620" height="525" viewBox="0 0 1620 525">
+    <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L8,3 z" fill="#D33F49"/></marker></defs>
+    <rect width="100%" height="100%" fill="white"/>
+    <text x="810.0" y="28" text-anchor="middle" font-size="24" font-weight="700" fill="#1F2328">Raw Epoch-wise Performance with Epoch 4 Drop Highlighted</text>
+    
+    <line x1="630.0" y1="50" x2="672.0" y2="50" stroke="#2459A6" stroke-width="4"/><circle cx="651.0" cy="50" r="5" fill="#2459A6"/>
+    <text x="686.0" y="55" font-size="17" fill="#1F2328">Question+Passage</text>
+    <line x1="895.0" y1="50" x2="937.0" y2="50" stroke="#CC6B24" stroke-width="4"/><rect x="912.0" y="45" width="10" height="10" fill="#CC6B24"/>
+    <text x="951.0" y="55" font-size="17" fill="#1F2328">Passage-only</text>
+    
+    <text x="300.0" y="91" text-anchor="middle" font-size="23" font-weight="700" fill="#1F2328">(a) MergePRAG Hit</text>
+<rect x="216.93" y="125" width="26.13" height="300" fill="#D33F49" opacity="0.10"/>
+<line x1="90" y1="425.00" x2="510" y2="425.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="80" y="430.00" text-anchor="end" font-size="14" fill="#59636E">55</text>
+<line x1="90" y1="365.00" x2="510" y2="365.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="80" y="370.00" text-anchor="end" font-size="14" fill="#59636E">64</text>
+<line x1="90" y1="305.00" x2="510" y2="305.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="80" y="310.00" text-anchor="end" font-size="14" fill="#59636E">73</text>
+<line x1="90" y1="245.00" x2="510" y2="245.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="80" y="250.00" text-anchor="end" font-size="14" fill="#59636E">83</text>
+<line x1="90" y1="185.00" x2="510" y2="185.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="80" y="190.00" text-anchor="end" font-size="14" fill="#59636E">92</text>
+<line x1="90" y1="125.00" x2="510" y2="125.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="80" y="130.00" text-anchor="end" font-size="14" fill="#59636E">101</text>
+<line x1="90.00" y1="125" x2="90.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="90.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">1</text>
+<line x1="136.67" y1="125" x2="136.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="136.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">2</text>
+<line x1="183.33" y1="125" x2="183.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="183.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">3</text>
+<line x1="230.00" y1="125" x2="230.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="230.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">4</text>
+<line x1="276.67" y1="125" x2="276.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="276.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">5</text>
+<line x1="323.33" y1="125" x2="323.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="323.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">6</text>
+<line x1="370.00" y1="125" x2="370.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="370.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">7</text>
+<line x1="416.67" y1="125" x2="416.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="416.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">8</text>
+<line x1="463.33" y1="125" x2="463.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="463.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">9</text>
+<line x1="510.00" y1="125" x2="510.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="510.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">10</text>
+<line x1="90" y1="425" x2="510" y2="425" stroke="#1F2328" stroke-width="1.5"/>
+<line x1="90" y1="125" x2="90" y2="425" stroke="#1F2328" stroke-width="1.5"/>
+<text x="300.0" y="485" text-anchor="middle" font-size="16" fill="#1F2328">Epoch</text>
+<text x="38" y="275.0" transform="rotate(-90 38,275.0)" text-anchor="middle" font-size="16" fill="#1F2328">Hit Rate (%)</text>
+<path d="M90.00,170.65 L136.67,175.54 L183.33,151.09 L230.00,276.63 L276.67,146.20 L323.33,155.98 L370.00,152.72 L416.67,151.09 L463.33,147.83 L510.00,146.20" fill="none" stroke="#2459A6" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M90.00,348.37 L136.67,398.91 L183.33,252.17 L230.00,240.76 L276.67,273.37 L323.33,263.59 L370.00,273.37 L416.67,283.15 L463.33,286.41 L510.00,317.39" fill="none" stroke="#CC6B24" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="90.00" cy="170.65" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="136.67" cy="175.54" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="183.33" cy="151.09" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="230.00" cy="276.63" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="276.67" cy="146.20" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="323.33" cy="155.98" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="370.00" cy="152.72" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="416.67" cy="151.09" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="463.33" cy="147.83" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="510.00" cy="146.20" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<rect x="85.40" y="343.77" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="132.07" y="394.31" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="178.73" y="247.57" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="225.40" y="236.16" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="272.07" y="268.77" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="318.73" y="258.99" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="365.40" y="268.77" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="412.07" y="278.55" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="458.73" y="281.81" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="505.40" y="312.79" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<circle cx="230.00" cy="276.63" r="8.6" fill="#D33F49" stroke="white" stroke-width="2"/>
+<circle cx="230.00" cy="240.76" r="7.0" fill="white" stroke="#D33F49" stroke-width="2.4"/>
+<line x1="274.00" y1="231.63" x2="236.00" y2="270.63" stroke="#D33F49" stroke-width="1.8" marker-end="url(#arrow)"/>
+<text x="282.00" y="224.63" font-size="15" font-weight="700" fill="#D33F49">Epoch 4 drop</text><text x="810.0" y="91" text-anchor="middle" font-size="23" font-weight="700" fill="#1F2328">(b) Token F1</text>
+<rect x="726.93" y="125" width="26.13" height="300" fill="#D33F49" opacity="0.10"/>
+<line x1="600" y1="425.00" x2="1020" y2="425.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="590" y="430.00" text-anchor="end" font-size="14" fill="#59636E">60</text>
+<line x1="600" y1="365.00" x2="1020" y2="365.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="590" y="370.00" text-anchor="end" font-size="14" fill="#59636E">65</text>
+<line x1="600" y1="305.00" x2="1020" y2="305.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="590" y="310.00" text-anchor="end" font-size="14" fill="#59636E">70</text>
+<line x1="600" y1="245.00" x2="1020" y2="245.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="590" y="250.00" text-anchor="end" font-size="14" fill="#59636E">76</text>
+<line x1="600" y1="185.00" x2="1020" y2="185.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="590" y="190.00" text-anchor="end" font-size="14" fill="#59636E">81</text>
+<line x1="600" y1="125.00" x2="1020" y2="125.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="590" y="130.00" text-anchor="end" font-size="14" fill="#59636E">86</text>
+<line x1="600.00" y1="125" x2="600.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="600.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">1</text>
+<line x1="646.67" y1="125" x2="646.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="646.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">2</text>
+<line x1="693.33" y1="125" x2="693.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="693.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">3</text>
+<line x1="740.00" y1="125" x2="740.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="740.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">4</text>
+<line x1="786.67" y1="125" x2="786.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="786.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">5</text>
+<line x1="833.33" y1="125" x2="833.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="833.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">6</text>
+<line x1="880.00" y1="125" x2="880.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="880.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">7</text>
+<line x1="926.67" y1="125" x2="926.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="926.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">8</text>
+<line x1="973.33" y1="125" x2="973.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="973.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">9</text>
+<line x1="1020.00" y1="125" x2="1020.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1020.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">10</text>
+<line x1="600" y1="425" x2="1020" y2="425" stroke="#1F2328" stroke-width="1.5"/>
+<line x1="600" y1="125" x2="600" y2="425" stroke="#1F2328" stroke-width="1.5"/>
+<text x="810.0" y="485" text-anchor="middle" font-size="16" fill="#1F2328">Epoch</text>
+<text x="548" y="275.0" transform="rotate(-90 548,275.0)" text-anchor="middle" font-size="16" fill="#1F2328">Token F1 (%)</text>
+<path d="M600.00,185.43 L646.67,176.61 L693.33,164.69 L740.00,335.15 L786.67,148.02 L833.33,158.96 L880.00,164.86 L926.67,159.61 L973.33,159.84 L1020.00,166.45" fill="none" stroke="#2459A6" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M600.00,375.99 L646.67,359.67 L693.33,245.04 L740.00,255.83 L786.67,269.61 L833.33,271.97 L880.00,278.29 L926.67,294.62 L973.33,307.27 L1020.00,331.82" fill="none" stroke="#CC6B24" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="600.00" cy="185.43" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="646.67" cy="176.61" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="693.33" cy="164.69" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="740.00" cy="335.15" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="786.67" cy="148.02" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="833.33" cy="158.96" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="880.00" cy="164.86" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="926.67" cy="159.61" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="973.33" cy="159.84" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1020.00" cy="166.45" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<rect x="595.40" y="371.39" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="642.07" y="355.07" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="688.73" y="240.44" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="735.40" y="251.23" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="782.07" y="265.01" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="828.73" y="267.37" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="875.40" y="273.69" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="922.07" y="290.02" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="968.73" y="302.67" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1015.40" y="327.22" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<circle cx="740.00" cy="335.15" r="8.6" fill="#D33F49" stroke="white" stroke-width="2"/>
+<circle cx="740.00" cy="255.83" r="7.0" fill="white" stroke="#D33F49" stroke-width="2.4"/>
+<line x1="784.00" y1="290.15" x2="746.00" y2="329.15" stroke="#D33F49" stroke-width="1.8" marker-end="url(#arrow)"/>
+<text x="792.00" y="283.15" font-size="15" font-weight="700" fill="#D33F49">Epoch 4 drop</text><text x="1320.0" y="91" text-anchor="middle" font-size="23" font-weight="700" fill="#1F2328">(c) QA Score</text>
+<rect x="1236.93" y="125" width="26.13" height="300" fill="#D33F49" opacity="0.10"/>
+<line x1="1110" y1="425.00" x2="1530" y2="425.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="1100" y="430.00" text-anchor="end" font-size="14" fill="#59636E">30</text>
+<line x1="1110" y1="365.00" x2="1530" y2="365.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="1100" y="370.00" text-anchor="end" font-size="14" fill="#59636E">33</text>
+<line x1="1110" y1="305.00" x2="1530" y2="305.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="1100" y="310.00" text-anchor="end" font-size="14" fill="#59636E">35</text>
+<line x1="1110" y1="245.00" x2="1530" y2="245.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="1100" y="250.00" text-anchor="end" font-size="14" fill="#59636E">38</text>
+<line x1="1110" y1="185.00" x2="1530" y2="185.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="1100" y="190.00" text-anchor="end" font-size="14" fill="#59636E">40</text>
+<line x1="1110" y1="125.00" x2="1530" y2="125.00" stroke="#D7DCE2" stroke-width="1" opacity="0.7"/>
+<text x="1100" y="130.00" text-anchor="end" font-size="14" fill="#59636E">43</text>
+<line x1="1110.00" y1="125" x2="1110.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1110.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">1</text>
+<line x1="1156.67" y1="125" x2="1156.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1156.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">2</text>
+<line x1="1203.33" y1="125" x2="1203.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1203.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">3</text>
+<line x1="1250.00" y1="125" x2="1250.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1250.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">4</text>
+<line x1="1296.67" y1="125" x2="1296.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1296.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">5</text>
+<line x1="1343.33" y1="125" x2="1343.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1343.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">6</text>
+<line x1="1390.00" y1="125" x2="1390.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1390.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">7</text>
+<line x1="1436.67" y1="125" x2="1436.67" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1436.67" y="453" text-anchor="middle" font-size="14" fill="#59636E">8</text>
+<line x1="1483.33" y1="125" x2="1483.33" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1483.33" y="453" text-anchor="middle" font-size="14" fill="#59636E">9</text>
+<line x1="1530.00" y1="125" x2="1530.00" y2="425" stroke="#D7DCE2" stroke-width="1" opacity="0.38"/>
+<text x="1530.00" y="453" text-anchor="middle" font-size="14" fill="#59636E">10</text>
+<line x1="1110" y1="425" x2="1530" y2="425" stroke="#1F2328" stroke-width="1.5"/>
+<line x1="1110" y1="125" x2="1110" y2="425" stroke="#1F2328" stroke-width="1.5"/>
+<text x="1320.0" y="485" text-anchor="middle" font-size="16" fill="#1F2328">Epoch</text>
+<text x="1058" y="275.0" transform="rotate(-90 1058,275.0)" text-anchor="middle" font-size="16" fill="#1F2328">QA Score (%)</text>
+<path d="M1110.00,185.43 L1156.67,176.61 L1203.33,164.69 L1250.00,335.15 L1296.67,148.02 L1343.33,158.96 L1390.00,164.86 L1436.67,159.61 L1483.33,159.84 L1530.00,166.45" fill="none" stroke="#2459A6" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1110.00,375.99 L1156.67,359.67 L1203.33,245.04 L1250.00,255.83 L1296.67,269.61 L1343.33,271.97 L1390.00,275.40 L1436.67,288.85 L1483.33,298.61 L1530.00,323.17" fill="none" stroke="#CC6B24" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="1110.00" cy="185.43" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1156.67" cy="176.61" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1203.33" cy="164.69" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1250.00" cy="335.15" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1296.67" cy="148.02" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1343.33" cy="158.96" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1390.00" cy="164.86" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1436.67" cy="159.61" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1483.33" cy="159.84" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<circle cx="1530.00" cy="166.45" r="4.8" fill="#2459A6" stroke="white" stroke-width="1"/>
+<rect x="1105.40" y="371.39" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1152.07" y="355.07" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1198.73" y="240.44" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1245.40" y="251.23" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1292.07" y="265.01" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1338.73" y="267.37" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1385.40" y="270.80" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1432.07" y="284.25" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1478.73" y="294.01" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<rect x="1525.40" y="318.57" width="9.2" height="9.2" fill="#CC6B24" stroke="white" stroke-width="1"/>
+<circle cx="1250.00" cy="335.15" r="8.6" fill="#D33F49" stroke="white" stroke-width="2"/>
+<circle cx="1250.00" cy="255.83" r="7.0" fill="white" stroke="#D33F49" stroke-width="2.4"/>
+<line x1="1294.00" y1="290.15" x2="1256.00" y2="329.15" stroke="#D33F49" stroke-width="1.8" marker-end="url(#arrow)"/>
+<text x="1302.00" y="283.15" font-size="15" font-weight="700" fill="#D33F49">Epoch 4 drop</text>
+    <text x="810.0" y="507" text-anchor="middle" font-size="14" fill="#59636E">Epoch 4 is an observed raw evaluation point, not interpolated or smoothed.</text>
+    </svg>
