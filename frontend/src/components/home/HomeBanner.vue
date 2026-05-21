@@ -368,7 +368,7 @@ const onStopGenerating = () => {
         class="w-full flex-shrink-0 transition-all duration-700" 
         :style="{
           flexGrow: 0,
-          height: messages.length > 0 ? '0px' : '190px',
+          height: messages.length > 0 ? '0px' : 'clamp(96px, 16vh, 190px)',
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)'
         }"
       ></div>
@@ -379,8 +379,8 @@ const onStopGenerating = () => {
           <LoadingHourglass
             class="home-hero-animation"
             src="/animations/welcome.json"
-            width="clamp(420px, 48vw, 760px)"
-            height="clamp(118px, 14vw, 214px)"
+            width="clamp(260px, 48vw, 760px)"
+            height="clamp(74px, 14vw, 214px)"
             fallback-icon="waving_hand"
           />
         </div>
@@ -538,6 +538,7 @@ const onStopGenerating = () => {
   width: 100%;
   max-width: 820px;
   flex-shrink: 0;
+  padding: 0 12px;
 }
 
 .home-input-stage.is-chatting {
@@ -719,6 +720,7 @@ const onStopGenerating = () => {
 
 .home-hero-animation {
   display: block;
+  max-width: 100%;
   user-select: none;
   pointer-events: none;
 }
@@ -726,6 +728,7 @@ const onStopGenerating = () => {
 .home-recent-files {
   width: 100%;
   max-width: 700px;
+  padding: 0 12px;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
@@ -919,6 +922,58 @@ const onStopGenerating = () => {
 .home-reference-chip .material-symbols-outlined {
   color: #4b6a4e;
   flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+  .home-input-stage.is-idle,
+  .home-recent-files {
+    max-width: min(820px, calc(100vw - 140px));
+  }
+
+  .home-input-stage.is-chatting {
+    width: min(820px, calc(100% - 32px));
+    bottom: 28px;
+  }
+
+  .home-recent-files {
+    margin-top: 34px;
+  }
+
+  .home-recent-file-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .home-input-stage.is-idle,
+  .home-recent-files {
+    max-width: calc(100vw - 40px);
+  }
+
+  .home-recent-file-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+  }
+}
+
+@media (max-width: 520px) {
+  .home-input-stage.is-idle,
+  .home-recent-files {
+    max-width: calc(100vw - 24px);
+    padding: 0 6px;
+  }
+
+  .home-recent-files {
+    margin-top: 24px;
+  }
+
+  .home-recent-file-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-recent-file-card {
+    height: 104px;
+  }
 }
 
 </style>
