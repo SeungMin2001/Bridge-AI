@@ -51,9 +51,9 @@ ADAPTER_CONTAINER_ROOT = os.getenv("LORA_ADAPTER_CONTAINER_ROOT", "/lora/adapter
 SERVICE_PORT = int(os.getenv("LORA_SERVICE_PORT", "9001"))
 
 # LoRA 스케일/랭크 제어
-LORA_ALPHA = float(os.getenv("LORA_ALPHA", "0.02"))
-LORA_RANK = int(os.getenv("LORA_RANK", "8"))
-LORA_LORA_ALPHA = int(os.getenv("LORA_LORA_ALPHA", str(LORA_RANK)))
+LORA_ALPHA = float(os.getenv("LORA_ALPHA", "0.001"))
+LORA_RANK = int(os.getenv("LORA_RANK", "4"))
+LORA_LORA_ALPHA = int(os.getenv("LORA_LORA_ALPHA", "1"))
 
 CRITICAL_LAYER = load_critical_layer()
 
@@ -296,20 +296,27 @@ async def hotload_to_vllm(adapter_name: str, adapter_path: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def _convert_and_save(course_id: str) -> dict | None:
+def _make_adapter_name(course_id: str) -> str:
+    ts = time.time_ns()
+    return f"mergeprag-{course_id}-{ts}"
+
+
+def _convert_and_save(course_id: str, adapter_name: str) -> dict | None:
     """현재 메모리의 K,V를 LoRA로 변환하고 저장한다."""
     K, V = memory_manager.get_memory(course_id)
     if K is None:
         return None
-    return build_lora_adapter(
+    result = build_lora_adapter(
         K=K, V=V,
         alpha=LORA_ALPHA,
         target_layer=CRITICAL_LAYER,
         rank=LORA_RANK,
         lora_alpha=LORA_LORA_ALPHA,
-        adapter_name=f"mergeprag-{course_id}",
+        adapter_name=adapter_name,
         adapter_root=ADAPTER_ROOT,
     )
+    result["adapter_name"] = adapter_name
+    return result
 
 
 # ── 엔드포인트 ──
@@ -318,12 +325,13 @@ async def inject_passage(req: InjectRequest):
     """텍스트 → HyperNetwork K,V → LoRA 변환 → vLLM 핫로드."""
     count = memory_manager.add_passage(req.course_id, req.passage)
 
-    result = _convert_and_save(req.course_id)
+    adapter_name = _make_adapter_name(req.course_id)
+    result = _convert_and_save(req.course_id, adapter_name)
     if result is None:
         return {"error": "K,V extraction failed"}
 
     hotload_result = await hotload_to_vllm(
-        f"mergeprag-{req.course_id}", result["adapter_path"],
+        adapter_name, result["adapter_path"],
     )
 
     stats.total_conversions += 1
@@ -343,12 +351,13 @@ async def inject_batch(req: InjectBatchRequest):
     for p in req.passages:
         memory_manager.add_passage(req.course_id, p)
 
-    result = _convert_and_save(req.course_id)
+    adapter_name = _make_adapter_name(req.course_id)
+    result = _convert_and_save(req.course_id, adapter_name)
     if result is None:
         return {"error": "no memory after injection"}
 
     hotload_result = await hotload_to_vllm(
-        f"mergeprag-{req.course_id}", result["adapter_path"],
+        adapter_name, result["adapter_path"],
     )
 
     stats.total_conversions += 1
@@ -365,12 +374,13 @@ async def inject_batch(req: InjectBatchRequest):
 @app.post("/convert")
 async def convert_only(req: ConvertAndLoadRequest):
     """이미 메모리에 있는 K,V를 LoRA로 변환+로드만 한다."""
-    result = _convert_and_save(req.course_id)
+    adapter_name = _make_adapter_name(req.course_id)
+    result = _convert_and_save(req.course_id, adapter_name)
     if result is None:
         return {"error": f"course '{req.course_id}' has no memory"}
 
     hotload_result = await hotload_to_vllm(
-        f"mergeprag-{req.course_id}", result["adapter_path"],
+        adapter_name, result["adapter_path"],
     )
     return {"lora": result, "hotload": hotload_result}
 

@@ -91,13 +91,18 @@ def main():
     print(f"  Energy Ratio: {lora.get('energy_ratio')}")
     print(f"  Rank: {lora.get('rank')}")
     print(f"  핫로드: {'성공' if hotload.get('success') else '❌ 실패: ' + str(hotload.get('error', ''))}")
+    adapter_model = (
+        hotload.get("adapter_name")
+        or lora.get("adapter_name")
+        or f"mergeprag-{COURSE_ID}"
+    )
+    print(f"  Adapter: {adapter_model}")
 
     # Step 4: 모델 목록 확인
     box("Step 4: vLLM 모델 목록")
     models = requests.get(f"{VLLM_URL}/v1/models", timeout=5).json()
     ids = [m["id"] for m in models["data"]]
     print(f"모델: {ids}")
-    adapter_model = f"mergeprag-{COURSE_ID}"
     if adapter_model in ids:
         print(f"'{adapter_model}' 확인됨!")
     else:
