@@ -15,8 +15,7 @@ const props = defineProps({
   pdfSearchActiveIndex: { type: Number, default: 0 },
   hasWordInsight: Boolean,
   wordInsightVisible: Boolean,
-  embedded: { type: Boolean, default: false },
-  folderDrawerOpen: { type: Boolean, default: false }
+  embedded: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -30,7 +29,6 @@ const emit = defineEmits([
   'material-selected',
   'word-insight-click',
   'close-preview-material',
-  'toggle-folder-drawer',
   'pdf-search-change',
   'pdf-search-next',
   'pdf-search-prev',
@@ -437,68 +435,6 @@ watch(
 
 .preview-close-header-btn:active {
   transform: scale(0.98);
-}
-
-.folder-drawer-header-btn {
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  color: #8e95a3;
-  background: transparent;
-  transition: color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
-}
-
-.folder-drawer-header-btn:hover,
-.folder-drawer-header-btn.is-open {
-  color: #5f6472;
-  background: rgba(245, 246, 250, 0.92);
-}
-
-.folder-drawer-header-btn:active {
-  transform: scale(0.96);
-}
-
-.folder-drawer-header-glyph {
-  position: relative;
-  width: 28px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.folder-drawer-header-glyph::before {
-  content: '';
-  position: absolute;
-  left: 1px;
-  top: 2px;
-  width: 18px;
-  height: 20px;
-  border: 2px solid currentColor;
-  border-radius: 6px;
-  opacity: 0.92;
-}
-
-.folder-drawer-header-panel {
-  position: absolute;
-  right: 1px;
-  top: 2px;
-  width: 18px;
-  height: 20px;
-  border: 2px solid currentColor;
-  border-radius: 6px;
-  background: #ffffff;
-}
-
-.folder-drawer-header-chevron {
-  position: relative;
-  z-index: 1;
-  margin-left: 6px;
-  font-size: 18px;
-  font-weight: 700;
 }
 
 .word-insight-toggle-btn {
