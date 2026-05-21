@@ -34,10 +34,11 @@ export default defineConfig(async () => {
   //     .on('error', () => res(false)).on('timeout', () => res(false)).connect(8000, '100.104.164.84');
   // });
 
-  // 127.0.0.1이 켜져있으면 우선 사용, 안 되면 환경변수(Docker) 사용
-  const backendUrl = isLocalAlive
-    ? 'http://127.0.0.1:8000'
-    : (process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000');
+  // Explicit env wins. This is important when the frontend runs on macOS while
+  // the Docker backend runs on a Windows host: 127.0.0.1 points to different
+  // machines in that setup.
+  const backendUrl = process.env.VITE_BACKEND_URL
+    || (isLocalAlive ? 'http://127.0.0.1:8000' : 'http://127.0.0.1:8000');
 
   // 원격 백엔드 fallback 포함 버전:
   // const backendUrl = isLocalAlive
