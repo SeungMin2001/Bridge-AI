@@ -28,6 +28,7 @@ CREATE TABLE SCHEDULES
     source_start_time REAL NULL,
     source_end_time   REAL NULL,
     source_text       TEXT NULL,
+    notion_page_id    TEXT NULL, -- 노션 페이지 ID 연동 (중복등록 방지 및 바로가기 링크 제공, 수정 삭제) text로 하면 유연한 확장 및 형변환 생략, 포맷 다양성 대응 가능.
     created_at        TIMESTAMP    NOT NULL,
     updated_at        TIMESTAMP NULL
 );

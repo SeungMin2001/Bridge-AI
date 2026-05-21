@@ -23,6 +23,7 @@ SAMPLE_SESSION_IDS = (
 async def ensure_schedule_schema(conn) -> None:
     # 신창영 : 기존 DB를 유지한 채 녹음본 단위 연결 컬럼만 추가
     await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS notion_page_id TEXT NULL")
 
 
 async def save_schedule(
@@ -37,6 +38,7 @@ async def save_schedule(
     source_end_time: float | None = None,
     source_text: str | None = None,
     transcript_id: str | None = None,
+    notion_page_id: str | None = None,
 ) -> dict:
     """추출된 일정을 SCHEDULES 테이블에 저장한다. 초기 status는 'pending'."""
     pool = await get_pool()
@@ -48,8 +50,8 @@ async def save_schedule(
                  title, description, event_type, due_date,
                  status, calendar_flag,
                  source_start_time, source_end_time, source_text,
-                 created_at, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                 notion_page_id, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
             """,
             _uuid.UUID(schedule_id),
             _uuid.UUID(session_id) if session_id else None,
@@ -64,6 +66,7 @@ async def save_schedule(
             source_start_time,
             source_end_time,
             source_text,
+            notion_page_id,
             datetime.now(),
             datetime.now(),
         )
@@ -80,7 +83,7 @@ async def get_all_schedules() -> list[dict]:
                    s.title, s.description, s.event_type, s.due_date,
                    s.status, s.calendar_flag,
                    s.source_start_time, s.source_end_time, s.source_text,
-                   s.created_at, s.updated_at,
+                   s.notion_page_id, s.created_at, s.updated_at,
                    se.title AS session_title,
                    c.title AS course_title
             FROM schedules s
@@ -102,7 +105,7 @@ async def get_schedule(schedule_id: str) -> dict | None:
                    title, description, event_type, due_date,
                    status, calendar_flag,
                    source_start_time, source_end_time, source_text,
-                   created_at, updated_at
+                   notion_page_id, created_at, updated_at
             FROM schedules
             WHERE schedule_id = $1
         """, _uuid.UUID(schedule_id))
@@ -123,7 +126,7 @@ async def get_schedules_by_session(session_id: str) -> list[dict]:
                    title, description, event_type, due_date,
                    status, calendar_flag,
                    source_start_time, source_end_time, source_text,
-                   created_at, updated_at
+                   notion_page_id, created_at, updated_at
             FROM schedules
             WHERE session_id = $1
             ORDER BY created_at DESC
@@ -141,7 +144,7 @@ async def get_confirmed_schedules() -> list[dict]:
                    title, description, event_type, due_date,
                    status, calendar_flag,
                    source_start_time, source_end_time, source_text,
-                   created_at, updated_at
+                   notion_page_id, created_at, updated_at
             FROM schedules
             WHERE status = 'confirmed' AND calendar_flag = true
               AND (session_id IS NULL OR session_id <> ALL($1::uuid[]))
@@ -191,6 +194,22 @@ async def update_schedule_status(schedule_id: str, new_status: str) -> dict:
     return {"schedule_id": schedule_id, "status": new_status, "calendar_flag": calendar_flag}
 
 
+async def update_schedule_notion_id(schedule_id: str, notion_page_id: str | None) -> dict:
+    """일정의 notion_page_id를 업데이트한다."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE schedules
+            SET notion_page_id = $1, updated_at = $2
+            WHERE schedule_id = $3
+        """,
+            notion_page_id,
+            datetime.now(),
+            _uuid.UUID(schedule_id),
+        )
+    return {"schedule_id": schedule_id, "notion_page_id": notion_page_id}
+
+
 async def find_ignored_titles(session_id: str | None = None) -> set[str]:
     """
     이전에 'ignored' 처리된 일정의 title 집합을 반환한다.
@@ -225,7 +244,7 @@ async def get_schedule_with_transcript(schedule_id: str) -> dict | None:
                    s.title, s.description, s.event_type, s.due_date,
                    s.status, s.calendar_flag,
                    s.source_start_time, s.source_end_time, s.source_text,
-                   s.created_at, s.updated_at,
+                   s.notion_page_id, s.created_at, s.updated_at,
                    t.chunk_index, t.chunk_text, t.corrected_text
             FROM schedules s
             LEFT JOIN transcripts t ON s.transcript_id = t.transcript_id
@@ -262,6 +281,7 @@ def _row_to_dict(row) -> dict:
         "source_start_time": row["source_start_time"],
         "source_end_time": row["source_end_time"],
         "source_text": row["source_text"],
+        "notion_page_id": row["notion_page_id"] if "notion_page_id" in keys else None,
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
         "session_title": row["session_title"] if "session_title" in keys else None,
