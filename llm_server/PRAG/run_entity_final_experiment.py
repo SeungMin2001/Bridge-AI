@@ -22,6 +22,7 @@ from pathlib import Path
 
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-3B"
+DEFAULT_AUGMENT_MODEL = "Qwen/Qwen3.5-4B"
 DEFAULT_EXPERIMENT = "entity_simple8000_lr2e5_kv64_ep15"
 
 
@@ -94,7 +95,7 @@ def augment_command(args: argparse.Namespace, seed_path: Path, augmented_path: P
         "--output",
         str(augmented_path),
         "--model",
-        args.augment_model or args.model,
+        args.augment_model,
         "--vllm-url",
         args.vllm_url,
         "--api-mode",
@@ -241,7 +242,11 @@ def paper_artifact_command(args: argparse.Namespace, report_dir: Path, artifact_
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the revised final BridgePRAG experiment with one command.")
     parser.add_argument("--model", default=DEFAULT_MODEL)
-    parser.add_argument("--augment-model", default=None)
+    parser.add_argument(
+        "--augment-model",
+        default=DEFAULT_AUGMENT_MODEL,
+        help="Model id served by the local augmentation vLLM endpoint. This can differ from --model.",
+    )
     parser.add_argument("--experiment-name", default=DEFAULT_EXPERIMENT)
     parser.add_argument("--data-root", default="data")
     parser.add_argument("--count", type=int, default=8000)
