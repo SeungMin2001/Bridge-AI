@@ -15,6 +15,7 @@ from kiwipiepy import Kiwi
 from llama_index.core import Settings, VectorStoreIndex, Document
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
+from db_config import psycopg2_config
 from materials.material_citation_service import build_material_citation, format_material_citation
 
 # ── 형태소 분석기 (Kiwi) ──
@@ -290,13 +291,7 @@ SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS = int(os.getenv("CHAT_SELECTED_TRANSCRIPT_
 
 def _db_config() -> dict:
     # 신창영 : 키워드 검색과 벡터 검색이 서로 다른 DB를 보지 않도록 공통 DB 설정을 사용
-    return {
-        "host": os.getenv("DB_HOST", "localhost"),
-        "port": int(os.getenv("DB_PORT", 5432)),
-        "database": os.getenv("DB_NAME", "shin"),
-        "user": os.getenv("DB_USER", "postgres"),
-        "password": os.getenv("DB_PASSWORD", "1234"),
-    }
+    return psycopg2_config()
 
 
 def _json_value(value, fallback):

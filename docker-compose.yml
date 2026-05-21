@@ -40,6 +40,8 @@ services:
     restart: always
 
   bridgeprag_server:
+    profiles:
+      - bridgeprag-container
     build: .
     container_name: bridgeprag_server
     gpus: all
@@ -80,7 +82,7 @@ services:
       - DIARIZE_URL=http://diart_server:8003/diart/raw
       - QUIZ_MOCK_MODE=false
       - SUMMARY_MOCK_MODE=false
-      - LLM_URL=http://bridgeprag_server:8001
+      - LLM_URL=http://host.docker.internal:8001
       - LLM_MODEL=bridgeprag-qwen25-3b-kv64
       - LLM_API_KEY=test-key
       - STT_BACKEND=openai-whisper
@@ -90,7 +92,6 @@ services:
     depends_on:
       - db
       - diart_server
-      - bridgeprag_server
     #      - denoise_server
     volumes:
       - .:/app # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
