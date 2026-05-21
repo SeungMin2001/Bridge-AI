@@ -245,7 +245,7 @@ export function useRecordingState() {
   }
 
   const waitForBackendFinalize = () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN || !diarizationEnabled.value) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
       return Promise.resolve({ status: 'skipped' })
     }
 
@@ -272,7 +272,7 @@ export function useRecordingState() {
 
   // 녹음/마이크/WebSocket/목업 타이머 등 사용 중인 리소스를 모두 정리합니다.
   const stopRecording = async (options = {}) => {
-    const shouldFinalize = options.finalize === true && diarizationEnabled.value === true && !USE_MOCK_DATA
+    const shouldFinalize = options.finalize === true && !USE_MOCK_DATA
     isRecording.value = false
     isRecordingPaused.value = false
     clearInterval(timer)
@@ -282,7 +282,7 @@ export function useRecordingState() {
     mockTranscriptQueue = []
 
     closeAudioResources()
-    // 신창영: 수정 이유 - 화자분리 모드에서는 WebSocket을 바로 닫지 않고 백엔드의 전체 오디오 최종 보정을 기다립니다.
+    // 신창영: 수정 이유 - 녹음 종료 시 원본 음성 파일 저장과 화자분리 최종 보정을 백엔드에서 마친 뒤 닫습니다.
     const finalizeResult = shouldFinalize
       ? await waitForBackendFinalize()
       : { status: 'skipped' }

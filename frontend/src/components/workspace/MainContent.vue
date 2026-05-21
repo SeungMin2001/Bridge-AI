@@ -313,7 +313,7 @@ const postRecordingProcessing = computed(() => {
     class="flex-1 flex flex-col gap-[12px] h-full min-w-0"
     :class="{ 'main-content-embedded': embedded }"
     :style="embedded
-      ? { flex: '1 1 0%', minWidth: '50%' }
+      ? { flex: '1 1 0%', minWidth: '340px' }
       : { flex: '1 1 0%', minWidth: '300px' }"
   >
     <transition name="word-card">
@@ -560,7 +560,7 @@ const postRecordingProcessing = computed(() => {
 
 .main-content-embedded {
   gap: 0;
-  min-width: 50% !important;
+  min-width: 340px !important;
 }
 
 .workspace-shell-card.is-embedded {
@@ -573,6 +573,12 @@ const postRecordingProcessing = computed(() => {
 .workspace-shell-card.is-embedded::before,
 .workspace-shell-card.is-embedded::after {
   display: none;
+}
+
+@media (max-width: 760px) {
+  .main-content-embedded {
+    min-width: 0 !important;
+  }
 }
 
 .post-processing-band {

@@ -441,7 +441,7 @@ function handleCitationClick(event, cite) {
   openCitePopover(cite, left, top)
 }
 
-const width = ref(420)
+const width = ref(370)
 const isResizing = ref(false)
 
 const stopWorkspaceChatbotTimer = () => {
@@ -680,9 +680,9 @@ watch(
 
 <style scoped>
 .workspace-right-sidebar {
-  width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
-  min-width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
-  max-width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
+  width: min(var(--right-sidebar-width, 390px), calc(100vw - 24px));
+  min-width: min(var(--right-sidebar-width, 390px), calc(100vw - 24px));
+  max-width: min(var(--right-sidebar-width, 390px), calc(100vw - 24px));
 }
 
 .workspace-right-sidebar-card {
@@ -724,9 +724,9 @@ watch(
 
 @media (max-width: 1280px) {
   .workspace-right-sidebar {
-    width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
-    min-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
-    max-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+    width: min(var(--right-sidebar-width, 390px), calc(100vw - 24px));
+    min-width: min(var(--right-sidebar-width, 390px), calc(100vw - 24px));
+    max-width: min(var(--right-sidebar-width, 390px), calc(100vw - 24px));
   }
 }
 

@@ -285,13 +285,14 @@ export function useAppState() {
     const linkedMaterialName = currentPreviewMaterial.value?.name || ''
 
     stopLiveSummaryRefresh()
-    const stoppedRecording = await stopActiveRecording({ finalize: shouldDiarize })
+    const stoppedRecording = await stopActiveRecording({ finalize: true })
+    const finalizeResult = stoppedRecording?.finalizeResult || {}
     // 신창영: 수정 이유 - 녹음 종료 후 전체 오디오 화자분리로 보정된 전사 목록을 최종 저장/요약에 사용합니다.
     const recordingSnapshot = stoppedRecording?.transcriptions?.length
       ? stoppedRecording.transcriptions
       : initialRecordingSnapshot
 
-    if (!shouldSaveRecording || recordingSnapshot.length === 0) return
+    if (!shouldSaveRecording || (recordingSnapshot.length === 0 && !finalizeResult.audioUrl)) return
 
     const targetFileId = activeFileId.value
     if (!targetFileId) return
@@ -307,7 +308,11 @@ export function useAppState() {
       diarizationEnabled: shouldDiarize,
       materialIds: linkedMaterialId ? [linkedMaterialId] : [],
       materialNames: linkedMaterialName ? [linkedMaterialName] : [],
-      audioUrl: null,
+      audioUrl: finalizeResult.audioUrl || null,
+      storedName: finalizeResult.storedName || '',
+      size: finalizeResult.audioSize || 0,
+      type: finalizeResult.audioType || '',
+      durationSeconds: finalizeResult.durationSeconds ?? null,
       transcriptions: recordingSnapshot
     }
 
@@ -325,19 +330,21 @@ export function useAppState() {
         console.error('[workspace] session resources save failed:', error)
       }
 
-      try {
-        await extractSchedulesForSession(targetFileId, recordingId)
-      } catch (error) {
-        console.error('[schedule] extract after recording failed:', error)
-      }
+      if (recordingSnapshot.length > 0) {
+        try {
+          await extractSchedulesForSession(targetFileId, recordingId)
+        } catch (error) {
+          console.error('[schedule] extract after recording failed:', error)
+        }
 
-      try {
-        await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId, {
-          live: false,
-          diarizationEnabled: shouldDiarize
-        })
-      } catch (error) {
-        console.error('[summary] generate after recording failed:', error)
+        try {
+          await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId, {
+            live: false,
+            diarizationEnabled: shouldDiarize
+          })
+        } catch (error) {
+          console.error('[summary] generate after recording failed:', error)
+        }
       }
 
     }

@@ -1,4 +1,5 @@
 import os
+import wave
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -54,6 +55,12 @@ def _normalize_upload_title(filename: str = "", title: str | None = None) -> str
     return stem or "업로드한 녹음본"
 
 
+def _safe_recording_id(recording_id: str | None = None) -> str:
+    candidate = str(recording_id or "").strip()
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in candidate)
+    return safe.strip("-_") or f"recording-{uuid4()}"
+
+
 async def save_workspace_material(session_id: str, upload: UploadFile) -> dict:
     session_uuid = uuid_or_none(session_id, "session_id")
     if session_uuid is None:
@@ -99,6 +106,84 @@ async def save_workspace_material(session_id: str, upload: UploadFile) -> dict:
             "uploadedAt": datetime.now(timezone.utc).isoformat(),
             "url": f"/workspace/uploads/materials/{stored_name}",
             "storedName": stored_name,
+        },
+    }
+
+
+async def save_workspace_realtime_recording_file(
+    session_id: str,
+    recording_id: str,
+    pcm_bytes: bytes | bytearray,
+    *,
+    sample_rate: int = 48000,
+    sample_width: int = 2,
+    channels: int = 1,
+    title: str | None = None,
+    duration_seconds: float | int | None = None,
+    started_at: str | None = None,
+) -> dict:
+    session_uuid = uuid_or_none(session_id, "session_id")
+    if session_uuid is None:
+        raise WorkspaceApiError("session_id is required.")
+
+    audio_bytes = bytes(pcm_bytes or b"")
+    if len(audio_bytes) < sample_width * channels:
+        raise WorkspaceApiError("저장할 녹음 오디오가 없습니다.", status_code=400)
+
+    usable_size = len(audio_bytes) - (len(audio_bytes) % (sample_width * channels))
+    audio_bytes = audio_bytes[:usable_size]
+    if not audio_bytes:
+        raise WorkspaceApiError("저장할 녹음 오디오가 없습니다.", status_code=400)
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            """
+            SELECT EXISTS(
+                SELECT 1
+                FROM sessions
+                WHERE session_id = $1
+            )
+            """,
+            session_uuid,
+        )
+
+    if not exists:
+        raise WorkspaceApiError("Session file not found.", status_code=404)
+
+    RECORDING_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    safe_recording_id = _safe_recording_id(recording_id)
+    stored_name = f"{safe_recording_id}.wav"
+    target_path = RECORDING_UPLOAD_DIR / stored_name
+
+    with wave.open(str(target_path), "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(sample_width)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(audio_bytes)
+
+    saved_at = datetime.now(timezone.utc).isoformat()
+    inferred_duration = len(audio_bytes) / float(sample_rate * sample_width * channels)
+    final_duration_seconds = duration_seconds if duration_seconds is not None else inferred_duration
+
+    return {
+        "ok": True,
+        "recording": {
+            "id": safe_recording_id,
+            "recordingId": safe_recording_id,
+            "title": title or "실시간 녹음",
+            "startedAt": started_at or saved_at,
+            "endedAt": saved_at,
+            "durationText": _format_duration_text(final_duration_seconds),
+            "durationSeconds": _duration_seconds_int(final_duration_seconds),
+            "recordingMode": "realtime",
+            "audioUrl": f"/workspace/uploads/recordings/{stored_name}",
+            "storedName": stored_name,
+            "originalName": stored_name,
+            "size": target_path.stat().st_size,
+            "type": "audio/wav",
+            "uploadedAt": saved_at,
         },
     }
 
