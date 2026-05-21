@@ -19,12 +19,10 @@ const props = defineProps({
   isTranscriptionSubmitting: { type: Boolean, default: false },
   variant: { type: String, default: 'sidebar' },
   showToolbar: { type: Boolean, default: false },
-  toolbarTitle: { type: String, default: '스크립트' },
-  showFolderToggle: { type: Boolean, default: false },
-  folderOpen: { type: Boolean, default: false }
+  toolbarTitle: { type: String, default: '스크립트' }
 })
 
-const emit = defineEmits(['addToNote', 'askAi', 'toggleFolder', 'startTranscription', 'seekPlayback'])
+const emit = defineEmits(['addToNote', 'askAi', 'startTranscription', 'seekPlayback'])
 
 const transSearch = ref('')
 const scrollContainer = ref(null)
@@ -320,23 +318,9 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
     <div
       v-if="showToolbar"
       class="transcript-toolbar"
-      :class="{ 'has-folder-toggle': showFolderToggle }"
     >
       <span class="transcript-toolbar-title">{{ toolbarTitle }}</span>
       <div class="transcript-toolbar-actions">
-        <button
-          v-if="showFolderToggle"
-          type="button"
-          class="transcript-source-toggle"
-          :class="{ 'is-open': folderOpen }"
-          :aria-label="folderOpen ? '소스파일 닫기' : '소스파일 열기'"
-          @click="emit('toggleFolder')"
-        >
-          <span class="transcript-source-toggle-arrow" aria-hidden="true">
-            {{ folderOpen ? '>' : '<' }}
-          </span>
-          <span>소스파일</span>
-        </button>
         <button
           ref="searchTrigger"
           type="button"
@@ -959,10 +943,6 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   border-bottom: 0;
 }
 
-.transcript-toolbar.has-folder-toggle {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
 .transcript-toolbar-title {
   position: relative;
   height: 34px;
@@ -984,48 +964,6 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
   height: 2px;
   border-radius: 999px;
   background: #1d1d1f;
-}
-
-.transcript-source-toggle {
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  justify-self: end;
-  gap: 6px;
-  padding: 0 11px;
-  border-radius: 999px;
-  color: #5f6472;
-  background: rgba(248, 249, 252, 0.96);
-  border: 1px solid rgba(218, 223, 232, 0.98);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  font-size: 11.5px;
-  font-weight: 900;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
-}
-
-.transcript-source-toggle:hover,
-.transcript-source-toggle.is-open {
-  color: #15161a;
-  border-color: rgba(156, 163, 175, 0.5);
-  background: #ffffff;
-}
-
-.transcript-source-toggle:active {
-  transform: scale(0.96);
-}
-
-.transcript-source-toggle-arrow {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 10px;
-  color: #8e95a3;
-  font-size: 14px;
-  font-weight: 950;
-  line-height: 1;
 }
 
 .transcript-toolbar-actions {
