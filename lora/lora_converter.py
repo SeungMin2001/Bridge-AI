@@ -48,7 +48,9 @@ def kv_to_delta_w(K: torch.Tensor, V: torch.Tensor, alpha: float = 1.0) -> torch
     if V.dim() == 3:
         V = V.squeeze(0)
     # ΔW = α · K^T · V = [d_model, num_kv] @ [num_kv, d_model] = [d_model, d_model]
-    return alpha * (K.T.float() @ V.float())
+    delta_w = K.T.float() @ V.float()
+    delta_w = delta_w / (delta_w.norm() + 1e-8) # 정규화
+    return alpha * delta_w
 
 
 def delta_w_to_lora(
