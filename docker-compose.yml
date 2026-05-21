@@ -55,7 +55,7 @@ services:
       - QUIZ_MOCK_MODE=false
       - SUMMARY_MOCK_MODE=false
       - LLM_URL=http://host.docker.internal:11434
-      - LLM_MODEL=qwen2.5:1.5b
+      - LLM_MODEL=qwen2.5-3b
       - LLM_API_KEY=test-key
     depends_on:
       - db

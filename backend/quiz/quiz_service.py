@@ -38,7 +38,7 @@ MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "false").lower() == "true"
 
 # Ollama/OpenAI 호환 API
 LLM_URL = os.getenv("LLM_URL", "http://localhost:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:1.5b")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-3b")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "4096"))
 
