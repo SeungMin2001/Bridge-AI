@@ -195,4 +195,53 @@ onMounted(() => {
   border-radius: 10px;
 }
 
+@media (max-width: 760px) {
+  .multimodal-container {
+    gap: 12px;
+  }
+
+  .multimodal-input-card {
+    min-height: 116px;
+    border-radius: 26px;
+    padding: 22px 66px 20px 24px !important;
+  }
+
+  .multimodal-attach-btn {
+    left: 24px;
+    bottom: 18px;
+  }
+
+  .multimodal-send-btn {
+    right: 24px;
+    bottom: 18px;
+  }
+}
+
+@media (max-width: 520px) {
+  .multimodal-input-card {
+    min-height: 104px;
+    border-radius: 22px;
+    padding: 18px 56px 18px 20px !important;
+  }
+
+  .multimodal-input-card textarea {
+    min-height: 36px;
+    font-size: 15px;
+  }
+
+  .multimodal-attach-btn {
+    left: 18px;
+    bottom: 14px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .multimodal-send-btn {
+    right: 18px;
+    bottom: 14px;
+    width: 34px;
+    height: 34px;
+  }
+}
+
 </style>
