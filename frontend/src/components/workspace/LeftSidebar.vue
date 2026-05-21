@@ -683,7 +683,13 @@ watch(() => props.citationSourceRequest, (request) => {
     }]"
     id="sidebar"
     class="transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden rounded-[24px]"
-    :style="embedded ? { width: '100%', flexShrink: 0 } : { width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
+    :style="embedded
+      ? {
+          flex: '0 0 var(--workspace-script-pane-width, 50%)',
+          width: 'var(--workspace-script-pane-width, 50%)',
+          flexShrink: 0
+        }
+      : { width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
   >
     <div
       class="card workspace-sidebar-card h-full flex flex-col p-5 overflow-hidden min-w-[280px]"
@@ -1012,10 +1018,11 @@ watch(() => props.citationSourceRequest, (request) => {
 
 .workspace-left-embedded {
   position: relative;
+  flex: 0 0 var(--workspace-script-pane-width, 50%) !important;
+  width: var(--workspace-script-pane-width, 50%) !important;
   min-width: 0;
   overflow: visible !important;
   border-radius: 0 !important;
-  border-right: 2px solid rgba(226, 224, 232, 0.9);
   background: rgba(255, 255, 255, 0.72);
 }
 
@@ -1052,6 +1059,13 @@ watch(() => props.citationSourceRequest, (request) => {
 .workspace-sidebar-card.is-embedded::before,
 .workspace-sidebar-card.is-embedded::after {
   display: none;
+}
+
+@media (max-width: 760px) {
+  .workspace-left-embedded {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+  }
 }
 
 .embedded-folder-drawer {

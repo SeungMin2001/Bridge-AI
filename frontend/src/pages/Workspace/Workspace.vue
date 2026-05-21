@@ -1,6 +1,6 @@
 <!-- 음성 녹음, 실시간 전사, AI 분석 및 교차 참조가 이루어지는 작업실 페이지 컴포넌트입니다. -->
 <script setup>
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
@@ -65,7 +65,9 @@ const scriptPaneWidth = ref(50)
 const isScriptPaneResizing = ref(false)
 
 const DEFAULT_SCRIPT_PANE_PERCENT = 50
+const MAX_SCRIPT_PANE_PERCENT = 72
 const MIN_SCRIPT_PANE_WIDTH = 280
+const MIN_MAIN_PANE_WIDTH = 340
 const RESIZE_KEY_STEP = 2
 
 function getScriptPaneMinPercent() {
@@ -74,9 +76,17 @@ function getScriptPaneMinPercent() {
   return Math.min(DEFAULT_SCRIPT_PANE_PERCENT, Math.max(24, (MIN_SCRIPT_PANE_WIDTH / cardWidth) * 100))
 }
 
+function getScriptPaneMaxPercent() {
+  const cardWidth = workspaceUnifiedCardRef.value?.getBoundingClientRect().width || 0
+  if (!cardWidth) return MAX_SCRIPT_PANE_PERCENT
+  const maxByMainPane = 100 - ((MIN_MAIN_PANE_WIDTH / cardWidth) * 100)
+  return Math.max(getScriptPaneMinPercent(), Math.min(MAX_SCRIPT_PANE_PERCENT, maxByMainPane))
+}
+
 function setScriptPaneWidth(nextPercent) {
   const minPercent = getScriptPaneMinPercent()
-  const clamped = Math.min(DEFAULT_SCRIPT_PANE_PERCENT, Math.max(minPercent, nextPercent))
+  const maxPercent = getScriptPaneMaxPercent()
+  const clamped = Math.min(maxPercent, Math.max(minPercent, nextPercent))
   scriptPaneWidth.value = Number(clamped.toFixed(2))
 }
 
@@ -105,6 +115,7 @@ function handleScriptPanePointerMove(event) {
 function handleScriptPanePointerDown(event) {
   if (event.button !== undefined && event.button !== 0) return
   event.preventDefault()
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
   isScriptPaneResizing.value = true
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
@@ -137,8 +148,17 @@ function resetScriptPaneWidth() {
   setScriptPaneWidth(DEFAULT_SCRIPT_PANE_PERCENT)
 }
 
+function handleWorkspaceResize() {
+  setScriptPaneWidth(scriptPaneWidth.value)
+}
+
+onMounted(() => {
+  window.addEventListener('resize', handleWorkspaceResize)
+})
+
 onUnmounted(() => {
   stopScriptPaneResize()
+  window.removeEventListener('resize', handleWorkspaceResize)
 })
 
 watch(() => props.activeFileId, () => {
@@ -510,7 +530,7 @@ const activeWorkspaceSource = computed(() => {
         aria-label="스크립트 영역 너비 조절"
         aria-orientation="vertical"
         aria-valuemin="24"
-        aria-valuemax="50"
+        aria-valuemax="72"
         :aria-valuenow="Math.round(scriptPaneWidth)"
         tabindex="0"
         title="드래그해서 스크립트 영역 너비 조절"
@@ -647,6 +667,7 @@ const activeWorkspaceSource = computed(() => {
 
 .workspace-unified-card {
   --workspace-script-pane-width: 50%;
+  --workspace-audio-player-height: 96px;
   flex: 1 1 0%;
   min-width: 0;
   height: 100%;
@@ -708,7 +729,7 @@ const activeWorkspaceSource = computed(() => {
   right: 0;
   bottom: 0;
   z-index: 75;
-  height: 96px;
+  height: var(--workspace-audio-player-height);
   pointer-events: none;
 }
 
@@ -729,20 +750,21 @@ const activeWorkspaceSource = computed(() => {
 
 .workspace-unified-main-pane {
   flex: 1 1 0%;
-  min-width: 50% !important;
+  min-width: 340px !important;
 }
 
 .workspace-unified-resizer {
   position: relative;
-  z-index: 68;
-  flex: 0 0 12px;
-  width: 12px;
+  z-index: 96;
+  flex: 0 0 24px;
+  width: 24px;
   align-self: stretch;
-  margin-left: -7px;
-  margin-right: -5px;
+  margin-left: -12px;
+  margin-right: -12px;
   cursor: col-resize;
   touch-action: none;
   outline: none;
+  background: transparent;
 }
 
 .workspace-unified-resizer::before {
@@ -788,18 +810,29 @@ const activeWorkspaceSource = computed(() => {
   transition: none;
 }
 
+.workspace-unified-card:has(.is-unified-audio-player) .workspace-unified-resizer {
+  align-self: flex-start;
+  height: calc(100% - var(--workspace-audio-player-height));
+}
+
+@media (max-width: 1280px) {
+  .workspace-unified-card {
+    --workspace-audio-player-height: 98px;
+  }
+}
+
 @media (max-width: 1440px) {
   .workspace-page-shell {
     padding: 10px !important;
   }
 
   .workspace-unified-script-pane {
-    flex-basis: clamp(300px, 38vw, var(--workspace-script-pane-width)) !important;
-    width: clamp(300px, 38vw, var(--workspace-script-pane-width)) !important;
+    flex-basis: var(--workspace-script-pane-width) !important;
+    width: var(--workspace-script-pane-width) !important;
   }
 
   .workspace-unified-main-pane {
-    min-width: 0 !important;
+    min-width: 340px !important;
   }
 }
 
@@ -813,8 +846,8 @@ const activeWorkspaceSource = computed(() => {
   }
 
   .workspace-unified-script-pane {
-    flex: 0 0 clamp(260px, 34vw, 360px) !important;
-    width: clamp(260px, 34vw, 360px) !important;
+    flex: 0 0 var(--workspace-script-pane-width) !important;
+    width: var(--workspace-script-pane-width) !important;
   }
 }
 
@@ -830,16 +863,11 @@ const activeWorkspaceSource = computed(() => {
     height: calc(100vh - 16px);
   }
 
-  .workspace-unified-script-pane {
-    flex: 0 0 clamp(240px, 32vw, 320px) !important;
-    width: clamp(240px, 32vw, 320px) !important;
-  }
-
   .workspace-unified-resizer {
-    flex-basis: 8px;
-    width: 8px;
-    margin-left: -4px;
-    margin-right: -4px;
+    width: 28px;
+    flex-basis: 28px;
+    margin-left: -14px;
+    margin-right: -14px;
   }
 }
 
