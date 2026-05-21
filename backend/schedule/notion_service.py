@@ -1,5 +1,5 @@
 """
-노션 API 연동 서비스
+노션 API 연동 서비스 (노션 캘린더)
 
 환경변수:
   - NOTION_API_KEY      : 노션 통합 API 토큰
@@ -16,6 +16,12 @@ NOTION_API_KEY = os.getenv("NOTION_API_KEY", "")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID", "")
 NOTION_VERSION = "2022-06-28"
 
+# 노션 데이터베이스 속성(컬럼) 이름 환경변수 (기본값은 한국어 노션 기본값 설정)
+PROP_TITLE = os.getenv("NOTION_PROP_TITLE", "이름")
+PROP_DATE = os.getenv("NOTION_PROP_DATE", "날짜")
+PROP_DESC = os.getenv("NOTION_PROP_DESC", "설명")
+PROP_TYPE = os.getenv("NOTION_PROP_TYPE", "구분")
+
 
 async def sync_schedule_to_notion(schedule: dict) -> str:
     """
@@ -24,6 +30,10 @@ async def sync_schedule_to_notion(schedule: dict) -> str:
     # 런타임에 동적으로 환경변수 한 번 더 읽어오기 (테스트/변경 시 대응용)
     api_key = os.getenv("NOTION_API_KEY", NOTION_API_KEY)
     db_id = os.getenv("NOTION_DATABASE_ID", NOTION_DATABASE_ID)
+    prop_title = os.getenv("NOTION_PROP_TITLE", PROP_TITLE)
+    prop_date = os.getenv("NOTION_PROP_DATE", PROP_DATE)
+    prop_desc = os.getenv("NOTION_PROP_DESC", PROP_DESC)
+    prop_type = os.getenv("NOTION_PROP_TYPE", PROP_TYPE)
 
     if not api_key:
         raise ValueError("NOTION_API_KEY 환경변수가 설정되지 않았습니다.")
@@ -54,9 +64,8 @@ async def sync_schedule_to_notion(schedule: dict) -> str:
             notion_date = {"start": due_date_str.split("T")[0]}
 
     # 노션 데이터베이스 속성 구성
-    # 기본 프로퍼티: Name(제목), Date(날짜), Description(설명), Type(구분)
     properties = {
-        "Name": {
+        prop_title: {
             "title": [
                 {
                     "text": {
@@ -68,13 +77,13 @@ async def sync_schedule_to_notion(schedule: dict) -> str:
     }
 
     if notion_date:
-        properties["Date"] = {
+        properties[prop_date] = {
             "date": notion_date
         }
 
     description = schedule.get("description")
     if description:
-        properties["Description"] = {
+        properties[prop_desc] = {
             "rich_text": [
                 {
                     "text": {
@@ -86,7 +95,7 @@ async def sync_schedule_to_notion(schedule: dict) -> str:
 
     event_type = schedule.get("event_type")
     if event_type:
-        properties["Type"] = {
+        properties[prop_type] = {
             "select": {
                 "name": event_type
             }
