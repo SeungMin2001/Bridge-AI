@@ -44,6 +44,7 @@ MAX_PASSAGES = int(os.getenv("BRIDGEPRAG_MAX_PASSAGES", "4"))
 MAX_INPUT_TOKENS = int(os.getenv("BRIDGEPRAG_MAX_INPUT_TOKENS", "2048"))
 DEFAULT_MAX_NEW_TOKENS = int(os.getenv("BRIDGEPRAG_MAX_NEW_TOKENS", "512"))
 GENERATION_PROMPT_MODE = os.getenv("BRIDGEPRAG_GENERATION_PROMPT", "full").strip().lower()
+SERVICE_DEFAULT_ALPHA = 0.35
 DTYPE = os.getenv("BRIDGEPRAG_DTYPE", "float16").strip().lower()
 STRICT_MODEL_ID = os.getenv("BRIDGEPRAG_STRICT_MODEL_ID", "0").strip().lower() in {"1", "true", "yes", "on"}
 LOG_REQUESTS = os.getenv("BRIDGEPRAG_LOG_REQUESTS", "1").strip().lower() in {"1", "true", "yes", "on"}
@@ -121,6 +122,20 @@ def _make_hypernet_from_checkpoint(ckpt: dict[str, Any]):
     return net, config
 
 
+def _runtime_alpha(config: dict[str, Any]) -> float:
+    """Use PRAG as a service-side helper rather than the dominant signal.
+
+    The checkpoint was trained/evaluated with alpha=1.0, but the product path
+    also passes retrieved text through the prompt. A lower default keeps RAG
+    text as the main grounding source while still allowing K/V memory to nudge
+    generation. BRIDGEPRAG_ALPHA can still override this for ablations.
+    """
+    override = os.getenv("BRIDGEPRAG_ALPHA")
+    if override not in (None, ""):
+        return float(override)
+    return SERVICE_DEFAULT_ALPHA
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model, tokenizer, hypernet, device, target_layer, runtime_config
@@ -143,7 +158,8 @@ async def lifespan(app: FastAPI):
         "question_fusion": str(config.get("question_fusion", getattr(hypernet, "question_fusion", "none"))),
         "injection_mode": str(config.get("injection_mode", "attention")),
         "generation_prompt_mode": GENERATION_PROMPT_MODE,
-        "alpha": float(os.getenv("BRIDGEPRAG_ALPHA", config.get("alpha", 1.0))),
+        "alpha": _runtime_alpha(config),
+        "checkpoint_alpha": float(config.get("alpha", 1.0)),
         "device": str(device),
     }
     print(f"[BridgePRAG] ready {runtime_config}")

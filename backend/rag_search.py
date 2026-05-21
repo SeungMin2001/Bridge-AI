@@ -228,9 +228,27 @@ def _is_grounded_lookup_query(question: str) -> bool:
     text = str(question or "").strip()
     if not text:
         return False
+    if _is_elliptic_grounded_lookup_query(text):
+        return True
     if not any(term in text for term in _GROUNDED_LOOKUP_TERMS):
         return False
     return bool(_extract_grounded_lookup_terms(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _is_elliptic_grounded_lookup_query(question: str) -> bool:
+    """'신승민은?'처럼 질문 술어가 생략된 짧은 조회형 질문을 키워드 우선 검색으로 보냅니다."""
+    text = " ".join(str(question or "").split())
+    if not text.endswith(("?", "？")):
+        return False
+    if any(term in text for term in ("어디", "어느", "몇", "위치", "파일", "자료", "녹음", "페이지", "구간")):
+        return False
+    body = text[:-1].strip()
+    if len(body) < 2 or len(body) > 40:
+        return False
+    term = _clean_lookup_term(body)
+    if len(term) < 2:
+        return False
+    return term.lower() not in _GROUNDED_LOOKUP_STOPWORDS and term not in _GROUNDED_LOOKUP_STOPWORDS
 
 
 def _extract_grounded_lookup_terms(query: str) -> list[str]:
