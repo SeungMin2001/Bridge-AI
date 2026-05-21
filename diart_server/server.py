@@ -147,6 +147,24 @@ async def startup_event():
             use_auth_token=hf_token if hf_token else True
         )
         pipeline = move_pipeline_to_device(pipeline)
+        
+        # 튜닝: 여기서부터 민감도(Threshold) 조절 코드를 추가합니다.
+        try:
+            diarize_threshold = float(os.getenv("DIARIZE_THRESHOLD", "0.5"))
+            logger.info(f"임계값(threshold) 설정 중: {diarize_threshold}")
+            # 1. 모델이 현재 가지고 있는 기본 파라미터 값들을 가져옵니다.
+            params = pipeline.parameters(instantiated=True)
+            
+            # 2. 클러스터링 임계값을 원하는 수치로 변경합니다. (기본값은 대략 0.7 근처입니다)
+            # 쪼개짐이 심하면 올리고 합쳐짐이 심하면 낮추세요.
+            params["clustering"]["threshold"] = diarize_threshold  
+            
+            # 3. 변경된 파라미터를 파이프라인에 다시 주입(적용)합니다.
+            pipeline.instantiate(params)
+            logger.info(f"임계값(threshold) {diarize_threshold} 적용 완료.")
+        except Exception as pe:
+            logger.warning(f"임계값 튜닝 실패: {pe}")
+
         PIPELINE_SAMPLE_RATE = 16000
         logger.info("pyannote.audio 파이프라인 로딩 완료.")
         return
