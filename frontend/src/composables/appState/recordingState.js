@@ -51,6 +51,24 @@ const getRecordingWebSocketUrl = (sessionId = '', recordingId = '', options = {}
   const query = params.toString()
   return `${protocol}//${window.location.host}/ws${query ? `?${query}` : ''}`
 }
+
+const getMicrophoneUnavailableReason = () => {
+  if (typeof window !== 'undefined') {
+    const localhostHosts = new Set(['localhost', '127.0.0.1', '::1'])
+    if (!window.isSecureContext && !localhostHosts.has(window.location.hostname)) {
+      return '마이크 권한은 HTTPS 또는 localhost 접속에서만 사용할 수 있습니다. 프론트는 http://localhost:5173 으로 열어주세요.'
+    }
+  }
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    return '현재 브라우저가 마이크 입력 API를 제공하지 않습니다.'
+  }
+  return ''
+}
+
+const getAudioContextConstructor = () => {
+  if (typeof window === 'undefined') return null
+  return window.AudioContext || window.webkitAudioContext || null
+}
 const mockTranscriptPlanByMode = {
   lecture: [
     { speakerId: 'speaker-me', speaker: '나', text: '안녕하세요, 실시간 음성 전사 테스트 중입니다.', delay: 3000 },
@@ -557,8 +575,14 @@ export function useRecordingState() {
     // WebSocket 연결 후 마이크 권한을 얻고 AudioWorklet으로 PCM 청크를 전송합니다.
     ws.onopen = async () => {
       try {
+        const microphoneUnavailableReason = getMicrophoneUnavailableReason()
+        if (microphoneUnavailableReason) throw new Error(microphoneUnavailableReason)
+
+        const AudioContextConstructor = getAudioContextConstructor()
+        if (!AudioContextConstructor) throw new Error('현재 브라우저가 Web Audio API를 제공하지 않습니다.')
+
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        audioContext = new AudioContext()
+        audioContext = new AudioContextConstructor()
         await audioContext.audioWorklet.addModule('/pcm-worklet.js')
 
         audioSource = audioContext.createMediaStreamSource(stream)
