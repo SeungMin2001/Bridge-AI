@@ -215,6 +215,33 @@ const handleCreateAndOpenFile = async () => {
   border-radius: 32px;
 }
 
+@media (max-width: 1280px) {
+  #home-main-content.home-main-shell {
+    margin-right: 10px;
+    border-radius: 24px;
+  }
+
+  .home-main-shell-with-reference {
+    flex: 1 1 0%;
+    max-width: none;
+    margin-right: 10px;
+  }
+}
+
+@media (max-width: 760px) {
+  .copy-app-frame {
+    overflow-y: auto;
+  }
+
+  #home-main-content.home-main-shell {
+    height: calc(100% - 16px);
+    max-height: none;
+    min-height: 640px;
+    margin: 8px;
+    border-radius: 20px;
+  }
+}
+
 .home-main-shell::before {
   content: '';
   position: absolute;
