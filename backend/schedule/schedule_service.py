@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 # ── 설정 ──
 MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "false").lower() == "true"
 
-LLM_URL = os.getenv("LLM_URL", "http://localhost:8001")
-LLM_MODEL = os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ")
+LLM_URL = os.getenv("LLM_URL", "http://localhost:11434")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:1.5b")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 
 
