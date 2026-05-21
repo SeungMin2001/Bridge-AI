@@ -13,8 +13,11 @@ import httpx
 from chat.context_service import source_filter_has_any_source
 
 
-llm_server_url = os.getenv("LLM_URL", "http://localhost:11434")
-llm_model_name = os.getenv("LLM_MODEL", "qwen2.5-3b")
+DEFAULT_LLM_URL = "http://localhost:8001"
+DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
+
+llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
+llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
 CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "512"))
 CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "768"))

@@ -37,8 +37,11 @@ logger = logging.getLogger(__name__)
 MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "false").lower() == "true"
 
 # vLLM OpenAI 호환 API
-LLM_URL = os.getenv("LLM_URL", "http://localhost:8001")
-LLM_MODEL = os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ")
+DEFAULT_LLM_URL = "http://localhost:8001"
+DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
+
+LLM_URL = os.getenv("LLM_URL", DEFAULT_LLM_URL)
+LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "4096"))
 
