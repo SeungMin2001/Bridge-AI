@@ -142,7 +142,6 @@ def build_lora_adapter(
     target_layer: int = 19,
     rank: int = 16,
     lora_alpha: int = 16,
-    max_delta_norm: float | None = None,
     adapter_name: str = "mergeprag",
     adapter_root: str = DEFAULT_ADAPTER_DIR,
     base_model: str = DEFAULT_BASE_MODEL,
@@ -154,11 +153,7 @@ def build_lora_adapter(
         dict: adapter_path, delta_w_norm, energy_ratio, rank 등
     """
     delta_w = kv_to_delta_w(K, V, alpha=alpha)
-    delta_w_norm_raw = float(delta_w.norm())
-    delta_w_scale = 1.0
-    if max_delta_norm is not None and max_delta_norm > 0 and delta_w_norm_raw > max_delta_norm:
-        delta_w_scale = max_delta_norm / (delta_w_norm_raw + 1e-8)
-        delta_w = delta_w * delta_w_scale
+    delta_w_norm = float(delta_w.detach().norm())
     lora_A, lora_B, energy_ratio = delta_w_to_lora(delta_w, rank=rank)
 
     output_dir = os.path.join(adapter_root, adapter_name)
@@ -174,9 +169,7 @@ def build_lora_adapter(
 
     return {
         "adapter_path": os.path.abspath(output_dir),
-        "delta_w_norm": round(float(delta_w.norm()), 4),
-        "delta_w_norm_raw": round(delta_w_norm_raw, 4),
-        "delta_w_scale": round(delta_w_scale, 6),
+        "delta_w_norm": round(delta_w_norm, 4),
         "energy_ratio": round(energy_ratio, 4),
         "rank": rank,
         "lora_A_shape": list(lora_A.shape),

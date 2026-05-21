@@ -51,10 +51,12 @@ ADAPTER_CONTAINER_ROOT = os.getenv("LORA_ADAPTER_CONTAINER_ROOT", "/lora/adapter
 SERVICE_PORT = int(os.getenv("LORA_SERVICE_PORT", "9001"))
 
 # LoRA 스케일/랭크 제어
-LORA_ALPHA = float(os.getenv("LORA_ALPHA", "0.0001"))
-LORA_RANK = int(os.getenv("LORA_RANK", "2"))
-LORA_LORA_ALPHA = int(os.getenv("LORA_LORA_ALPHA", "1"))
-LORA_MAX_DELTA_NORM = float(os.getenv("LORA_MAX_DELTA_NORM", "1.0"))
+# LORA_ALPHA: ΔW = alpha * K^T @ V 의 스케일 (MergePRAG ALPHA과 동일하게)
+# LORA_RANK: SVD top-r (NUM_KV와 동일하게 설정해야 에너지 손실 최소)
+# LORA_LORA_ALPHA: PEFT adapter_config의 lora_alpha (vLLM scaling = lora_alpha/rank)
+LORA_ALPHA = float(os.getenv("LORA_ALPHA", str(ALPHA)))  # MergePRAG ALPHA 사용
+LORA_RANK = int(os.getenv("LORA_RANK", str(NUM_KV)))      # NUM_KV와 동일
+LORA_LORA_ALPHA = int(os.getenv("LORA_LORA_ALPHA", str(NUM_KV)))  # rank와 동일 → scale=1.0
 
 CRITICAL_LAYER = load_critical_layer()
 
@@ -226,8 +228,7 @@ async def lifespan(app: FastAPI):
         f"  어댑터 저장: {ADAPTER_ROOT}\n"
         f"  컨테이너 경로: {ADAPTER_CONTAINER_ROOT}\n"
         f"  critical_layer={CRITICAL_LAYER}, num_kv={NUM_KV}, alpha={ALPHA}\n"
-        f"  lora_alpha={LORA_ALPHA}, lora_rank={LORA_RANK}, lora_scale={LORA_LORA_ALPHA}, "
-        f"lora_max_norm={LORA_MAX_DELTA_NORM}"
+        f"  lora_alpha={LORA_ALPHA}, lora_rank={LORA_RANK}, lora_scale={LORA_LORA_ALPHA}"
     )
     yield
 
@@ -314,7 +315,6 @@ def _convert_and_save(course_id: str, adapter_name: str) -> dict | None:
         target_layer=CRITICAL_LAYER,
         rank=LORA_RANK,
         lora_alpha=LORA_LORA_ALPHA,
-        max_delta_norm=LORA_MAX_DELTA_NORM,
         adapter_name=adapter_name,
         adapter_root=ADAPTER_ROOT,
     )
@@ -417,7 +417,6 @@ async def get_stats():
         "lora_alpha": LORA_ALPHA,
         "lora_rank": LORA_RANK,
         "lora_scale": LORA_LORA_ALPHA,
-        "lora_max_norm": LORA_MAX_DELTA_NORM,
         "vllm_url": VLLM_URL,
     }
 
