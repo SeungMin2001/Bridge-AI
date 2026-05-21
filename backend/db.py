@@ -39,10 +39,21 @@ async def ensure_transcripts_schema(conn) -> None:
     """)
 
 
+async def ensure_sessions_schema(conn) -> None:
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS file_kind VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tag VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS icon VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS color VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_pdf JSONB NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_voicefile JSONB NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_notes JSONB NULL")
+
+
 async def ensure_runtime_schema() -> None:
     """Apply lightweight local schema upgrades needed by current develop code."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_sessions_schema(conn)
         await ensure_transcripts_schema(conn)
 
 
