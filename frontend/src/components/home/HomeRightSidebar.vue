@@ -204,7 +204,7 @@ watch([referenceSearch, () => searchMatches.value.length], () => {
 <template>
   <div 
     :class="[
-      'home-reference-sidebar fixed right-3 top-[10px] bottom-[10px] h-[calc(100%-20px)] w-[416px] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] z-[100] flex flex-col',
+      'home-reference-sidebar fixed right-3 top-[10px] bottom-[10px] h-[calc(100%-20px)] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] z-[100] flex flex-col',
       isOpen ? 'translate-x-0' : 'translate-x-[120%]'
     ]"
   >
@@ -329,11 +329,23 @@ watch([referenceSearch, () => searchMatches.value.length], () => {
 }
 
 .home-reference-sidebar {
+  width: min(416px, calc(100vw - 24px));
   background: #fff;
   border: 1px solid rgba(255, 255, 255, 0.92);
   border-radius: var(--copy-radius-lg);
   box-shadow: var(--copy-card-shadow);
   overflow: hidden;
+}
+
+@media (max-width: 560px) {
+  .home-reference-sidebar {
+    right: 8px;
+    top: 8px;
+    bottom: 8px;
+    width: calc(100vw - 16px);
+    height: calc(100% - 16px);
+    border-radius: 20px;
+  }
 }
 
 .home-reference-subtitle {
