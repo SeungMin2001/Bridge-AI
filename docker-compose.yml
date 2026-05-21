@@ -39,6 +39,28 @@ services:
       - DIARIZE_THRESHOLD=${DIARIZE_THRESHOLD:-0.5}
     restart: always
 
+  bridgeprag_server:
+    build: .
+    container_name: bridgeprag_server
+    gpus: all
+    working_dir: /app
+    command: python -m uvicorn llm_server.PRAG.bridgeprag_openai_server:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - BRIDGEPRAG_MODEL=Qwen/Qwen2.5-3B
+      - BRIDGEPRAG_MODEL_ID=bridgeprag-qwen25-3b-kv64
+      - BRIDGEPRAG_CHECKPOINT=/app/llm_server/PRAG/prag_orthomerge_entity_simple4000_epoch_bestslot_fixedlayer_kv64_ep10_qp_kvadapt_memory_checkpoint.pt
+      - BRIDGEPRAG_CRITICAL_LAYER=23
+      - BRIDGEPRAG_GENERATION_PROMPT=question
+      - BRIDGEPRAG_MAX_PASSAGES=4
+      - BRIDGEPRAG_MAX_NEW_TOKENS=512
+      - BRIDGEPRAG_DTYPE=float16
+    volumes:
+      - .:/app
+    restart: always
+
   fastapi_backend:
     build: .
     container_name: fastapi_backend
@@ -58,8 +80,8 @@ services:
       - DIARIZE_URL=http://diart_server:8003/diart/raw
       - QUIZ_MOCK_MODE=false
       - SUMMARY_MOCK_MODE=false
-      - LLM_URL=http://100.104.164.84:8001
-      - LLM_MODEL=Qwen/Qwen3.5-4B
+      - LLM_URL=http://bridgeprag_server:8001
+      - LLM_MODEL=bridgeprag-qwen25-3b-kv64
       - LLM_API_KEY=test-key
       - STT_BACKEND=openai-whisper
       - STT_MODEL=turbo
@@ -68,6 +90,7 @@ services:
     depends_on:
       - db
       - diart_server
+      - bridgeprag_server
     #      - denoise_server
     volumes:
       - .:/app # 개발 중 코드 변경 시 즉시 반영(핫 리로딩)을 위해 현재 폴더를 컨테이너 내부와 연결
