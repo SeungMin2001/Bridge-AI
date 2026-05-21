@@ -30,6 +30,7 @@ from schedule.schedule_db import (
     update_schedule_status, # 일정 상태 업데이트
     get_ignored_schedules_metadata, # 무시된 일정 메타데이터 조회
     get_schedule_with_transcript, # 전사문과 함께 일정 조회
+    update_schedule_notion_id, # 노션 연동 ID 업데이트
 )
 from schedule.schedule_service import (
     extract_schedules, # 일정 추출
@@ -69,6 +70,7 @@ class ScheduleManualRequest(BaseModel):
     source_start_time: float | None = None
     source_end_time: float | None = None
     source_text: str | None = None
+    notion_page_id: str | None = None
 
 
 VALID_SCHEDULE_STATUSES = {"pending", "confirmed", "ignored"}
@@ -267,6 +269,7 @@ async def schedule_create_manual(req: ScheduleManualRequest):
         source_end_time=req.source_end_time,
         source_text=req.source_text,
         transcript_id=req.transcript_id,
+        notion_page_id=req.notion_page_id,
     )
 
     if req.status != "pending":
@@ -333,3 +336,54 @@ async def schedule_get(schedule_id: str):
     if schedule is None:
         raise HTTPException(status_code=404, detail=f"일정을 찾을 수 없습니다: {schedule_id}")
     return schedule
+
+# 노션 페이지 ID로 일정 업데이트
+class NotionSyncRequest(BaseModel):
+    notion_page_id: str | None = Field(..., description="연동된 노션 페이지 ID")
+
+
+@router.put("/{schedule_id}/notion")
+async def schedule_update_notion(schedule_id: str, req: NotionSyncRequest):
+    """일정의 노션 연동 ID를 업데이트한다. (클라이언트/MCP 단에서 등록한 경우 호출)"""
+    existing = await get_schedule(schedule_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"일정을 찾을 수 없습니다: {schedule_id}")
+
+    result = await update_schedule_notion_id(schedule_id, req.notion_page_id)
+    logger.info(f"[SCHEDULE] 일정 노션 ID 업데이트: {schedule_id} -> {req.notion_page_id}")
+    return result
+
+
+@router.post("/{schedule_id}/sync-notion")
+async def schedule_sync_notion(schedule_id: str):
+    """일정을 백엔드에서 노션 API를 통해 직접 등록하고 결과를 저장한다."""
+    existing = await get_schedule(schedule_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"일정을 찾을 수 없습니다: {schedule_id}")
+
+    if existing.get("notion_page_id"):
+        return {
+            "status": "already_synced",
+            "message": "이미 노션에 등록된 일정입니다.",
+            "notion_page_id": existing["notion_page_id"]
+        }
+
+    try:
+        from schedule.notion_service import sync_schedule_to_notion
+        page_id = await sync_schedule_to_notion(existing)
+
+        # DB 업데이트
+        await update_schedule_notion_id(schedule_id, page_id)
+
+        return {
+            "status": "success",
+            "message": "노션 등록 성공",
+            "notion_page_id": page_id
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except RuntimeError as re:
+        raise HTTPException(status_code=502, detail=str(re))
+    except Exception as e:
+        logger.error(f"[SCHEDULE] 노션 동기화 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"예기치 못한 노션 동기화 실패: {e}")
