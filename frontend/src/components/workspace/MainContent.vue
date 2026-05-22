@@ -37,8 +37,7 @@ const props = defineProps({
   summaryNotes: { type: Array, default: () => [] },
   quizSource: { type: Object, default: null },
   tabRequest: { type: Object, default: null },
-  embedded: { type: Boolean, default: false },
-  folderDrawerOpen: { type: Boolean, default: false }
+  embedded: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -55,7 +54,6 @@ const emit = defineEmits([
   'uploadLectureMaterials',
   'openStoredMaterial',
   'closePreviewMaterial',
-  'toggleFolderDrawer',
   'activeTabChange'
 ])
 
@@ -345,7 +343,6 @@ const postRecordingProcessing = computed(() => {
         :pdf-search-active-index="pdfSearchState.activeIndex"
         :has-word-insight="!!selectedWordData"
         :word-insight-visible="!!selectedWordData && isWordCardVisible"
-        :folder-drawer-open="folderDrawerOpen"
         @start-recording="handleStartRecording"
         @pause-recording="emit('pauseRecording')"
         @resume-recording="emit('resumeRecording')"
@@ -356,7 +353,6 @@ const postRecordingProcessing = computed(() => {
         @material-selected="handleMaterialSelection"
         @word-insight-click="handleWordInsightButtonClick"
         @close-preview-material="emit('closePreviewMaterial')"
-        @toggle-folder-drawer="emit('toggleFolderDrawer')"
         @pdf-search-change="handlePdfSearchChange"
         @pdf-search-next="sendPdfSearchCommand('next')"
         @pdf-search-prev="sendPdfSearchCommand('prev')"

@@ -20,9 +20,10 @@ const props = defineProps({
   diarizationStatus: { type: String, default: 'idle' },
   activeFileId: { type: String, default: '' },
   citationSourceRequest: { type: Object, default: null },
+  recordingSourceRequest: { type: Object, default: null },
   isCollapsed: { type: Boolean, default: false },
   embedded: { type: Boolean, default: false },
-  embeddedFolderOpen: { type: Boolean, default: false },
+  sourcePanelOpen: { type: Boolean, default: false },
   scriptTabLineVisible: { type: Boolean, default: false }
 })
 
@@ -40,7 +41,7 @@ const emit = defineEmits([
   'pauseRecording',
   'resumeRecording',
   'stopRecording',
-  'update:embeddedFolderOpen'
+  'toggle-source-panel'
 ])
 
 const activeTab = ref('voice')
@@ -49,7 +50,6 @@ const toastMsg = ref('')
 const isResizing = ref(false)
 const selectedTranscriptSource = ref(null)
 const activePlaybackRecording = ref(null)
-const localEmbeddedFolderOpen = ref(false)
 const playbackAudioRef = ref(null)
 const playbackMediaDuration = ref(0)
 const isPlaybackPlaying = ref(false)
@@ -66,17 +66,6 @@ const shouldCommitTitleAfterComposition = ref(false)
 let playbackTimer = null
 
 const playbackSpeeds = [1, 1.25, 1.5, 2]
-
-const isEmbeddedFolderOpen = computed({
-  get: () => props.embedded ? props.embeddedFolderOpen : localEmbeddedFolderOpen.value,
-  set: (value) => {
-    if (props.embedded) {
-      emit('update:embeddedFolderOpen', value)
-      return
-    }
-    localEmbeddedFolderOpen.value = value
-  }
-})
 
 const visibleTranscriptions = computed(() => selectedTranscriptSource.value?.transcriptions || props.transcriptions)
 const visibleTranscriptionStatus = computed(() => (
@@ -516,7 +505,6 @@ const handleCloseTranscriptSource = () => {
 
 const handleOpenMaterial = ({ fileId, node, materialId, material, recording, recordings = [] }) => {
   closePlaybackBar()
-  isEmbeddedFolderOpen.value = false
   if (fileId && node) {
     emit('fileSelect', fileId, node)
   }
@@ -534,7 +522,6 @@ const handleOpenMaterial = ({ fileId, node, materialId, material, recording, rec
 }
 
 const handleOpenRecording = ({ fileId, node, recording }) => {
-  isEmbeddedFolderOpen.value = false
   if (fileId && node) {
     emit('fileSelect', fileId, node)
   }
@@ -672,6 +659,16 @@ watch(() => props.citationSourceRequest, (request) => {
 
   activeTab.value = 'voice'
 })
+
+watch(() => props.recordingSourceRequest, (request) => {
+  if (!request?.recording) return
+
+  handleOpenRecording({
+    fileId: request.fileId || props.activeFileId,
+    node: request.node || findNodeById(props.fileTree, request.fileId || props.activeFileId),
+    recording: request.recording
+  })
+})
 </script>
 
 <template>
@@ -695,55 +692,23 @@ watch(() => props.citationSourceRequest, (request) => {
       class="card workspace-sidebar-card h-full flex flex-col p-5 overflow-hidden min-w-[280px]"
       :class="{ 'is-embedded': embedded }"
     >
-      <Teleport defer to="#workspace-unified-folder-drawer-host" :disabled="!embedded">
-        <transition name="embedded-folder-drawer">
-          <aside
-            v-if="embedded && isEmbeddedFolderOpen"
-            class="embedded-folder-drawer"
-            aria-label="워크스페이스 폴더"
-          >
-            <div class="embedded-folder-drawer-header">
-              <div class="embedded-folder-session-heading">
-                <button
-                  class="embedded-folder-session-home"
-                  type="button"
-                  aria-label="홈으로 이동"
-                  title="홈으로 이동"
-                  @click="emit('navigateHome')"
-                >
-                  <img class="embedded-folder-session-logo" src="/images/logo.png" alt="" draggable="false" />
-                </button>
-                <strong>{{ sidebarFileTitle }}</strong>
-              </div>
-              <button
-                class="embedded-folder-drawer-close"
-                type="button"
-                aria-label="폴더 닫기"
-                @click="isEmbeddedFolderOpen = false"
-              >
-                <span class="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <FolderSideTab
-              :fileTree="fileTree"
-              :favorites="favorites"
-              :active-file-id="activeFileId"
-              :show-search="false"
-              @update:fileTree="emit('update:fileTree', $event)"
-              @update:favorites="emit('update:favorites', $event)"
-              @fileSelect="(id, node) => { isEmbeddedFolderOpen = false; emit('fileSelect', id, node) }"
-              @openMaterial="handleOpenMaterial"
-              @openRecording="handleOpenRecording"
-              @showToast="showToast"
-            />
-          </aside>
-        </transition>
-      </Teleport>
-
       <!-- Header -->
       <div class="workspace-file-header flex items-center justify-between mb-5">
         <div class="workspace-file-heading">
           <button
+            v-if="embedded"
+            class="workspace-file-source-toggle"
+            type="button"
+            :aria-label="sourcePanelOpen ? '좌측 소스 카드 닫기' : '좌측 소스 카드 열기'"
+            :title="sourcePanelOpen ? '좌측 소스 카드 닫기' : '좌측 소스 카드 열기'"
+            @click="emit('toggle-source-panel')"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">
+              {{ sourcePanelOpen ? 'keyboard_double_arrow_left' : 'keyboard_double_arrow_right' }}
+            </span>
+          </button>
+          <button
+            v-else
             class="workspace-file-back-btn"
             type="button"
             aria-label="홈으로 이동"
@@ -892,12 +857,9 @@ watch(() => props.citationSourceRequest, (request) => {
             :is-transcription-submitting="isTranscriptionRequesting"
             :variant="embedded ? 'content' : 'sidebar'"
             :show-toolbar="embedded"
-            :show-folder-toggle="embedded"
-            :folder-open="isEmbeddedFolderOpen"
             toolbar-title="스크립트"
             @addToNote="(text, source) => emit('addToNote', text, source)"
             @askAi="emit('askAi', $event)"
-            @toggleFolder="isEmbeddedFolderOpen = !isEmbeddedFolderOpen"
             @startTranscription="handleStartUploadedTranscription"
             @seekPlayback="handleSeekTranscriptPlayback"
           />
@@ -1045,7 +1007,7 @@ watch(() => props.citationSourceRequest, (request) => {
 
 .workspace-sidebar-card.is-embedded {
   position: static;
-  padding: 10px 22px 18px 32px !important;
+  padding: 10px 22px 18px 16px !important;
   min-width: 0;
   overflow: visible !important;
   border: 0;
@@ -1066,115 +1028,6 @@ watch(() => props.citationSourceRequest, (request) => {
     flex: 0 0 auto !important;
     width: 100% !important;
   }
-}
-
-.embedded-folder-drawer {
-  position: absolute;
-  inset: 0 auto 0 0;
-  z-index: 40;
-  width: min(360px, calc(100% - 42px));
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 20px 18px 18px;
-  background: rgba(255, 255, 255, 0.98);
-  border-right: 1px solid rgba(226, 224, 232, 0.9);
-  box-shadow: 24px 0 48px rgba(48, 42, 58, 0.12);
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-}
-
-.embedded-folder-drawer-header {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.embedded-folder-session-heading {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.embedded-folder-session-home {
-  width: 42px;
-  height: 42px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.embedded-folder-session-home:hover {
-  box-shadow: 0 0 0 4px rgba(29, 29, 31, 0.06);
-}
-
-.embedded-folder-session-home:active {
-  transform: scale(0.96);
-}
-
-.embedded-folder-session-logo {
-  width: 42px;
-  height: 42px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  object-fit: cover;
-  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.12));
-}
-
-.embedded-folder-session-heading strong {
-  overflow: hidden;
-  color: #15161a;
-  font-size: 18px;
-  font-weight: 950;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.embedded-folder-drawer-close {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  color: #8e8e93;
-  background: rgba(239, 237, 244, 0.88);
-  transition: color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
-}
-
-.embedded-folder-drawer-close:hover {
-  color: #15161a;
-  background: rgba(229, 226, 235, 0.94);
-}
-
-.embedded-folder-drawer-close:active {
-  transform: scale(0.96);
-}
-
-.embedded-folder-drawer-close .material-symbols-outlined {
-  font-size: 18px;
-}
-
-.embedded-folder-drawer-enter-active,
-.embedded-folder-drawer-leave-active {
-  transition: opacity 0.22s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.embedded-folder-drawer-enter-from,
-.embedded-folder-drawer-leave-to {
-  opacity: 0;
-  transform: translateX(-18px);
 }
 
 .workspace-sidebar-card.is-embedded .workspace-file-header {
@@ -1216,6 +1069,35 @@ watch(() => props.citationSourceRequest, (request) => {
 
 .workspace-file-back-btn:hover {
   background: rgba(29, 29, 31, 0.06);
+}
+
+.workspace-file-source-toggle {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9px;
+  color: #15161a;
+  background: rgba(15, 23, 42, 0.06);
+  cursor: pointer;
+  transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+}
+
+.workspace-file-source-toggle:hover {
+  color: #111827;
+  background: rgba(15, 23, 42, 0.1);
+}
+
+.workspace-file-source-toggle:active {
+  transform: scale(0.96);
+}
+
+.workspace-file-source-toggle .material-symbols-outlined {
+  font-size: 20px;
+  font-variation-settings: 'FILL' 0;
 }
 
 .workspace-file-back-btn:active {

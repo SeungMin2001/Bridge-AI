@@ -24,6 +24,7 @@ const {
   activeFileName,
   activeFileId,
   activeFileType,
+  currentAttachments,
   currentRecordings,
   currentPreviewMaterial,
   isRightSidebarVisible,
@@ -46,6 +47,7 @@ const {
   handleAddToNote,
   handleAskAi,
   handleUploadLectureMaterials,
+  handleUploadRecordingFile,
   handleClosePreviewMaterial,
   handleOpenStoredMaterial,
   handleOpenRecording
@@ -126,6 +128,7 @@ const {
     @addToNote="handleAddToNote"
     @askAi="handleAskAi"
     @uploadLectureMaterials="handleUploadLectureMaterials"
+    @uploadRecordingFile="handleUploadRecordingFile"
     @closePreviewMaterial="handleClosePreviewMaterial"
     @openStoredMaterial="handleOpenStoredMaterial"
     @openRecording="handleOpenRecording"

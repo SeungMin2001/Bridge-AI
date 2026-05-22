@@ -5,6 +5,7 @@ import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
 import { useChat } from '../../composables/useChat'
+import { deleteWorkspaceRecordingData, isWorkspaceUuid, saveSessionResources } from '../../api/workspaceApi.js'
 
 const props = defineProps({
   transcriptions: { type: Array, default: () => [] },
@@ -48,6 +49,7 @@ const emit = defineEmits([
   'addToNote',
   'askAi',
   'uploadLectureMaterials',
+  'uploadRecordingFile',
   'closePreviewMaterial',
   'openStoredMaterial',
   'openRecording'
@@ -56,19 +58,40 @@ const emit = defineEmits([
 const isLeftSidebarCollapsed = ref(false)
 const { showCitePopover, currentCite, citePopoverPos, closeCitePopover, clearHistory } = useChat()
 const citationSourceRequest = ref(null)
+const recordingSourceRequest = ref(null)
 const materialEvidenceRequest = ref(null)
 const mainContentTabRequest = ref(null)
-const isEmbeddedFolderOpen = ref(false)
+const isMiniSourceOpen = ref(false)
 const workspaceActiveMainTab = ref('materials')
 const workspaceUnifiedCardRef = ref(null)
+const miniMaterialFileInput = ref(null)
+const miniRecordingFileInput = ref(null)
+const miniSourceMenu = ref({ visible: false, x: 0, y: 0, source: null })
 const scriptPaneWidth = ref(50)
 const isScriptPaneResizing = ref(false)
+const selectedMiniSourceIds = ref(new Set())
+const knownMiniSourceIds = ref(new Set())
 
 const DEFAULT_SCRIPT_PANE_PERCENT = 50
 const MAX_SCRIPT_PANE_PERCENT = 72
 const MIN_SCRIPT_PANE_WIDTH = 280
 const MIN_MAIN_PANE_WIDTH = 340
 const RESIZE_KEY_STEP = 2
+
+function toggleMiniSourcePanel() {
+  isMiniSourceOpen.value = !isMiniSourceOpen.value
+}
+
+function handleMiniCardClick(event) {
+  if (isMiniSourceOpen.value) return
+
+  const target = event.target
+  if (target instanceof Element && target.closest('button, input, .workspace-mini-add-menu, .mini-source-context-menu')) {
+    return
+  }
+
+  isMiniSourceOpen.value = true
+}
 
 function getScriptPaneMinPercent() {
   const cardWidth = workspaceUnifiedCardRef.value?.getBoundingClientRect().width || 0
@@ -163,7 +186,11 @@ onUnmounted(() => {
 
 watch(() => props.activeFileId, () => {
   citationSourceRequest.value = null
+  recordingSourceRequest.value = null
   materialEvidenceRequest.value = null
+  closeMiniSourceMenu()
+  selectedMiniSourceIds.value = new Set()
+  knownMiniSourceIds.value = new Set()
   clearHistory()
   closeCitePopover()
   emit('update:aiInput', '')
@@ -230,6 +257,19 @@ function findNodeById(nodes = [], id = '') {
     }
   }
   return null
+}
+
+function replaceNodeById(nodes = [], id = '', replacement = null) {
+  return nodes.map((node) => {
+    if (node?.id === id) return replacement || node
+    if (Array.isArray(node?.children)) {
+      return {
+        ...node,
+        children: replaceNodeById(node.children, id, replacement)
+      }
+    }
+    return node
+  })
 }
 
 function findMaterialInNode(node, cite = {}) {
@@ -383,28 +423,348 @@ function collectTranscriptIds(recordings = []) {
   return Array.from(ids)
 }
 
-const activeWorkspaceSource = computed(() => {
-  if (!props.activeFileId) return null
+const activeSourceNode = computed(() => (
+  props.activeFileId ? findNodeById(props.fileTree, props.activeFileId) : null
+))
+
+const miniSourceWeeks = computed(() => {
+  const weeks = Array.isArray(activeSourceNode.value?.weeks) ? activeSourceNode.value.weeks : []
+
+  if (weeks.length) {
+    return weeks.map((week, index) => ({
+      id: week?.id || `week-${index + 1}`,
+      label: week?.label || `${index + 1}주차`,
+      materials: Array.isArray(week?.materials) ? week.materials : [],
+      recordings: Array.isArray(week?.recordings) ? week.recordings : []
+    }))
+  }
 
   const materials = Array.isArray(props.currentAttachments) ? props.currentAttachments : []
   const recordings = Array.isArray(props.currentRecordings) ? props.currentRecordings : []
-  const materialSources = materials.map((material, index) => ({
-    id: material?.id || material?.storedName || material?.url || material?.name || `material-${index}`,
-    type: 'material',
-    title: material?.name || material?.title || `강의자료 ${index + 1}`,
-    material,
-    transcriptIds: []
+  if (!materials.length && !recordings.length) return []
+
+  return [{
+    id: 'current-week',
+    label: '1주차',
+    materials,
+    recordings
+  }]
+})
+
+const miniSourceTotalCount = computed(() => (
+  miniSourceWeeks.value.reduce((total, week) => (
+    total + week.materials.length + week.recordings.length
+  ), 0)
+))
+
+function getMiniSourceId(item, prefix, index) {
+  return item?.id || item?.recordingId || item?.storedName || item?.url || item?.name || `${prefix}-${index}`
+}
+
+function getMiniMaterialIcon(material = {}) {
+  const name = material?.name || material?.storedName || ''
+  if (/\.(ppt|pptx)$/i.test(name)) return 'slideshow'
+  if (/\.pdf$/i.test(name)) return 'picture_as_pdf'
+  return 'description'
+}
+
+function getMiniMaterialTitle(material = {}, index = 0) {
+  return material?.name || material?.title || `강의자료 ${index + 1}`
+}
+
+function getMiniRecordingTitle(recording = {}, index = 0) {
+  return recording?.title || recording?.name || `녹음본 ${index + 1}`
+}
+
+const miniSourceItems = computed(() => (
+  miniSourceWeeks.value.flatMap((week) => [
+    ...week.materials.map((material, index) => {
+      const id = getMiniSourceId(material, 'material', index)
+      return {
+        uid: `material:${id}`,
+        type: 'material',
+        weekId: week.id,
+        materialId: id,
+        title: getMiniMaterialTitle(material, index),
+        icon: getMiniMaterialIcon(material),
+        material,
+        transcriptIds: []
+      }
+    }),
+    ...week.recordings.map((recording, index) => {
+      const id = getMiniSourceId(recording, 'recording', index)
+      return {
+        uid: `recording:${id}`,
+        id,
+        type: 'recording',
+        weekId: week.id,
+        title: getMiniRecordingTitle(recording, index),
+        icon: 'graphic_eq',
+        recordingId: recording?.id || recording?.recordingId || '',
+        recording,
+        transcriptIds: collectTranscriptIds([recording])
+      }
+    })
+  ])
+))
+
+const selectedMiniSourceItems = computed(() => (
+  miniSourceItems.value.filter((source) => selectedMiniSourceIds.value.has(source.uid))
+))
+
+const areAllMiniSourcesSelected = computed(() => (
+  miniSourceItems.value.length > 0 && selectedMiniSourceItems.value.length === miniSourceItems.value.length
+))
+
+watch(
+  miniSourceItems,
+  (sources) => {
+    const validIds = new Set(sources.map((source) => source.uid))
+    const knownIds = knownMiniSourceIds.value
+    const next = new Set(
+      Array.from(selectedMiniSourceIds.value).filter((id) => validIds.has(id))
+    )
+
+    sources.forEach((source) => {
+      if (!knownIds.has(source.uid)) {
+        next.add(source.uid)
+      }
+    })
+
+    selectedMiniSourceIds.value = next
+    knownMiniSourceIds.value = validIds
+  },
+  { immediate: true }
+)
+
+function isMiniSourceSelected(uid) {
+  return selectedMiniSourceIds.value.has(uid)
+}
+
+function toggleMiniSource(uid) {
+  const next = new Set(selectedMiniSourceIds.value)
+  if (next.has(uid)) next.delete(uid)
+  else next.add(uid)
+  selectedMiniSourceIds.value = next
+}
+
+function toggleAllMiniSources() {
+  selectedMiniSourceIds.value = areAllMiniSourcesSelected.value
+    ? new Set()
+    : new Set(miniSourceItems.value.map((source) => source.uid))
+}
+
+function openMiniMaterial(material = {}) {
+  if (!material?.id) return
+  emit('openStoredMaterial', material.id)
+  mainContentTabRequest.value = {
+    id: `mini-material-${material.id}-${Date.now()}`,
+    tab: 'materials'
+  }
+}
+
+function openMiniRecording(recording = {}) {
+  const recordingId = recording?.id || recording?.recordingId || ''
+  recordingSourceRequest.value = {
+    id: `mini-recording-${recordingId || Date.now()}-${Date.now()}`,
+    fileId: props.activeFileId,
+    node: activeSourceNode.value,
+    recordingId,
+    recording
+  }
+}
+
+function closeMiniSourceMenu() {
+  miniSourceMenu.value = { visible: false, x: 0, y: 0, source: null }
+}
+
+function openMiniSourceMenu(source, event) {
+  event?.stopPropagation?.()
+  const rect = event?.currentTarget?.getBoundingClientRect?.()
+  const menuWidth = 158
+  const menuHeight = 102
+  const baseX = rect ? rect.right + 8 : event?.clientX || 0
+  const baseY = rect ? rect.top : event?.clientY || 0
+  miniSourceMenu.value = {
+    visible: true,
+    x: Math.min(baseX, window.innerWidth - menuWidth - 12),
+    y: Math.min(baseY, window.innerHeight - menuHeight - 12),
+    source
+  }
+}
+
+function matchesMiniMaterial(item = {}, source = {}, index = 0) {
+  return getMiniSourceId(item, 'material', index) === source.materialId
+    || (source.material?.id && item?.id === source.material.id)
+}
+
+function matchesMiniRecording(item = {}, source = {}, index = 0) {
+  const sourceId = source.recordingId || source.id
+  return getMiniSourceId(item, 'recording', index) === source.id
+    || (sourceId && (item?.id === sourceId || item?.recordingId === sourceId))
+}
+
+function syncMiniNodeFlatResources(node = {}) {
+  if (!Array.isArray(node.weeks)) return
+  node.attachments = node.weeks.flatMap((week) => (
+    Array.isArray(week?.materials) ? week.materials : []
+  ))
+  node.recordings = node.weeks.flatMap((week) => (
+    Array.isArray(week?.recordings) ? week.recordings : []
+  ))
+}
+
+async function persistMiniSourceTree(nextTree, node) {
+  emit('update:fileTree', nextTree)
+  emit('fileSelect', props.activeFileId, node)
+
+  if (!isWorkspaceUuid(props.activeFileId) || !Array.isArray(node?.weeks)) return
+  await saveSessionResources(props.activeFileId, node.weeks)
+}
+
+async function handleMiniSourceAction(action) {
+  const source = miniSourceMenu.value.source
+  closeMiniSourceMenu()
+  if (!source || !props.activeFileId) return
+
+  if (action === 'rename') {
+    const nextName = prompt(
+      source.type === 'recording' ? '새 녹음본 이름을 입력하세요:' : '새 파일 이름을 입력하세요:',
+      source.title
+    )
+    if (!nextName?.trim()) return
+
+    const nextTree = JSON.parse(JSON.stringify(props.fileTree))
+    const node = findNodeById(nextTree, props.activeFileId)
+    const week = Array.isArray(node?.weeks)
+      ? node.weeks.find((item) => (item?.id || '') === source.weekId)
+      : null
+    if (!node) return
+
+    if (source.type === 'material') {
+      if (Array.isArray(week?.materials)) {
+        week.materials = week.materials.map((item, index) => (
+          matchesMiniMaterial(item, source, index)
+            ? { ...item, name: nextName.trim(), title: nextName.trim() }
+            : item
+        ))
+      }
+      node.attachments = Array.isArray(node.attachments)
+        ? node.attachments.map((item, index) => (
+          matchesMiniMaterial(item, source, index)
+            ? { ...item, name: nextName.trim(), title: nextName.trim() }
+            : item
+        ))
+        : node.attachments
+    } else {
+      if (Array.isArray(week?.recordings)) {
+        week.recordings = week.recordings.map((item, index) => (
+          matchesMiniRecording(item, source, index)
+            ? { ...item, title: nextName.trim(), name: nextName.trim() }
+            : item
+        ))
+      }
+      node.recordings = Array.isArray(node.recordings)
+        ? node.recordings.map((item, index) => (
+          matchesMiniRecording(item, source, index)
+            ? { ...item, title: nextName.trim(), name: nextName.trim() }
+            : item
+        ))
+        : node.recordings
+    }
+
+    syncMiniNodeFlatResources(node)
+    try {
+      await persistMiniSourceTree(nextTree, node)
+    } catch (error) {
+      console.error('[workspace] mini source rename failed:', error)
+      alert('이름 변경 저장에 실패했습니다.')
+    }
+    return
+  }
+
+  if (action !== 'delete') return
+  if (!confirm(`"${source.title}"을(를) 삭제할까요?`)) return
+
+  if (source.type === 'recording' && isWorkspaceUuid(props.activeFileId) && source.recordingId) {
+    try {
+      const result = await deleteWorkspaceRecordingData(props.activeFileId, source.recordingId)
+      if (result?.node) {
+        const nextTree = replaceNodeById(props.fileTree, props.activeFileId, result.node)
+        selectedMiniSourceIds.value = new Set(
+          Array.from(selectedMiniSourceIds.value).filter((uid) => uid !== source.uid)
+        )
+        emit('update:fileTree', nextTree)
+        emit('fileSelect', props.activeFileId, result.node)
+        return
+      }
+    } catch (error) {
+      console.error('[workspace] mini recording delete failed:', error)
+      alert('녹음본 삭제에 실패했습니다.')
+      return
+    }
+  }
+
+  const nextTree = JSON.parse(JSON.stringify(props.fileTree))
+  const node = findNodeById(nextTree, props.activeFileId)
+  const week = Array.isArray(node?.weeks)
+    ? node.weeks.find((item) => (item?.id || '') === source.weekId)
+    : null
+  if (!node) return
+
+  if (source.type === 'material') {
+    if (Array.isArray(week?.materials)) {
+      week.materials = week.materials.filter((item, index) => !matchesMiniMaterial(item, source, index))
+    }
+    node.attachments = Array.isArray(node.attachments)
+      ? node.attachments.filter((item, index) => !matchesMiniMaterial(item, source, index))
+      : node.attachments
+  } else {
+    if (Array.isArray(week?.recordings)) {
+      week.recordings = week.recordings.filter((item, index) => !matchesMiniRecording(item, source, index))
+    }
+    node.recordings = Array.isArray(node.recordings)
+      ? node.recordings.filter((item, index) => !matchesMiniRecording(item, source, index))
+      : node.recordings
+  }
+
+  syncMiniNodeFlatResources(node)
+  selectedMiniSourceIds.value = new Set(
+    Array.from(selectedMiniSourceIds.value).filter((uid) => uid !== source.uid)
+  )
+  try {
+    await persistMiniSourceTree(nextTree, node)
+  } catch (error) {
+    console.error('[workspace] mini source delete failed:', error)
+    alert('삭제 저장에 실패했습니다.')
+  }
+}
+
+function handleMiniMaterialFileChange(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!files.length) return
+  emit('uploadLectureMaterials', files)
+}
+
+function handleMiniRecordingFileChange(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!files.length) return
+  emit('uploadRecordingFile', files)
+}
+
+const activeWorkspaceSource = computed(() => {
+  if (!props.activeFileId) return null
+
+  const sources = miniSourceItems.value.map(({ uid, icon, ...source }) => ({
+    id: source.material?.id || source.recordingId || uid,
+    ...source
   }))
-  const recordingSources = recordings.map((recording, index) => ({
-    id: recording?.id || recording?.recordingId || recording?.title || `recording-${index}`,
-    type: 'recording',
-    title: recording?.title || `녹음본 ${index + 1}`,
-    recordingId: recording?.id || recording?.recordingId || '',
-    recording,
-    transcriptIds: collectTranscriptIds([recording])
-  }))
-  const sources = [...materialSources, ...recordingSources]
-  const transcriptIds = Array.from(new Set(recordingSources.flatMap((source) => source.transcriptIds || [])))
+  const recordings = sources
+    .filter((source) => source.type === 'recording' && source.recording)
+    .map((source) => source.recording)
+  const transcriptIds = Array.from(new Set(sources.flatMap((source) => source.transcriptIds || [])))
   const sourceCount = sources.length
 
   return {
@@ -423,7 +783,7 @@ const activeWorkspaceSource = computed(() => {
   <div 
     class="workspace-page-shell p-[12px] flex relative h-full w-full text-[#1e293b] overflow-hidden transition-all duration-400"
     :class="[
-      { 'gap-[12px]': !isLeftSidebarCollapsed || isRightSidebarVisible }
+      { 'gap-[8px]': !isLeftSidebarCollapsed || isRightSidebarVisible }
     ]"
   >
     <transition name="schedule-notice-fade">
@@ -476,6 +836,139 @@ const activeWorkspaceSource = computed(() => {
       </section>
     </transition>
 
+    <aside
+      :class="['workspace-mini-card', { 'is-open': isMiniSourceOpen }]"
+      aria-label="워크스페이스 빠른 메뉴"
+      @click="handleMiniCardClick"
+    >
+      <div class="workspace-mini-top">
+        <button
+          type="button"
+          class="workspace-mini-toggle"
+          aria-label="홈으로 이동"
+          title="홈으로 이동"
+          @click="emit('navigateHome')"
+        >
+          <img class="workspace-mini-toggle-logo" src="/images/logo.png" alt="" draggable="false" />
+        </button>
+
+        <div class="workspace-mini-actions">
+          <div class="workspace-mini-add-wrap">
+            <button
+              type="button"
+              class="workspace-mini-action workspace-mini-add-btn"
+              aria-label="소스 추가"
+              title="소스 추가"
+              data-label="소스 추가"
+              :disabled="!activeFileId"
+            >
+              <span class="material-symbols-outlined">add</span>
+              <span class="workspace-mini-add-label">소스 추가</span>
+            </button>
+            <div class="workspace-mini-add-menu" role="menu">
+              <button type="button" role="menuitem" @click="miniMaterialFileInput?.click()">
+                <span class="material-symbols-outlined">article</span>
+                <span>강의자료</span>
+              </button>
+              <button type="button" role="menuitem" @click="miniRecordingFileInput?.click()">
+                <span class="material-symbols-outlined">graphic_eq</span>
+                <span>음성파일</span>
+              </button>
+            </div>
+          </div>
+          <input
+            ref="miniMaterialFileInput"
+            class="hidden"
+            type="file"
+            accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            multiple
+            @change="handleMiniMaterialFileChange"
+          />
+          <input
+            ref="miniRecordingFileInput"
+            class="hidden"
+            type="file"
+            accept="audio/*,.aac,.flac,.m4a,.mp3,.ogg,.opus,.wav,.webm"
+            @change="handleMiniRecordingFileChange"
+          />
+        </div>
+      </div>
+
+      <div class="workspace-mini-source-panel">
+        <div class="workspace-mini-source-heading">
+          <small>{{ miniSourceTotalCount }}개</small>
+        </div>
+
+        <div v-if="activeFileId && miniSourceItems.length" class="workspace-mini-source-tree custom-scrollbar">
+          <label class="mini-source-select-all">
+            <span>모두 선택</span>
+            <input
+              type="checkbox"
+              :checked="areAllMiniSourcesSelected"
+              @change="toggleAllMiniSources"
+            />
+          </label>
+
+          <div
+            v-for="source in miniSourceItems"
+            :key="source.uid"
+            class="mini-source-check-row"
+          >
+            <button
+              type="button"
+              class="mini-source-icon-button"
+              :class="source.type"
+              :aria-label="`${source.title} 메뉴 열기`"
+              :title="`${source.title} 메뉴`"
+              @click="openMiniSourceMenu(source, $event)"
+            >
+              <span class="material-symbols-outlined mini-source-item-icon default-icon">{{ source.icon }}</span>
+              <span class="material-symbols-outlined mini-source-item-icon hover-icon">more_vert</span>
+            </button>
+            <button
+              type="button"
+              class="mini-source-open-btn"
+              :title="source.title"
+              @click.prevent="source.type === 'material' ? openMiniMaterial(source.material) : openMiniRecording(source.recording)"
+            >
+              <span>{{ source.title }}</span>
+            </button>
+            <input
+              type="checkbox"
+              :checked="isMiniSourceSelected(source.uid)"
+              @click.stop
+              @change="toggleMiniSource(source.uid)"
+            />
+          </div>
+        </div>
+
+        <div v-else class="workspace-mini-source-empty">
+          {{ activeFileId ? '저장된 소스가 없습니다.' : '파일을 선택하세요.' }}
+        </div>
+      </div>
+
+      <div
+        v-if="miniSourceMenu.visible"
+        class="mini-source-menu-backdrop"
+        @click="closeMiniSourceMenu"
+      ></div>
+      <div
+        v-if="miniSourceMenu.visible"
+        class="mini-source-context-menu"
+        :style="{ left: `${miniSourceMenu.x}px`, top: `${miniSourceMenu.y}px` }"
+      >
+        <button type="button" @click="handleMiniSourceAction('rename')">
+          <span class="material-symbols-outlined">edit</span>
+          <span>이름 변경</span>
+        </button>
+        <div class="mini-source-menu-divider"></div>
+        <button type="button" class="danger" @click="handleMiniSourceAction('delete')">
+          <span class="material-symbols-outlined">delete</span>
+          <span>삭제</span>
+        </button>
+      </div>
+    </aside>
+
     <section
       ref="workspaceUnifiedCardRef"
       class="workspace-unified-card card relative z-10"
@@ -485,7 +978,6 @@ const activeWorkspaceSource = computed(() => {
       }"
       :style="{ '--workspace-script-pane-width': `${scriptPaneWidth}%` }"
     >
-      <div id="workspace-unified-folder-drawer-host" class="workspace-unified-folder-drawer-host"></div>
       <div id="workspace-unified-audio-player-host" class="workspace-unified-audio-player-host"></div>
 
       <LeftSidebar
@@ -506,10 +998,10 @@ const activeWorkspaceSource = computed(() => {
         :activeFileId="activeFileId"
         :activeFileType="activeFileType"
         :citationSourceRequest="citationSourceRequest"
-        :embedded-folder-open="isEmbeddedFolderOpen"
+        :recordingSourceRequest="recordingSourceRequest"
+        :source-panel-open="isMiniSourceOpen"
         :script-tab-line-visible="true"
-        @update:embeddedFolderOpen="isEmbeddedFolderOpen = $event"
-        @update:embedded-folder-open="isEmbeddedFolderOpen = $event"
+        @toggle-source-panel="toggleMiniSourcePanel"
         @navigateHome="emit('navigateHome')"
         @fileSelect="(id, node) => emit('fileSelect', id, node)"
         @update:fileTree="emit('update:fileTree', $event)"
@@ -561,7 +1053,6 @@ const activeWorkspaceSource = computed(() => {
         :summaryNotes="summaryNotes"
         :quizSource="activeWorkspaceSource"
         :tabRequest="mainContentTabRequest"
-        :folder-drawer-open="isEmbeddedFolderOpen"
         @startRecording="emit('startRecording', $event)"
         @pauseRecording="emit('pauseRecording')"
         @resumeRecording="emit('resumeRecording')"
@@ -575,7 +1066,6 @@ const activeWorkspaceSource = computed(() => {
         @uploadLectureMaterials="emit('uploadLectureMaterials', $event)"
         @closePreviewMaterial="emit('closePreviewMaterial')"
         @openStoredMaterial="emit('openStoredMaterial', $event)"
-        @toggleFolderDrawer="isEmbeddedFolderOpen = !isEmbeddedFolderOpen"
         @activeTabChange="workspaceActiveMainTab = $event"
       />
     </section>
@@ -665,6 +1155,517 @@ const activeWorkspaceSource = computed(() => {
   -webkit-backdrop-filter: blur(18px);
 }
 
+.workspace-mini-card {
+  --workspace-mini-collapsed-width: 76px;
+  --workspace-mini-expanded-width: 220px;
+  --workspace-mini-bg: var(--copy-bg, #050506);
+  --workspace-mini-fg: #f8fafc;
+  --workspace-mini-muted: #9ca3af;
+  --workspace-mini-panel: #2b2d33;
+  --workspace-mini-panel-hover: #343740;
+  --workspace-mini-line: #e5e7eb;
+  flex: 0 0 var(--workspace-mini-collapsed-width);
+  width: var(--workspace-mini-collapsed-width);
+  min-width: var(--workspace-mini-collapsed-width);
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 14px;
+  overflow: visible;
+  border: 1px solid var(--workspace-mini-bg);
+  border-radius: 24px;
+  background: var(--workspace-mini-bg);
+  box-shadow: none;
+  transition: flex-basis 0.2s ease, width 0.2s ease, min-width 0.2s ease, box-shadow 0.2s ease;
+}
+
+.workspace-mini-card:not(.is-open) {
+  cursor: pointer;
+}
+
+.workspace-mini-card.is-open {
+  flex-basis: var(--workspace-mini-expanded-width);
+  width: var(--workspace-mini-expanded-width);
+  min-width: var(--workspace-mini-expanded-width);
+  box-shadow: none;
+}
+
+.workspace-mini-toggle {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  color: var(--workspace-mini-fg);
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.workspace-mini-toggle:hover {
+  color: var(--workspace-mini-fg);
+  transform: translateY(-1px);
+}
+
+.workspace-mini-toggle-logo {
+  width: 43px;
+  height: 43px;
+  display: block;
+  object-fit: cover;
+  border-radius: 999px;
+  user-select: none;
+  pointer-events: none;
+}
+
+.workspace-mini-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.workspace-mini-card.is-open .workspace-mini-top {
+  align-items: flex-start;
+}
+
+.workspace-mini-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  outline: none;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.workspace-mini-action:hover {
+  transform: translateY(-1px);
+}
+
+.workspace-mini-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.workspace-mini-card.is-open .workspace-mini-actions {
+  align-items: stretch;
+  width: 100%;
+}
+
+.workspace-mini-add-wrap {
+  position: relative;
+}
+
+.workspace-mini-action {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 14px;
+  color: var(--workspace-mini-fg);
+  background: var(--workspace-mini-bg);
+}
+
+.workspace-mini-add-label {
+  display: none;
+  font-size: 17px;
+  font-weight: 800;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.workspace-mini-card.is-open .workspace-mini-add-wrap {
+  width: 100%;
+}
+
+.workspace-mini-card.is-open .workspace-mini-add-btn {
+  width: 100%;
+  height: 48px;
+  flex-basis: 48px;
+  border: 0;
+  border-radius: 999px;
+  gap: 12px;
+  color: var(--workspace-mini-fg);
+  background: var(--workspace-mini-panel);
+  box-shadow: none;
+}
+
+.workspace-mini-card.is-open .workspace-mini-add-btn .material-symbols-outlined {
+  font-size: 25px;
+}
+
+.workspace-mini-card.is-open .workspace-mini-add-label {
+  display: inline;
+}
+
+.workspace-mini-action:hover {
+  color: var(--workspace-mini-fg);
+  background: var(--workspace-mini-panel-hover);
+}
+
+.workspace-mini-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.workspace-mini-action .material-symbols-outlined {
+  font-size: 22px;
+}
+
+.workspace-mini-action::after {
+  content: attr(data-label);
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 10px);
+  z-index: 20;
+  transform: translate(-6px, -50%);
+  width: max-content;
+  max-width: 116px;
+  padding: 8px 11px;
+  border-radius: 999px;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.workspace-mini-action:hover::after,
+.workspace-mini-action:focus-visible::after {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.workspace-mini-add-btn::after {
+  display: none;
+}
+
+.workspace-mini-add-menu {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 10px);
+  z-index: 40;
+  width: 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-6px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.workspace-mini-add-wrap:hover .workspace-mini-add-menu,
+.workspace-mini-add-wrap:focus-within .workspace-mini-add-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.workspace-mini-add-menu button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 11px;
+  padding: 8px 9px;
+  color: #334155;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.workspace-mini-add-menu button:hover {
+  color: #111827;
+  background: #f1f5f9;
+}
+
+.workspace-mini-add-menu .material-symbols-outlined {
+  font-size: 18px;
+  color: #64748b;
+}
+
+.workspace-mini-source-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  overflow: hidden;
+}
+
+.workspace-mini-card.is-open .workspace-mini-source-panel {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.workspace-mini-source-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  color: var(--workspace-mini-fg);
+}
+
+.workspace-mini-source-heading span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workspace-mini-source-heading small {
+  min-width: 30px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  background: #f1f5f9;
+}
+
+.workspace-mini-source-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.mini-source-select-all,
+.mini-source-check-row {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  column-gap: 8px;
+  color: var(--workspace-mini-fg);
+}
+
+.mini-source-select-all {
+  grid-template-columns: minmax(0, 1fr) 18px;
+  padding: 2px 0 7px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mini-source-check-row {
+  grid-template-columns: 26px minmax(0, 1fr) 18px;
+  min-height: 36px;
+  padding: 6px 0;
+}
+
+.mini-source-open-btn {
+  grid-column: 2;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: 10px;
+  padding: 6px 6px;
+  color: #cbd5e1;
+  background: transparent;
+  text-align: left;
+}
+
+.mini-source-open-btn:hover {
+  color: var(--workspace-mini-fg);
+  background: var(--workspace-mini-panel);
+}
+
+.mini-source-open-btn span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.mini-source-icon-button {
+  grid-column: 1;
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(239, 246, 255, 0.92);
+  color: #2563eb;
+  cursor: pointer;
+  transition: background-color 0.16s ease, transform 0.16s ease;
+}
+
+.mini-source-icon-button.recording {
+  background: rgba(255, 242, 207, 0.9);
+  color: #f59e0b;
+}
+
+.mini-source-icon-button:hover {
+  transform: translateY(-1px);
+}
+
+.mini-source-item-icon {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: currentColor;
+  transition: opacity 0.14s ease;
+}
+
+.mini-source-icon-button .hover-icon {
+  opacity: 0;
+}
+
+.mini-source-check-row:hover .mini-source-icon-button .default-icon,
+.mini-source-icon-button:focus-visible .default-icon,
+.mini-source-menu-open .default-icon {
+  opacity: 0;
+}
+
+.mini-source-check-row:hover .mini-source-icon-button .hover-icon,
+.mini-source-icon-button:focus-visible .hover-icon,
+.mini-source-menu-open .hover-icon {
+  opacity: 1;
+}
+
+.mini-source-select-all input,
+.mini-source-check-row input {
+  position: relative;
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  appearance: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  background: #f1f5f9;
+  cursor: pointer;
+}
+
+.mini-source-select-all input:checked,
+.mini-source-check-row input:checked {
+  border-color: #cbd5e1;
+  background: #d5dbe4;
+}
+
+.mini-source-select-all input:checked::after,
+.mini-source-check-row input:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #64748b;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.mini-source-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.mini-source-context-menu {
+  position: fixed;
+  z-index: 90;
+  width: 158px;
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+}
+
+.mini-source-context-menu button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  padding: 12px 14px;
+  color: #1f2937;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.mini-source-context-menu button:hover {
+  background: #f8fafc;
+}
+
+.mini-source-context-menu button.danger {
+  color: #ef4444;
+}
+
+.mini-source-context-menu .material-symbols-outlined {
+  font-size: 17px;
+  color: currentColor;
+}
+
+.mini-source-menu-divider {
+  height: 1px;
+  background: #e5e7eb;
+}
+
+.workspace-mini-source-empty {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workspace-mini-source-empty {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  border: 1px dashed #d7dee9;
+  border-radius: 14px;
+  text-align: center;
+}
+
 .workspace-unified-card {
   --workspace-script-pane-width: 50%;
   --workspace-audio-player-height: 96px;
@@ -710,17 +1711,6 @@ const activeWorkspaceSource = computed(() => {
 
 .workspace-unified-card::after {
   top: 48px;
-}
-
-.workspace-unified-folder-drawer-host {
-  position: absolute;
-  inset: 0;
-  z-index: 90;
-  pointer-events: none;
-}
-
-.workspace-unified-folder-drawer-host :deep(.embedded-folder-drawer) {
-  pointer-events: auto;
 }
 
 .workspace-unified-audio-player-host {
@@ -841,6 +1831,12 @@ const activeWorkspaceSource = computed(() => {
     gap: 8px !important;
   }
 
+  .workspace-mini-card {
+    --workspace-mini-expanded-width: 220px;
+    padding: 14px 10px;
+    border-radius: 20px;
+  }
+
   .workspace-unified-card {
     border-radius: 20px;
   }
@@ -855,6 +1851,10 @@ const activeWorkspaceSource = computed(() => {
   .workspace-page-shell {
     padding: 8px !important;
     gap: 0 !important;
+  }
+
+  .workspace-mini-card {
+    display: none;
   }
 
   .workspace-unified-card {

@@ -2,7 +2,6 @@
 import { computed, ref, watch } from 'vue'
 import { isWorkspaceUuid } from '../../../api/workspaceApi.js'
 import { isPdfMaterial } from '../../../utils/pdfMaterial.js'
-import LoadingHourglass from '../../ui/LoadingHourglass.vue'
 
 const QUIZ_API_BASE = '/quiz'
 
@@ -21,6 +20,9 @@ const quizList = ref([])
 const activeQuiz = ref(null)
 const quizAnswers = ref({})
 const quizResult = ref(null)
+const activeQuestionPage = ref(0)
+const frontendQuizType = ref('SHORT_ANSWER')
+const frontendQuizDifficulty = ref('beginner')
 const quizTypeCounts = ref({
   MULTIPLE_CHOICE: 3,
   OX: 1,
@@ -29,7 +31,7 @@ const quizTypeCounts = ref({
 
 const quizModes = [
   { key: 'create', label: '만들기', icon: 'tune' },
-  { key: 'list', label: '퀴즈 목록', icon: 'format_list_bulleted' },
+  { key: 'list', label: '퀴즈 리스트', icon: 'format_list_bulleted' },
   { key: 'solve', label: '문제 풀기', icon: 'edit_note' }
 ]
 
@@ -55,6 +57,12 @@ const quizTypeOptions = [
     description: '핵심 답안을 직접 입력',
     tone: 'green'
   }
+]
+
+const frontendDifficultyOptions = [
+  { key: 'beginner', label: '초급' },
+  { key: 'intermediate', label: '중급' },
+  { key: 'advanced', label: '고급' }
 ]
 
 const formatQuizApiDetail = (detail, fallback = '') => {
@@ -186,6 +194,26 @@ const quizQuestionCount = computed(() => Object.values(quizTypeCounts.value).red
 const quizCapacityPercent = computed(() => `${Math.min(100, Math.max(0, (quizQuestionCount.value / 20) * 100))}%`)
 const hasActiveQuiz = computed(() => Array.isArray(activeQuiz.value?.quiz_data) && activeQuiz.value.quiz_data.length > 0)
 const isQuizBusy = computed(() => ['loading', 'generating', 'submitting'].includes(quizStatus.value))
+const currentQuizQuestions = computed(() => getQuizQuestions())
+const currentQuestion = computed(() => currentQuizQuestions.value[activeQuestionPage.value] || null)
+const currentQuestionNumber = computed(() => activeQuestionPage.value + 1)
+const currentQuestionAnswer = computed(() => (
+  currentQuestion.value
+    ? quizAnswers.value[String(currentQuestion.value.question_index)] || ''
+    : ''
+))
+const currentQuestionIsGraded = computed(() => (
+  currentQuestion.value?.is_correct !== null &&
+  currentQuestion.value?.is_correct !== undefined
+))
+const isLastQuizPage = computed(() => activeQuestionPage.value >= currentQuizQuestions.value.length - 1)
+const answeredQuestionCount = computed(() => (
+  currentQuizQuestions.value.filter((question) => String(quizAnswers.value[String(question.question_index)] || '').trim()).length
+))
+const isCurrentQuestionAnswered = computed(() => String(currentQuestionAnswer.value || '').trim().length > 0)
+const quizNextButtonLabel = computed(() => (
+  currentQuestionIsGraded.value && isLastQuizPage.value ? '완료' : '다음으로'
+))
 const canGenerateQuiz = computed(() => (
   isWorkspaceUuid(quizSessionId.value) &&
   hasSelectedQuizSource.value &&
@@ -203,22 +231,6 @@ const selectedSourceMeta = computed(() => {
   if (hasTranscriptScope.value) scopeParts.push(`전사 ${sourceTranscriptIds.value.length}개`)
   return `현재 파일 자료 ${sourceCount}개 · ${scopeParts.join(' · ')} 연결됨`
 })
-const quizScopeText = computed(() => {
-  if (props.quizSource?.title) return `${props.quizSource.title} 기준`
-  if (previewPdfMaterial.value) return `${previewPdfMaterial.value.name || 'PDF 강의자료'} 기준`
-  return props.activeFileName ? `${props.activeFileName} 전체 자료 기준` : '파일을 선택하면 퀴즈를 만들 수 있습니다.'
-})
-const quizProgressText = computed(() => {
-  if (quizStatus.value === 'loading') return '퀴즈를 불러오고 있습니다.'
-  if (quizStatus.value === 'generating') {
-    return hasPdfScope.value
-      ? '현재 파일의 PDF 텍스트로 퀴즈를 만들고 있습니다.'
-      : '현재 파일의 전사문으로 퀴즈를 만들고 있습니다.'
-  }
-  if (quizStatus.value === 'submitting') return '답안을 채점하고 있습니다.'
-  return ''
-})
-
 const getSourceIcon = (source = {}) => {
   if (source.type === 'recording') return 'graphic_eq'
   if (isPdfMaterial(materialFromSource(source))) return 'picture_as_pdf'
@@ -258,7 +270,9 @@ const buildQuizListItem = (quiz) => ({
   session_id: quiz.session_id || props.activeFileId,
   total_questions: quiz.total_questions || getQuizQuestions(quiz).length,
   correct_count: quiz.correct_count ?? null,
-  created_at: quiz.created_at || new Date().toISOString()
+  created_at: quiz.created_at || new Date().toISOString(),
+  is_demo: !!quiz.is_demo,
+  quiz_data: quiz.is_demo ? getQuizQuestions(quiz) : undefined
 })
 
 const resetQuizState = () => {
@@ -268,6 +282,7 @@ const resetQuizState = () => {
   activeQuiz.value = null
   quizAnswers.value = {}
   quizResult.value = null
+  activeQuestionPage.value = 0
   quizMode.value = 'create'
 }
 
@@ -275,6 +290,7 @@ const resetActiveQuiz = () => {
   activeQuiz.value = null
   quizAnswers.value = {}
   quizResult.value = null
+  activeQuestionPage.value = 0
 }
 
 const hydrateQuizAnswers = (questions = []) => {
@@ -288,6 +304,7 @@ const hydrateQuizAnswers = (questions = []) => {
 
 const setActiveQuiz = (quiz) => {
   activeQuiz.value = quiz
+  activeQuestionPage.value = 0
   const questions = getQuizQuestions(quiz)
   hydrateQuizAnswers(questions)
   quizResult.value = quiz?.correct_count === null || quiz?.correct_count === undefined
@@ -390,6 +407,233 @@ const generateQuizForSource = async () => {
   }
 }
 
+const getFrontendDifficultyLabel = () => (
+  frontendDifficultyOptions.find((option) => option.key === frontendQuizDifficulty.value)?.label || '초급'
+)
+
+const buildDemoQuestions = () => {
+  const sourceTitle = selectedQuizSourceTitle.value === '파일을 선택하세요'
+    ? '선택한 자료'
+    : selectedQuizSourceTitle.value
+  const difficulty = getFrontendDifficultyLabel()
+
+  return [
+    {
+      question_index: 1,
+      type: 'MULTIPLE_CHOICE',
+      question: `[${difficulty}] A대학교 교직원이 학생들의 자퇴율을 줄이기 위해 취업률 데이터를 분석하려고 합니다. 이때 두 변수 간의 연관성을 분석하기 위해 어떤 모델을 사용하는 것이 가장 적합합니까?`,
+      options: [
+        '취업률과 자퇴율을 동시에 분석하는 회귀 분석 모델',
+        '취업률과 자퇴율을 개별적으로 학습하는 군집화 모델',
+        'AI가 생성한 가짜 자퇴 데이터를 필터링하는 딥러닝 모델',
+        '자퇴생의 감정 상태를 다중 클래스로 분류하는 나이브 베이즈 모델'
+      ],
+      correct_answer: '취업률과 자퇴율을 동시에 분석하는 회귀 분석 모델',
+      explanation: '두 변수 간의 관계를 분석할 때는 회귀 분석 모델이 적합합니다. 군집화는 비슷한 특성을 묶는 방식이고, 딥러닝 필터링이나 감정 분류는 이 문제의 목적과 다릅니다.',
+      is_correct: null,
+      user_answer: null
+    },
+    {
+      question_index: 2,
+      type: 'OX',
+      question: `${sourceTitle}를 바탕으로 만든 퀴즈는 선택한 자료 범위와 무관하게 생성해도 된다.`,
+      options: ['O', 'X'],
+      correct_answer: 'X',
+      explanation: '자료 기반 퀴즈는 선택한 자료 범위를 기준으로 만들어져야 학습 맥락과 근거가 유지됩니다.',
+      is_correct: null,
+      user_answer: null
+    },
+    {
+      question_index: 3,
+      type: 'SHORT_ANSWER',
+      question: `${sourceTitle}에서 퀴즈를 만들 때 선택한 자료 범위를 기준으로 삼아야 하는 핵심 이유를 입력하세요.`,
+      options: [],
+      correct_answer: '자료의 맥락과 근거를 유지하기 위해서',
+      accepted_answers: ['맥락', '근거', '자료 범위', '선택한 자료'],
+      explanation: '단답형은 답안에 핵심 키워드가 포함되는지 확인하는 방식으로 데모 채점됩니다.',
+      is_correct: null,
+      user_answer: null
+    }
+  ]
+}
+
+const generateDemoQuiz = () => {
+  const demoQuestions = buildDemoQuestions()
+  const demoQuiz = {
+    quiz_id: `demo-${Date.now()}`,
+    session_id: quizSessionId.value || 'demo-session',
+    total_questions: demoQuestions.length,
+    correct_count: null,
+    created_at: new Date().toISOString(),
+    is_demo: true,
+    quiz_data: demoQuestions
+  }
+
+  setActiveQuiz(demoQuiz)
+  quizList.value = [
+    buildQuizListItem(demoQuiz),
+    ...quizList.value.filter((item) => !item.is_demo)
+  ]
+  quizError.value = ''
+  quizStatus.value = 'done'
+  quizMode.value = 'solve'
+}
+
+const normalizeDemoAnswer = (value) => String(value || '').trim().toLowerCase()
+
+const isDemoAnswerCorrect = (question, answer) => {
+  const normalizedAnswer = normalizeDemoAnswer(answer)
+  const normalizedCorrectAnswer = normalizeDemoAnswer(question.correct_answer)
+  if (!normalizedAnswer) return false
+  if (question.type === 'SHORT_ANSWER') {
+    const acceptedAnswers = Array.isArray(question.accepted_answers) && question.accepted_answers.length
+      ? question.accepted_answers
+      : [question.correct_answer]
+    return acceptedAnswers.some((acceptedAnswer) => {
+      const normalizedAcceptedAnswer = normalizeDemoAnswer(acceptedAnswer)
+      return normalizedAnswer.includes(normalizedAcceptedAnswer) || normalizedAcceptedAnswer.includes(normalizedAnswer)
+    })
+  }
+  return normalizedAnswer === normalizedCorrectAnswer
+}
+
+const updateQuestionByIndex = (questionIndex, patch) => {
+  activeQuiz.value = {
+    ...activeQuiz.value,
+    quiz_data: getQuizQuestions().map((question) => (
+      question.question_index === questionIndex ? { ...question, ...patch } : question
+    ))
+  }
+}
+
+const gradeCurrentQuestion = () => {
+  const question = currentQuestion.value
+  if (!question || !isCurrentQuestionAnswered.value) return
+  const answer = currentQuestionAnswer.value
+  updateQuestionByIndex(question.question_index, {
+    user_answer: answer,
+    is_correct: isDemoAnswerCorrect(question, answer)
+  })
+}
+
+const finalizePagedQuiz = () => {
+  const questions = getQuizQuestions()
+  const correctCount = questions.filter((question) => question.is_correct).length
+  const totalQuestions = questions.length
+  const result = {
+    correct_count: correctCount,
+    total_questions: totalQuestions,
+    score: totalQuestions ? Math.round((correctCount / totalQuestions) * 1000) / 10 : 0
+  }
+
+  activeQuiz.value = {
+    ...activeQuiz.value,
+    correct_count: correctCount,
+    total_questions: totalQuestions
+  }
+  quizResult.value = result
+  quizList.value = quizList.value.map((item) => (
+    item.quiz_id === activeQuiz.value?.quiz_id
+      ? {
+          ...item,
+          quiz_data: getQuizQuestions(),
+          correct_count: correctCount,
+          total_questions: totalQuestions
+        }
+      : item
+  ))
+}
+
+const goToNextQuizPage = () => {
+  if (!currentQuestion.value || quizResult.value) return
+  if (!currentQuestionIsGraded.value) {
+    gradeCurrentQuestion()
+    return
+  }
+  if (!isLastQuizPage.value) {
+    activeQuestionPage.value += 1
+    return
+  }
+  finalizePagedQuiz()
+}
+
+const resetPagedQuiz = () => {
+  activeQuiz.value = {
+    ...activeQuiz.value,
+    correct_count: null,
+    quiz_data: getQuizQuestions().map((question) => ({
+      ...question,
+      is_correct: null,
+      user_answer: null
+    }))
+  }
+  quizAnswers.value = {}
+  quizResult.value = null
+  activeQuestionPage.value = 0
+}
+
+const getQuizOptionClass = (question, option) => {
+  const answer = quizAnswers.value[String(question.question_index)] || ''
+  const isSelected = answer === option
+  const isGraded = question.is_correct !== null && question.is_correct !== undefined
+  return {
+    selected: isSelected,
+    correct: isGraded && option === question.correct_answer,
+    wrong: isGraded && isSelected && option !== question.correct_answer
+  }
+}
+
+const submitDemoQuizAnswers = () => {
+  const questions = getQuizQuestions()
+  let correctCount = 0
+  const gradedQuestions = questions.map((question) => {
+    const answer = quizAnswers.value[String(question.question_index)] || ''
+    const isCorrect = isDemoAnswerCorrect(question, answer)
+    if (isCorrect) correctCount += 1
+    return {
+      ...question,
+      user_answer: answer,
+      is_correct: isCorrect
+    }
+  })
+  const totalQuestions = gradedQuestions.length
+  const result = {
+    correct_count: correctCount,
+    total_questions: totalQuestions,
+    score: totalQuestions ? Math.round((correctCount / totalQuestions) * 1000) / 10 : 0
+  }
+
+  setActiveQuiz({
+    ...activeQuiz.value,
+    quiz_data: gradedQuestions,
+    correct_count: correctCount,
+    total_questions: totalQuestions
+  })
+  quizResult.value = result
+  quizList.value = quizList.value.map((item) => (
+    item.quiz_id === activeQuiz.value?.quiz_id
+      ? {
+          ...item,
+          quiz_data: gradedQuestions,
+          correct_count: correctCount,
+          total_questions: totalQuestions
+        }
+      : item
+  ))
+  quizStatus.value = 'done'
+}
+
+const openQuizFromList = (quiz) => {
+  if (quiz?.is_demo) {
+    setActiveQuiz(quiz)
+    quizMode.value = 'solve'
+    quizStatus.value = 'done'
+    quizError.value = ''
+    return
+  }
+  loadQuizDetail(quiz.quiz_id)
+}
+
 const setQuizAnswer = (question, answer) => {
   quizAnswers.value = {
     ...quizAnswers.value,
@@ -403,6 +647,11 @@ const isQuizOptionSelected = (question, option) => (
 
 const submitQuizAnswers = async () => {
   if (!activeQuiz.value?.quiz_id || isQuizBusy.value || quizResult.value) return
+
+  if (activeQuiz.value.is_demo) {
+    submitDemoQuizAnswers()
+    return
+  }
 
   quizStatus.value = 'submitting'
   quizError.value = ''
@@ -436,7 +685,6 @@ watch(
   () => props.activeFileId,
   () => {
     resetQuizState()
-    loadQuizzesForSession()
   },
   { immediate: true }
 )
@@ -455,13 +703,6 @@ watch(
 <template>
   <section :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
     <div class="quiz-panel max-w-5xl mx-auto w-full h-full min-h-0">
-      <div class="quiz-header">
-        <div class="min-w-0">
-          <h1>퀴즈</h1>
-          <p>{{ quizScopeText }}</p>
-        </div>
-      </div>
-
       <div class="quiz-mode-tabs" aria-label="퀴즈 화면 선택">
         <button
           v-for="mode in quizModes"
@@ -470,7 +711,6 @@ watch(
           :class="{ active: quizMode === mode.key }"
           @click="quizMode = mode.key"
         >
-          <span class="material-symbols-outlined">{{ mode.icon }}</span>
           <span>{{ mode.label }}</span>
         </button>
       </div>
@@ -485,130 +725,44 @@ watch(
         <p>워크스페이스 파일을 선택하면 퀴즈를 만들 수 있습니다.</p>
       </div>
 
-      <div v-else-if="quizProgressText" class="quiz-empty">
-        <LoadingHourglass :size="76" />
-        <p>{{ quizProgressText }}</p>
-      </div>
-
       <div v-else-if="quizMode === 'create'" class="quiz-create-view">
-        <section :class="['quiz-source-card', { empty: !hasSelectedQuizSource, blocked: hasSelectedQuizSource && !hasGeneratableScope }]">
-          <div class="quiz-source-icon">
-            <span class="material-symbols-outlined">{{ hasSelectedQuizSource ? 'draft' : 'touch_app' }}</span>
-          </div>
-          <div class="quiz-source-main min-w-0">
-            <div>
-              <span class="quiz-source-label">현재 파일 범위</span>
-              <strong>{{ hasSelectedQuizSource ? selectedQuizSourceTitle : '파일을 선택하세요' }}</strong>
-              <p>{{ selectedSourceMeta }}</p>
-              <div v-if="selectedSourceItems.length" class="quiz-source-list">
-                <span
-                  v-for="source in selectedSourceItems.slice(0, 4)"
-                  :key="source.id || source.title"
-                  class="quiz-source-chip"
-                >
-                  <span class="material-symbols-outlined">{{ getSourceIcon(source) }}</span>
-                  {{ source.title }}
-                </span>
-                <span v-if="selectedSourceItems.length > 4" class="quiz-source-more">
-                  +{{ selectedSourceItems.length - 4 }}
-                </span>
-              </div>
+        <section class="quiz-simple-builder" aria-label="퀴즈 만들기 설정">
+          <div class="quiz-simple-builder-header">
+            <div class="quiz-simple-title">
+              <h2>퀴즈 만들기</h2>
+              <span class="material-symbols-outlined" aria-hidden="true">info</span>
             </div>
+          </div>
 
-            <div class="quiz-source-stats" aria-label="퀴즈 생성 범위 요약">
-              <span>
-                <strong>{{ selectedPdfMaterials.length }}</strong>
-                PDF
+          <div class="quiz-simple-form">
+            <label class="quiz-simple-field">
+              <span>퀴즈 유형</span>
+              <span class="quiz-simple-select-wrap">
+                <select v-model="frontendQuizType" aria-label="퀴즈 유형">
+                  <option v-for="option in quizTypeOptions" :key="option.key" :value="option.key">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
               </span>
-              <span>
-                <strong>{{ sourceTranscriptIds.length }}</strong>
-                전사
+            </label>
+
+            <label class="quiz-simple-field">
+              <span>난이도</span>
+              <span class="quiz-simple-select-wrap">
+                <select v-model="frontendQuizDifficulty" aria-label="난이도">
+                  <option v-for="option in frontendDifficultyOptions" :key="option.key" :value="option.key">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
               </span>
-              <span>
-                <strong>{{ quizList.length }}</strong>
-                저장됨
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section class="quiz-builder">
-          <div class="quiz-builder-top">
-            <div>
-              <h2>퀴즈 구성</h2>
-              <p>{{ quizQuestionCount }}문항 · 객관식 {{ quizTypeCounts.MULTIPLE_CHOICE }} · O/X {{ quizTypeCounts.OX }} · 단답형 {{ quizTypeCounts.SHORT_ANSWER }}</p>
-            </div>
-            <div class="quiz-count-presets" aria-label="문항 수 빠른 선택">
-              <button
-                v-for="count in [5, 10, 15]"
-                :key="count"
-                type="button"
-                :class="{ active: quizQuestionCount === count }"
-                :disabled="isQuizBusy"
-                @click="applyPreset(count)"
-              >
-                {{ count }}
-              </button>
-            </div>
+            </label>
           </div>
 
-          <div class="quiz-builder-meter" :style="{ '--quiz-progress': quizCapacityPercent }">
-            <div class="quiz-builder-meter-track" aria-hidden="true">
-              <span></span>
-            </div>
-            <div class="quiz-builder-meter-labels">
-              <span>최소 1문항</span>
-              <strong>{{ quizQuestionCount }} / 20</strong>
-              <span>최대 20문항</span>
-            </div>
-          </div>
-
-          <div class="quiz-type-grid">
-            <article
-              v-for="option in quizTypeOptions"
-              :key="option.key"
-              :class="['quiz-type-card', `tone-${option.tone}`]"
-            >
-              <div class="quiz-type-main">
-                <span class="material-symbols-outlined">{{ option.icon }}</span>
-                <div>
-                  <strong>{{ option.label }}</strong>
-                  <p>{{ option.description }}</p>
-                </div>
-                <span class="quiz-type-count-badge">{{ quizTypeCounts[option.key] }}</span>
-              </div>
-              <div class="quiz-stepper" :aria-label="`${option.label} 문항 수`">
-                <button
-                  type="button"
-                  :disabled="quizTypeCounts[option.key] <= 0 || isQuizBusy"
-                  @click="adjustTypeCount(option.key, -1)"
-                >
-                  <span class="material-symbols-outlined">remove</span>
-                </button>
-                <span>{{ quizTypeCounts[option.key] }}</span>
-                <button
-                  type="button"
-                  :disabled="quizQuestionCount >= 20 || isQuizBusy"
-                  @click="adjustTypeCount(option.key, 1)"
-                >
-                  <span class="material-symbols-outlined">add</span>
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <div class="quiz-generate-row">
-            <span v-if="quizQuestionCount < 1">문항을 1개 이상 선택하세요.</span>
-            <span v-else-if="quizQuestionCount > 20">문항은 최대 20개까지 만들 수 있습니다.</span>
-            <span v-else>{{ quizQuestionCount }}문항 생성 준비됨</span>
-            <button
-              type="button"
-              class="quiz-primary-button"
-              :disabled="!canGenerateQuiz"
-              @click="generateQuizForSource"
-            >
-              <span class="material-symbols-outlined">add_task</span>
-              <span>퀴즈 생성</span>
+          <div class="quiz-simple-actions">
+            <button type="button" class="quiz-simple-primary" @click="generateDemoQuiz">
+              퀴즈 만들기
             </button>
           </div>
         </section>
@@ -616,10 +770,6 @@ watch(
 
       <div v-else-if="quizMode === 'list'" class="quiz-list-view">
         <div class="quiz-list-header">
-          <div>
-            <h2>퀴즈 목록</h2>
-            <p>{{ quizList.length }}개 저장됨</p>
-          </div>
           <button type="button" class="quiz-secondary-button" @click="quizMode = 'create'">
             <span class="material-symbols-outlined">add</span>
             <span>새로 만들기</span>
@@ -642,7 +792,7 @@ watch(
               <strong>{{ quiz.total_questions || 0 }}문항 퀴즈</strong>
               <p>{{ formatQuizDate(quiz.created_at) }} · {{ getQuizSummaryLabel(quiz) }}</p>
             </div>
-            <button type="button" class="quiz-secondary-button" @click="loadQuizDetail(quiz.quiz_id)">
+            <button type="button" class="quiz-secondary-button" @click="openQuizFromList(quiz)">
               <span class="material-symbols-outlined">play_arrow</span>
               <span>{{ quiz.correct_count === null || quiz.correct_count === undefined ? '풀기' : '다시 보기' }}</span>
             </button>
@@ -657,89 +807,78 @@ watch(
         </div>
 
         <template v-else>
-          <div class="quiz-solve-top">
-            <div>
-              <h2>{{ getQuizQuestions().length }}문항 퀴즈</h2>
-              <p>{{ Object.keys(quizAnswers).length }} / {{ getQuizQuestions().length }} 응답</p>
-            </div>
-            <button type="button" class="quiz-secondary-button" @click="quizMode = 'list'">
-              <span class="material-symbols-outlined">format_list_bulleted</span>
-              <span>목록</span>
-            </button>
-          </div>
-
           <div v-if="quizResult" class="quiz-result-bar">
             <div>
               <strong>{{ quizResult.score }}점</strong>
               <span>{{ quizResult.correct_count }} / {{ quizResult.total_questions }} 정답</span>
             </div>
-            <button type="button" class="quiz-secondary-button" @click="quizResult = null">
-              다시 보기
+            <button type="button" class="quiz-secondary-button" @click="resetPagedQuiz">
+              다시 풀기
             </button>
           </div>
 
-          <div class="quiz-question-list custom-scrollbar">
-            <article
-              v-for="question in getQuizQuestions()"
-              :key="question.question_index"
-              :class="[
-                'quiz-question-card',
-                `type-${question.type}`,
-                { graded: question.is_correct !== null && question.is_correct !== undefined }
-              ]"
-            >
-              <div class="quiz-question-top">
-                <span class="quiz-type-chip">{{ getQuizTypeLabel(question.type) }}</span>
-                <span class="quiz-question-index">{{ question.question_index }}</span>
+          <article
+            v-if="currentQuestion"
+            :class="[
+              'quiz-play-card',
+              `type-${currentQuestion.type}`,
+              {
+                graded: currentQuestionIsGraded,
+                correct: currentQuestionIsGraded && currentQuestion.is_correct,
+                wrong: currentQuestionIsGraded && !currentQuestion.is_correct
+              }
+            ]"
+          >
+            <div class="quiz-play-question">
+              <span class="quiz-play-qbadge">Q{{ currentQuestionNumber }}</span>
+              <h2>{{ currentQuestion.question }}</h2>
+            </div>
+
+            <div v-if="currentQuestion.type === 'SHORT_ANSWER'" class="quiz-play-short-answer">
+              <textarea
+                :value="quizAnswers[String(currentQuestion.question_index)] || ''"
+                :disabled="currentQuestionIsGraded || !!quizResult"
+                placeholder="단답을 입력하세요"
+                rows="4"
+                @input="setQuizAnswer(currentQuestion, $event.target.value)"
+              ></textarea>
+            </div>
+
+            <div v-else class="quiz-play-options">
+              <button
+                v-for="option in currentQuestion.options"
+                :key="option"
+                type="button"
+                :class="['quiz-play-option', getQuizOptionClass(currentQuestion, option)]"
+                :disabled="currentQuestionIsGraded || !!quizResult"
+                @click="setQuizAnswer(currentQuestion, option)"
+              >
+                {{ option }}
+              </button>
+            </div>
+
+            <div v-if="currentQuestionIsGraded" class="quiz-play-feedback">
+              <div :class="['quiz-play-grade', currentQuestion.is_correct ? 'correct' : 'wrong']">
+                <span class="material-symbols-outlined">
+                  {{ currentQuestion.is_correct ? 'check_circle' : 'cancel' }}
+                </span>
+                <strong>{{ currentQuestion.is_correct ? '정답입니다' : '오답입니다' }}</strong>
               </div>
+              <p v-if="!currentQuestion.is_correct">정답: {{ currentQuestion.correct_answer }}</p>
+              <p v-if="currentQuestion.explanation">{{ currentQuestion.explanation }}</p>
+            </div>
+          </article>
 
-              <h2>{{ question.question }}</h2>
-
-              <div v-if="question.type === 'SHORT_ANSWER'" class="quiz-short-answer">
-                <input
-                  type="text"
-                  :value="quizAnswers[String(question.question_index)] || ''"
-                  :disabled="!!quizResult"
-                  placeholder="답안을 입력하세요"
-                  @input="setQuizAnswer(question, $event.target.value)"
-                />
-              </div>
-
-              <div v-else class="quiz-options">
-                <button
-                  v-for="option in question.options"
-                  :key="option"
-                  type="button"
-                  :class="['quiz-option', { selected: isQuizOptionSelected(question, option) }]"
-                  :disabled="!!quizResult"
-                  @click="setQuizAnswer(question, option)"
-                >
-                  {{ option }}
-                </button>
-              </div>
-
-              <div v-if="question.is_correct !== null && question.is_correct !== undefined" class="quiz-explanation">
-                <div :class="['quiz-grade', question.is_correct ? 'correct' : 'wrong']">
-                  <span class="material-symbols-outlined">{{ question.is_correct ? 'check_circle' : 'cancel' }}</span>
-                  <span>{{ question.is_correct ? '정답' : '오답' }}</span>
-                </div>
-                <p>내 답: {{ question.user_answer || '미응답' }}</p>
-                <p>정답: {{ question.correct_answer }}</p>
-                <p v-if="question.explanation">해설: {{ question.explanation }}</p>
-              </div>
-            </article>
-          </div>
-
-          <div class="quiz-submit-row">
-            <span>{{ Object.keys(quizAnswers).length }} / {{ getQuizQuestions().length }} 응답</span>
+          <div class="quiz-play-footer">
+            <span>{{ answeredQuestionCount }} / {{ currentQuizQuestions.length }} 응답</span>
             <button
               type="button"
               class="quiz-primary-button"
-              :disabled="isQuizBusy || !!quizResult"
-              @click="submitQuizAnswers"
+              :disabled="!isCurrentQuestionAnswered || !!quizResult"
+              @click="goToNextQuizPage"
             >
-              <span class="material-symbols-outlined">fact_check</span>
-              <span>{{ quizStatus === 'submitting' ? '채점 중' : '제출하기' }}</span>
+              <span class="material-symbols-outlined">arrow_forward</span>
+              <span>{{ quizNextButtonLabel }}</span>
             </button>
           </div>
         </template>
@@ -752,7 +891,7 @@ watch(
 .quiz-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
   overflow: hidden;
 }
 
@@ -761,8 +900,7 @@ watch(
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  padding: 6px 0 18px;
-  border-bottom: 1px solid #dde3ec;
+  padding: 6px 0 0;
 }
 
 .quiz-header h1 {
@@ -773,7 +911,6 @@ watch(
   line-height: 1.15;
 }
 
-.quiz-header p,
 .quiz-builder-top p,
 .quiz-list-header p,
 .quiz-solve-top p {
@@ -785,28 +922,28 @@ watch(
 }
 
 .quiz-mode-tabs {
-  display: inline-flex;
-  width: fit-content;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 420px);
+  gap: 4px;
   padding: 5px;
-  border: 1px solid #dce3ec;
-  border-radius: 8px;
-  background: #f3f6fa;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border: 0;
+  border-radius: 10px;
+  background: #e8eaee;
+  box-shadow: none;
 }
 
 .quiz-mode-tabs button {
-  height: 38px;
+  height: 42px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 0 14px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 6px;
-  color: #5f6f86;
+  border-radius: 8px;
+  color: #7b7f86;
   background: transparent;
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 900;
   white-space: nowrap;
   transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
@@ -815,7 +952,7 @@ watch(
 .quiz-mode-tabs button.active {
   color: #1d1d1f;
   background: #ffffff;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.11);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.09);
 }
 
 .quiz-mode-tabs .material-symbols-outlined,
@@ -833,6 +970,136 @@ watch(
   flex-direction: column;
   gap: 14px;
   overflow: hidden;
+}
+
+.quiz-solve-view {
+  position: relative;
+  justify-content: flex-start;
+  padding: 33px 0 92px;
+}
+
+.quiz-simple-builder {
+  width: min(100%, 520px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 22px;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.07);
+}
+
+.quiz-simple-builder-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.quiz-simple-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quiz-simple-title h2 {
+  margin: 0;
+  color: #111111;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.quiz-simple-title .material-symbols-outlined {
+  width: 19px;
+  height: 19px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #111111;
+  font-size: 18px;
+  font-variation-settings: 'FILL' 0;
+}
+
+.quiz-simple-form {
+  display: grid;
+  gap: 14px;
+}
+
+.quiz-simple-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  align-items: center;
+  gap: 20px;
+  color: #111111;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quiz-simple-select-wrap {
+  position: relative;
+  min-width: 0;
+  display: block;
+}
+
+.quiz-simple-select-wrap select {
+  width: 100%;
+  height: 42px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0 38px 0 16px;
+  color: #111111;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.quiz-simple-select-wrap select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.quiz-simple-select-wrap .material-symbols-outlined {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  color: #6b7280;
+  font-size: 20px;
+  pointer-events: none;
+}
+
+.quiz-simple-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
+
+.quiz-simple-primary {
+  height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #111111;
+  font-size: 13px;
+  font-weight: 900;
+  box-shadow: none;
+  transition: background-color 0.18s ease, transform 0.18s ease;
+}
+
+.quiz-simple-primary:hover {
+  background: #252525;
+}
+
+.quiz-simple-primary:active {
+  transform: scale(0.98);
 }
 
 .quiz-source-card,
@@ -1009,6 +1276,10 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.quiz-list-header {
+  justify-content: flex-end;
 }
 
 .quiz-builder-top h2,
@@ -1392,6 +1663,11 @@ watch(
 }
 
 .quiz-result-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
   padding: 14px 16px;
   border: 1px solid #a7f3d0;
   border-radius: 8px;
@@ -1415,6 +1691,202 @@ watch(
   color: #15803d;
   font-size: 12px;
   font-weight: 900;
+}
+
+.quiz-play-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quiz-play-footer {
+  justify-content: space-between;
+}
+
+.quiz-play-card {
+  position: relative;
+  z-index: 1;
+  min-height: 280px;
+  height: auto;
+  max-height: calc(100% - 112px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 30px;
+  overflow: hidden;
+  padding: 4px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.quiz-play-card.graded.correct {
+  border-color: transparent;
+}
+
+.quiz-play-card.graded.wrong {
+  border-color: transparent;
+}
+
+.quiz-play-question {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.quiz-play-qbadge {
+  min-width: 40px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #1d1d1f;
+  background: #f3f4f6;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.quiz-play-question h2 {
+  margin: 0;
+  color: #1d1d1f;
+  font-size: 15px;
+  font-weight: 950;
+  line-height: 1.45;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.quiz-play-options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.quiz-play-card.type-OX .quiz-play-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quiz-play-option {
+  min-height: 44px;
+  padding: 10px 13px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #1f2937;
+  background: #ffffff;
+  font-size: 12.5px;
+  font-weight: 900;
+  line-height: 1.35;
+  text-align: left;
+  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.quiz-play-option:not(:disabled):hover {
+  transform: translateY(-1px);
+  border-color: #cbd5e1;
+  background: #fbfdff;
+}
+
+.quiz-play-option.selected {
+  border-color: #2563eb;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.quiz-play-option.correct {
+  border-color: #22c55e;
+  color: #14532d;
+  background: #dcfce7;
+}
+
+.quiz-play-option.wrong {
+  border-color: #fca5a5;
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+
+.quiz-play-option:disabled {
+  cursor: default;
+}
+
+.quiz-play-short-answer textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  padding: 12px 13px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #1f2937;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.45;
+  outline: none;
+}
+
+.quiz-play-short-answer textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.quiz-play-feedback {
+  display: grid;
+  gap: 7px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  color: #1d1d1f;
+}
+
+.quiz-play-feedback p {
+  margin: 0;
+  color: #1f2937;
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+.quiz-play-grade {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.quiz-play-grade .material-symbols-outlined {
+  font-size: 18px;
+  font-variation-settings: 'FILL' 1;
+}
+
+.quiz-play-grade.correct {
+  color: #15803d;
+}
+
+.quiz-play-grade.wrong {
+  color: #ef4444;
+}
+
+.quiz-play-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 30px;
+  z-index: 3;
+}
+
+.quiz-play-footer > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #475569;
+  background: #f3f6fa;
+  font-size: 12px;
+  font-weight: 950;
 }
 
 .quiz-question-list {
@@ -1614,9 +2086,22 @@ watch(
   .quiz-solve-top,
   .quiz-generate-row,
   .quiz-submit-row,
-  .quiz-result-bar {
+  .quiz-result-bar,
+  .quiz-play-footer {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .quiz-play-card {
+    padding: 16px;
+  }
+
+  .quiz-play-question {
+    grid-template-columns: 1fr;
+  }
+
+  .quiz-play-card.type-OX .quiz-play-options {
+    grid-template-columns: 1fr;
   }
 
   .quiz-type-grid {
