@@ -5,6 +5,7 @@
   POST /quiz/generate          - 세션 전사문 기반 퀴즈 생성
   POST /quiz/generate/transcripts - 선택한 transcript_id 묶음 기반 퀴즈 생성
   POST /quiz/generate/materials - 선택한 PDF 강의자료 기반 퀴즈 생성
+  POST /quiz/generate/sources  - 선택한 PDF 강의자료와 전사 chunk를 함께 사용해 퀴즈 생성
   POST /quiz/generate/text     - 직접 텍스트로 퀴즈 생성 (테스트용)
   GET  /quiz/{quiz_id}         - 퀴즈 조회
   POST /quiz/{quiz_id}/submit  - 퀴즈 채점 (사용자 답안 제출)
@@ -25,6 +26,7 @@ from quiz.quiz_db import (
     get_quiz,
     get_quizzes_by_session,
     update_quiz_result,
+    delete_quiz,
 )
 from quiz.quiz_service import count_quiz_types, generate_quiz, grade_quiz
 from quiz.material_service import MaterialQuizError, build_material_quiz_text
@@ -66,6 +68,18 @@ class QuizGenerateMaterialsRequest(BaseModel):
     session_id: str
     material_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 material id 목록")
     stored_names: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 저장 파일명 목록")
+    num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
+    type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
+    user_id: str | None = None
+    course_id: str | None = None
+
+
+class QuizGenerateSourcesRequest(BaseModel):
+    """선택한 PDF 강의자료와 전사 chunk를 함께 사용하는 퀴즈 생성 요청"""
+    session_id: str
+    material_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 material id 목록")
+    stored_names: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 저장 파일명 목록")
+    transcript_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 transcript_id 목록")
     num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
     user_id: str | None = None
@@ -124,6 +138,25 @@ def dump_type_counts(type_counts: QuizTypeCounts | None) -> dict[str, int] | Non
     if hasattr(type_counts, "model_dump"):
         return type_counts.model_dump()
     return type_counts.dict()
+
+
+async def build_selected_transcript_text(
+    session_id: str,
+    transcript_ids: list[str],
+) -> tuple[str, list[str], list[str]]:
+    """선택한 transcript_id 목록을 조회해 퀴즈 입력 텍스트와 누락 id를 반환합니다."""
+    normalized_ids = normalize_transcript_ids(transcript_ids)
+    if not normalized_ids:
+        return "", [], []
+
+    try:
+        transcripts = await get_transcripts_by_ids(session_id, normalized_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"transcript_id 형식이 올바르지 않습니다: {exc}") from exc
+
+    found_ids = {item["transcript_id"] for item in transcripts}
+    missing_ids = [item for item in normalized_ids if item not in found_ids]
+    return build_transcript_text(transcripts), [item["transcript_id"] for item in transcripts], missing_ids
 
 
 async def create_and_save_quiz(
@@ -216,26 +249,16 @@ async def quiz_generate_from_transcripts(req: QuizGenerateTranscriptsRequest):
         req.num_questions,
     )
 
-    transcript_ids = normalize_transcript_ids(req.transcript_ids)
-    if not transcript_ids:
+    transcript_text, source_transcript_ids, missing_ids = await build_selected_transcript_text(
+        req.session_id,
+        req.transcript_ids,
+    )
+    if not source_transcript_ids:
         raise HTTPException(status_code=422, detail="transcript_ids는 1개 이상 필요합니다.")
 
-    try:
-        transcripts = await get_transcripts_by_ids(req.session_id, transcript_ids)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"transcript_id 형식이 올바르지 않습니다: {exc}") from exc
-
-    if not transcripts:
-        raise HTTPException(
-            status_code=404,
-            detail="선택한 전사 chunk를 찾을 수 없습니다."
-        )
-
-    found_ids = {item["transcript_id"] for item in transcripts}
-    missing_ids = [item for item in transcript_ids if item not in found_ids]
     result = await create_and_save_quiz(
         session_id=req.session_id,
-        transcript_text=build_transcript_text(transcripts),
+        transcript_text=transcript_text,
         num_questions=req.num_questions,
         type_counts=req.type_counts,
         user_id=req.user_id,
@@ -243,7 +266,7 @@ async def quiz_generate_from_transcripts(req: QuizGenerateTranscriptsRequest):
     )
     return {
         **result,
-        "source_transcript_ids": [item["transcript_id"] for item in transcripts],
+        "source_transcript_ids": source_transcript_ids,
         "missing_transcript_ids": missing_ids,
     }
 
@@ -291,6 +314,75 @@ async def quiz_generate_from_materials(req: QuizGenerateMaterialsRequest):
             }
             for material in materials
         ],
+    }
+
+
+#  선택 소스 묶음 → 퀴즈 생성
+@router.post("/generate/sources")
+async def quiz_generate_from_sources(req: QuizGenerateSourcesRequest):
+    """
+    좌측 소스 사이드바에서 선택한 PDF 강의자료와 녹음 전사 chunk를 합쳐 퀴즈를 생성합니다.
+    PDF와 전사를 함께 선택한 경우 한 요청에서 같은 문제 생성 범위로 사용합니다.
+    """
+    logger.info(
+        "[QUIZ] 선택 소스 기반 퀴즈 생성 요청: session_id=%s, materials=%s/%s, transcripts=%s, num=%s",
+        req.session_id,
+        len(req.material_ids),
+        len(req.stored_names),
+        len(req.transcript_ids),
+        req.num_questions,
+    )
+
+    text_parts = []
+    source_materials = []
+    source_transcript_ids = []
+    missing_transcript_ids = []
+
+    if req.material_ids or req.stored_names:
+        try:
+            material_text, source_materials = await build_material_quiz_text(
+                session_id=req.session_id,
+                material_ids=req.material_ids,
+                stored_names=req.stored_names,
+            )
+        except MaterialQuizError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+        if material_text.strip():
+            text_parts.append(f"[강의자료]\n{material_text.strip()}")
+
+    if req.transcript_ids:
+        transcript_text, source_transcript_ids, missing_transcript_ids = await build_selected_transcript_text(
+            req.session_id,
+            req.transcript_ids,
+        )
+        if transcript_text.strip():
+            text_parts.append(f"[전사]\n{transcript_text.strip()}")
+
+    if not text_parts:
+        raise HTTPException(status_code=422, detail="퀴즈 생성 대상 소스가 없습니다.")
+
+    result = await create_and_save_quiz(
+        session_id=req.session_id,
+        transcript_text="\n\n".join(text_parts),
+        num_questions=req.num_questions,
+        type_counts=req.type_counts,
+        user_id=req.user_id,
+        course_id=req.course_id,
+    )
+
+    return {
+        **result,
+        "source_materials": [
+            {
+                "id": material.get("id"),
+                "name": material.get("name"),
+                "storedName": material.get("storedName"),
+            }
+            for material in source_materials
+        ],
+        "source_transcript_ids": source_transcript_ids,
+        "missing_transcript_ids": missing_transcript_ids,
     }
 
 
@@ -356,6 +448,19 @@ async def quiz_get(quiz_id: str):
     if quiz is None:
         raise HTTPException(status_code=404, detail=f"퀴즈를 찾을 수 없습니다: {quiz_id}")
     return quiz
+
+
+#  퀴즈 삭제
+@router.delete("/{quiz_id}")
+async def quiz_delete(quiz_id: str):
+    """quiz_id로 저장된 퀴즈를 삭제합니다."""
+    deleted = await delete_quiz(quiz_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"퀴즈를 찾을 수 없습니다: {quiz_id}")
+    return {
+        "quiz_id": quiz_id,
+        "deleted": True,
+    }
 
 
 #  퀴즈 채점
