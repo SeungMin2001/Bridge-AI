@@ -210,6 +210,21 @@ async def update_schedule_notion_id(schedule_id: str, notion_page_id: str | None
     return {"schedule_id": schedule_id, "notion_page_id": notion_page_id}
 
 
+async def get_all_notion_page_ids() -> set[str]:
+    """
+    DB에 이미 저장된 모든 notion_page_id를 set으로 반환한다.
+    노션 캘린더에서 일정을 가져올 때 중복을 필터링하는 데 사용한다.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await ensure_schedule_schema(conn)
+        rows = await conn.fetch("""
+            SELECT notion_page_id FROM schedules
+            WHERE notion_page_id IS NOT NULL
+        """)
+        return {r["notion_page_id"] for r in rows}
+
+
 async def find_ignored_titles(session_id: str | None = None) -> set[str]:
     """
     이전에 'ignored' 처리된 일정의 title 집합을 반환한다.
