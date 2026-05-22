@@ -345,6 +345,30 @@ def step_eval_command(args: argparse.Namespace) -> list[str]:
     return cmd
 
 
+def paper_artifact_command(args: argparse.Namespace) -> list[str]:
+    output_dir = (
+        Path(args.paper_artifact_dir)
+        if args.paper_artifact_dir
+        else Path(args.report_dir) / "paper_artifacts"
+    )
+    max_epochs = args.paper_artifact_max_epochs if args.paper_artifact_max_epochs is not None else args.epochs
+    return [
+        sys.executable,
+        "-m",
+        "llm_server.PRAG.make_final_paper_artifacts",
+        "--epoch-report-dir",
+        str(Path(args.report_dir) / "epoch_performance"),
+        "--qp-log",
+        str(train_log_path_for_suffix(args.qp_output_suffix)),
+        "--ponly-log",
+        str(train_log_path_for_suffix(args.ponly_output_suffix)),
+        "--output-dir",
+        str(output_dir),
+        "--max-epochs",
+        str(max_epochs),
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Find QP/P-only critical layers, then train both related-merge PRAG variants."
@@ -427,6 +451,23 @@ def main() -> None:
     )
     parser.add_argument("--step-test-max-cases", type=int, default=100)
     parser.add_argument("--resume-step-eval", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--make-paper-artifacts",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="After epoch evaluation, create professor-feedback paper figures/tables: Accuracy plot, loss plot, and metric tables.",
+    )
+    parser.add_argument(
+        "--paper-artifact-dir",
+        default="",
+        help="Output directory for paper artifacts. Defaults to <report-dir>/paper_artifacts.",
+    )
+    parser.add_argument(
+        "--paper-artifact-max-epochs",
+        type=int,
+        default=None,
+        help="Max epochs included in paper artifacts. Defaults to --epochs.",
+    )
     parser.add_argument("--qp-output-suffix", default=DEFAULT_QP_SUFFIX)
     parser.add_argument("--ponly-output-suffix", default=DEFAULT_PONLY_SUFFIX)
     parser.add_argument("--qp-scan-output", default=DEFAULT_QP_SCAN)
@@ -463,6 +504,8 @@ def main() -> None:
         args.resume_eval = True
         args.resume_epoch_eval = True
         args.resume_step_eval = True
+    if args.make_paper_artifacts:
+        args.eval_epoch_performance = True
     if args.eval_epoch_performance:
         args.save_epoch_checkpoints = True
     if args.eval_step_performance:
@@ -510,6 +553,8 @@ def main() -> None:
             raise FileNotFoundError(f"Valid file not found: {valid_path}")
         if not args.skip_eval and not test_path.exists():
             raise FileNotFoundError(f"Test file not found: {test_path}")
+        if args.skip_eval and args.make_paper_artifacts:
+            raise ValueError("--make-paper-artifacts requires evaluation; remove --skip-eval.")
 
     if args.qp_critical_layer is None:
         maybe_run_scan(args, output=args.qp_scan_output, question_conditioned=True, label="question+passage")
@@ -549,6 +594,8 @@ def main() -> None:
             run_command(step_eval_command(args), dry_run=args.dry_run)
         if args.eval_epoch_performance:
             run_command(epoch_eval_command(args), dry_run=args.dry_run)
+        if args.make_paper_artifacts:
+            run_command(paper_artifact_command(args), dry_run=args.dry_run)
     print("\n[PRAG:related-experiment] done", flush=True)
 
 
