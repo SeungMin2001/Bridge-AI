@@ -10,6 +10,9 @@
   PUT  /schedule/{schedule_id}/confirm  - 일정 확정 (달력에 표시)
   PUT  /schedule/{schedule_id}/ignore   - 일정 무시 (달력에 미표시, DB 보존)
   GET  /schedule/{schedule_id}          - 일정 단건 조회 (전사문 출처 포함)
+  PUT  /schedule/{schedule_id}/notion   - 노션 페이지 ID 연동
+  POST /schedule/{schedule_id}/sync-notion  - 백엔드에서 노션 직접 등록
+  POST /schedule/sync-notion-import     - 노션 캘린더 → 우리 DB 일정 가져오기
 """
 import sys
 import os
@@ -31,6 +34,7 @@ from schedule.schedule_db import (
     get_ignored_schedules_metadata, # 무시된 일정 메타데이터 조회
     get_schedule_with_transcript, # 전사문과 함께 일정 조회
     update_schedule_notion_id, # 노션 연동 ID 업데이트
+    get_all_notion_page_ids, # 노션 페이지 ID 중복 체크
 )
 from schedule.schedule_service import (
     extract_schedules, # 일정 추출
@@ -387,3 +391,87 @@ async def schedule_sync_notion(schedule_id: str):
     except Exception as e:
         logger.error(f"[SCHEDULE] 노션 동기화 실패: {e}")
         raise HTTPException(status_code=500, detail=f"예기치 못한 노션 동기화 실패: {e}")
+
+
+# 노션 캘린더 → 우리 DB 일정 가져오기
+@router.post("/sync-notion-import")
+async def schedule_import_from_notion():
+    """
+    노션 캘린더 데이터베이스의 일정을 조회하여,
+    우리 DB에 아직 없는 일정만 confirmed 상태로 저장한다.
+    notion_page_id 기준으로 중복을 방지한다.
+    """
+    try:
+        from schedule.notion_service import fetch_schedules_from_notion
+        notion_schedules = await fetch_schedules_from_notion()
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except RuntimeError as re:
+        raise HTTPException(status_code=502, detail=str(re))
+
+    if not notion_schedules:
+        return {
+            "status": "success",
+            "message": "노션 캘린더에 일정이 없습니다.",
+            "imported_count": 0,
+            "imported": [],
+        }
+
+    # DB에 이미 연동된 notion_page_id 목록 조회 (중복 비교할때 id에 -가 있는지 없는지 확인해야할수도 있음)
+    existing_ids = await get_all_notion_page_ids()
+
+    # 노션에만 있는 일정 필터링
+    new_schedules = [
+        s for s in notion_schedules
+        if s["notion_page_id"] not in existing_ids
+    ]
+
+    if not new_schedules:
+        return {
+            "status": "success",
+            "message": "모든 노션 일정이 이미 DB에 존재합니다.",
+            "imported_count": 0,
+            "imported": [],
+            "total_in_notion": len(notion_schedules),
+        }
+
+    # 새 일정을 confirmed 상태로 저장
+    imported = []
+    for s in new_schedules:
+        schedule_id = str(uuid.uuid4())
+        # 날짜 형식이 다를수도 있음(시간 저장이 안될때 try로 변경)
+        due_date = parse_due_date(s.get("due_date")) if s.get("due_date") else None
+
+        await save_schedule(
+            schedule_id=schedule_id,
+            session_id=None,
+            title=s["title"],
+            description=s.get("description"),
+            event_type=s.get("event_type"),
+            due_date=due_date,
+            notion_page_id=s["notion_page_id"],
+        )
+        # 노션에서 가져온 일정은 바로 confirmed 처리
+        await update_schedule_status(schedule_id, "confirmed")
+
+        imported.append({
+            "schedule_id": schedule_id,
+            "title": s["title"],
+            "due_date": s.get("due_date"),
+            "event_type": s.get("event_type"),
+            "notion_page_id": s["notion_page_id"],
+        })
+
+    logger.info(
+        f"[SCHEDULE] 노션 캘린더에서 {len(imported)}개 일정 가져오기 완료 "
+        f"(노션 전체: {len(notion_schedules)}개, 기존 중복: {len(notion_schedules) - len(new_schedules)}개)"
+    )
+
+    return {
+        "status": "success",
+        "message": f"노션에서 {len(imported)}개 일정을 가져왔습니다.",
+        "imported_count": len(imported),
+        "imported": imported,
+        "total_in_notion": len(notion_schedules),
+        "skipped_duplicates": len(notion_schedules) - len(new_schedules),
+    }
