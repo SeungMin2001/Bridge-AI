@@ -102,6 +102,10 @@ function shouldUseWorkspaceWideSearch(question = '') {
   ]
   if (explicitGlobalTerms.some((term) => text.includes(term))) return true
 
+  // 선택된 녹음/PDF/전사가 있으면 짧은 지식형 질문도 현재 소스의 근거를 우선 사용한다.
+  // 전체 검색은 사용자가 "전체/모든/다른 파일"을 명시한 경우에만 켠다.
+  if (hasWorkspaceChatSource.value) return false
+
   const activeTitle = String(props.chatSource?.title || '').replace(/전체 자료$/, '').replace(/\s+/g, '').trim()
   const sourceHintMatch = text.match(/^(.{2,30}?)(?:의|에서|에는|에)\s+.+/)
   const sourceHint = String(sourceHintMatch?.[1] || '').replace(/\s+/g, '').trim()

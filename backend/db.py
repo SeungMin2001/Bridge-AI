@@ -1,13 +1,7 @@
 import asyncpg
-import os
+from db_config import db_config
 
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", 5432)),
-    "database": os.getenv("DB_NAME", "rag"),
-    "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASSWORD", "1234"),
-}
+DB_CONFIG = db_config()
 
 _pool = None
 
@@ -21,8 +15,46 @@ async def get_pool():
 
 async def ensure_transcripts_schema(conn) -> None:
     await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
+    await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS chunk_index INTEGER NULL")
+    await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS chunk_text TEXT NULL")
     await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS speaker_id TEXT NULL")
     await conn.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS speaker_name TEXT NULL")
+    await conn.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'transcripts' AND column_name = 'segment_index'
+            ) THEN
+                EXECUTE 'UPDATE transcripts SET chunk_index = COALESCE(chunk_index, segment_index) WHERE chunk_index IS NULL';
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'transcripts' AND column_name = 'original_text'
+            ) THEN
+                EXECUTE 'UPDATE transcripts SET chunk_text = COALESCE(chunk_text, corrected_text, original_text) WHERE chunk_text IS NULL';
+            END IF;
+        END $$;
+    """)
+
+
+async def ensure_sessions_schema(conn) -> None:
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS file_kind VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tag VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS icon VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS color VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_pdf JSONB NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_voicefile JSONB NULL")
+    await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_notes JSONB NULL")
+
+
+async def ensure_runtime_schema() -> None:
+    """Apply lightweight local schema upgrades needed by current develop code."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await ensure_sessions_schema(conn)
+        await ensure_transcripts_schema(conn)
 
 
 async def create_session(session_id: str, title: str = "강의 녹음"):

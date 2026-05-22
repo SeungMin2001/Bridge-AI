@@ -18,7 +18,7 @@ from data.save_transcript import save_transcript
 # 신창영 : 워크스페이스 DB API 라우터를 main 서버에 연결
 from db_api.workspace.router import router as workspace_router
 from db_api.workspace.files_api import save_workspace_realtime_recording_file
-from db import create_session, update_transcript_speakers
+from db import create_session, ensure_runtime_schema, update_transcript_speakers
 from rag_search import init as rag_init, add_document as rag_add_document
 import uuid
 import httpx
@@ -46,6 +46,7 @@ app = FastAPI()
 @app.on_event("startup")
 async def startup():
     """서버 시작 시 RAG 검색 인덱스와 필요한 전역 리소스를 초기화합니다."""
+    await ensure_runtime_schema()
     rag_init()
 
 app.add_middleware(

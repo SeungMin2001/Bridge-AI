@@ -56,9 +56,24 @@ _LOCATOR_SUBJECT_STOPWORDS = {
     "근거",
     "링크",
     "보여",
+    "어떻게",
+    "왜",
+    "설명",
+    "설명했어",
 }
 _GROUNDED_CONTENT_QUESTION_TERMS = (
     "누구",
+    "언제",
+    "언제까지",
+    "몇 시",
+    "몇시",
+    "마감",
+    "마감일",
+    "기한",
+    "제출",
+    "제출일",
+    "제출해야",
+    "까지",
     "무엇",
     "뭐야",
     "뭐여",
@@ -85,10 +100,24 @@ async def build_prompt_and_citations(
 ) -> tuple[str, list[dict]]:
     """질문, 현재 파일, 선택 자료 기준으로 LLM prompt와 citation 목록을 구성합니다."""
     has_selected_material = source_filter_has_material(source_filter)
-    inventory_context = await _build_workspace_inventory_context(session_id)
+    grounded_content_question = _is_grounded_content_question(question)
+    concept_synthesis_question = _is_concept_synthesis_question(question)
+    factual_grounded_question = _is_factual_grounded_question(question)
+    inventory_context = (
+        await _build_workspace_inventory_context(session_id)
+        if _should_include_inventory_context(question)
+        else ""
+    )
+    evidence_top_k = CHAT_EVIDENCE_TOP_K
+    if _is_elliptic_grounded_question(question) or factual_grounded_question:
+        evidence_top_k = 1
+    elif concept_synthesis_question:
+        evidence_top_k = CHAT_EVIDENCE_TOP_K
+    elif grounded_content_question:
+        evidence_top_k = min(CHAT_EVIDENCE_TOP_K, 3)
     rag_result = rag_search(
         question,
-        top_k=CHAT_EVIDENCE_TOP_K,
+        top_k=evidence_top_k,
         session_id=session_id,
         source_filter=source_filter,
     )
@@ -118,6 +147,26 @@ async def build_prompt_and_citations(
         )
         if part
     )
+
+    if context and concept_synthesis_question:
+        prompt = (
+            f"[검색된 참고자료]\n{context}\n\n"
+            "검색된 참고자료 전체를 종합해서 답하세요. "
+            "같은 주제가 여러 구간에 나뉘어 나오면 한 구간만 요약하지 말고, 정의, 발생 이유, 해결 방법, 조건처럼 서로 보완되는 내용을 함께 반영하세요. "
+            "참고자료에 조건, 단계, 장점, 위험, 해결 기법이 함께 나오면 각각을 빠뜨리지 말고 답변에 포함하세요. "
+            "참고자료에 '첫째', '둘째', '셋째'처럼 열거된 내용이 있으면 열거된 항목을 모두 포함하세요. "
+            "참고자료에 직접 나온 내용만 사용하세요.\n"
+            f"질문: {question}"
+        )
+        return prompt, citations
+
+    if context and grounded_content_question:
+        prompt = (
+            f"[검색된 참고자료]\n{context}\n\n"
+            "검색된 참고자료에 직접 나온 내용만 사용해서 답하세요.\n"
+            f"질문: {question}"
+        )
+        return prompt, citations
 
     if reference_context:
         reference_intro = (
@@ -291,9 +340,67 @@ def _is_grounded_content_question(question: str) -> bool:
     text = str(question or "").strip()
     if not text:
         return False
+    if _is_elliptic_grounded_question(text):
+        return True
     if not any(term in text for term in _GROUNDED_CONTENT_QUESTION_TERMS):
         return False
     return bool(_extract_lookup_subjects(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _is_concept_synthesis_question(question: str) -> bool:
+    """여러 관련 구간을 종합해야 하는 개념 설명형 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+    synthesis_terms = ("어떻게 설명", "설명했", "설명해", "무슨", "의미", "정의", "개념", "뜻", "왜")
+    factual_terms = ("언제", "언제까지", "몇 시", "몇시", "마감", "기한", "제출")
+    return any(term in text for term in synthesis_terms) and not any(term in text for term in factual_terms)
+
+
+def _is_factual_grounded_question(question: str) -> bool:
+    """마감/시간처럼 한 근거에서 직접 뽑아야 하는 사실형 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    factual_terms = ("언제", "언제까지", "몇 시", "몇시", "마감", "마감일", "기한", "제출", "제출일")
+    return any(term in text for term in factual_terms)
+
+
+def _is_elliptic_grounded_question(question: str) -> bool:
+    """'신승민은?'처럼 술어가 생략된 짧은 근거형 질문인지 판별합니다."""
+    text = " ".join(str(question or "").split())
+    if not text.endswith(("?", "？")):
+        return False
+    if any(term in text for term in ("어디", "어느", "몇", "위치", "파일", "자료", "녹음", "페이지", "구간")):
+        return False
+    body = text[:-1].strip()
+    if len(body) < 2 or len(body) > 40:
+        return False
+    subject = _clean_lookup_subject(body)
+    if len(subject) < 2:
+        return False
+    return subject.lower() not in _LOCATOR_SUBJECT_STOPWORDS and subject not in _LOCATOR_SUBJECT_STOPWORDS
+
+
+def _should_include_inventory_context(question: str) -> bool:
+    """저장 목록/파일 목록 자체를 묻는 경우에만 inventory 메타데이터를 prompt에 포함합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+    inventory_terms = (
+        "저장 목록",
+        "저장된",
+        "파일 목록",
+        "자료 목록",
+        "녹음본 목록",
+        "몇 개",
+        "몇개",
+        "개수",
+        "뭐 있어",
+        "무엇이 있어",
+        "어떤 파일",
+        "어떤 자료",
+        "어떤 녹음",
+    )
+    return any(term in text for term in inventory_terms)
 
 
 def _should_use_material_fallback(question: str, transcript_context: str) -> bool:

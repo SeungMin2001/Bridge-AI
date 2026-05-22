@@ -15,6 +15,7 @@ from kiwipiepy import Kiwi
 from llama_index.core import Settings, VectorStoreIndex, Document
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
+from db_config import psycopg2_config
 from materials.material_citation_service import build_material_citation, format_material_citation
 
 # ── 형태소 분석기 (Kiwi) ──
@@ -65,6 +66,17 @@ _LOCATOR_QUERY_STOPWORDS = {
 }
 _GROUNDED_LOOKUP_TERMS = (
     "누구",
+    "언제",
+    "언제까지",
+    "몇 시",
+    "몇시",
+    "마감",
+    "마감일",
+    "기한",
+    "제출",
+    "제출일",
+    "제출해야",
+    "까지",
     "무엇",
     "뭐야",
     "뭐여",
@@ -97,6 +109,12 @@ _GROUNDED_LOOKUP_STOPWORDS = _LOCATOR_QUERY_STOPWORDS | {
     "파일",
     "페이지",
     "pdf",
+    "어떻게",
+    "왜",
+    "설명",
+    "설명했어",
+    "설명해",
+    "알려",
 }
 
 
@@ -227,9 +245,27 @@ def _is_grounded_lookup_query(question: str) -> bool:
     text = str(question or "").strip()
     if not text:
         return False
+    if _is_elliptic_grounded_lookup_query(text):
+        return True
     if not any(term in text for term in _GROUNDED_LOOKUP_TERMS):
         return False
     return bool(_extract_grounded_lookup_terms(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _is_elliptic_grounded_lookup_query(question: str) -> bool:
+    """'신승민은?'처럼 질문 술어가 생략된 짧은 조회형 질문을 키워드 우선 검색으로 보냅니다."""
+    text = " ".join(str(question or "").split())
+    if not text.endswith(("?", "？")):
+        return False
+    if any(term in text for term in ("어디", "어느", "몇", "위치", "파일", "자료", "녹음", "페이지", "구간")):
+        return False
+    body = text[:-1].strip()
+    if len(body) < 2 or len(body) > 40:
+        return False
+    term = _clean_lookup_term(body)
+    if len(term) < 2:
+        return False
+    return term.lower() not in _GROUNDED_LOOKUP_STOPWORDS and term not in _GROUNDED_LOOKUP_STOPWORDS
 
 
 def _extract_grounded_lookup_terms(query: str) -> list[str]:
@@ -238,7 +274,7 @@ def _extract_grounded_lookup_terms(query: str) -> list[str]:
     focus = text
 
     question_match = re.search(
-        r"(.+?)(?:누구|무엇|뭐야|뭐여|뭐냐|뭐임|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻)",
+        r"(.+?)(?:누구|언제까지|언제|몇\s*시|마감일|마감|기한|제출일|제출해야|제출|까지|무엇|뭐야|뭐여|뭐냐|뭐임|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻)",
         text,
     )
     if question_match:
@@ -290,13 +326,7 @@ SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS = int(os.getenv("CHAT_SELECTED_TRANSCRIPT_
 
 def _db_config() -> dict:
     # 신창영 : 키워드 검색과 벡터 검색이 서로 다른 DB를 보지 않도록 공통 DB 설정을 사용
-    return {
-        "host": os.getenv("DB_HOST", "localhost"),
-        "port": int(os.getenv("DB_PORT", 5432)),
-        "database": os.getenv("DB_NAME", "shin"),
-        "user": os.getenv("DB_USER", "postgres"),
-        "password": os.getenv("DB_PASSWORD", "1234"),
-    }
+    return psycopg2_config()
 
 
 def _json_value(value, fallback):
