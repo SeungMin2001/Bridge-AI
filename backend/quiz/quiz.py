@@ -2,6 +2,7 @@
 퀴즈 API 라우터
 
 엔드포인트:
+주석
   POST /quiz/generate          - 세션 전사문 기반 퀴즈 생성
   POST /quiz/generate/transcripts - 선택한 transcript_id 묶음 기반 퀴즈 생성
   POST /quiz/generate/materials - 선택한 PDF 강의자료 기반 퀴즈 생성
