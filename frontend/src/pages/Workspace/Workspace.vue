@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
+import CitationPopover from '../../components/workspace/citations/CitationPopover.vue'
 import { useChat } from '../../composables/useChat'
 import { deleteWorkspaceRecordingData, isWorkspaceUuid, saveSessionResources } from '../../api/workspaceApi.js'
 
@@ -230,22 +231,6 @@ function goSchedulePageFromNotice() {
   emit('navigate', 'schedule')
 }
 
-// 팝오버 내 버튼 액션
-function askAboutCite(cite) {
-  if (!cite) return
-  closeCitePopover()
-  if (!props.isRightSidebarVisible) {
-    emit('rightSidebarToggle')
-  }
-  const shortened = cite.text.length > 15 ? cite.text.slice(0, 15) + '...' : cite.text
-  emit('update:aiInput', `"${shortened}"에 대해 더 자세히 알려줘 `)
-}
-
-function noteAddDummy() {
-  alert('노트에 추가되었습니다. (데모)')
-  closeCitePopover()
-}
-
 function findNodeById(nodes = [], id = '') {
   for (const node of nodes) {
     if (node?.id === id) return node
@@ -346,6 +331,7 @@ async function openEvidenceSource(cite) {
     page: Number(cite.page || 1),
     text: cite.text || ''
   }
+  closeCitePopover()
 }
 
 async function handleOpenRecording(payload) {
@@ -358,53 +344,6 @@ async function handleOpenRecording(payload) {
     summaryTab: 'summary'
   }
 }
-
-function escapeHtml(value = '') {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
-const highlightedTranscript = computed(() => {
-  const cite = currentCite.value
-  if (!cite) return ''
-
-  // 전체 전사가 있으면 그것을 쓰고, 없으면 기존 text 사용
-  const fullText = String(cite.full_transcript || cite.text || '')
-  // 하이라이팅 대상
-  const target = String(cite.text || '').trim()
-
-  if (target && fullText.includes(target)) {
-    const highlightedTarget = `<mark class="cite-highlighted-script">${escapeHtml(target)}</mark>`
-    return fullText.split(target).map((part) => escapeHtml(part)).join(highlightedTarget)
-  }
-
-  return escapeHtml(fullText)
-})
-
-const currentCitationTitle = computed(() => (
-  currentCite.value?.source_type === 'material'
-    ? (currentCite.value?.material_name || currentCite.value?.file_title || '강의자료')
-    : currentCite.value?.recording_title
-  || currentCite.value?.session_title
-  || currentCite.value?.file_title
-  || 'AI 분석 결과'
-))
-
-const currentCitationLabel = computed(() => currentCite.value?.citation || (
-  currentCite.value?.source_type === 'material' ? '연결된 PDF' : '연결된 전사'
-))
-
-const currentCitationSourceIcon = computed(() => (
-  currentCite.value?.source_type === 'material' ? 'picture_as_pdf' : 'folder_open'
-))
-
-const currentCitationSourceCaption = computed(() => (
-  currentCite.value?.source_type === 'material' ? 'PDF 자료' : '출처'
-))
 
 function collectTranscriptIds(recordings = []) {
   const ids = new Set()
@@ -1071,60 +1010,13 @@ const activeWorkspaceSource = computed(() => {
 
   </div>
 
-  <!-- ═══ 부유형 팝오버 (Workspace 수준 관리) ═══ -->
-  <Teleport to="body">
-    <transition name="popover-fade">
-      <div v-if="showCitePopover" class="cite-popover-overlay" @click.self="closeCitePopover">
-        <div 
-          class="cite-popover"
-          :style="{ left: citePopoverPos.x + 'px', top: citePopoverPos.y + 'px' }"
-        >
-          <div class="cite-popover-header">
-            <div class="cite-popover-title">
-              <div class="cite-popover-badge">
-                <span class="material-symbols-outlined">fact_check</span>
-              </div>
-              <div>
-                <span>근거 정보</span>
-                <p>{{ currentCitationLabel }}</p>
-              </div>
-            </div>
-            <button class="cite-popover-close-btn" aria-label="근거 정보 닫기" @click="closeCitePopover">
-              <span class="material-symbols-outlined">close</span>
-            </button>
-          </div>
-
-          <div class="cite-transcript-scroll custom-scrollbar">
-            <div class="cite-transcript-kicker">
-              <span class="material-symbols-outlined">subject</span>
-              <span>발췌 원문</span>
-            </div>
-            <div 
-              class="cite-transcript-body whitespace-pre-wrap break-keep"
-              v-html="highlightedTranscript"
-            >
-            </div>
-          </div>
-
-          <div class="cite-source-wrap shrink-0">
-            <button
-              type="button"
-              class="cite-source-title"
-              @click="openEvidenceSource(currentCite)"
-              :title="currentCite?.file_title || currentCite?.session_title || ''"
-            >
-              <span class="material-symbols-outlined">{{ currentCitationSourceIcon }}</span>
-              <span>
-                <small>{{ currentCitationSourceCaption }}</small>
-                <strong>{{ currentCitationTitle }}</strong>
-              </span>
-              <span class="material-symbols-outlined cite-source-arrow">open_in_new</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </transition>
-  </Teleport>
+  <CitationPopover
+    :visible="showCitePopover"
+    :cite="currentCite"
+    :position="citePopoverPos"
+    @close="closeCitePopover"
+    @openSource="openEvidenceSource"
+  />
 </template>
 
 <style scoped>
@@ -2047,225 +1939,6 @@ const activeWorkspaceSource = computed(() => {
 .schedule-notice-fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
-}
-
-.cite-popover-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background: transparent;
-}
-
-.cite-popover {
-  position: fixed;
-  width: min(340px, calc(100vw - 32px));
-  background: rgba(255, 255, 255, 0.96);
-  border-radius: 22px;
-  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.16), 0 1px 0 rgba(255, 255, 255, 0.86) inset;
-  border: 1px solid rgba(226, 232, 240, 0.88);
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  transform-origin: right top;
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-}
-
-.cite-popover-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.84);
-}
-
-.cite-popover-title {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
-}
-
-.cite-popover-title span:not(.material-symbols-outlined) {
-  display: block;
-  color: #111827;
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 1.25;
-}
-
-.cite-popover-title p {
-  max-width: 220px;
-  margin-top: 4px;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1.45;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cite-transcript-scroll {
-  max-height: 320px;
-  margin: 12px 0;
-  overflow-y: auto;
-  padding: 1px 2px 2px;
-}
-
-.cite-transcript-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.cite-transcript-kicker .material-symbols-outlined {
-  font-size: 15px;
-}
-
-:deep(.cite-highlighted-script) {
-  background: rgba(253, 224, 71, 0.42);
-  color: #111827;
-  font-weight: 850;
-  border-radius: 6px;
-  padding: 2px 4px;
-  margin: 0 -2px;
-  box-shadow: none;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-}
-
-.cite-transcript-body {
-  color: #1f2937;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.7;
-}
-
-.cite-source-title {
-  width: 100%;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 18px;
-  align-items: center;
-  gap: 10px;
-  color: #334155;
-  text-align: left;
-  cursor: pointer;
-}
-
-.cite-source-title > .material-symbols-outlined:first-child {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #475569;
-  font-size: 17px;
-  border-radius: 10px;
-  background: #f1f5f9;
-}
-
-.cite-source-title small {
-  display: block;
-  color: #94a3b8;
-  font-size: 10px;
-  font-weight: 850;
-  line-height: 1.1;
-  letter-spacing: 0.04em;
-}
-
-.cite-source-title strong {
-  display: block;
-  margin-top: 3px;
-  color: #1e293b;
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cite-source-title:hover {
-  color: #0f172a;
-}
-
-.cite-source-title:hover strong {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.cite-source-arrow {
-  color: #94a3b8;
-  font-size: 17px;
-}
-
-/* 애니메이션 개선 */
-.popover-fade-enter-active {
-  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-.popover-fade-leave-active {
-  transition: all 0.15s ease;
-}
-.popover-fade-enter-from {
-  opacity: 0;
-  transform: scale(0.9) translateY(10px);
-}
-.popover-fade-leave-to {
-  opacity: 0;
-  transform: scale(0.95) translateY(5px);
-}
-
-.cite-popover-badge {
-  width: 32px;
-  height: 32px;
-  border-radius: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #2563eb;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
-}
-
-.cite-popover-badge .material-symbols-outlined {
-  font-size: 18px;
-}
-
-.cite-popover-close-btn {
-  width: 32px;
-  height: 32px;
-  color: #64748b;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  transition: all 0.2s ease;
-}
-
-.cite-popover-close-btn:hover {
-  background: #f1f5f9;
-  color: #0f172a;
-}
-
-.cite-popover-close-btn .material-symbols-outlined {
-  font-size: 20px;
-}
-
-.cite-source-wrap {
-  padding: 10px;
-  border-radius: 14px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
 }
 
 /* 팝오버 스크롤바 디자인 */

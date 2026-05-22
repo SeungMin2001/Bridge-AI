@@ -175,7 +175,7 @@ async def build_prompt_and_citations(
             f"{scope_boundary_instruction}"
             f"PDF 근거가 있으면 자료명과 p.페이지 번호를 답변 본문에 반드시 포함하세요. "
             f"페이지 위치를 묻는 질문이면 관련 페이지 번호를 먼저 답하세요. "
-            f"답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
+            f"근거가 되는 문장 끝에는 [검색된 참고자료] 앞의 번호를 [1], [2]처럼 붙이고, 답변 끝에 별도 출처 목록은 만들지 마세요.\n\n"
             f"질문: {question}"
         )
     elif has_selected_material:
