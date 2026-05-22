@@ -7,6 +7,30 @@ from datetime import datetime
 import json
 from db import get_pool
 
+
+def _parse_quiz_data(value) -> list:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return value if isinstance(value, list) else []
+
+
+def _count_quiz_types(quiz_data: list) -> dict[str, int]:
+    counts = {
+        "MULTIPLE_CHOICE": 0,
+        "OX": 0,
+        "SHORT_ANSWER": 0,
+    }
+    for question in quiz_data:
+        quiz_type = question.get("type") if isinstance(question, dict) else None
+        if quiz_type in counts:
+            counts[quiz_type] += 1
+    return counts
+
+
 #  퀴즈 CRUD
 async def save_quiz(
     quiz_id: str,
@@ -54,11 +78,7 @@ async def get_quiz(quiz_id: str) -> dict | None:
         if row is None:
             return None
 
-        quiz_data_raw = row["quiz_data"]
-        if isinstance(quiz_data_raw, str):
-            quiz_data_parsed = json.loads(quiz_data_raw)
-        else:
-            quiz_data_parsed = quiz_data_raw
+        quiz_data_parsed = _parse_quiz_data(row["quiz_data"])
 
         return {
             "quiz_id": str(row["quiz_id"]),
@@ -79,7 +99,7 @@ async def get_quizzes_by_session(session_id: str) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT quiz_id, user_id, course_id, session_id,
-                   total_questions, correct_count, created_at
+                   quiz_data, total_questions, correct_count, created_at
             FROM quizzes
             WHERE session_id = $1
             ORDER BY created_at DESC
@@ -93,6 +113,7 @@ async def get_quizzes_by_session(session_id: str) -> list[dict]:
                 "session_id": str(r["session_id"]) if r["session_id"] else None,
                 "total_questions": r["total_questions"],
                 "correct_count": r["correct_count"],
+                "type_counts": _count_quiz_types(_parse_quiz_data(r["quiz_data"])),
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             }
             for r in rows
@@ -114,3 +135,15 @@ async def update_quiz_result(quiz_id: str, quiz_data: list, correct_count: int) 
         )
 
     return {"quiz_id": quiz_id, "correct_count": correct_count}
+
+
+async def delete_quiz(quiz_id: str) -> bool:
+    """quiz_id로 저장된 퀴즈 삭제"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute("""
+            DELETE FROM quizzes
+            WHERE quiz_id = $1
+        """, _uuid.UUID(quiz_id))
+
+    return result.endswith(" 1")
