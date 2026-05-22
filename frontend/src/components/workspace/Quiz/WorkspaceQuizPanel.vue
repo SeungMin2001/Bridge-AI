@@ -2134,7 +2134,7 @@ watch(
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 30px;
+  bottom: 70px;
   z-index: 3;
 }
 
