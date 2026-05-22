@@ -70,7 +70,6 @@ const miniSourceMenu = ref({ visible: false, x: 0, y: 0, source: null })
 const scriptPaneWidth = ref(50)
 const isScriptPaneResizing = ref(false)
 const selectedMiniSourceIds = ref(new Set())
-const knownMiniSourceIds = ref(new Set())
 
 const DEFAULT_SCRIPT_PANE_PERCENT = 50
 const MAX_SCRIPT_PANE_PERCENT = 72
@@ -190,7 +189,6 @@ watch(() => props.activeFileId, () => {
   materialEvidenceRequest.value = null
   closeMiniSourceMenu()
   selectedMiniSourceIds.value = new Set()
-  knownMiniSourceIds.value = new Set()
   clearHistory()
   closeCitePopover()
   emit('update:aiInput', '')
@@ -520,19 +518,9 @@ watch(
   miniSourceItems,
   (sources) => {
     const validIds = new Set(sources.map((source) => source.uid))
-    const knownIds = knownMiniSourceIds.value
-    const next = new Set(
+    selectedMiniSourceIds.value = new Set(
       Array.from(selectedMiniSourceIds.value).filter((id) => validIds.has(id))
     )
-
-    sources.forEach((source) => {
-      if (!knownIds.has(source.uid)) {
-        next.add(source.uid)
-      }
-    })
-
-    selectedMiniSourceIds.value = next
-    knownMiniSourceIds.value = validIds
   },
   { immediate: true }
 )
@@ -757,7 +745,8 @@ function handleMiniRecordingFileChange(event) {
 const activeWorkspaceSource = computed(() => {
   if (!props.activeFileId) return null
 
-  const sources = miniSourceItems.value.map(({ uid, icon, ...source }) => ({
+  // 좌측 소스 사이드바에서 체크된 항목만 퀴즈 생성 범위로 넘긴다.
+  const sources = selectedMiniSourceItems.value.map(({ uid, icon, ...source }) => ({
     id: source.material?.id || source.recordingId || uid,
     ...source
   }))
@@ -769,7 +758,7 @@ const activeWorkspaceSource = computed(() => {
 
   return {
     type: sourceCount ? 'workspace' : 'empty',
-    title: props.activeFileName ? `${props.activeFileName} 전체 자료` : '현재 파일 전체 자료',
+    title: props.activeFileName ? `${props.activeFileName} 선택 자료` : '현재 파일 선택 자료',
     sessionId: props.activeFileId,
     sourceCount,
     sources,
