@@ -75,6 +75,52 @@ _GROUNDED_CONTENT_QUESTION_TERMS = (
     "알려",
     "개념",
     "뜻",
+    "이란",
+    "란",
+    "요약",
+    "정리",
+)
+_EVIDENCE_EXPLANATION_TERMS = (
+    "근거",
+    "출처",
+    "증거",
+    "원문",
+    "인용",
+    "정확히",
+    "뭐라고",
+    "뭐라",
+    "말했",
+    "그런 말",
+    "맥락",
+    "의도",
+    "해석",
+    "팩트",
+)
+
+BEGINNER_CONCEPT_STYLE_PROMPT = (
+    "[답변 양식: NotebookLM식 근거 기반 개념 설명]\n"
+    "- 답변은 자연스러운 설명문으로 시작하고, 필요하면 짧은 불릿으로 정리하세요.\n"
+    "- '핵심 정의:', '일상적인 비유:', '결과적으로:' 같은 고정 라벨을 반복하지 마세요.\n"
+    "- 같은 말을 여러 번 바꿔 반복하지 말고, 정의 -> 특징 -> 예시/의미 순서로 압축하세요.\n"
+    "- 핵심 키워드는 필요할 때만 Markdown 굵게 표시하세요.\n"
+    "- 근거가 있는 핵심 문장이나 불릿 끝에는 반드시 [1], [2]처럼 citation 번호를 붙이세요.\n"
+    "- 검색된 참고자료에 없는 내용은 일반 지식으로 확장하지 마세요.\n"
+)
+
+EVIDENCE_EXPLANATION_STYLE_PROMPT = (
+    "[답변 양식: 근거 기반 인용 및 맥락 해설]\n"
+    "- 먼저 정확한 파일명, 자료명, 페이지 또는 녹음 시간대를 밝히세요.\n"
+    "- 검색된 참고자료 안에 있는 실제 문장만 짧게 직접 인용하세요.\n"
+    "- 참고자료에 없는 문장을 따옴표로 만들거나 원문처럼 꾸미지 마세요.\n"
+    "- 인용문 앞뒤 맥락을 바탕으로 사용자가 묻는 의미를 설명하세요.\n"
+    "- 마지막에는 질문에 대한 결론을 한두 문장으로 정리하세요.\n"
+)
+
+LOCATION_STYLE_PROMPT = (
+    "[답변 양식: 위치 찾기]\n"
+    "- 페이지 번호나 녹음 시간대를 먼저 답하세요.\n"
+    "- 이어서 파일명/자료명을 짧게 밝히세요.\n"
+    "- 사용자가 요청하지 않은 개념 설명은 길게 덧붙이지 마세요.\n"
 )
 
 
@@ -120,6 +166,7 @@ async def build_prompt_and_citations(
     )
 
     if reference_context:
+        answer_style_instruction = _get_answer_style_instruction(question)
         reference_intro = (
             "다음은 현재 워크스페이스 파일의 저장 목록과 강의 내용에서 검색된 참고자료입니다"
             if inventory_context
@@ -171,11 +218,19 @@ async def build_prompt_and_citations(
             f"{missing_selected_material_note}"
             f"{missing_locator_note}"
             f"{grounded_answer_instruction}"
+            f"{answer_style_instruction}"
             f"사용자가 강의 내용, PDF 페이지, 전사 내용의 의미를 물으면 [검색된 참고자료]를 바탕으로 답변하세요. "
             f"{scope_boundary_instruction}"
-            f"PDF 근거가 있으면 자료명과 p.페이지 번호를 답변 본문에 반드시 포함하세요. "
-            f"페이지 위치를 묻는 질문이면 관련 페이지 번호를 먼저 답하세요. "
-            f"근거가 되는 문장 끝에는 [검색된 참고자료] 앞의 번호를 [1], [2]처럼 붙이고, 답변 끝에 별도 출처 목록은 만들지 마세요.\n\n"
+            f"페이지 위치를 묻는 질문일 때만 관련 페이지 번호를 먼저 답하세요. "
+            f"NotebookLM처럼 검색 근거를 그대로 나열하지 말고, 사용자의 질문에 맞게 하나의 답변으로 재구성하세요. "
+            f"단, 근거가 있는 핵심 문장과 불릿 끝에는 citation 번호를 반드시 붙이세요. "
+            f"citation 번호를 생략하면 프론트에서 근거 링크가 표시되지 않습니다. "
+            f"출처 표기는 근거가 필요한 핵심 문장이나 항목 끝마다 [검색된 참고자료] 앞의 번호를 [1], [2]처럼 붙이는 방식만 사용하세요. "
+            f"같은 근거를 여러 문장에서 사용하더라도 문장마다 번호를 생략하지 말고 반복해서 붙이세요. "
+            f"'결과적으로:', '일상적인 비유:', '핵심 개념 요약 및 구조화:' 같은 템플릿 라벨을 반복하지 마세요. "
+            f"[파일명, 페이지] 또는 [음성파일명, 시간] 같은 링크 형식을 새로 만들지 마세요. "
+            f"'출처:', '참고자료:', 'Sources:', 'References:' 같은 제목을 만들지 말고, 답변 끝에 파일명/페이지/시간 목록을 절대 나열하지 마세요. "
+            f"근거 파일명, 페이지, 시간 정보는 프론트 citation 팝업에서 보여주므로 답변 본문에는 번호만 붙이세요.\n\n"
             f"질문: {question}"
         )
     elif has_selected_material:
@@ -233,7 +288,7 @@ def source_filter_has_material(source_filter: dict | None) -> bool:
 
 def build_direct_locator_answer(question: str, citations: list[dict]) -> str | None:
     """언급 위치 찾기 질문은 citation 메타데이터만으로 짧고 안정적인 답변을 만듭니다."""
-    if not _is_locator_question(question):
+    if not _is_locator_question(question) or _is_evidence_explanation_question(question):
         return None
 
     transcript_citations = [
@@ -258,9 +313,24 @@ def build_direct_no_evidence_answer(question: str, citations: list[dict]) -> str
     """근거 기반 질문인데 citation이 없으면 LLM 호출 없이 '찾지 못함'으로 답합니다."""
     if citations:
         return None
-    if not (_is_locator_question(question) or _is_grounded_content_question(question)):
+    if not (
+        _is_locator_question(question)
+        or _is_grounded_content_question(question)
+        or _is_evidence_explanation_question(question)
+    ):
         return None
     return "저장된 자료/녹음본에서 질문과 직접 관련된 근거를 찾지 못했습니다."
+
+
+def _get_answer_style_instruction(question: str) -> str:
+    """질문 의도에 맞는 LLM 답변 양식을 고릅니다."""
+    if _is_evidence_explanation_question(question):
+        return f"{EVIDENCE_EXPLANATION_STYLE_PROMPT}\n"
+    if _is_locator_question(question):
+        return f"{LOCATION_STYLE_PROMPT}\n"
+    if _is_grounded_content_question(question):
+        return f"{BEGINNER_CONCEPT_STYLE_PROMPT}\n"
+    return ""
 
 
 def _is_locator_question(question: str) -> bool:
@@ -294,6 +364,16 @@ def _is_grounded_content_question(question: str) -> bool:
     if not any(term in text for term in _GROUNDED_CONTENT_QUESTION_TERMS):
         return False
     return bool(_extract_lookup_subjects(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _is_evidence_explanation_question(question: str) -> bool:
+    """출처, 원문, 맥락, 해석을 요구하는 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+    if any(term in text for term in _EVIDENCE_EXPLANATION_TERMS):
+        return True
+    return "왜" in text and any(term in text for term in ("그렇게", "그런", "말", "해석", "판단"))
 
 
 def _should_use_material_fallback(question: str, transcript_context: str) -> bool:

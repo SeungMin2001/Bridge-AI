@@ -131,7 +131,9 @@ function shouldUseWorkspaceWideSearch(question = '') {
   const hasTarget = targetTerms.some((term) => text.includes(term))
   const hasKnowledgeQuestion = knowledgeQuestionTerms.some((term) => text.includes(term))
 
-  if (hasSubjectHint && hasKnowledgeQuestion) return true
+  // 개념/정의 질문은 현재 파일에서 먼저 찾고, 백엔드가 결과가 없을 때 전체 워크스페이스로 확장한다.
+  // 여기서 바로 전체 검색으로 풀면 현재 파일의 PDF보다 다른 녹음본 근거가 먼저 잡힐 수 있다.
+  if (hasSubjectHint && hasKnowledgeQuestion) return false
 
   return (
     hasSubjectHint &&
@@ -303,7 +305,10 @@ function clampPosition(value, min, max) {
 
 function handleCitationClick({ cite, target }) {
   if (!cite) return
+  openCitationPopover(cite, target)
+}
 
+function openCitationPopover(cite, target) {
   const rect = target?.getBoundingClientRect?.()
   if (!rect) {
     openCitePopover(cite, Math.max(16, window.innerWidth - 380), 96)
@@ -322,6 +327,20 @@ function handleCitationClick({ cite, target }) {
   }
 
   openCitePopover(cite, left, top)
+}
+
+function shouldShowCitations(msg = {}) {
+  return msg.phase === 'done'
+    && !isErrorAnswer(msg.text)
+    && Array.isArray(msg.citations)
+    && msg.citations.length > 0
+}
+
+function isErrorAnswer(text = '') {
+  const value = String(text || '').trim()
+  return value.startsWith('오류:')
+    || value.startsWith('⚠️')
+    || value.includes('All connection attempts failed')
 }
 
 const width = ref(310)
@@ -474,6 +493,7 @@ watch(
                   class="ai-doc-feed text-[#1d1d1f] text-[14px] leading-[1.7]"
                   :text="msg.text"
                   :citations="msg.citations"
+                  :enable-citations="shouldShowCitations(msg)"
                   @citationClick="handleCitationClick"
                 />
 

@@ -6,7 +6,8 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const props = defineProps({
-  cite: { type: Object, default: null }
+  cite: { type: Object, default: null },
+  mode: { type: String, default: 'compact' },
 })
 
 const canvasRef = ref(null)
@@ -91,7 +92,7 @@ async function renderPreview() {
     if (!context) throw new Error('PDF preview canvas context is unavailable.')
 
     const baseViewport = page.getViewport({ scale: 1 })
-    const targetWidth = 260
+    const targetWidth = props.mode === 'page' ? 520 : 260
     const scale = Math.max(0.18, targetWidth / baseViewport.width)
     const viewport = page.getViewport({ scale })
 
@@ -123,8 +124,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="pdf-evidence-preview">
-    <div class="pdf-evidence-preview-top">
+  <div class="pdf-evidence-preview" :class="{ 'is-page-preview': mode === 'page' }">
+    <div v-if="mode !== 'page'" class="pdf-evidence-preview-top">
       <span class="material-symbols-outlined">picture_as_pdf</span>
       <span class="pdf-evidence-title">{{ materialTitle }}</span>
       <strong>p.{{ pageNumber }}</strong>
@@ -201,5 +202,25 @@ onBeforeUnmount(() => {
   background: rgba(248, 250, 252, 0.92);
   font-size: 12px;
   font-weight: 800;
+}
+
+.pdf-evidence-preview.is-page-preview {
+  gap: 0;
+}
+
+.pdf-evidence-preview.is-page-preview .pdf-evidence-canvas-wrap {
+  height: auto;
+  min-height: 280px;
+  overflow: visible;
+  border-radius: 0;
+  border: 0;
+  background: #fff;
+}
+
+.pdf-evidence-preview.is-page-preview .pdf-evidence-canvas-wrap canvas {
+  width: 100%;
+  height: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
 }
 </style>

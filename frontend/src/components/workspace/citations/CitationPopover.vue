@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { buildHighlightedCitationHtml, normalizeCitation } from './citationUtils'
+import PdfEvidencePreview from '../PdfEvidencePreview.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -15,6 +16,8 @@ const scrollRef = ref(null)
 const citation = computed(() => (
   props.cite ? normalizeCitation(props.cite, 0) : null
 ))
+
+const isMaterialCitation = computed(() => citation.value?.type === 'material')
 
 const highlightedBody = computed(() => {
   const item = citation.value
@@ -46,6 +49,7 @@ watch(
   async () => {
     if (!props.visible) return
     await nextTick()
+    if (isMaterialCitation.value) return
     scrollRef.value?.querySelector?.('.cite-highlighted-script')?.scrollIntoView?.({
       block: 'center',
       inline: 'nearest',
@@ -71,15 +75,30 @@ function clamp(value, min, max) {
         <div class="cite-popover" :style="popoverStyle">
           <div class="cite-popover-header">
             <div class="cite-popover-title">
-              <span class="cite-popover-main-title">{{ citation.title }}</span>
-              <p>{{ citationLabel }}</p>
+              <span
+                class="cite-popover-title-icon material-symbols-outlined"
+                :class="{ 'is-audio': citation.type === 'transcript' }"
+              >
+                {{ citation.icon }}
+              </span>
+              <span class="cite-popover-title-text">
+                <span class="cite-popover-main-title">{{ citation.title }}</span>
+                <p>{{ citationLabel }}</p>
+              </span>
             </div>
             <button class="cite-popover-close-btn" aria-label="근거 정보 닫기" @click="emit('close')">
               <span class="material-symbols-outlined">close</span>
             </button>
           </div>
 
-          <div ref="scrollRef" class="cite-transcript-scroll custom-scrollbar">
+          <div
+            v-if="isMaterialCitation"
+            class="cite-pdf-scroll custom-scrollbar"
+          >
+            <PdfEvidencePreview :cite="props.cite" mode="page" />
+          </div>
+
+          <div v-else ref="scrollRef" class="cite-transcript-scroll custom-scrollbar">
             <div
               class="cite-transcript-body whitespace-pre-wrap break-keep"
               v-html="highlightedBody"
@@ -93,7 +112,12 @@ function clamp(value, min, max) {
               @click="openSource"
               :title="citation.title"
             >
-              <span class="material-symbols-outlined">{{ citation.icon }}</span>
+              <span
+                class="cite-source-icon material-symbols-outlined"
+                :class="{ 'is-audio': citation.type === 'transcript' }"
+              >
+                {{ citation.icon }}
+              </span>
               <span>
                 <small>{{ citation.sourceCaption }} · {{ citation.locationLabel }}</small>
                 <strong>소스 보기</strong>
@@ -137,6 +161,33 @@ function clamp(value, min, max) {
 }
 
 .cite-popover-title {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cite-popover-title-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 9px;
+  font-size: 17px;
+}
+
+.cite-popover-title-icon.is-audio {
+  color: #f59e0b;
+  background: rgba(255, 242, 207, 0.9);
+  border-color: rgba(255, 242, 207, 0.9);
+}
+
+.cite-popover-title-text {
   min-width: 0;
 }
 
@@ -193,6 +244,14 @@ function clamp(value, min, max) {
   padding: 20px 22px;
 }
 
+.cite-pdf-scroll {
+  flex: 1 1 auto;
+  min-height: 280px;
+  overflow-y: auto;
+  padding: 18px 20px;
+  background: #f8fafc;
+}
+
 .cite-transcript-body {
   color: #1f2937;
   font-size: 14px;
@@ -229,7 +288,7 @@ function clamp(value, min, max) {
   cursor: pointer;
 }
 
-.cite-source-title > .material-symbols-outlined:first-child {
+.cite-source-title > .cite-source-icon {
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -239,6 +298,11 @@ function clamp(value, min, max) {
   font-size: 17px;
   border-radius: 10px;
   background: #f1f5f9;
+}
+
+.cite-source-title > .cite-source-icon.is-audio {
+  color: #f59e0b;
+  background: rgba(255, 242, 207, 0.9);
 }
 
 .cite-source-title small {
