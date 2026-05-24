@@ -93,6 +93,10 @@ _GROUNDED_LOOKUP_TERMS = (
     "알려",
     "개념",
     "뜻",
+    "이란",
+    "란",
+    "요약",
+    "정리",
 )
 _GROUNDED_LOOKUP_STOPWORDS = _LOCATOR_QUERY_STOPWORDS | {
     "강의",
@@ -274,18 +278,22 @@ def _extract_grounded_lookup_terms(query: str) -> list[str]:
     focus = text
 
     question_match = re.search(
-        r"(.+?)(?:누구|언제까지|언제|몇\s*시|마감일|마감|기한|제출일|제출해야|제출|까지|무엇|뭐야|뭐여|뭐냐|뭐임|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻)",
+        r"(.+?)(?:누구|무엇|뭐야|뭐여|뭐냐|뭐임|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻|이란|란|요약|정리)",
         text,
     )
     if question_match:
         focus = question_match.group(1)
 
-    source_parts = re.split(r"\s*(?:의|에서|에는|에)\s+", focus)
-    source_parts = [part.strip() for part in source_parts if part.strip()]
-    if len(source_parts) > 1:
-        focus = source_parts[-1]
+    concept_match = re.search(r"(.+?)(?:의\s*)?(?:개념|정의|의미|뜻|이란|란|요약|정리)", focus)
+    if concept_match:
+        focus = concept_match.group(1)
+    else:
+        source_parts = re.split(r"\s*(?:의|에서|에는|에)\s+", focus)
+        source_parts = [part.strip() for part in source_parts if part.strip()]
+        if len(source_parts) > 1:
+            focus = source_parts[-1]
 
-    focus = re.sub(r"(은|는|이|가|을|를|에|에서|으로|로|도|만)\s*$", "", focus).strip()
+    focus = re.sub(r"(은|는|이|가|을|를|의|에|에서|으로|로|도|만)\s*$", "", focus).strip()
 
     alnum_terms = _ALNUM_TERM_RE.findall(focus)
     if alnum_terms:
@@ -1203,6 +1211,59 @@ def _dedupe_vector_results(vector_results: list[dict], top_k: int = 5) -> list[d
     return ranked[:top_k]
 
 
+def _prioritize_grounded_lookup_results(
+    results: list[dict],
+    *,
+    grounded_lookup_query: bool,
+    locator_query: bool,
+    top_k: int,
+) -> list[dict]:
+    """개념/정의 질문에서는 같은 후보 안에서 PDF 강의자료 근거를 음성 전사보다 우선 배치합니다."""
+    if not results:
+        return []
+    if not grounded_lookup_query or locator_query:
+        return results[:top_k]
+
+    ranked = sorted(
+        enumerate(results),
+        key=lambda item: (
+            (item[1].get("source_type") == "material"),
+            float(item[1].get("score") or item[1].get("match_count") or 0),
+            -item[0],
+        ),
+        reverse=True,
+    )
+    return _ensure_material_and_transcript_mix([item for _, item in ranked], top_k=top_k)
+
+
+def _ensure_material_and_transcript_mix(results: list[dict], *, top_k: int) -> list[dict]:
+    """PDF와 전사 후보가 모두 있으면 최종 근거에 최소 1개씩 포함합니다."""
+    selected = list(results[:top_k])
+    if top_k < 2 or len(selected) < top_k:
+        return selected
+
+    has_material_candidate = any(item.get("source_type") == "material" for item in results)
+    has_transcript_candidate = any(item.get("source_type", "transcript") == "transcript" for item in results)
+    if not has_material_candidate or not has_transcript_candidate:
+        return selected
+
+    has_material_selected = any(item.get("source_type") == "material" for item in selected)
+    has_transcript_selected = any(item.get("source_type", "transcript") == "transcript" for item in selected)
+    if has_material_selected and has_transcript_selected:
+        return selected
+
+    replacement_type = "transcript" if not has_transcript_selected else "material"
+    replacement = next(
+        (item for item in results[top_k:] if item.get("source_type", "transcript") == replacement_type),
+        None,
+    )
+    if replacement is None:
+        return selected
+
+    selected[-1] = replacement
+    return selected
+
+
 def _run_vector_similarity_search(
     queries: list[str],
     top_k: int = 5,
@@ -1323,8 +1384,9 @@ def search(
     has_filter = _has_source_filter(filters)
     locator_query = _is_locator_query(question)
     grounded_lookup_query = _is_grounded_lookup_query(question)
-    strict_keyword_query = locator_query or grounded_lookup_query
+    strict_keyword_query = locator_query
     current_scope_query = _is_current_scope_query(question)
+    candidate_top_k = top_k * 3 if grounded_lookup_query and not locator_query else top_k
 
     if strict_keyword_query:
         results = _run_keyword_only_search(
@@ -1337,11 +1399,22 @@ def search(
         )
         search_scope = "current_file_keyword" if session_id else "all_files_keyword"
     else:
-        results = _run_vector_similarity_search(queries, top_k=top_k, session_id=session_id, source_filter=source_filter)
-        search_scope = "current_file" if session_id else "all_files"
+        # 개념/정의 질문은 PDF 벡터 결과만으로는 전사 스크립트 후보가 밀릴 수 있어
+        # 키워드 후보까지 함께 섞은 뒤 PDF/전사 근거를 균형 있게 고른다.
+        if grounded_lookup_query:
+            results = _run_hybrid_search(
+                queries,
+                top_k=candidate_top_k,
+                session_id=session_id,
+                source_filter=source_filter,
+            )
+            search_scope = "current_file_hybrid" if session_id else "all_files_hybrid"
+        else:
+            results = _run_vector_similarity_search(queries, top_k=candidate_top_k, session_id=session_id, source_filter=source_filter)
+            search_scope = "current_file" if session_id else "all_files"
 
     if not results and not strict_keyword_query:
-        results = _run_hybrid_search(queries, top_k=top_k, session_id=session_id, source_filter=source_filter)
+        results = _run_hybrid_search(queries, top_k=candidate_top_k, session_id=session_id, source_filter=source_filter)
         if results:
             search_scope = f"{search_scope}_keyword_fallback"
 
@@ -1368,13 +1441,20 @@ def search(
             search_scope = "selected_source_context"
 
     if session_id and not results and not has_filter and not strict_keyword_query:
-        results = _run_vector_similarity_search(queries, top_k=top_k, session_id=None, source_filter=None)
+        results = _run_vector_similarity_search(queries, top_k=candidate_top_k, session_id=None, source_filter=None)
         if not results:
-            results = _run_hybrid_search(queries, top_k=top_k, session_id=None, source_filter=None)
+            results = _run_hybrid_search(queries, top_k=candidate_top_k, session_id=None, source_filter=None)
         search_scope = "all_files_fallback"
 
     if not results:
         return {"context": "", "citations": []}
+
+    results = _prioritize_grounded_lookup_results(
+        results,
+        grounded_lookup_query=grounded_lookup_query,
+        locator_query=locator_query,
+        top_k=top_k,
+    )
 
     # 4. Context 문자열 구성 (LLM에 전달할 참고자료)
     context_parts = []
