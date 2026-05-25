@@ -380,6 +380,43 @@ def build_direct_locator_answer(question: str, citations: list[dict]) -> str | N
     return f"{subject}는 {source_label}에서 언급됩니다.\n해당 구간은 {time_range}입니다."
 
 
+def build_direct_smalltalk_answer(question: str) -> str | None:
+    """인사/도움말은 RAG와 LLM을 거치지 않고 짧고 안정적으로 답합니다."""
+    text = " ".join(str(question or "").strip().split())
+    if not text:
+        return "질문을 입력해 주세요."
+
+    compact = re.sub(r"[\s!?.。！？~]+", "", text).lower()
+    greetings = {"안녕", "안녕하세요", "하이", "hello", "hi", "ㅎㅇ"}
+    thanks = {"고마워", "고맙습니다", "감사", "감사합니다", "땡큐", "thanks", "thankyou"}
+
+    if compact in greetings or (len(compact) <= 12 and compact.startswith(("안녕", "하이"))):
+        return (
+            "안녕하세요. 저는 강의 녹음, 전사, PDF 자료를 바탕으로 "
+            "요약, 퀴즈 생성, 일정 추출, 근거 기반 질문 답변을 도와드릴게요."
+        )
+
+    if compact in thanks:
+        return "천만에요. 필요한 강의 내용이나 자료에 대해 질문해 주세요."
+
+    help_patterns = (
+        "뭐 할 수 있어",
+        "무엇을 할 수 있어",
+        "어떤 기능",
+        "사용법",
+        "도움말",
+        "어떻게 쓰",
+    )
+    if any(pattern in text for pattern in help_patterns):
+        return (
+            "저는 선택한 강의 녹음과 PDF 자료를 기준으로 답변할 수 있습니다. "
+            "전사 요약, 퀴즈 생성, 일정 추출, 자료 기반 질의응답을 지원하고, "
+            "답변에는 가능한 경우 근거 링크를 함께 보여드립니다."
+        )
+
+    return None
+
+
 def build_direct_no_evidence_answer(question: str, citations: list[dict]) -> str | None:
     """근거 기반 질문인데 citation이 없으면 LLM 호출 없이 '찾지 못함'으로 답합니다."""
     if citations:
