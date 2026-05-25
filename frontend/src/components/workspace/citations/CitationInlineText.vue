@@ -97,7 +97,7 @@ function appendFallbackMarker(text, citations, fallbackState) {
   if (!numbers.length) return text
 
   const baseText = existingNumbers.length
-    ? stripTrailingCitationMarkers(text)
+    ? stripCitationMarkers(text)
     : text
   return `${String(baseText || '').trimEnd()} [${numbers.join(',')}]`
 }
@@ -160,6 +160,7 @@ function keywordSet(value) {
 function shouldAttachFallbackMarker(line) {
   const trimmed = String(line || '').trim()
   if (!trimmed) return false
+  if (!stripCitationMarkers(trimmed).trim()) return false
   if (/^#{1,6}\s+/.test(trimmed)) return false
   if (/^[-*]\s*$/.test(trimmed)) return false
   if (/^[\d.)\s-]*$/.test(trimmed)) return false
@@ -168,8 +169,10 @@ function shouldAttachFallbackMarker(line) {
 }
 
 function cleanupCitationText(text) {
-  return stripTrailingSourceSection(String(text || '')
-    .replace(/\s*\[출처[:：]?[^\]]*\][^\n]*(?=\n|$)/g, ''))
+  const withoutInlineSourceLabels = String(text || '')
+    .replace(/\s*\[출처[:：]?[^\]]*\][^\n]*(?=\n|$)/g, '')
+    .replace(/(^|\n)\s*(?:\[\d+(?:\s*,\s*\d+)*\]\s*)+\s*(?=\n|$)/g, '$1')
+  return stripTrailingSourceSection(withoutInlineSourceLabels)
     .trim()
 }
 
@@ -221,8 +224,11 @@ function uniqueCitationNumbers(rawNumbers, maxNumber) {
     .filter((number, index, numbers) => numbers.indexOf(number) === index)
 }
 
-function stripTrailingCitationMarkers(value) {
-  return String(value || '').replace(/(?:\s*\[\d+(?:\s*,\s*\d+)*\])+\s*$/, '')
+function stripCitationMarkers(value) {
+  return String(value || '')
+    .replace(citationMarkerPattern, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([.,!?。！？])/g, '$1')
 }
 
 function markerButtonHtml(number) {
