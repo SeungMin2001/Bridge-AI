@@ -280,11 +280,44 @@ function handleClick(event) {
 
 <style scoped>
 .citation-inline-text :deep(p) {
-  margin-bottom: 0.5em;
+  margin: 0 0 0.72em;
 }
 
 .citation-inline-text :deep(p:last-child) {
   margin-bottom: 0;
+}
+
+.citation-inline-text :deep(strong) {
+  color: #111827;
+  font-weight: 800;
+}
+
+.citation-inline-text :deep(ul),
+.citation-inline-text :deep(ol) {
+  margin: 0.55em 0 0.8em;
+  padding-left: 1.35em;
+}
+
+.citation-inline-text :deep(li) {
+  margin: 0.34em 0;
+  padding-left: 0.15em;
+}
+
+.citation-inline-text :deep(li::marker) {
+  color: #4b5563;
+  font-size: 0.78em;
+}
+
+.citation-inline-text :deep(code) {
+  display: inline;
+  padding: 0.08em 0.36em;
+  color: #1f2937;
+  background: #f3f4f6;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  font-weight: 700;
+  white-space: normal;
 }
 
 .citation-inline-text :deep(.inline-citation-group) {
@@ -296,8 +329,8 @@ function handleClick(event) {
 }
 
 .citation-inline-text :deep(.inline-citation-marker) {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -306,7 +339,7 @@ function handleClick(event) {
   background: #f1f5f9;
   border: 1px solid rgba(226, 232, 240, 0.96);
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1;
   cursor: pointer;
@@ -322,8 +355,8 @@ function handleClick(event) {
 }
 
 .citation-inline-text :deep(.inline-citation-more) {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -332,7 +365,7 @@ function handleClick(event) {
   background: #eff6ff;
   border: 1px solid rgba(191, 219, 254, 0.96);
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
   line-height: 1;
   cursor: pointer;
