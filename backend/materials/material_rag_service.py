@@ -25,6 +25,16 @@ def _rag_table_name() -> str:
     return f"data_{safe_name}"
 
 
+def _quote_ident(identifier: str) -> str:
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def _material_key(material: dict) -> tuple[str, str]:
+    material_id = str(material.get("id") or "").strip()
+    stored_name = stored_name_from_material(material) or ""
+    return material_id, stored_name
+
+
 def _chunk_text_by_page(material_text: str) -> list[dict]:
     """PDF 추출 텍스트를 페이지/길이 기준으로 RAG용 작은 조각으로 나눈다."""
     chunks = []
@@ -78,6 +88,70 @@ async def delete_session_material_rag(session_id: str) -> int:
             return 0
 
 
+async def _session_material_rag_counts(session_id: str) -> dict[tuple[str, str], int]:
+    """현재 세션에 이미 인덱싱된 PDF 조각 수를 material 단위로 조회한다."""
+    pool = await get_pool()
+    table_name = _quote_ident(_rag_table_name())
+    async with pool.acquire() as conn:
+        try:
+            rows = await conn.fetch(
+                f"""
+                SELECT
+                    COALESCE(metadata_->>'material_id', '') AS material_id,
+                    COALESCE(metadata_->>'stored_name', '') AS stored_name,
+                    COUNT(*) AS chunk_count
+                FROM {table_name}
+                WHERE metadata_->>'session_id' = $1
+                  AND metadata_->>'source_type' = 'material'
+                GROUP BY 1, 2
+                """,
+                str(session_id),
+            )
+        except Exception as exc:
+            logger.info("[MATERIAL:RAG] PDF RAG 기존 인덱스 조회 스킵: %s", exc)
+            return {}
+
+    return {
+        (str(row["material_id"] or ""), str(row["stored_name"] or "")): int(row["chunk_count"] or 0)
+        for row in rows
+    }
+
+
+async def _delete_stale_session_material_rag(
+    session_id: str,
+    active_keys: set[tuple[str, str]],
+    existing_counts: dict[tuple[str, str], int],
+) -> int:
+    """현재 세션에서 더 이상 연결되지 않은 PDF RAG 조각만 삭제한다."""
+    stale_keys = [key for key in existing_counts if key not in active_keys]
+    if not stale_keys:
+        return 0
+
+    pool = await get_pool()
+    table_name = _quote_ident(_rag_table_name())
+    deleted_count = 0
+    async with pool.acquire() as conn:
+        for material_id, stored_name in stale_keys:
+            try:
+                result = await conn.execute(
+                    f"""
+                    DELETE FROM {table_name}
+                    WHERE metadata_->>'session_id' = $1
+                      AND metadata_->>'source_type' = 'material'
+                      AND COALESCE(metadata_->>'material_id', '') = $2
+                      AND COALESCE(metadata_->>'stored_name', '') = $3
+                    """,
+                    str(session_id),
+                    material_id,
+                    stored_name,
+                )
+                deleted_count += int(result.rsplit(" ", 1)[-1])
+            except Exception as exc:
+                logger.warning("[MATERIAL:RAG] 제거된 PDF RAG 삭제 스킵: %s", exc)
+
+    return deleted_count
+
+
 async def count_session_material_rag(session_id: str) -> int:
     pool = await get_pool()
     table_name = _rag_table_name()
@@ -100,28 +174,36 @@ async def count_session_material_rag(session_id: str) -> int:
 async def sync_session_materials_to_rag(session_id: str) -> dict:
     """
     세션에 연결된 PDF 강의자료를 RAG 벡터 스토어에 등록한다.
-    저장소 업데이트 때마다 기존 PDF 조각을 지우고 현재 연결된 PDF만 다시 넣는다.
+    이미 인덱싱된 PDF는 유지하고, 새 PDF만 추가하며, 연결 해제된 PDF 조각만 삭제한다.
     """
-    deleted_count = await delete_session_material_rag(session_id)
-
     try:
         materials = await get_session_pdf_materials(session_id)
     except MaterialTextError as exc:
         logger.info("[MATERIAL:RAG] 인덱싱할 PDF 없음: session=%s, reason=%s", session_id, exc)
         return {
-            "deleted": deleted_count,
+            "deleted": await delete_session_material_rag(session_id),
             "indexed_materials": 0,
             "indexed_chunks": 0,
+            "skipped_materials": 0,
         }
+
+    existing_counts = await _session_material_rag_counts(session_id)
+    active_keys = {_material_key(material) for material in materials}
+    deleted_count = await _delete_stale_session_material_rag(session_id, active_keys, existing_counts)
 
     indexed_materials = 0
     indexed_chunks = 0
+    skipped_materials = 0
     indexed_at = datetime.now().isoformat()
 
     for material in materials:
         stored_name = stored_name_from_material(material)
         material_name = material.get("name") or material.get("title") or stored_name or "강의자료"
         material_id = str(material.get("id") or "")
+        material_key = (material_id, stored_name or "")
+        if existing_counts.get(material_key, 0) > 0:
+            skipped_materials += 1
+            continue
 
         try:
             material_text = extract_pdf_text(material)
@@ -147,11 +229,13 @@ async def sync_session_materials_to_rag(session_id: str) -> dict:
             indexed_chunks += 1
 
         indexed_materials += 1
+        existing_counts[material_key] = len(chunks)
 
     logger.info(
-        "[MATERIAL:RAG] PDF 인덱싱 완료: session=%s, materials=%s, chunks=%s, deleted=%s",
+        "[MATERIAL:RAG] PDF 인덱싱 완료: session=%s, indexed=%s, skipped=%s, chunks=%s, deleted=%s",
         session_id,
         indexed_materials,
+        skipped_materials,
         indexed_chunks,
         deleted_count,
     )
@@ -159,15 +243,10 @@ async def sync_session_materials_to_rag(session_id: str) -> dict:
         "deleted": deleted_count,
         "indexed_materials": indexed_materials,
         "indexed_chunks": indexed_chunks,
+        "skipped_materials": skipped_materials,
     }
 
 
 async def ensure_session_materials_indexed(session_id: str) -> dict:
-    indexed_count = await count_session_material_rag(session_id)
-    if indexed_count > 0:
-        return {
-            "already_indexed": indexed_count,
-            "indexed_materials": 0,
-            "indexed_chunks": 0,
-        }
+    # 채팅 직전에도 증분 sync만 수행하므로 이미 저장된 PDF는 다시 파싱하지 않는다.
     return await sync_session_materials_to_rag(session_id)

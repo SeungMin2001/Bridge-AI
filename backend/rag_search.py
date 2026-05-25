@@ -371,6 +371,26 @@ def _vector_metadata_column(cur, table_name: str) -> str | None:
     return row[0] if row else None
 
 
+def _vector_text_column(cur, table_name: str) -> str | None:
+    cur.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = %s
+          AND column_name IN ('text', 'text_', 'content')
+        ORDER BY CASE
+            WHEN column_name = 'text' THEN 0
+            WHEN column_name = 'text_' THEN 1
+            ELSE 2
+        END
+        LIMIT 1
+        """,
+        (table_name,),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 def _json_value(value, fallback):
     if value in (None, ""):
         return fallback
@@ -1268,6 +1288,156 @@ def _keyword_search(
     return results
 
 
+def _material_keyword_search(
+    query: str,
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+    locator_query: bool | None = None,
+    grounded_lookup_query: bool | None = None,
+) -> list[dict]:
+    """PDF RAG chunk도 전사문과 동일하게 키워드 후보로 검색합니다."""
+    filters = _normalize_source_filter(source_filter)
+    if _has_source_filter(filters) and not filters["material_ids"] and not filters["stored_names"]:
+        return []
+
+    words = _extract_search_terms(
+        query,
+        locator_query=_is_locator_query(query) if locator_query is None else locator_query,
+        grounded_lookup_query=_is_grounded_lookup_query(query)
+        if grounded_lookup_query is None
+        else grounded_lookup_query,
+    )
+    if not words:
+        return []
+
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(**_db_config())
+        cur = conn.cursor()
+        table_name = _rag_table_name()
+        metadata_column = _vector_metadata_column(cur, table_name)
+        text_column = _vector_text_column(cur, table_name)
+        if not metadata_column or not text_column:
+            return []
+
+        quoted_table = _quote_ident(table_name)
+        quoted_metadata = _quote_ident(metadata_column)
+        quoted_text = _quote_ident(text_column)
+        text_expr = f"COALESCE({quoted_text}, '')"
+        like_conditions = " OR ".join([f"{text_expr} ILIKE %s" for _ in words])
+        match_score = " + ".join([f"CASE WHEN {text_expr} ILIKE %s THEN 1 ELSE 0 END" for _ in words])
+        score_values = [f"%{word}%" for word in words]
+        like_values = [f"%{word}%" for word in words]
+        where_clauses = [
+            f"{quoted_metadata}->>'source_type' = 'material'",
+            f"({like_conditions})",
+        ]
+        values = score_values + like_values
+
+        if session_id:
+            where_clauses.append(f"{quoted_metadata}->>'session_id' = %s")
+            values.append(str(session_id))
+        if filters["material_ids"]:
+            where_clauses.append(f"{quoted_metadata}->>'material_id' = ANY(%s)")
+            values.append(list(filters["material_ids"]))
+        if filters["stored_names"]:
+            where_clauses.append(
+                f"regexp_replace(COALESCE({quoted_metadata}->>'stored_name', ''), '^.*[\\\\/]', '') = ANY(%s)"
+            )
+            values.append(list(filters["stored_names"]))
+
+        cur.execute(
+            f"""
+            SELECT {text_expr} AS chunk_text,
+                   {quoted_metadata} AS metadata,
+                   ({match_score}) AS match_count
+            FROM {quoted_table}
+            WHERE {" AND ".join(where_clauses)}
+            ORDER BY match_count DESC
+            LIMIT %s
+            """,
+            values + [top_k],
+        )
+        rows = cur.fetchall()
+    except Exception as exc:
+        logger.warning("[RAG] PDF 키워드 검색 실패: %s", exc)
+        return []
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+    label_cache = {}
+    results = []
+    for chunk_text, metadata_value, match_count in rows:
+        metadata = _json_value(metadata_value, {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        row_session_id = str(metadata.get("session_id") or "")
+        if not row_session_id:
+            continue
+        if not _matches_source_filter(metadata, filters):
+            continue
+
+        if row_session_id not in label_cache:
+            label_cache[row_session_id] = _get_session_label(row_session_id)
+        session_label = label_cache.get(row_session_id) or {}
+        results.append({
+            "text": chunk_text,
+            "file_title": session_label.get("file_title") or metadata.get("session_title", ""),
+            "recording_title": "",
+            "course_title": session_label.get("course_title") or metadata.get("course_title", ""),
+            "session_title": session_label.get("session_title") or metadata.get("session_title", ""),
+            "session_date": session_label.get("session_date") or metadata.get("session_date", ""),
+            "start_time": 0,
+            "end_time": 0,
+            "session_id": row_session_id,
+            "recording_id": "",
+            "transcript_id": "",
+            "material_id": str(metadata.get("material_id", "")),
+            "material_name": str(metadata.get("material_name", "")),
+            "stored_name": str(metadata.get("stored_name", "")),
+            "page": metadata.get("page", 0),
+            "chunk_index": metadata.get("chunk_index", None),
+            "created_at": metadata.get("created_at", ""),
+            "source_type": "material",
+            "source": "keyword",
+            "match_count": int(match_count or 0),
+        })
+    return results
+
+
+def _keyword_search_all_sources(
+    query: str,
+    top_k: int = 5,
+    session_id: str | None = None,
+    source_filter: dict | None = None,
+    locator_query: bool | None = None,
+    grounded_lookup_query: bool | None = None,
+) -> list[dict]:
+    results = []
+    results.extend(_keyword_search(
+        query,
+        top_k=top_k,
+        session_id=session_id,
+        source_filter=source_filter,
+        locator_query=locator_query,
+        grounded_lookup_query=grounded_lookup_query,
+    ))
+    results.extend(_material_keyword_search(
+        query,
+        top_k=top_k,
+        session_id=session_id,
+        source_filter=source_filter,
+        locator_query=locator_query,
+        grounded_lookup_query=grounded_lookup_query,
+    ))
+    return results
+
+
 # ── 벡터 검색 ──
 # 신창영 : 기존에는 session_id 필터 없이 벡터 검색 top_k만 조회
 # def _vector_search(query: str, top_k: int = 5) -> list[dict]:
@@ -1584,7 +1754,12 @@ def _run_hybrid_search(
     material_source_requested = _has_material_source_filter(filters)
 
     for query in queries:
-        all_keyword.extend(_keyword_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
+        all_keyword.extend(_keyword_search_all_sources(
+            query,
+            top_k=top_k,
+            session_id=session_id,
+            source_filter=source_filter,
+        ))
 
     keyword_results = _merge_results([], all_keyword, top_k=top_k, query_keywords=query_keywords)
     if (
@@ -1617,7 +1792,7 @@ def _run_keyword_only_search(
     """정확한 언급 위치를 찾는 질문에서는 키워드 매칭 결과를 우선 사용합니다."""
     all_keyword = []
     for query in queries:
-        all_keyword.extend(_keyword_search(
+        all_keyword.extend(_keyword_search_all_sources(
             query,
             top_k=top_k,
             session_id=session_id,
@@ -1639,7 +1814,7 @@ def _run_keyword_only_search(
     """정확한 언급 위치를 찾는 질문에서는 키워드 매칭 결과를 우선 사용합니다."""
     all_keyword = []
     for query in queries:
-        all_keyword.extend(_keyword_search(
+        all_keyword.extend(_keyword_search_all_sources(
             query,
             top_k=top_k,
             session_id=session_id,
