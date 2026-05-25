@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 
-DEFAULT_DB_NAME = "rag"
+DEFAULT_DB_NAME = "ragdb"
 
 
 def db_config() -> dict:
