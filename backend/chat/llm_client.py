@@ -24,6 +24,7 @@ CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "320"))
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
+CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
 
 SYSTEM_PROMPT = (
     "너는 강의 녹취록과 PDF 자료를 근거로 답하는 AI 학습 조교다. "
@@ -67,7 +68,7 @@ def build_chat_messages(prompt: str) -> list[dict]:
 async def complete_answer(prompt: str, source_filter: dict | None) -> str:
     """비스트리밍 LLM 호출을 수행하고 최종 답변 문자열만 반환합니다."""
     messages = build_chat_messages(prompt)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=CHAT_LLM_READ_TIMEOUT)) as client:
         if _use_ollama_native_chat():
             res = await client.post(
                 _llm_url("/api/chat"),
@@ -94,7 +95,7 @@ async def stream_answer(prompt: str, source_filter: dict | None, *, thinking: bo
     emitted_content = False
     saw_thinking_only = False
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=CHAT_LLM_READ_TIMEOUT)) as client:
         if _use_ollama_native_chat():
             async with client.stream(
                 "POST",

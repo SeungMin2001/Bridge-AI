@@ -12,12 +12,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from chat.context_service import (
-    build_direct_factual_answer,
-    build_direct_smalltalk_answer,
-    build_direct_locator_answer,
-    build_direct_no_evidence_answer,
     build_prompt_and_citations,
     ensure_material_rag_for_chat,
+    is_smalltalk_question,
 )
 from chat.llm_client import EmptyLLMResponse, complete_answer, set_llm_url, stream_answer
 
@@ -59,19 +56,12 @@ async def chat(req: ChatRequest):
     """
     print(f"[CHAT] 요청 수신: {req.question}")
     try:
-        direct_answer = build_direct_smalltalk_answer(req.question)
-        if direct_answer is not None:
-            return {"thinking": "", "answer": direct_answer, "citations": []}
-
-        await ensure_material_rag_for_chat(req.session_id, req.source_filter)
-        prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
-        answer = build_direct_locator_answer(req.question, citations)
-        if answer is None:
-            answer = build_direct_factual_answer(req.question, citations)
-        if answer is None:
-            answer = build_direct_no_evidence_answer(req.question, citations)
-        if answer is None:
-            answer = await complete_answer(prompt, req.source_filter)
+        if is_smalltalk_question(req.question):
+            prompt, citations = req.question, []
+        else:
+            await ensure_material_rag_for_chat(req.session_id, req.source_filter)
+            prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
+        answer = await complete_answer(prompt, req.source_filter)
         if not answer:
             answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
         return {"thinking": "", "answer": answer, "citations": citations}
@@ -86,22 +76,11 @@ async def chat_stream(req: ChatRequest):
     request_started_at = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
 
-    smalltalk_answer = build_direct_smalltalk_answer(req.question)
-    if smalltalk_answer is not None:
-        async def generate_smalltalk():
-            yield f"data: {json.dumps({'type': 'citations', 'citations': []}, ensure_ascii=False)}\n\n"
-            yield f"data: {json.dumps({'type': 'token', 'token': smalltalk_answer}, ensure_ascii=False)}\n\n"
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(generate_smalltalk(), media_type="text/event-stream")
-
-    await ensure_material_rag_for_chat(req.session_id, req.source_filter)
-    prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
-    direct_answer = build_direct_locator_answer(req.question, citations)
-    if direct_answer is None:
-        direct_answer = build_direct_factual_answer(req.question, citations)
-    if direct_answer is None:
-        direct_answer = build_direct_no_evidence_answer(req.question, citations)
+    if is_smalltalk_question(req.question):
+        prompt, citations = req.question, []
+    else:
+        await ensure_material_rag_for_chat(req.session_id, req.source_filter)
+        prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
     t_rag = time.perf_counter()
     print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
 
@@ -115,24 +94,17 @@ async def chat_stream(req: ChatRequest):
         yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
 
         try:
-            if direct_answer is not None:
+            async for token in stream_answer(
+                prompt,
+                req.source_filter,
+                thinking=req.is_thinking,
+            ):
                 emitted_content = True
-                first_token_logged = True
-                first_token_elapsed = time.perf_counter() - request_started_at
-                print(f"[CHAT STREAM] 직접 위치 답변 생성: {first_token_elapsed:.3f}s")
-                yield f"data: {json.dumps({'type': 'token', 'token': direct_answer}, ensure_ascii=False)}\n\n"
-            else:
-                async for token in stream_answer(
-                    prompt,
-                    req.source_filter,
-                    thinking=req.is_thinking,
-                ):
-                    emitted_content = True
-                    if not first_token_logged:
-                        first_token_logged = True
-                        first_token_elapsed = time.perf_counter() - request_started_at
-                        print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
-                    yield f"data: {json.dumps({'type': 'token', 'token': token}, ensure_ascii=False)}\n\n"
+                if not first_token_logged:
+                    first_token_logged = True
+                    first_token_elapsed = time.perf_counter() - request_started_at
+                    print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
+                yield f"data: {json.dumps({'type': 'token', 'token': token}, ensure_ascii=False)}\n\n"
         except EmptyLLMResponse as e:
             emitted_error = True
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"

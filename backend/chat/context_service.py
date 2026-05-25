@@ -407,6 +407,9 @@ def build_direct_factual_answer(question: str, citations: list[dict]) -> str | N
 
 def build_direct_smalltalk_answer(question: str) -> str | None:
     """인사/도움말은 RAG와 LLM을 거치지 않고 짧고 안정적으로 답합니다."""
+    if not is_smalltalk_question(question):
+        return None
+
     text = " ".join(str(question or "").strip().split())
     if not text:
         return "질문을 입력해 주세요."
@@ -440,6 +443,31 @@ def build_direct_smalltalk_answer(question: str) -> str | None:
         )
 
     return None
+
+
+def is_smalltalk_question(question: str) -> bool:
+    """RAG 근거 없이도 답할 수 있는 인사/도움말성 질문인지 확인합니다."""
+    text = " ".join(str(question or "").strip().split())
+    if not text:
+        return True
+
+    compact = re.sub(r"[\s!?.。！？~]+", "", text).lower()
+    greetings = {"안녕", "안녕하세요", "하이", "hello", "hi", "ㅎㅇ"}
+    thanks = {"고마워", "고맙습니다", "감사", "감사합니다", "땡큐", "thanks", "thankyou"}
+    if compact in greetings or compact in thanks:
+        return True
+    if len(compact) <= 12 and compact.startswith(("안녕", "하이")):
+        return True
+
+    help_patterns = (
+        "뭐 할 수 있어",
+        "무엇을 할 수 있어",
+        "어떤 기능",
+        "사용법",
+        "도움말",
+        "어떻게 쓰",
+    )
+    return any(pattern in text for pattern in help_patterns)
 
 
 def build_direct_no_evidence_answer(question: str, citations: list[dict]) -> str | None:
