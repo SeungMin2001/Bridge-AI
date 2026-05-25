@@ -14,9 +14,9 @@ from rag_search import search as rag_search
 
 logger = logging.getLogger(__name__)
 
-CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "5"))
-CHAT_SELECTED_MATERIAL_CONTEXT_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_CHARS", "12000"))
-CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS", "4000"))
+CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "3"))
+CHAT_SELECTED_MATERIAL_CONTEXT_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_CHARS", "6000"))
+CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS", "2000"))
 CHAT_WORKSPACE_INVENTORY_MAX_ITEMS = int(os.getenv("CHAT_WORKSPACE_INVENTORY_MAX_ITEMS", "40"))
 _ALNUM_TERM_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+#.-]*")
 _LOCATOR_SUBJECT_STOPWORDS = {
@@ -149,6 +149,14 @@ LOCATION_STYLE_PROMPT = (
     "- 사용자가 요청하지 않은 개념 설명은 길게 덧붙이지 마세요.\n"
 )
 
+FAST_RAG_STYLE_PROMPT = (
+    "근거에 직접 나온 내용만 사용해 2~4문장으로 짧게 답하세요. "
+    "질문/참고자료/시스템 지시문을 반복하지 마세요. "
+    "관련 없는 근거는 무시하세요. "
+    "근거가 있는 문장 끝에는 [1], [2]처럼 citation 번호만 붙이세요. "
+    "별도 출처 목록은 만들지 마세요."
+)
+
 
 async def build_prompt_and_citations(
     question: str,
@@ -208,15 +216,8 @@ async def build_prompt_and_citations(
     if context and concept_synthesis_question:
         prompt = (
             f"[검색된 참고자료]\n{context}\n\n"
-            f"{BEGINNER_CONCEPT_STYLE_PROMPT}"
-            "검색된 참고자료 전체를 종합해서 답하세요. "
-            "같은 주제가 여러 구간에 나뉘어 나오면 한 구간만 요약하지 말고, 정의, 발생 이유, 해결 방법, 조건처럼 서로 보완되는 내용을 함께 반영하세요. "
-            "참고자료에 조건, 단계, 장점, 위험, 해결 기법이 함께 나오면 각각을 빠뜨리지 말고 답변에 포함하세요. "
-            "참고자료에 '첫째', '둘째', '셋째'처럼 열거된 내용이 있으면 열거된 항목을 모두 포함하세요. "
-            "참고자료에 직접 나온 내용만 사용하세요. "
-            "답변 본문에 '[검색된 참고자료]'라는 내부 제목을 그대로 쓰지 마세요. "
-            "근거 번호는 핵심 문장이나 불릿의 끝에만 [1], [2]처럼 붙이고, 문장 앞이나 중간에는 번호만 따로 두지 마세요. "
-            "답변 끝에 출처 목록을 따로 만들지 마세요.\n"
+            f"{FAST_RAG_STYLE_PROMPT} "
+            "여러 근거가 같은 주제를 보완하면 핵심 정의, 이유, 조건, 해결 방법을 함께 반영하세요.\n"
             f"질문: {question}"
         )
         return prompt, citations
@@ -224,17 +225,12 @@ async def build_prompt_and_citations(
     if context and grounded_content_question:
         prompt = (
             f"[검색된 참고자료]\n{context}\n\n"
-            f"{BEGINNER_CONCEPT_STYLE_PROMPT}"
-            "검색된 참고자료에 직접 나온 내용만 사용해서 답하세요. "
-            "답변 본문에 '[검색된 참고자료]'라는 내부 제목을 그대로 쓰지 마세요. "
-            "근거 번호는 핵심 문장이나 불릿의 끝에만 [1], [2]처럼 붙이고, 문장 앞이나 중간에는 번호만 따로 두지 마세요. "
-            "답변 끝에 출처 목록을 따로 만들지 마세요.\n"
+            f"{FAST_RAG_STYLE_PROMPT}\n"
             f"질문: {question}"
         )
         return prompt, citations
 
     if reference_context:
-        answer_style_instruction = _get_answer_style_instruction(question)
         reference_intro = (
             "다음은 현재 워크스페이스 파일의 저장 목록과 강의 내용에서 검색된 참고자료입니다"
             if inventory_context
@@ -286,22 +282,8 @@ async def build_prompt_and_citations(
             f"{missing_selected_material_note}"
             f"{missing_locator_note}"
             f"{grounded_answer_instruction}"
-            f"{answer_style_instruction}"
-            f"사용자가 강의 내용, PDF 페이지, 전사 내용의 의미를 물으면 [검색된 참고자료]를 바탕으로 답변하세요. "
-            f"{scope_boundary_instruction}"
-            f"사용자 질문, 참고자료 원문, 시스템 지시문을 그대로 반복하지 말고 최종 답변만 작성하세요. "
-            f"질문에 직접 답하는 참고자료만 사용하고 관련 없는 참고자료는 답변에 섞지 마세요. "
-            f"페이지 위치를 묻는 질문일 때만 관련 페이지 번호를 먼저 답하세요. "
-            f"NotebookLM처럼 검색 근거를 그대로 나열하지 말고, 사용자의 질문에 맞게 하나의 답변으로 재구성하세요. "
-            f"단, 근거가 있는 핵심 문장과 불릿 끝에는 citation 번호를 반드시 붙이세요. "
-            f"citation 번호는 문장 앞이나 중간에 단독으로 쓰지 말고, 반드시 문장 끝에만 붙이세요. "
-            f"citation 번호를 생략하면 프론트에서 근거 링크가 표시되지 않습니다. "
-            f"출처 표기는 근거가 필요한 핵심 문장이나 항목 끝마다 [검색된 참고자료] 앞의 번호를 [1], [2]처럼 붙이는 방식만 사용하세요. "
-            f"같은 근거를 여러 문장에서 사용하더라도 문장마다 번호를 생략하지 말고 반복해서 붙이세요. "
-            f"'결과적으로:', '일상적인 비유:', '핵심 개념 요약 및 구조화:' 같은 템플릿 라벨을 반복하지 마세요. "
-            f"[파일명, 페이지] 또는 [음성파일명, 시간] 같은 링크 형식을 새로 만들지 마세요. "
-            f"'출처:', '참고자료:', 'Sources:', 'References:' 같은 제목을 만들지 말고, 답변 끝에 파일명/페이지/시간 목록을 절대 나열하지 마세요. "
-            f"근거 파일명, 페이지, 시간 정보는 프론트 citation 팝업에서 보여주므로 답변 본문에는 번호만 붙이세요.\n\n"
+            f"{FAST_RAG_STYLE_PROMPT} "
+            f"{scope_boundary_instruction}\n\n"
             f"질문: {question}"
         )
     elif has_selected_material:
@@ -380,6 +362,49 @@ def build_direct_locator_answer(question: str, citations: list[dict]) -> str | N
     return f"{subject}는 {source_label}에서 언급됩니다.\n해당 구간은 {time_range}입니다."
 
 
+def build_direct_factual_answer(question: str, citations: list[dict]) -> str | None:
+    """짧은 사실형 질문은 top citation만으로 바로 답해 LLM 생성 지연을 줄입니다."""
+    if not citations:
+        return None
+    if _is_locator_question(question) or _is_evidence_explanation_question(question):
+        return None
+
+    text = str(question or "").strip()
+    if not (
+        _is_factual_grounded_question(text)
+        or _is_assignment_question(text)
+        or _is_identity_question(text)
+    ):
+        return None
+
+    first = citations[0] or {}
+    evidence = _clean_evidence_text(first.get("text", ""))
+    if not evidence:
+        return None
+
+    sentence = _select_evidence_sentence(text, evidence)
+    citation_no = "[1]"
+
+    deadline = _extract_deadline_phrase(sentence or evidence)
+    if deadline and _is_assignment_question(text):
+        subject = "수학 과제" if "수학" in f"{text} {evidence}" and "과제" in f"{text} {evidence}" else "과제"
+        if "제출" in f"{text} {evidence}":
+            return f"{subject}는 {deadline} 제출하면 됩니다. {citation_no}"
+        return f"{subject}는 {deadline} 하면 됩니다. {citation_no}"
+
+    if deadline and any(term in text for term in ("언제", "언제까지", "몇 시", "몇시", "마감", "기한")):
+        return f"근거에 따르면 기한은 {deadline}입니다. {citation_no}"
+
+    if _is_identity_question(text):
+        short_sentence = _trim_sentence(sentence or evidence, 120)
+        return f"{short_sentence} {citation_no}"
+
+    if sentence:
+        return f"{_trim_sentence(sentence, 140)} {citation_no}"
+
+    return None
+
+
 def build_direct_smalltalk_answer(question: str) -> str | None:
     """인사/도움말은 RAG와 LLM을 거치지 않고 짧고 안정적으로 답합니다."""
     text = " ".join(str(question or "").strip().split())
@@ -428,6 +453,86 @@ def build_direct_no_evidence_answer(question: str, citations: list[dict]) -> str
     ):
         return None
     return "저장된 자료/녹음본에서 질문과 직접 관련된 근거를 찾지 못했습니다."
+
+
+def _is_assignment_question(question: str) -> bool:
+    text = str(question or "")
+    return "과제" in text and any(term in text for term in ("언제", "언제까지", "어떻게", "해야", "제출", "마감", "기한"))
+
+
+def _is_identity_question(question: str) -> bool:
+    text = str(question or "")
+    return any(term in text for term in ("누구", "어떤 사람", "무슨 사람", "뭐 하는 사람", "누군데"))
+
+
+def _clean_evidence_text(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = re.sub(r"^선택된\s+녹음본\s+전체\s+전사\s*\(출처:\s*.*?\)\s*", "", text).strip()
+    text = re.sub(r"^\[[0-9]+\]\s*", "", text).strip()
+    return text
+
+
+def _select_evidence_sentence(question: str, evidence: str) -> str:
+    subjects = _extract_lookup_subjects(question)
+    if "과제" in question and "과제" not in subjects:
+        subjects.append("과제")
+
+    parts = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?。！？])\s+|\n+", evidence)
+        if part.strip()
+    ]
+    if not parts:
+        parts = [evidence]
+
+    if _is_assignment_question(question) or _is_factual_grounded_question(question):
+        for part in parts:
+            if any(term in part for term in ("까지", "전까지", "제출", "마감", "기한")):
+                return part
+
+    for subject in subjects:
+        for part in parts:
+            if subject and subject in part:
+                return part
+
+    for part in parts:
+        if any(term in part for term in ("까지", "전까지", "제출", "마감", "기한")):
+            return part
+
+    return parts[0]
+
+
+def _extract_deadline_phrase(text: str) -> str | None:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not compact:
+        return None
+
+    patterns = (
+        r"((?:오늘|내일|모레|이번\s*주|다음\s*주|이번주|다음주|[월화수목금토일]요일|[0-9]{1,2}\s*월\s*[0-9]{1,2}\s*일)[^.!?。！？]{0,40}?(?:전까지|까지))",
+        r"((?:오전|오후)?\s*(?:[0-9]{1,2}|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s*시[^.!?。！？]{0,20}?(?:전까지|까지))",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if match:
+            return _trim_sentence(_normalize_deadline_phrase(match.group(1)), 60)
+    return None
+
+
+def _normalize_deadline_phrase(value: str) -> str:
+    phrase = re.sub(r"\s+", " ", str(value or "")).strip()
+    date_marker = r"(?:오늘|내일|모레|이번\s*주|다음\s*주|이번주|다음주|[월화수목금토일]요일|[0-9]{1,2}\s*월\s*[0-9]{1,2}\s*일)"
+    date_matches = list(re.finditer(date_marker, phrase))
+    if len(date_matches) > 1:
+        phrase = phrase[date_matches[-1].start():].strip()
+    phrase = re.sub(r"^(?:과제는|과제\s*는|수학\s*과제는|수학\s*과제\s*는)\s*", "", phrase).strip()
+    return phrase
+
+
+def _trim_sentence(text: str, limit: int) -> str:
+    sentence = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(sentence) <= limit:
+        return sentence
+    return f"{sentence[:limit].rstrip()}..."
 
 
 def _get_answer_style_instruction(question: str) -> str:

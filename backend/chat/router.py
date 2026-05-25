@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from chat.context_service import (
+    build_direct_factual_answer,
     build_direct_smalltalk_answer,
     build_direct_locator_answer,
     build_direct_no_evidence_answer,
@@ -66,6 +67,8 @@ async def chat(req: ChatRequest):
         prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
         answer = build_direct_locator_answer(req.question, citations)
         if answer is None:
+            answer = build_direct_factual_answer(req.question, citations)
+        if answer is None:
             answer = build_direct_no_evidence_answer(req.question, citations)
         if answer is None:
             answer = await complete_answer(prompt, req.source_filter)
@@ -95,6 +98,8 @@ async def chat_stream(req: ChatRequest):
     await ensure_material_rag_for_chat(req.session_id, req.source_filter)
     prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
     direct_answer = build_direct_locator_answer(req.question, citations)
+    if direct_answer is None:
+        direct_answer = build_direct_factual_answer(req.question, citations)
     if direct_answer is None:
         direct_answer = build_direct_no_evidence_answer(req.question, citations)
     t_rag = time.perf_counter()
