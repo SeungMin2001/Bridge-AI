@@ -1,8 +1,10 @@
 import json
+import os
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.vector_stores.postgres import PGVectorStore
 from llama_index.core import Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from db_config import db_config
 
 
 Settings.embed_model = HuggingFaceEmbedding(
@@ -31,13 +33,14 @@ with open(file_path, "r", encoding="utf-8") as f:
         )
         documents.append(doc)
 
+config = db_config()
 vector_store = PGVectorStore.from_params(
-    database="rag",
-    host="localhost",
-    password="1234",
-    port=5432,
-    user="postgres",
-    table_name="rag",
+    database=config["database"],
+    host=config["host"],
+    password=config["password"],
+    port=config["port"],
+    user=config["user"],
+    table_name=os.getenv("RAG_TABLE_NAME", "rag"),
     embed_dim=1024
 )
 
