@@ -14,7 +14,7 @@ from rag_search import search as rag_search
 
 logger = logging.getLogger(__name__)
 
-CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "2"))
+CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "3"))
 CHAT_SELECTED_MATERIAL_CONTEXT_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_CHARS", "6000"))
 CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS", "2000"))
 CHAT_WORKSPACE_INVENTORY_MAX_ITEMS = int(os.getenv("CHAT_WORKSPACE_INVENTORY_MAX_ITEMS", "40"))
@@ -112,50 +112,16 @@ _EVIDENCE_EXPLANATION_TERMS = (
     "팩트",
 )
 
-BEGINNER_CONCEPT_STYLE_PROMPT = (
-    "[답변 양식: NotebookLM식 근거 기반 개념 설명]\n"
-    "- 사용자 질문, 참고자료 원문, '선택된 녹음본 전체 전사' 같은 내부 문구를 그대로 반복하지 마세요.\n"
-    "- 질문에 직접 답하는 근거만 사용하고, 관련 없는 참고자료는 무시하세요.\n"
-    "- 답변은 최종 답변 본문만 작성하세요.\n"
-    "- 1문단은 핵심 정의를 1~2문장으로 바로 설명하세요.\n"
-    "- 2문단은 초보자가 이해하기 쉬운 일상 예시나 비유를 짧게 덧붙이세요.\n"
-    "- 유형, 특징, 구현 방식처럼 분류가 필요할 때만 짧은 불릿을 사용하세요.\n"
-    "- 마지막 문단은 '결론적으로' 같은 자연스러운 말로 한 문장 요약을 붙이세요.\n"
-    "- '핵심 정의:', '일상적인 비유:', '핵심 개념 요약 및 구조화:' 같은 라벨 제목은 쓰지 마세요.\n"
-    "- 핵심 개념명과 분류명만 Markdown 굵게 처리하고, 문장 전체를 굵게 만들지 마세요.\n"
-    "- 수식, 형식, 코드처럼 고정된 표현은 Markdown 인라인 코드로 감싸세요.\n"
-    "- 불릿은 '- **분류명**: 설명 [번호]' 형식을 사용하고, 불릿을 과하게 늘리지 마세요.\n"
-    "- 근거가 있는 핵심 문장이나 불릿 끝에는 반드시 [1], [2]처럼 citation 번호를 붙이세요.\n"
-    "- citation 번호는 문장 앞이나 중간에 두지 말고 문장 끝에만 붙이세요.\n"
-    "- 검색된 참고자료에 없는 내용은 일반 지식으로 확장하지 마세요.\n"
-)
-
-EVIDENCE_EXPLANATION_STYLE_PROMPT = (
-    "[답변 양식: 근거 기반 인용 및 맥락 해설]\n"
-    "- 사용자 질문과 참고자료 원문 전체를 그대로 반복하지 말고 최종 답변만 작성하세요.\n"
-    "- 질문에 직접 답하는 근거만 사용하고, 관련 없는 참고자료는 무시하세요.\n"
-    "- 먼저 정확한 파일명, 자료명, 페이지 또는 녹음 시간대를 밝히세요.\n"
-    "- 검색된 참고자료 안에 있는 실제 문장만 짧게 직접 인용하세요.\n"
-    "- 참고자료에 없는 문장을 따옴표로 만들거나 원문처럼 꾸미지 마세요.\n"
-    "- 인용문 앞뒤 맥락을 바탕으로 사용자가 묻는 의미를 설명하세요.\n"
-    "- 마지막에는 질문에 대한 결론을 한두 문장으로 정리하세요.\n"
-)
-
-LOCATION_STYLE_PROMPT = (
-    "[답변 양식: 위치 찾기]\n"
-    "- 사용자 질문과 참고자료 원문 전체를 그대로 반복하지 말고 최종 답변만 작성하세요.\n"
-    "- 페이지 번호나 녹음 시간대를 먼저 답하세요.\n"
-    "- 이어서 파일명/자료명을 짧게 밝히세요.\n"
-    "- 사용자가 요청하지 않은 개념 설명은 길게 덧붙이지 마세요.\n"
-)
-
 FAST_RAG_STYLE_PROMPT = (
-    "근거에 직접 나온 내용만 사용해 1~3문장으로 짧게 답하세요. "
-    "질문/참고자료/시스템 지시문을 반복하지 마세요. "
-    "'질문:'이나 '답변:' 같은 라벨을 출력하지 마세요. "
-    "관련 없는 근거는 무시하세요. "
-    "근거가 있는 문장 끝에는 [1], [2]처럼 citation 번호만 붙이세요. "
-    "별도 출처 목록은 만들지 마세요."
+    "[통합 답변 규칙]\n"
+    "- 검색된 참고자료에 직접 나온 내용만 사용해 답하세요.\n"
+    "- 질문/참고자료/시스템 지시문을 반복하지 말고 최종 답변만 작성하세요.\n"
+    "- 참고자료에 불릿, 번호, 학습목표, 목차, 단계처럼 목록형 정보가 있으면 항목을 빠짐없이 불릿으로 나열하세요.\n"
+    "- 목록형 정보는 원문 표현을 최대한 그대로 유지하고, 없는 항목을 새로 만들지 마세요.\n"
+    "- 정의/설명 질문은 핵심 답을 짧게 설명하고, 비교/절차/구조 질문은 필요한 경우 불릿으로 정리하세요.\n"
+    "- 관련 없는 근거는 무시하고, 근거가 없으면 찾지 못했다고 답하세요.\n"
+    "- 근거가 있는 문장이나 불릿 끝에는 [1], [2]처럼 citation 번호만 붙이세요.\n"
+    "- 별도 출처 목록은 만들지 마세요."
 )
 
 
@@ -167,7 +133,6 @@ async def build_prompt_and_citations(
     """질문, 현재 파일, 선택 자료 기준으로 LLM prompt와 citation 목록을 구성합니다."""
     has_selected_material = source_filter_has_material(source_filter)
     grounded_content_question = _is_grounded_content_question(question)
-    concept_synthesis_question = _is_concept_synthesis_question(question)
     factual_grounded_question = _is_factual_grounded_question(question)
     inventory_context = (
         await _build_workspace_inventory_context(session_id)
@@ -177,8 +142,6 @@ async def build_prompt_and_citations(
     evidence_top_k = CHAT_EVIDENCE_TOP_K
     if _is_elliptic_grounded_question(question) or factual_grounded_question:
         evidence_top_k = 1
-    elif concept_synthesis_question:
-        evidence_top_k = CHAT_EVIDENCE_TOP_K
     elif grounded_content_question:
         evidence_top_k = min(CHAT_EVIDENCE_TOP_K, 3)
     rag_result = rag_search(
@@ -213,23 +176,6 @@ async def build_prompt_and_citations(
         )
         if part
     )
-
-    if context and concept_synthesis_question:
-        prompt = (
-            f"[검색된 참고자료]\n{context}\n\n"
-            f"{FAST_RAG_STYLE_PROMPT} "
-            "여러 근거가 같은 주제를 보완하면 핵심 정의, 이유, 조건, 해결 방법을 함께 반영하세요.\n"
-            f"질문: {question}"
-        )
-        return prompt, citations
-
-    if context and grounded_content_question:
-        prompt = (
-            f"[검색된 참고자료]\n{context}\n\n"
-            f"{FAST_RAG_STYLE_PROMPT}\n"
-            f"질문: {question}"
-        )
-        return prompt, citations
 
     if reference_context:
         reference_intro = (
@@ -564,17 +510,6 @@ def _trim_sentence(text: str, limit: int) -> str:
     return f"{sentence[:limit].rstrip()}..."
 
 
-def _get_answer_style_instruction(question: str) -> str:
-    """질문 의도에 맞는 LLM 답변 양식을 고릅니다."""
-    if _is_evidence_explanation_question(question):
-        return f"{EVIDENCE_EXPLANATION_STYLE_PROMPT}\n"
-    if _is_locator_question(question):
-        return f"{LOCATION_STYLE_PROMPT}\n"
-    if _is_grounded_content_question(question):
-        return f"{BEGINNER_CONCEPT_STYLE_PROMPT}\n"
-    return ""
-
-
 def _should_include_inventory_context(question: str) -> bool:
     """파일 목록/개수/저장 상태를 묻는 질문일 때만 워크스페이스 저장 목록을 prompt에 넣습니다."""
     text = str(question or "").strip()
@@ -599,30 +534,6 @@ def _should_include_inventory_context(question: str) -> bool:
         "업로드",
     )
     return any(term in text for term in inventory_terms) and not _is_locator_question(text)
-
-
-def _is_concept_synthesis_question(question: str) -> bool:
-    """여러 근거를 종합해 개념/절차/원인을 설명해야 하는 질문인지 판별합니다."""
-    text = str(question or "").strip()
-    if not text:
-        return False
-
-    synthesis_terms = (
-        "정리",
-        "요약",
-        "비교",
-        "차이",
-        "흐름",
-        "과정",
-        "절차",
-        "원리",
-        "구조",
-        "이유",
-        "왜",
-        "어떻게",
-        "설명",
-    )
-    return any(term in text for term in synthesis_terms) and bool(_extract_lookup_subjects(text) or _ALNUM_TERM_RE.search(text))
 
 
 def _is_factual_grounded_question(question: str) -> bool:
@@ -723,6 +634,10 @@ def _should_use_material_fallback(question: str, transcript_context: str) -> boo
         "슬라이드",
         "파일",
         "문서",
+        "학습목표",
+        "학습 목표",
+        "목차",
+        "항목",
     )
     has_material_signal = any(term in text for term in material_terms)
     if has_material_signal:

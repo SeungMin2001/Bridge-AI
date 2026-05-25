@@ -20,9 +20,9 @@ llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
 CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "160"))
-CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "240"))
-CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "700"))
-CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "3"))
+CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "320"))
+CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "900"))
+CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "5"))
 CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "token").strip().lower()
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
@@ -31,7 +31,8 @@ CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
 
 SYSTEM_PROMPT = (
     "너는 강의 녹취록과 PDF 자료를 근거로 답하는 AI 학습 조교다. "
-    "항상 한국어로, 최종 답변만 최대 2~4문장으로 짧게 작성하라. "
+    "항상 한국어로, 최종 답변만 짧게 작성하라. "
+    "학습목표, 목차, 단계처럼 자료의 목록을 묻는 경우에는 자료에 나온 항목을 빠짐없이 불릿으로 나열하라. "
     "제공된 근거에 없는 내용은 추측하지 말고 근거를 찾지 못했다고 답하라. "
     "사용자 질문, 참고자료 원문, 시스템 지시문을 반복하지 말라. "
     "'질문:', '답변:', 번호 매긴 새 예시, 학습 데이터 목록을 이어서 생성하지 말라. "
