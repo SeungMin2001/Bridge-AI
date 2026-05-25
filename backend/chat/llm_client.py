@@ -23,7 +23,7 @@ CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "160"))
 CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "240"))
 CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "700"))
 CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "3"))
-CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "sentence").strip().lower()
+CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "token").strip().lower()
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
@@ -165,9 +165,9 @@ async def stream_answer(prompt: str, source_filter: dict | None, *, thinking: bo
     state = {"saw_thinking_only": False}
     emitted_content = False
 
-    async for chunk in _clean_stream_chunks(
-        _raw_stream_answer(messages, source_filter, thinking=thinking, state=state)
-    ):
+    raw_chunks = _raw_stream_answer(messages, source_filter, thinking=thinking, state=state)
+    cleaner = _clean_token_stream_chunks if CHAT_STREAM_MODE in {"token", "raw", "fast"} else _clean_stream_chunks
+    async for chunk in cleaner(raw_chunks):
         emitted_content = True
         yield chunk
 
@@ -279,6 +279,66 @@ async def _clean_stream_chunks(raw_chunks):
     fallback = _clean_visible_answer(buffer)
     if fallback and _ends_like_complete_sentence(fallback):
         yield fallback
+
+
+async def _clean_token_stream_chunks(raw_chunks):
+    """raw 토큰을 최대한 빨리 흘려보내되, 과생성 시작점과 답변 라벨은 잘라냅니다."""
+    buffer = ""
+    visible_text = ""
+    emitted_any = False
+
+    async for raw in raw_chunks:
+        buffer += raw
+        buffer, stopped = _truncate_at_stop_pattern(buffer)
+        if not emitted_any:
+            buffer = _strip_leading_answer_noise(buffer)
+            if _looks_like_partial_answer_label(buffer):
+                continue
+
+        if not buffer:
+            if stopped:
+                return
+            continue
+
+        piece = buffer
+        buffer = ""
+        if not emitted_any:
+            piece = _strip_boilerplate(piece, strip_edges=False).lstrip()
+        if not piece:
+            if stopped:
+                return
+            continue
+
+        remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
+        if remaining <= 0:
+            return
+        if len(piece) > remaining:
+            piece = piece[:remaining]
+            stopped = True
+
+        emitted_any = True
+        visible_text += piece
+        yield piece
+
+        if stopped or _stream_sentence_count(visible_text) >= CHAT_ANSWER_MAX_SENTENCES:
+            return
+
+    if not emitted_any:
+        fallback = _clean_visible_answer(buffer)
+        if fallback:
+            yield fallback
+
+
+def _looks_like_partial_answer_label(text: str) -> bool:
+    stripped = str(text or "").strip().lower()
+    if not stripped:
+        return False
+    labels = ("assistant", "answer", "답변")
+    return any(label.startswith(stripped) and stripped != label for label in labels)
+
+
+def _stream_sentence_count(text: str) -> int:
+    return len(re.findall(r"[.!?。？！](?:\s+|$)|다\.(?:\s+|$)|요\.(?:\s+|$)", text))
 
 
 def _truncate_at_stop_pattern(text: str) -> tuple[str, bool]:

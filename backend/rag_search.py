@@ -331,9 +331,12 @@ _init_error = None
 logger = logging.getLogger(__name__)
 SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS = int(os.getenv("CHAT_SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS", "16000"))
 RAG_DEBUG = os.getenv("CHAT_RAG_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
-RAG_FAST_KEYWORD_FIRST = os.getenv("CHAT_RAG_FAST_KEYWORD_FIRST", "0").strip().lower() in {"1", "true", "yes", "on"}
+RAG_FAST_KEYWORD_FIRST = os.getenv("CHAT_RAG_FAST_KEYWORD_FIRST", "1").strip().lower() in {"1", "true", "yes", "on"}
 RAG_FAST_KEYWORD_MIN_RESULTS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_RESULTS", "1")))
+RAG_FAST_KEYWORD_MIN_HITS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_HITS", "1")))
 RAG_USE_VECTOR_SEARCH = os.getenv("CHAT_RAG_USE_VECTOR_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
+RAG_VECTOR_CANDIDATE_MULTIPLIER = max(1, int(os.getenv("CHAT_RAG_VECTOR_CANDIDATE_MULTIPLIER", "2")))
+RAG_PREFETCH_FULL_TRANSCRIPT = os.getenv("CHAT_RAG_PREFETCH_FULL_TRANSCRIPT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _db_config() -> dict:
@@ -1279,7 +1282,9 @@ def _vector_search(
     # retriever = _index.as_retriever(similarity_top_k=top_k)
     filters = _normalize_source_filter(source_filter)
     needs_wide_candidates = bool(session_id) or _has_source_filter(filters)
-    retriever = _index.as_retriever(similarity_top_k=top_k * 4 if needs_wide_candidates else top_k)
+    retriever = _index.as_retriever(
+        similarity_top_k=top_k * RAG_VECTOR_CANDIDATE_MULTIPLIER if needs_wide_candidates else top_k
+    )
     nodes = retriever.retrieve(query)
     session_label_cache = {}
 
@@ -1348,29 +1353,20 @@ def _vector_search(
         if canonical is None:
             continue
 
-        created_at = canonical.get("created_at", "")
-        recording_id = str(canonical.get("recording_id", ""))
-        label_cache_key = (canonical["session_id"], str(created_at or ""), recording_id)
-        if label_cache_key not in session_label_cache:
-            session_label_cache[label_cache_key] = _get_session_label(canonical["session_id"], created_at, recording_id)
-        session_label = session_label_cache[label_cache_key]
-        if session_label is None:
-            continue
-
         results.append({
             "text": canonical["text"],
-            "file_title": session_label.get("file_title") or canonical.get("session_title", ""),
-            "recording_title": session_label.get("recording_title") or canonical.get("session_title", ""),
-            "course_title": session_label.get("course_title") or canonical.get("course_title", ""),
-            "session_title": session_label.get("session_title") or canonical.get("session_title", ""),
-            "session_date": session_label.get("session_date") or canonical.get("session_date", ""),
+            "file_title": canonical.get("file_title") or canonical.get("session_title", ""),
+            "recording_title": canonical.get("recording_title") or canonical.get("session_title", ""),
+            "course_title": canonical.get("course_title") or "",
+            "session_title": canonical.get("session_title", ""),
+            "session_date": canonical.get("session_date", ""),
             "start_time": canonical.get("start_time", 0),
             "end_time": canonical.get("end_time", 0),
             "session_id": canonical["session_id"],
-            "recording_id": recording_id,
+            "recording_id": str(canonical.get("recording_id", "")),
             "transcript_id": canonical.get("transcript_id", ""),
             "chunk_index": canonical.get("chunk_index", None),
-            "created_at": created_at,
+            "created_at": canonical.get("created_at", ""),
             "score": node.score,
             "source_type": "transcript",
             "source": "vector",
@@ -1452,6 +1448,17 @@ def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, 
         reverse=True,
     )
     return [item["data"] for item in ranked[:top_k]]
+
+
+def _keyword_results_are_confident(keyword_results: list[dict], query_keywords: list[str] | None = None) -> bool:
+    """키워드 검색만으로도 질문과 직접 맞는 전사 근거를 찾은 경우를 판별합니다."""
+    if not keyword_results:
+        return False
+    query_keywords = query_keywords or []
+    top_result = keyword_results[0]
+    if int(top_result.get("match_count") or 0) >= RAG_FAST_KEYWORD_MIN_HITS:
+        return True
+    return _keyword_hit_count(top_result.get("text", ""), query_keywords) >= RAG_FAST_KEYWORD_MIN_HITS
 
 
 def _result_identity(result: dict) -> tuple:
@@ -1574,7 +1581,11 @@ def _run_hybrid_search(
         all_keyword.extend(_keyword_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
 
     keyword_results = _merge_results([], all_keyword, top_k=top_k, query_keywords=query_keywords)
-    if RAG_FAST_KEYWORD_FIRST and len(keyword_results) >= min(top_k, RAG_FAST_KEYWORD_MIN_RESULTS):
+    if (
+        RAG_FAST_KEYWORD_FIRST
+        and len(keyword_results) >= min(top_k, RAG_FAST_KEYWORD_MIN_RESULTS)
+        and _keyword_results_are_confident(keyword_results, query_keywords)
+    ):
         return keyword_results
     if not RAG_USE_VECTOR_SEARCH:
         return keyword_results
@@ -1795,28 +1806,29 @@ def search(
             ))
             continue
 
-        # 신창영 : 참조 패널에는 가능하면 파일 전체 전사보다 해당 녹음본 전사문을 우선 제공
-        recording_cache_key = (
-            result_session_id,
-            r.get("recording_id") or "",
-            r.get("recording_title") or "",
-            str(r.get("created_at") or ""),
-        )
-        if recording_cache_key not in recording_transcript_cache:
-            recording_transcript_cache[recording_cache_key] = _get_recording_transcript(
+        full_transcript = r.get("full_transcript") or r["text"]
+        if RAG_PREFETCH_FULL_TRANSCRIPT and not r.get("full_transcript"):
+            # 데모 응답 속도를 위해 기본값은 chunk만 내려보내고, 필요할 때만 전체 전사를 미리 붙입니다.
+            recording_cache_key = (
                 result_session_id,
-                r.get("recording_title") or "",
-                r.get("created_at"),
                 r.get("recording_id") or "",
+                r.get("recording_title") or "",
+                str(r.get("created_at") or ""),
             )
-        if result_session_id not in full_transcript_cache:
-            full_transcript_cache[result_session_id] = _get_full_transcript(result_session_id)
-        full_transcript = (
-            r.get("full_transcript")
-            or recording_transcript_cache.get(recording_cache_key)
-            or full_transcript_cache.get(result_session_id)
-            or r["text"]
-        )
+            if recording_cache_key not in recording_transcript_cache:
+                recording_transcript_cache[recording_cache_key] = _get_recording_transcript(
+                    result_session_id,
+                    r.get("recording_title") or "",
+                    r.get("created_at"),
+                    r.get("recording_id") or "",
+                )
+            if result_session_id not in full_transcript_cache:
+                full_transcript_cache[result_session_id] = _get_full_transcript(result_session_id)
+            full_transcript = (
+                recording_transcript_cache.get(recording_cache_key)
+                or full_transcript_cache.get(result_session_id)
+                or r["text"]
+            )
         if r.get("source") == "selected_source_context":
             context_parts.append(f"[{i}] 선택된 녹음본 전체 전사 (출처: {citation})\n{r['text']}")
         else:
