@@ -330,11 +330,39 @@ _init_error = None
 
 logger = logging.getLogger(__name__)
 SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS = int(os.getenv("CHAT_SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS", "16000"))
+RAG_DEBUG = os.getenv("CHAT_RAG_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _db_config() -> dict:
     # 신창영 : 키워드 검색과 벡터 검색이 서로 다른 DB를 보지 않도록 공통 DB 설정을 사용
     return psycopg2_config()
+
+
+def _rag_table_name() -> str:
+    """llama_index PGVectorStore가 실제로 쓰는 data_<table_name> 테이블명을 반환합니다."""
+    raw_name = os.getenv("RAG_TABLE_NAME", "rag")
+    safe_name = re.sub(r"[^A-Za-z0-9_]", "", raw_name) or "rag"
+    return f"data_{safe_name}"
+
+
+def _quote_ident(identifier: str) -> str:
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def _vector_metadata_column(cur, table_name: str) -> str | None:
+    cur.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = %s
+          AND column_name IN ('metadata_', 'metadata')
+        ORDER BY CASE WHEN column_name = 'metadata_' THEN 0 ELSE 1 END
+        LIMIT 1
+        """,
+        (table_name,),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
 
 
 def _json_value(value, fallback):
@@ -531,9 +559,13 @@ def _get_session_label(session_id: str | None, transcript_created_at=None, recor
 
 
 def _get_recording_transcript(session_id: str | None, recording_title: str = "", transcript_created_at=None, recording_id: str = "") -> str:
-    """신창영 : 출처 패널에는 DB 전체 전사보다 저장된 녹음본 전사문을 우선 노출"""
+    """출처 패널에 보여줄 녹음본 전사문을 DB 기준으로 조회합니다."""
     if not session_id:
         return ""
+
+    db_transcript = _get_db_recording_transcript(session_id, recording_id)
+    if db_transcript:
+        return db_transcript
 
     conn = None
     cur = None
@@ -565,8 +597,8 @@ def _get_recording_transcript(session_id: str | None, recording_title: str = "",
             conn.close()
 
 
-def _get_full_transcript(session_id: str | None) -> str:
-    """출처 팝오버에서 보여줄 세션 전체 전사문을 조회합니다."""
+def _get_db_recording_transcript(session_id: str | None, recording_id: str = "") -> str:
+    """검색/출처가 같은 DB row를 보도록 recording_id 기준 전사문을 시간순으로 조회합니다."""
     if not session_id:
         return ""
 
@@ -575,19 +607,120 @@ def _get_full_transcript(session_id: str | None) -> str:
     try:
         conn = psycopg2.connect(**_db_config())
         cur = conn.cursor()
+        values = [session_id]
+        where = ["session_id = %s"]
+        if recording_id:
+            where.append("recording_id = %s")
+            values.append(recording_id)
         cur.execute(
-            """
+            f"""
             SELECT COALESCE(corrected_text, chunk_text, '')
             FROM transcripts
-            WHERE session_id = %s
+            WHERE {" AND ".join(where)}
             ORDER BY chunk_index ASC NULLS LAST, start_time ASC NULLS LAST, created_at ASC
             """,
-            (session_id,),
+            values,
         )
         return "\n\n".join(row[0] for row in cur.fetchall() if row[0])
     except Exception as exc:
-        logger.warning("[RAG] 전체 전사문 조회 실패: %s", exc)
+        logger.warning("[RAG] DB 녹음본 전사문 조회 실패: %s", exc)
         return ""
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
+def _get_full_transcript(session_id: str | None) -> str:
+    """출처 팝오버에서 보여줄 세션 전체 전사문을 DB 기준으로 조회합니다."""
+    return _get_db_recording_transcript(session_id)
+
+
+def _fetch_transcript_row_for_vector_metadata(metadata: dict) -> dict | None:
+    """벡터 검색 결과의 metadata를 DB row로 재확인해 stale vector text/citation을 방지합니다."""
+    session_id = str(metadata.get("session_id") or "").strip()
+    transcript_id = str(metadata.get("transcript_id") or "").strip()
+    recording_id = str(metadata.get("recording_id") or "").strip()
+    chunk_index = metadata.get("chunk_index")
+    if not session_id and not transcript_id:
+        return None
+
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(**_db_config())
+        cur = conn.cursor()
+        values = []
+        where_parts = []
+        if transcript_id:
+            where_parts.append("t.transcript_id::text = %s")
+            values.append(transcript_id)
+        elif session_id and recording_id and chunk_index is not None:
+            where_parts.extend(["t.session_id::text = %s", "t.recording_id = %s", "t.chunk_index = %s"])
+            values.extend([session_id, recording_id, int(chunk_index)])
+        elif session_id and chunk_index is not None:
+            where_parts.extend(["t.session_id::text = %s", "t.chunk_index = %s"])
+            values.extend([session_id, int(chunk_index)])
+        else:
+            return None
+
+        cur.execute(
+            f"""
+            SELECT t.transcript_id, t.session_id, t.recording_id, t.chunk_index,
+                   t.start_time, t.end_time, t.created_at,
+                   COALESCE(t.corrected_text, t.chunk_text, '') AS chunk_text,
+                   s.title as session_title, s.session_date, s.session_voicefile,
+                   co.title as course_title
+            FROM transcripts t
+            JOIN sessions s ON t.session_id = s.session_id
+            LEFT JOIN courses co ON s.course_id = co.course_id
+            WHERE {" AND ".join(where_parts)}
+            ORDER BY t.created_at DESC NULLS LAST
+            LIMIT 1
+            """,
+            values,
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        (
+            row_transcript_id,
+            row_session_id,
+            row_recording_id,
+            row_chunk_index,
+            start_time,
+            end_time,
+            created_at,
+            chunk_text,
+            session_title,
+            session_date,
+            session_voicefile,
+            course_title,
+        ) = row
+        if not str(chunk_text or "").strip():
+            return None
+        file_title = session_title or "전사 파일"
+        return {
+            "text": chunk_text,
+            "file_title": file_title,
+            "recording_title": _extract_recording_title(session_voicefile, file_title, created_at, row_recording_id or ""),
+            "course_title": course_title or "미분류",
+            "session_title": file_title,
+            "session_date": str(session_date) if session_date else "",
+            "start_time": float(start_time or 0),
+            "end_time": float(end_time or 0),
+            "session_id": str(row_session_id),
+            "recording_id": row_recording_id or "",
+            "transcript_id": str(row_transcript_id),
+            "chunk_index": row_chunk_index,
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at or ""),
+            "source_type": "transcript",
+        }
+    except Exception as exc:
+        logger.warning("[RAG] 벡터 결과 DB 검증 실패: %s", exc)
+        return None
     finally:
         if cur:
             cur.close()
@@ -867,9 +1000,58 @@ def add_document(text: str, metadata: dict):
     if _index is None:
         # logger.warning("[RAG] 벡터 스토어 미초기화로 문서 추가 스킵")
         return
+    metadata = {**(metadata or {})}
+    metadata.setdefault("source_type", "transcript")
+    _delete_existing_vector_document(metadata)
     doc = Document(text=text, metadata=metadata)
     _index.insert(doc)
     # print(f"[RAG] 문서 추가됨: {text[:30]}...")
+
+
+def _delete_existing_vector_document(metadata: dict) -> None:
+    """같은 transcript/material chunk가 재색인될 때 오래된 벡터 row를 먼저 제거합니다."""
+    transcript_id = str(metadata.get("transcript_id") or "").strip()
+    material_id = str(metadata.get("material_id") or "").strip()
+    chunk_index = metadata.get("chunk_index")
+    if not transcript_id and not material_id:
+        return
+
+    table_name = _rag_table_name()
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(**_db_config())
+        cur = conn.cursor()
+        metadata_column = _vector_metadata_column(cur, table_name)
+        if not metadata_column:
+            return
+
+        quoted_table = _quote_ident(table_name)
+        quoted_metadata = _quote_ident(metadata_column)
+        if transcript_id:
+            cur.execute(
+                f"DELETE FROM {quoted_table} WHERE {quoted_metadata}->>'transcript_id' = %s",
+                (transcript_id,),
+            )
+        elif material_id and chunk_index is not None:
+            cur.execute(
+                f"""
+                DELETE FROM {quoted_table}
+                WHERE {quoted_metadata}->>'material_id' = %s
+                  AND {quoted_metadata}->>'chunk_index' = %s
+                """,
+                (material_id, str(chunk_index)),
+            )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("[RAG] 기존 벡터 row 정리 실패: %s", exc)
+        if conn:
+            conn.rollback()
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 
 # ── 키워드(BM25 대용) 검색: DB에서 직접 텍스트 매칭 ──
@@ -1065,28 +1247,32 @@ def _vector_search(
             })
             continue
 
-        created_at = m.get("created_at", "")
-        recording_id = str(m.get("recording_id", ""))
-        label_cache_key = (row_session_id, str(created_at or ""), recording_id)
+        canonical = _fetch_transcript_row_for_vector_metadata(m)
+        if canonical is None:
+            continue
+
+        created_at = canonical.get("created_at", "")
+        recording_id = str(canonical.get("recording_id", ""))
+        label_cache_key = (canonical["session_id"], str(created_at or ""), recording_id)
         if label_cache_key not in session_label_cache:
-            session_label_cache[label_cache_key] = _get_session_label(row_session_id, created_at, recording_id)
+            session_label_cache[label_cache_key] = _get_session_label(canonical["session_id"], created_at, recording_id)
         session_label = session_label_cache[label_cache_key]
         if session_label is None:
             continue
 
         results.append({
-            "text": node.text,
-            "file_title": session_label.get("file_title") or m.get("session_title", ""),
-            "recording_title": session_label.get("recording_title") or m.get("session_title", ""),
-            "course_title": session_label.get("course_title") or m.get("course_title", ""),
-            "session_title": session_label.get("session_title") or m.get("session_title", ""),
-            "session_date": session_label.get("session_date") or m.get("session_date", ""),
-            "start_time": m.get("start_time", 0),
-            "end_time": m.get("end_time", 0),
-            "session_id": row_session_id,
+            "text": canonical["text"],
+            "file_title": session_label.get("file_title") or canonical.get("session_title", ""),
+            "recording_title": session_label.get("recording_title") or canonical.get("session_title", ""),
+            "course_title": session_label.get("course_title") or canonical.get("course_title", ""),
+            "session_title": session_label.get("session_title") or canonical.get("session_title", ""),
+            "session_date": session_label.get("session_date") or canonical.get("session_date", ""),
+            "start_time": canonical.get("start_time", 0),
+            "end_time": canonical.get("end_time", 0),
+            "session_id": canonical["session_id"],
             "recording_id": recording_id,
-            "transcript_id": str(m.get("transcript_id", "")),
-            "chunk_index": m.get("chunk_index", None),
+            "transcript_id": canonical.get("transcript_id", ""),
+            "chunk_index": canonical.get("chunk_index", None),
             "created_at": created_at,
             "score": node.score,
             "source_type": "transcript",
@@ -1463,6 +1649,26 @@ def search(
         locator_query=locator_query,
         top_k=top_k,
     )
+
+    if RAG_DEBUG:
+        print(
+            "[RAG:search]",
+            f"scope={search_scope}",
+            f"top_k={top_k}",
+            f"session={session_id or '-'}",
+            f"question={question}",
+        )
+        for rank, item in enumerate(results, 1):
+            print(
+                "[RAG:search]",
+                f"#{rank}",
+                f"source={item.get('source')}",
+                f"type={item.get('source_type', 'transcript')}",
+                f"tid={item.get('transcript_id', '')}",
+                f"rid={item.get('recording_id', '')}",
+                f"chunk={item.get('chunk_index', '')}",
+                f"text={str(item.get('text', ''))[:120]}",
+            )
 
     # 4. Context 문자열 구성 (LLM에 전달할 참고자료)
     context_parts = []

@@ -37,6 +37,16 @@ async def ensure_transcripts_schema(conn) -> None:
             END IF;
         END $$;
     """)
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_session_id ON transcripts(session_id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_recording_id ON transcripts(recording_id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_session_recording ON transcripts(session_id, recording_id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_session_chunk ON transcripts(session_id, chunk_index)")
+    await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_transcripts_text_trgm
+        ON transcripts
+        USING gin ((COALESCE(corrected_text, chunk_text, '')) gin_trgm_ops)
+    """)
 
 
 async def ensure_sessions_schema(conn) -> None:
