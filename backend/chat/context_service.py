@@ -382,6 +382,96 @@ def _get_answer_style_instruction(question: str) -> str:
     return ""
 
 
+def _should_include_inventory_context(question: str) -> bool:
+    """파일 목록/개수/저장 상태를 묻는 질문일 때만 워크스페이스 저장 목록을 prompt에 넣습니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+
+    inventory_terms = (
+        "파일",
+        "자료",
+        "녹음",
+        "녹음본",
+        "소스",
+        "저장",
+        "목록",
+        "리스트",
+        "몇 개",
+        "몇개",
+        "개수",
+        "뭐 있어",
+        "무엇이 있어",
+        "올려",
+        "업로드",
+    )
+    return any(term in text for term in inventory_terms) and not _is_locator_question(text)
+
+
+def _is_concept_synthesis_question(question: str) -> bool:
+    """여러 근거를 종합해 개념/절차/원인을 설명해야 하는 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+
+    synthesis_terms = (
+        "정리",
+        "요약",
+        "비교",
+        "차이",
+        "흐름",
+        "과정",
+        "절차",
+        "원리",
+        "구조",
+        "이유",
+        "왜",
+        "어떻게",
+        "설명",
+    )
+    return any(term in text for term in synthesis_terms) and bool(_extract_lookup_subjects(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _is_factual_grounded_question(question: str) -> bool:
+    """마감/일정/인물처럼 짧은 사실 답변이 필요한 근거 기반 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+
+    factual_terms = (
+        "누구",
+        "언제",
+        "언제까지",
+        "몇 시",
+        "몇시",
+        "마감",
+        "마감일",
+        "기한",
+        "제출",
+        "제출일",
+    )
+    return any(term in text for term in factual_terms)
+
+
+def _is_elliptic_grounded_question(question: str) -> bool:
+    """'선형리스트?', '연속공간은?'처럼 짧게 던진 개념 질문을 근거 기반 질문으로 봅니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+    if any(term in text for term in _GROUNDED_CONTENT_QUESTION_TERMS):
+        return False
+    if _is_locator_question(text) or _is_evidence_explanation_question(text):
+        return False
+
+    cleaned = re.sub(r"[?!?.。！？\s]+$", "", text).strip()
+    if not 2 <= len(cleaned) <= 30:
+        return False
+    if len(_extract_lookup_subjects(cleaned)) != 1 and not _ALNUM_TERM_RE.search(cleaned):
+        return False
+
+    return text.endswith(("?", "？")) or cleaned == text
+
+
 def _is_locator_question(question: str) -> bool:
     """특정 표현이 어느 파일/녹음/자료에 있는지 묻는 질문인지 판별합니다."""
     text = str(question or "").strip()
