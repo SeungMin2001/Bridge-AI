@@ -312,8 +312,8 @@ async def build_prompt_and_citations(
 
 
 async def ensure_material_rag_for_chat(session_id: str | None, source_filter: dict | None):
-    """선택된 PDF 자료가 있으면 채팅 전에 해당 세션 자료의 RAG 인덱싱을 보장합니다."""
-    if not session_id or not source_filter_has_material(source_filter):
+    """현재 파일에 PDF 자료가 있으면 채팅 전에 해당 세션 자료의 RAG 인덱싱을 보장합니다."""
+    if not session_id:
         return
     try:
         from materials.material_rag_service import ensure_session_materials_indexed

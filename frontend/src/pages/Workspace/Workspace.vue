@@ -71,6 +71,7 @@ const miniSourceMenu = ref({ visible: false, x: 0, y: 0, source: null })
 const scriptPaneWidth = ref(50)
 const isScriptPaneResizing = ref(false)
 const selectedMiniSourceIds = ref(new Set())
+const userTouchedMiniSourceSelection = ref(false)
 
 const DEFAULT_SCRIPT_PANE_PERCENT = 50
 const MAX_SCRIPT_PANE_PERCENT = 72
@@ -457,11 +458,23 @@ watch(
   miniSourceItems,
   (sources) => {
     const validIds = new Set(sources.map((source) => source.uid))
-    selectedMiniSourceIds.value = new Set(
+    const nextSelection = new Set(
       Array.from(selectedMiniSourceIds.value).filter((id) => validIds.has(id))
     )
+    if (!userTouchedMiniSourceSelection.value && sources.length) {
+      selectedMiniSourceIds.value = new Set(sources.map((source) => source.uid))
+      return
+    }
+    selectedMiniSourceIds.value = nextSelection
   },
   { immediate: true }
+)
+
+watch(
+  () => props.activeFileId,
+  () => {
+    userTouchedMiniSourceSelection.value = false
+  }
 )
 
 function isMiniSourceSelected(uid) {
@@ -469,6 +482,7 @@ function isMiniSourceSelected(uid) {
 }
 
 function toggleMiniSource(uid) {
+  userTouchedMiniSourceSelection.value = true
   const next = new Set(selectedMiniSourceIds.value)
   if (next.has(uid)) next.delete(uid)
   else next.add(uid)
@@ -476,6 +490,7 @@ function toggleMiniSource(uid) {
 }
 
 function toggleAllMiniSources() {
+  userTouchedMiniSourceSelection.value = true
   selectedMiniSourceIds.value = areAllMiniSourcesSelected.value
     ? new Set()
     : new Set(miniSourceItems.value.map((source) => source.uid))

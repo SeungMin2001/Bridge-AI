@@ -1011,6 +1011,10 @@ def _has_source_filter(filters: dict) -> bool:
     return any(filters.get(key) for key in ("material_ids", "stored_names", "recording_ids", "transcript_ids"))
 
 
+def _has_material_source_filter(filters: dict) -> bool:
+    return bool(filters.get("material_ids") or filters.get("stored_names"))
+
+
 def _matches_source_filter(metadata: dict, filters: dict) -> bool:
     if not _has_source_filter(filters):
         return True
@@ -1576,6 +1580,8 @@ def _run_hybrid_search(
     """여러 검색어에 대해 벡터 검색과 키워드 검색을 실행한 뒤 RRF로 병합."""
     all_keyword = []
     query_keywords = extract_keywords(queries[0]) if queries else []
+    filters = _normalize_source_filter(source_filter)
+    material_source_requested = _has_material_source_filter(filters)
 
     for query in queries:
         all_keyword.extend(_keyword_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
@@ -1583,6 +1589,7 @@ def _run_hybrid_search(
     keyword_results = _merge_results([], all_keyword, top_k=top_k, query_keywords=query_keywords)
     if (
         RAG_FAST_KEYWORD_FIRST
+        and not material_source_requested
         and len(keyword_results) >= min(top_k, RAG_FAST_KEYWORD_MIN_RESULTS)
         and _keyword_results_are_confident(keyword_results, query_keywords)
     ):
