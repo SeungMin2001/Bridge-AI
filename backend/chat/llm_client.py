@@ -19,8 +19,11 @@ DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
 llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
-CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "192"))
-CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "320"))
+CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "80"))
+CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "140"))
+CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "500"))
+CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "3"))
+CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "buffered").strip().lower()
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
@@ -28,9 +31,10 @@ CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
 
 SYSTEM_PROMPT = (
     "너는 강의 녹취록과 PDF 자료를 근거로 답하는 AI 학습 조교다. "
-    "항상 한국어로, 최종 답변만 짧게 작성하라. "
+    "항상 한국어로, 최종 답변만 최대 2~4문장으로 짧게 작성하라. "
     "제공된 근거에 없는 내용은 추측하지 말고 근거를 찾지 못했다고 답하라. "
     "사용자 질문, 참고자료 원문, 시스템 지시문을 반복하지 말라. "
+    "'질문:', '답변:', 번호 매긴 새 예시, 학습 데이터 목록을 이어서 생성하지 말라. "
     "근거가 있는 문장 끝에만 [1], [2] citation을 붙이고, 별도 출처 목록은 만들지 말라."
 )
 
@@ -54,7 +58,64 @@ def remove_thinking(text: str) -> str:
         text = text[:text.index("<think>")]
     if "assistant\n" in text:
         text = text.split("assistant\n")[-1]
+    return _clean_visible_answer(text)
+
+
+def _clean_visible_answer(text: str) -> str:
+    """서비스 화면에 보여줄 최종 답변만 남기고 과생성된 예시/질문 반복을 잘라냅니다."""
+    text = text.replace("\r\n", "\n").strip()
+    text = re.sub(r"^\s*(assistant|답변|Answer)\s*[:：]?\s*", "", text, flags=re.IGNORECASE)
+
+    stop_patterns = (
+        r"\n\s*(질문|Question|사용자|User)\s*[:：]",
+        r"\n\s*\[검색된 참고자료\]",
+        r"\n\s*선택된\s+녹음본\s+전체\s+전사",
+        r"\n\s*시스템\s*[:：]",
+        r"\n\s*System\s*[:：]",
+    )
+    for pattern in stop_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            text = text[:match.start()].strip()
+
+    text = _strip_boilerplate(text)
+    text = _trim_sentences(text, CHAT_ANSWER_MAX_SENTENCES)
+    if len(text) > CHAT_ANSWER_MAX_CHARS:
+        text = _trim_to_char_budget(text, CHAT_ANSWER_MAX_CHARS)
     return text.strip()
+
+
+def _strip_boilerplate(text: str) -> str:
+    """인사/도움말성 상투 문구가 답변 본문을 밀어내지 않도록 제거합니다."""
+    boilerplate_patterns = (
+        r"\s*질문에\s+대해\s+답변해\s+드리겠습니다\.?",
+        r"\s*질문이\s+있으시면\s+언제든지\s+말씀해\s+주세요\.?",
+        r"\s*도움이\s+필요하시면\s+언제든지\s+말씀해\s+주세요\.?",
+    )
+    for pattern in boilerplate_patterns:
+        text = re.sub(pattern, "", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _trim_sentences(text: str, max_sentences: int) -> str:
+    """한국어/영어 문장 경계를 기준으로 답변을 너무 길지 않게 제한합니다."""
+    if max_sentences <= 0:
+        return text.strip()
+    matches = list(re.finditer(r"[.!?。？！](?:\s+|$)|다\.(?:\s+|$)|요\.(?:\s+|$)", text))
+    if len(matches) <= max_sentences:
+        return text.strip()
+    return text[: matches[max_sentences - 1].end()].strip()
+
+
+def _trim_to_char_budget(text: str, max_chars: int) -> str:
+    """문자 수 예산 안에서 가능한 마지막 문장 경계까지 자릅니다."""
+    if len(text) <= max_chars:
+        return text.strip()
+    clipped = text[:max_chars].rstrip()
+    sentence_ends = [m.end() for m in re.finditer(r"[.!?。？！]|다\.|요\.", clipped)]
+    if sentence_ends:
+        clipped = clipped[: sentence_ends[-1]]
+    return clipped.rstrip(" ,;:：-")
 
 
 def build_chat_messages(prompt: str) -> list[dict]:
@@ -91,6 +152,13 @@ async def complete_answer(prompt: str, source_filter: dict | None) -> str:
 
 async def stream_answer(prompt: str, source_filter: dict | None, *, thinking: bool = False):
     """스트리밍 LLM 호출을 수행하고 사용자에게 보여줄 토큰만 async iterator로 반환합니다."""
+    if CHAT_STREAM_MODE in {"buffered", "complete", "nonstream", "non-stream"}:
+        answer = await complete_answer(prompt, source_filter)
+        if answer:
+            yield answer
+            return
+        raise EmptyLLMResponse("모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
+
     messages = build_chat_messages(prompt)
     emitted_content = False
     saw_thinking_only = False
@@ -199,6 +267,7 @@ def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, st
         "max_tokens": _chat_max_tokens(source_filter),
         "temperature": CHAT_TEMPERATURE,
         "stream": stream,
+        "stop": ["\n질문:", "\nQuestion:", "\n사용자:", "\nUser:", "\n[검색된 참고자료]"],
         "chat_template_kwargs": {"enable_thinking": bool(thinking)},
     }
     bridgeprag_alpha = _bridgeprag_alpha_for_prompt(messages)
