@@ -19,11 +19,11 @@ DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
 llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
-CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "80"))
-CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "140"))
-CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "500"))
+CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "160"))
+CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "240"))
+CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "700"))
 CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "3"))
-CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "buffered").strip().lower()
+CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "sentence").strip().lower()
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
@@ -104,7 +104,8 @@ def _trim_sentences(text: str, max_sentences: int) -> str:
     matches = list(re.finditer(r"[.!?。？！](?:\s+|$)|다\.(?:\s+|$)|요\.(?:\s+|$)", text))
     if len(matches) <= max_sentences:
         return text.strip()
-    return text[: matches[max_sentences - 1].end()].strip()
+    end = _extend_end_over_citation(text, matches[max_sentences - 1].end())
+    return text[:end].strip()
 
 
 def _trim_to_char_budget(text: str, max_chars: int) -> str:
@@ -160,9 +161,23 @@ async def stream_answer(prompt: str, source_filter: dict | None, *, thinking: bo
         raise EmptyLLMResponse("모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
 
     messages = build_chat_messages(prompt)
+    state = {"saw_thinking_only": False}
     emitted_content = False
-    saw_thinking_only = False
 
+    async for chunk in _clean_stream_chunks(
+        _raw_stream_answer(messages, source_filter, thinking=thinking, state=state)
+    ):
+        emitted_content = True
+        yield chunk
+
+    if not emitted_content:
+        if state["saw_thinking_only"]:
+            raise EmptyLLMResponse("모델이 thinking 출력만 반환하고 최종 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
+        raise EmptyLLMResponse("모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
+
+
+async def _raw_stream_answer(messages: list[dict], source_filter: dict | None, *, thinking: bool, state: dict):
+    """LLM 서버에서 받은 raw 스트림 토큰을 그대로 생성합니다."""
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=CHAT_LLM_READ_TIMEOUT)) as client:
         if _use_ollama_native_chat():
             async with client.stream(
@@ -184,10 +199,9 @@ async def stream_answer(prompt: str, source_filter: dict | None, *, thinking: bo
                         raise RuntimeError(str(chunk["error"]))
                     message = chunk.get("message") or {}
                     if message.get("thinking"):
-                        saw_thinking_only = True
+                        state["saw_thinking_only"] = True
                     content = message.get("content") or ""
                     if content:
-                        emitted_content = True
                         yield content
                     if chunk.get("done"):
                         break
@@ -214,16 +228,109 @@ async def stream_answer(prompt: str, source_filter: dict | None, *, thinking: bo
                     choice = chunk["choices"][0]
                     delta = choice.get("delta", {})
                     if delta.get("thinking") or delta.get("reasoning_content"):
-                        saw_thinking_only = True
+                        state["saw_thinking_only"] = True
                     content = delta.get("content") or (choice.get("message") or {}).get("content") or ""
                     if content:
-                        emitted_content = True
                         yield content
 
-    if not emitted_content:
-        if saw_thinking_only:
-            raise EmptyLLMResponse("모델이 thinking 출력만 반환하고 최종 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
-        raise EmptyLLMResponse("모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
+
+async def _clean_stream_chunks(raw_chunks):
+    """raw 토큰을 문장 단위로 정리해, 미완성 문장이 화면에 찍히지 않게 합니다."""
+    buffer = ""
+    emitted_sentences = 0
+    emitted_any = False
+    stopped = False
+
+    async for raw in raw_chunks:
+        buffer += raw
+        buffer, stopped = _truncate_at_stop_pattern(buffer)
+        if not emitted_any:
+            buffer = _strip_leading_answer_noise(buffer)
+        buffer = _strip_boilerplate(buffer)
+
+        while emitted_sentences < CHAT_ANSWER_MAX_SENTENCES:
+            end = _first_sentence_end(buffer)
+            if end is None:
+                break
+            piece = buffer[:end].strip()
+            buffer = buffer[end:].lstrip()
+            if not piece:
+                continue
+            emitted_any = True
+            emitted_sentences += 1
+            yield piece + (" " if emitted_sentences < CHAT_ANSWER_MAX_SENTENCES else "")
+
+        if stopped:
+            fallback = _clean_visible_answer(buffer)
+            if fallback and emitted_sentences < CHAT_ANSWER_MAX_SENTENCES and _ends_like_complete_sentence(fallback):
+                yield fallback
+            return
+
+        if emitted_sentences >= CHAT_ANSWER_MAX_SENTENCES:
+            return
+
+    if emitted_any:
+        fallback = _clean_visible_answer(buffer)
+        if fallback and emitted_sentences < CHAT_ANSWER_MAX_SENTENCES and _ends_like_complete_sentence(fallback):
+            yield fallback
+        return
+
+    fallback = _clean_visible_answer(buffer)
+    if fallback and _ends_like_complete_sentence(fallback):
+        yield fallback
+
+
+def _truncate_at_stop_pattern(text: str) -> tuple[str, bool]:
+    """질문/자료 라벨처럼 답변 이후에 이어지는 과생성 시작점을 찾습니다."""
+    stop_patterns = (
+        r"\n\s*(질문|Question|사용자|User)\s*[:：]",
+        r"\n\s*\[검색된 참고자료\]",
+        r"\n\s*선택된\s+녹음본\s+전체\s+전사",
+        r"\n\s*시스템\s*[:：]",
+        r"\n\s*System\s*[:：]",
+    )
+    for pattern in stop_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return text[:match.start()].strip(), True
+    return text, False
+
+
+def _strip_leading_answer_noise(text: str) -> str:
+    """스트림 시작부의 chat template 잔여 라벨을 제거합니다."""
+    text = text.replace("\r\n", "\n").strip()
+    return re.sub(r"^\s*(assistant|답변|Answer)\s*[:：]?\s*", "", text, flags=re.IGNORECASE)
+
+
+def _first_sentence_end(text: str) -> int | None:
+    """첫 번째 완성 문장의 끝 위치를 반환합니다."""
+    match = re.search(r"[.!?。？！](?:\s+|$)|다\.(?:\s+|$)|요\.(?:\s+|$)", text)
+    if not match:
+        return None
+
+    end = match.end()
+    if end >= len(text):
+        return None
+
+    extended_end = _extend_end_over_citation(text, end)
+    if extended_end != end:
+        end = extended_end
+        if end >= len(text):
+            return None
+    return end
+
+
+def _extend_end_over_citation(text: str, end: int) -> int:
+    """문장 끝 바로 뒤에 citation이 있으면 함께 포함합니다."""
+    citation_match = re.match(r"\s*(?:\[\d+\]|\d+)(?:\s+|$)", text[end:])
+    if not citation_match:
+        return end
+    return end + citation_match.end()
+
+
+def _ends_like_complete_sentence(text: str) -> bool:
+    """최종 flush 시 미완성 어구를 내보내지 않기 위한 간단한 완결성 검사입니다."""
+    return bool(re.search(r"(?:[.!?。？！]|\[\d+\]|\d+)\s*$", text.strip()))
 
 
 def _chat_max_tokens(source_filter: dict | None) -> int:
