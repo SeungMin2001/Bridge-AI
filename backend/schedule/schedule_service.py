@@ -655,6 +655,7 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
                         "messages": messages,
                         "max_tokens": 2048,
                         "temperature": 0.1,  # 정확한 추출을 위해 낮은 temperature
+                        "bridgeprag_alpha": 0.0,
                         "chat_template_kwargs": {"enable_thinking": False},
                     },
                     headers={"Authorization": f"Bearer {LLM_API_KEY}"},

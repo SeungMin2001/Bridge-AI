@@ -638,7 +638,8 @@ async def generate_quiz(
                     "model": LLM_MODEL,
                     "messages": messages,
                     "max_tokens": max_tokens,
-                    "temperature": 0.3,  # 정확한 JSON 생성을 위해 낮은 temperature
+                    "temperature": 0.1,  # 정확한 JSON 생성을 위해 낮은 temperature
+                    "bridgeprag_alpha": 0.0,
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
                 headers={"Authorization": f"Bearer {LLM_API_KEY}"},
@@ -682,6 +683,7 @@ async def generate_quiz(
                         ],
                         "max_tokens": max_tokens,
                         "temperature": 0.0,
+                        "bridgeprag_alpha": 0.0,
                         "chat_template_kwargs": {"enable_thinking": False},
                     },
                     headers={"Authorization": f"Bearer {LLM_API_KEY}"},
@@ -713,6 +715,7 @@ async def generate_quiz(
                         ],
                         "max_tokens": max_tokens,
                         "temperature": 0.0,
+                        "bridgeprag_alpha": 0.0,
                         "chat_template_kwargs": {"enable_thinking": False},
                     },
                     headers={"Authorization": f"Bearer {LLM_API_KEY}"},
