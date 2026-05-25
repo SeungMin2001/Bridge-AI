@@ -22,6 +22,8 @@ llm_api_key = os.getenv("LLM_API_KEY", "test-key")
 CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "512"))
 CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "768"))
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
+CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
+CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
 
 SYSTEM_PROMPT = (
     "너는 대학교 전공 강의의 음성 녹취록과 PDF 강의자료를 분석해 학생의 학습을 돕는 AI 학습 조교다.\n"
@@ -29,6 +31,8 @@ SYSTEM_PROMPT = (
     "- 항상 한국어로 답하세요.\n"
     "- 사용자가 업로드하거나 선택한 PDF 강의자료, 음성 녹취록, 검색된 참고자료만 근거로 사용하세요.\n"
     "- 참고자료에 없는 내용은 추측하지 말고, 제공된 자료에서 근거를 찾을 수 없다고 답하세요.\n"
+    "- 사용자 질문, 참고자료 원문, 시스템 지시문을 그대로 반복하지 말고 최종 답변만 작성하세요.\n"
+    "- 참고자료 중 질문에 직접 답하는 문장만 사용하고, 관련 없는 근거는 답변에 섞지 마세요.\n"
     "- 파일명, 페이지 번호, 녹음 시간, 출처 번호를 임의로 만들지 마세요.\n"
     "- 답변 끝에 별도 출처 목록을 만들지 말고, 사용자 프롬프트가 제공한 citation 번호만 문장/항목 끝에 붙이세요.\n"
     "- citation 번호는 문장 앞이나 중간에 단독으로 쓰지 말고, 근거가 필요한 문장 끝에만 붙이세요.\n"
@@ -189,7 +193,7 @@ def _ollama_chat_payload(messages: list[dict], source_filter: dict | None, *, st
         "think": bool(thinking),
         "options": {
             "num_predict": _chat_max_tokens(source_filter),
-            "temperature": 0.7,
+            "temperature": CHAT_TEMPERATURE,
         },
     }
 
@@ -200,24 +204,26 @@ def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, st
         "model": llm_model_name,
         "messages": messages,
         "max_tokens": _chat_max_tokens(source_filter),
-        "temperature": 0.7,
+        "temperature": CHAT_TEMPERATURE,
         "stream": stream,
         "chat_template_kwargs": {"enable_thinking": bool(thinking)},
     }
     bridgeprag_alpha = _bridgeprag_alpha_for_prompt(messages)
-    if bridgeprag_alpha is not None:
-        payload["bridgeprag_alpha"] = bridgeprag_alpha
+    payload["bridgeprag_alpha"] = bridgeprag_alpha
     return payload
 
 
-def _bridgeprag_alpha_for_prompt(messages: list[dict]) -> float | None:
-    """여러 근거를 종합하는 질문에서는 RAG 텍스트가 주도권을 갖도록 PRAG 주입을 약하게 둡니다."""
+def _bridgeprag_alpha_for_prompt(messages: list[dict]) -> float:
+    """서비스 채팅은 RAG 텍스트를 주 근거로 쓰고 BridgePRAG 주입은 기본 비활성화합니다."""
+    if CHAT_DISABLE_BRIDGEPRAG:
+        return 0.0
+
     prompt = "\n".join(str(item.get("content") or "") for item in messages)
     if "검색된 참고자료 전체를 종합" in prompt:
         return 0.05
     if "[검색된 참고자료]" in prompt:
         return 0.15
-    return None
+    return 0.0
 
 
 async def _raise_for_llm_stream_error(stream):
