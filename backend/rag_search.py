@@ -331,6 +331,9 @@ _init_error = None
 logger = logging.getLogger(__name__)
 SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS = int(os.getenv("CHAT_SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS", "16000"))
 RAG_DEBUG = os.getenv("CHAT_RAG_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
+RAG_FAST_KEYWORD_FIRST = os.getenv("CHAT_RAG_FAST_KEYWORD_FIRST", "0").strip().lower() in {"1", "true", "yes", "on"}
+RAG_FAST_KEYWORD_MIN_RESULTS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_RESULTS", "1")))
+RAG_USE_VECTOR_SEARCH = os.getenv("CHAT_RAG_USE_VECTOR_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _db_config() -> dict:
@@ -726,6 +729,86 @@ def _fetch_transcript_row_for_vector_metadata(metadata: dict) -> dict | None:
             cur.close()
         if conn:
             conn.close()
+
+
+def _fetch_transcript_rows_by_ids(transcript_ids: list[str]) -> dict[str, dict]:
+    """벡터 후보들의 transcript row를 한 번의 DB 조회로 가져옵니다."""
+    clean_ids = []
+    seen = set()
+    for transcript_id in transcript_ids:
+        value = str(transcript_id or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        clean_ids.append(value)
+    if not clean_ids:
+        return {}
+
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(**_db_config())
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT t.transcript_id, t.session_id, t.recording_id, t.chunk_index,
+                   t.start_time, t.end_time, t.created_at,
+                   COALESCE(t.corrected_text, t.chunk_text, '') AS chunk_text,
+                   s.title as session_title, s.session_date, s.session_voicefile,
+                   co.title as course_title
+            FROM transcripts t
+            JOIN sessions s ON t.session_id = s.session_id
+            LEFT JOIN courses co ON s.course_id = co.course_id
+            WHERE t.transcript_id::text = ANY(%s)
+            """,
+            (clean_ids,),
+        )
+        rows = cur.fetchall()
+    except Exception as exc:
+        logger.warning("[RAG] 벡터 후보 batch DB 검증 실패: %s", exc)
+        return {}
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+    results = {}
+    for row in rows:
+        (
+            row_transcript_id,
+            row_session_id,
+            row_recording_id,
+            row_chunk_index,
+            start_time,
+            end_time,
+            created_at,
+            chunk_text,
+            session_title,
+            session_date,
+            session_voicefile,
+            course_title,
+        ) = row
+        if not str(chunk_text or "").strip():
+            continue
+        file_title = session_title or "전사 파일"
+        results[str(row_transcript_id)] = {
+            "text": chunk_text,
+            "file_title": file_title,
+            "recording_title": _extract_recording_title(session_voicefile, file_title, created_at, row_recording_id or ""),
+            "course_title": course_title or "미분류",
+            "session_title": file_title,
+            "session_date": str(session_date) if session_date else "",
+            "start_time": float(start_time or 0),
+            "end_time": float(end_time or 0),
+            "session_id": str(row_session_id),
+            "recording_id": row_recording_id or "",
+            "transcript_id": str(row_transcript_id),
+            "chunk_index": row_chunk_index,
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at or ""),
+            "source_type": "transcript",
+        }
+    return results
 
 
 def _truncate_selected_transcript(text: str, max_chars: int = SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS) -> str:
@@ -1196,11 +1279,12 @@ def _vector_search(
     # retriever = _index.as_retriever(similarity_top_k=top_k)
     filters = _normalize_source_filter(source_filter)
     needs_wide_candidates = bool(session_id) or _has_source_filter(filters)
-    retriever = _index.as_retriever(similarity_top_k=top_k * 8 if needs_wide_candidates else top_k)
+    retriever = _index.as_retriever(similarity_top_k=top_k * 4 if needs_wide_candidates else top_k)
     nodes = retriever.retrieve(query)
     session_label_cache = {}
 
     results = []
+    transcript_candidates = []
     for node in nodes:
         m = node.metadata
         row_session_id = str(m.get("session_id", ""))
@@ -1247,7 +1331,20 @@ def _vector_search(
             })
             continue
 
-        canonical = _fetch_transcript_row_for_vector_metadata(m)
+        transcript_candidates.append((node, m))
+
+    transcript_ids = [
+        str(metadata.get("transcript_id") or "").strip()
+        for _, metadata in transcript_candidates
+        if str(metadata.get("transcript_id") or "").strip()
+    ]
+    canonical_by_id = _fetch_transcript_rows_by_ids(transcript_ids)
+
+    for node, m in transcript_candidates:
+        transcript_id = str(m.get("transcript_id") or "").strip()
+        canonical = canonical_by_id.get(transcript_id) if transcript_id else None
+        if canonical is None and not transcript_id:
+            canonical = _fetch_transcript_row_for_vector_metadata(m)
         if canonical is None:
             continue
 
@@ -1470,13 +1567,23 @@ def _run_hybrid_search(
     source_filter: dict | None = None,
 ) -> list[dict]:
     """여러 검색어에 대해 벡터 검색과 키워드 검색을 실행한 뒤 RRF로 병합."""
-    all_vector = []
     all_keyword = []
     query_keywords = extract_keywords(queries[0]) if queries else []
 
     for query in queries:
-        all_vector.extend(_vector_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
         all_keyword.extend(_keyword_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
+
+    keyword_results = _merge_results([], all_keyword, top_k=top_k, query_keywords=query_keywords)
+    if RAG_FAST_KEYWORD_FIRST and len(keyword_results) >= min(top_k, RAG_FAST_KEYWORD_MIN_RESULTS):
+        return keyword_results
+    if not RAG_USE_VECTOR_SEARCH:
+        return keyword_results
+
+    all_vector = []
+    # 벡터 검색은 원 질문 1회만 사용하고, 키워드 검색은 확장 쿼리를 모두 사용한다.
+    # 이렇게 해도 hybrid 구조는 유지하면서 BGE embedding/retrieval 호출 수를 줄일 수 있다.
+    for query in queries[:1]:
+        all_vector.extend(_vector_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
 
     return _merge_results(all_vector, all_keyword, top_k=top_k, query_keywords=query_keywords)
 

@@ -85,7 +85,7 @@ def _clean_visible_answer(text: str) -> str:
     return text.strip()
 
 
-def _strip_boilerplate(text: str) -> str:
+def _strip_boilerplate(text: str, *, strip_edges: bool = True) -> str:
     """인사/도움말성 상투 문구가 답변 본문을 밀어내지 않도록 제거합니다."""
     boilerplate_patterns = (
         r"\s*질문에\s+대해\s+답변해\s+드리겠습니다\.?",
@@ -94,7 +94,8 @@ def _strip_boilerplate(text: str) -> str:
     )
     for pattern in boilerplate_patterns:
         text = re.sub(pattern, "", text)
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip() if strip_edges else text
 
 
 def _trim_sentences(text: str, max_sentences: int) -> str:
@@ -246,7 +247,7 @@ async def _clean_stream_chunks(raw_chunks):
         buffer, stopped = _truncate_at_stop_pattern(buffer)
         if not emitted_any:
             buffer = _strip_leading_answer_noise(buffer)
-        buffer = _strip_boilerplate(buffer)
+        buffer = _strip_boilerplate(buffer, strip_edges=False)
 
         while emitted_sentences < CHAT_ANSWER_MAX_SENTENCES:
             end = _first_sentence_end(buffer)
@@ -298,7 +299,7 @@ def _truncate_at_stop_pattern(text: str) -> tuple[str, bool]:
 
 def _strip_leading_answer_noise(text: str) -> str:
     """스트림 시작부의 chat template 잔여 라벨을 제거합니다."""
-    text = text.replace("\r\n", "\n").strip()
+    text = text.replace("\r\n", "\n").lstrip()
     return re.sub(r"^\s*(assistant|답변|Answer)\s*[:：]?\s*", "", text, flags=re.IGNORECASE)
 
 
