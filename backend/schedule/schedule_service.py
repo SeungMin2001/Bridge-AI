@@ -41,13 +41,28 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 
 
 #  LLM 프롬프트 템플릿
-SCHEDULE_SYSTEM_PROMPT = """당신은 대학 강의 전사문에서 일정 관련 정보를 추출하는 AI 비서입니다.
-시험, 과제, 프로젝트, 발표, 제출 마감일 등 학사 일정을 정확하게 찾아내세요.
-반드시 전사문에 명시된 날짜/시간/마감 표현이 있는 항목만 추출하세요.
-잡담, 인사, 간식, 일반 설명, 개념 설명, 학습 조언, 날짜가 없는 할 일은 일정이 아닙니다.
-전사문에 없는 시험/과제/날짜를 추측하거나 만들어내면 안 됩니다.
-반드시 아래 JSON 형식으로만 응답하세요. JSON 외의 텍스트는 절대 포함하지 마세요.
-일정이 없으면 빈 배열 []을 반환하세요."""
+SCHEDULE_SYSTEM_PROMPT = """당신은 대학 강의 전사문에서 **학사 일정**만 추출하는 AI 비서입니다.
+
+추출 대상 (학사 일정만):
+- 시험(중간고사, 기말고사, 퀴즈, 쪽지시험)
+- 과제(보고서, 레포트, 리포트, 제출, 마감)
+- 프로젝트(팀플, 팀프로젝트, 설계)
+- 발표(중간발표, 최종발표, 세미나)
+- 수업 관련(보강, 휴강, 실습, 특강)
+
+절대 추출하지 마세요 (비학사 일정):
+- 친구 만남, 약속, 모임, 여행, 식사 등 개인 일정
+- 잡담, 인사, 간식, 농담
+- 일반적인 개념 설명, 학습 조언
+- 날짜가 없는 할 일이나 계획
+
+핵심 규칙:
+- 전사문에 명시된 날짜/시간/마감 표현이 있는 항목만 추출하세요.
+- 전사문에 없는 시험/과제/날짜를 추측하거나 만들어내면 안 됩니다.
+- event_type은 전사문 원문 내용을 기반으로 분류하세요. 원문에 "시험"이 없으면 "시험"으로 분류하지 마세요.
+- 제목은 전사문에 실제로 나온 표현만 사용하세요. 새로 만들지 마세요.
+- 반드시 아래 JSON 형식으로만 응답하세요. JSON 외의 텍스트는 절대 포함하지 마세요.
+- 일정이 없으면 빈 배열 []을 반환하세요."""
 
 SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜는 {today}입니다.
 
@@ -55,22 +70,29 @@ SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜는 {today}입니다.
 
 {transcript_text}
 
-위 전사문에서 일정 관련 내용을 찾아 아래 JSON 배열 형식으로 추출하세요.
+위 전사문에서 **학사 일정**만 찾아 아래 JSON 배열 형식으로 추출하세요.
 
 추출 규칙:
-- 과제 제출, 시험, 발표, 프로젝트, 보강 수업, 회의처럼 사용자가 캘린더에 등록할 만한 항목만 추출하세요.
+- 시험, 과제, 발표, 프로젝트, 보강처럼 학사와 관련된 항목만 추출하세요.
+- 친구 만남, 개인 약속, 여행, 식사 등 비학사 일정은 절대 추출하지 마세요.
 - 반드시 날짜나 시간이 있는 문장만 추출하세요. 날짜/시간이 없으면 제외하세요.
 - "내일", "다음 주" 같은 상대 날짜는 오늘 날짜를 기준으로 YYYY-MM-DDTHH:MM:SS로 바꾸세요.
-- 제목은 전사문에 실제로 나온 과목/대상/일정유형만 사용하세요.
-- 제목에 전사문에 없는 과목명, 약어, 주제어를 새로 만들거나 예시 문구를 복사하지 마세요.
-- 구체적인 대상이 없으면 "시험 일정", "과제 제출", "발표 일정"처럼 일정유형 중심으로 작성하세요.
-- source_text는 반드시 전사문에 실제로 나온 문장 또는 그 문장의 일부여야 합니다.
+- 제목(title)은 전사문에 실제로 나온 과목명/대상을 포함해 작성하세요.
+- 제목에 전사문에 없는 과목명, 약어, 주제어를 만들지 마세요.
+- event_type은 전사문 원문에 해당 키워드가 있을 때만 해당 타입으로 분류하세요:
+  - "시험" → 원문에 시험/고사/퀴즈가 있을 때만
+  - "과제" → 원문에 과제/제출/마감/보고서/레포트가 있을 때만
+  - "프로젝트" → 원문에 프로젝트/팀플/설계가 있을 때만
+  - "발표" → 원문에 발표/세미나가 있을 때만
+  - "기타" → 위에 해당하지 않는 학사 일정 (보강, 휴강, 실습 등)
+- source_text는 반드시 전사문에 실제로 나온 문장이어야 합니다.
+- 같은 일정이 여러 번 언급되면 1개만 추출하세요.
 - 일정이 없으면 []만 반환하세요.
 날짜 형식은 "YYYY-MM-DD" 또는 "YYYY-MM-DDTHH:MM:SS"로 작성하세요.
 
 [
   {{
-    "title": "일정 제목 (간결하게)",
+    "title": "일정 제목 (전사문 원문 기반, 간결하게)",
     "description": "일정에 대한 상세 설명",
     "event_type": "시험|과제|프로젝트|발표|기타",
     "due_date": "2026-05-15" 또는 null,
@@ -79,11 +101,35 @@ SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜는 {today}입니다.
 ]"""
 
 
+# 청크 분할 설정
+CHUNK_SIZE = 4000       # 각 청크의 최대 글자 수
+CHUNK_OVERLAP = 500     # 청크 간 오버랩 글자 수 (경계 일정 누락 방지)
+
+
+def _split_transcript_chunks(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """
+    긴 전사문을 오버랩이 있는 청크로 분할한다.
+    경계에 걸린 일정이 누락되지 않도록 overlap을 적용한다.
+    """
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end]
+        chunks.append(chunk)
+        start += chunk_size - overlap
+
+    return chunks
+
+
 def _build_schedule_prompt(transcript_text: str) -> list[dict]:
     """LLM에 보낼 일정 추출 프롬프트 messages 배열을 구성한다."""
     user_prompt = SCHEDULE_USER_PROMPT_TEMPLATE.format(
         today=datetime.now().strftime("%Y-%m-%d"),
-        transcript_text=transcript_text[:6000]  # 토큰 제한 고려
+        transcript_text=transcript_text
     )
     return [
         {"role": "system", "content": SCHEDULE_SYSTEM_PROMPT},
@@ -212,10 +258,90 @@ WEEKDAY_INDEX = {
 }
 
 
+# 비학사 일정 감지용 키워드
+NON_ACADEMIC_KEYWORDS = (
+    "친구", "만남", "약속", "모임", "여행", "식사", "밥", "카페",
+    "영화", "데이트", "쇼핑", "운동", "헬스", "게임", "놀",
+)
+
+
+def _validate_event_type(event_type: str, source_text: str) -> str:
+    """
+    LLM이 분류한 event_type이 source_text 내용과 일치하는지 검증한다.
+    source_text에 해당 키워드가 없으면 "기타"로 보정한다.
+    """
+    source_lower = source_text.lower()
+
+    type_keywords = {
+        "시험": ("시험", "고사", "퀴즈", "쪽지"),
+        "과제": ("과제", "제출", "마감", "보고서", "레포트", "리포트"),
+        "프로젝트": ("프로젝트", "팀플", "설계"),
+        "발표": ("발표", "세미나", "프레젠테이션"),
+    }
+
+    clean_type = event_type.strip()
+    if clean_type in type_keywords:
+        keywords = type_keywords[clean_type]
+        if not any(kw in source_lower for kw in keywords):
+            logger.info(f"[SCHEDULE] event_type 보정: '{clean_type}' -> '기타' (source_text에 근거 없음)")
+            return "기타"
+
+    return clean_type
+
+
+def _is_non_academic(source_text: str, title: str, description: str = "") -> bool:
+    """source_text, title, description에 비학사 일정 키워드가 포함되어 있는지 판단한다.
+    LLM이 제목이나 설명에 학사 키워드("시험", "과제" 등)를 환각으로 추가했을 수 있으므로,
+    비학사 감지와 학사 감지는 오직 원본 텍스트(source_text)만을 기준으로 해야 신뢰할 수 있습니다.
+    """
+    source_lower = source_text.lower()
+    has_non_academic = any(kw in source_lower for kw in NON_ACADEMIC_KEYWORDS)
+    has_academic = any(kw in source_lower for kw in SCHEDULE_EVENT_KEYWORDS)
+    # 비학사 키워드가 있고 학사 키워드가 없으면 비학사 일정
+    return has_non_academic and not has_academic
+
+
+
+def _is_fuzzy_duplicate(new_item: dict, existing_items: list[dict]) -> bool:
+    """
+    새 일정이 기존 목록의 항목과 유사한 중복인지 판단한다.
+    같은 날짜 + (제목 유사 or source_text 포함 관계)이면 중복.
+    """
+    new_date = new_item.get("due_date", "")
+    new_title = new_item.get("title", "")
+    new_source = (new_item.get("source_text") or "").replace(" ", "")
+
+    for existing in existing_items:
+        ex_date = existing.get("due_date", "")
+        ex_title = existing.get("title", "")
+        ex_source = (existing.get("source_text") or "").replace(" ", "")
+
+        # 날짜가 다르면 중복 아님
+        if new_date and ex_date and new_date[:10] != ex_date[:10]:
+            continue
+
+        # source_text 포함 관계 체크
+        if new_source and ex_source:
+            if new_source in ex_source or ex_source in new_source:
+                return True
+
+        # 제목 토큰 기반 유사도 체크 (한국어 2자 이상 단어 단위)
+        if new_title and ex_title:
+            new_tokens = set(re.findall(r'[\uac00-\ud7a3]{2,}|[A-Za-z]+', new_title))
+            ex_tokens = set(re.findall(r'[\uac00-\ud7a3]{2,}|[A-Za-z]+', ex_title))
+            if new_tokens and ex_tokens:
+                intersection = len(new_tokens & ex_tokens)
+                union = len(new_tokens | ex_tokens)
+                similarity = intersection / union if union > 0 else 0
+                if similarity >= 0.5:
+                    return True
+
+    return False
+
+
 def _filter_valid_schedules(schedules: list[dict]) -> list[dict]:
     """LLM이 과하게 뽑은 후보를 저장 전에 한 번 더 걸러낸다."""
     valid = []
-    seen = set()
 
     for item in schedules:
         title = str(item.get("title") or "").strip()
@@ -223,7 +349,6 @@ def _filter_valid_schedules(schedules: list[dict]) -> list[dict]:
         event_type = str(item.get("event_type") or "").strip()
         due_date = item.get("due_date")
         source_text = str(item.get("source_text") or "").strip()
-        combined = " ".join([title, description, event_type, source_text])
 
         if not title or not source_text:
             logger.info(f"[SCHEDULE] 후보 제외: 제목/source_text 없음 - {item}")
@@ -246,6 +371,16 @@ def _filter_valid_schedules(schedules: list[dict]) -> list[dict]:
             continue
         item["due_date"] = parsed_due_date.isoformat()
 
+        # event_type 검증 및 보정 (비학사 필터링 전에 먼저 실행)
+        item["event_type"] = _validate_event_type(event_type, source_text)
+
+        # 비학사 일정 필터링 (event_type 보정 후 실행)
+        if _is_non_academic(source_text, title, description):
+            logger.info(f"[SCHEDULE] 후보 제외: 비학사 일정 감지 - {title}")
+            continue
+
+        # 학사 키워드 체크 (event_type 보정 후 combined에 반영)
+        combined = " ".join([title, description, item["event_type"], source_text])
         if not any(keyword in combined for keyword in SCHEDULE_EVENT_KEYWORDS):
             logger.info(f"[SCHEDULE] 후보 제외: 일정 키워드 없음 - {title}")
             continue
@@ -254,12 +389,13 @@ def _filter_valid_schedules(schedules: list[dict]) -> list[dict]:
             logger.info(f"[SCHEDULE] 후보 제외: source_text에 날짜/마감 표현 없음 - {title}")
             continue
 
-        item["title"] = _normalize_schedule_title(title, event_type, source_text)
+        item["title"] = _normalize_schedule_title(title, item["event_type"], source_text)
 
-        key = (title, str(due_date), source_text)
-        if key in seen:
+        # 유사도 기반 중복 제거 (같은 날짜 + 제목 유사 or source_text 포함)
+        if _is_fuzzy_duplicate(item, valid):
+            logger.info(f"[SCHEDULE] 후보 제외: 유사 중복 감지 - {title}")
             continue
-        seen.add(key)
+
         valid.append(item)
 
     return valid
@@ -328,8 +464,8 @@ def _parse_time_from_text(text: str) -> tuple[int, int]:
 
 
 def _parse_weekday_relative_date(text: str) -> datetime | None:
-    """'이번주 일요일', '다음 주 목요일' 같은 표현을 날짜로 변환한다."""
-    match = re.search(r"(이번|다음)\s*주\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일|월|화|수|목|금|토|일)", text)
+    """'이번주 일요일', '다음 주 목요일', '다다음주 월요일' 같은 표현을 날짜로 변환한다."""
+    match = re.search(r"(이번|다다음|다음)\s*주\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일|월|화|수|목|금|토|일)", text)
     if not match:
         return None
 
@@ -339,10 +475,13 @@ def _parse_weekday_relative_date(text: str) -> datetime | None:
     week_start = today - timedelta(days=today.weekday())
     if week_word == "다음":
         week_start += timedelta(days=7)
+    elif week_word == "다다음":
+        week_start += timedelta(days=14)
 
     target_date = week_start + timedelta(days=target_weekday)
     hour, minute = _parse_time_from_text(text)
     return target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
 
 
 def parse_due_date(date_str: str | None) -> datetime | None:
@@ -377,12 +516,28 @@ def parse_due_date(date_str: str | None) -> datetime | None:
         "%Y-%m-%dT%H:%M",
         "%Y-%m-%d",
         "%Y/%m/%d",
-        "%m/%d",
-        "%m월 %d일",
     ]
     for fmt in formats:
         try:
             return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+
+    # 연도 없는 형식 (M/D, M월 D일) → 현재 연도 보정
+    year_less_formats = [
+        ("%m/%d", None),
+        ("%m월 %d일", None),
+    ]
+    # 공백 없는 한국어 날짜 ("5월15일" 같은 형태)
+    korean_no_space = re.match(r"(\d{1,2})월(\d{1,2})일", date_str.replace(" ", ""))
+    if korean_no_space:
+        month, day = int(korean_no_space.group(1)), int(korean_no_space.group(2))
+        return datetime.now().replace(month=month, day=day, hour=9, minute=0, second=0, microsecond=0)
+
+    for fmt, _ in year_less_formats:
+        try:
+            parsed = datetime.strptime(date_str, fmt)
+            return parsed.replace(year=datetime.now().year)
         except ValueError:
             continue
 
@@ -473,35 +628,49 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
     전사문 텍스트에서 일정 관련 정보를 추출한다.
     MOCK_MODE=true이면 목업 데이터를 반환하고,
     false이면 LLM을 호출하여 실제 추출한다.
+
+    긴 전사문은 청크로 분할하여 개별 LLM 호출 후 결과를 병합한다.
+    병합 후 유사도 기반 중복 제거를 수행한다.
     """
     if MOCK_MODE:
         logger.info("[SCHEDULE] MOCK_MODE: 목업 일정 데이터 반환")
         return _generate_mock_schedules()
 
-    messages = _build_schedule_prompt(transcript_text)
+    # 긴 텍스트를 청크로 분할
+    chunks = _split_transcript_chunks(transcript_text)
+    logger.info(f"[SCHEDULE] 전사문 {len(transcript_text)}자 → {len(chunks)}개 청크로 분할")
+
+    all_schedules = []
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
-            res = await client.post(
-                f"{LLM_URL}/v1/chat/completions",
-                json={
-                    "model": LLM_MODEL,
-                    "messages": messages,
-                    "max_tokens": 2048,
-                    "temperature": 0.2,  # 정확한 추출을 위해 낮은 temperature
-                    "chat_template_kwargs": {"enable_thinking": False},
-                },
-                headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-            )
-            res.raise_for_status()
+            for i, chunk in enumerate(chunks):
+                messages = _build_schedule_prompt(chunk)
+                logger.info(f"[SCHEDULE] 청크 {i+1}/{len(chunks)} LLM 호출 ({len(chunk)}자)")
 
-        data = res.json()
-        raw_answer = data["choices"][0]["message"]["content"]
-        logger.info(f"[SCHEDULE] LLM 응답 수신: {len(raw_answer)} chars")
+                res = await client.post(
+                    f"{LLM_URL}/v1/chat/completions",
+                    json={
+                        "model": LLM_MODEL,
+                        "messages": messages,
+                        "max_tokens": 2048,
+                        "temperature": 0.1,  # 정확한 추출을 위해 낮은 temperature
+                        "chat_template_kwargs": {"enable_thinking": False},
+                    },
+                    headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+                )
+                res.raise_for_status()
 
-        schedules = _parse_schedule_json(raw_answer)
-        logger.info(f"[SCHEDULE] {len(schedules)}개 일정 추출 완료")
-        return schedules
+                data = res.json()
+                raw_answer = data["choices"][0]["message"]["content"]
+                logger.info(f"[SCHEDULE] 청크 {i+1} LLM 응답: {len(raw_answer)} chars")
+
+                chunk_schedules = _parse_schedule_json(raw_answer)
+                all_schedules.extend(chunk_schedules)
+
+        # 모든 청크 결과를 합친 후 전체 중복 제거 (_filter_valid_schedules에서 처리됨)
+        logger.info(f"[SCHEDULE] 전체 {len(all_schedules)}개 일정 추출 완료 ({len(chunks)}개 청크)")
+        return all_schedules
 
     except httpx.HTTPError as e:
         logger.error(f"[SCHEDULE] LLM 호출 실패: {e}")
