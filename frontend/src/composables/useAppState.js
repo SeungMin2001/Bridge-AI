@@ -58,7 +58,9 @@ export function useAppState() {
   } = useRecordingState()
 
   const {
-    hydrateSchedules
+    hydrateSchedules,
+    confirmAndSyncToNotion,
+    ignoreSchedule
   } = useScheduleState()
 
   const {
@@ -549,6 +551,8 @@ export function useAppState() {
     dismissScheduleExtractionNotice,
     extractSchedulesForSession,
     updateScheduleNotionId,
+    confirmAndSyncToNotion,
+    ignoreSchedule,
     handleFileTreeUpdate,
     handleFavoritesUpdate,
     handleAiInputUpdate,
