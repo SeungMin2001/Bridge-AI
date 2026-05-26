@@ -29,7 +29,8 @@ const props = defineProps({
   scheduleExtractionNotice: { type: Object, default: null },
   summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] },
-  aiInput: { type: String, default: '' }
+  aiInput: { type: String, default: '' },
+  sourceOpenRequest: { type: Object, default: null }
 })
 
 const emit = defineEmits([
@@ -364,6 +365,22 @@ function collectTranscriptIds(recordings = []) {
 const activeSourceNode = computed(() => (
   props.activeFileId ? findNodeById(props.fileTree, props.activeFileId) : null
 ))
+
+watch(() => props.sourceOpenRequest, (request) => {
+  if (!request?.id) return
+  if (request.type !== 'recording' || !request.recording) return
+
+  isLeftSidebarCollapsed.value = false
+  recordingSourceRequest.value = {
+    id: request.id,
+    fileId: request.fileId || props.activeFileId,
+    node: request.node || activeSourceNode.value,
+    recordingId: request.recordingId || request.recording?.id || request.recording?.recordingId || '',
+    recording: request.recording,
+    sourceStartTime: request.sourceStartTime,
+    sourceEndTime: request.sourceEndTime
+  }
+}, { immediate: true })
 
 const miniSourceWeeks = computed(() => {
   const weeks = Array.isArray(activeSourceNode.value?.weeks) ? activeSourceNode.value.weeks : []
