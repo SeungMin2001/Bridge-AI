@@ -831,10 +831,6 @@ const activeWorkspaceSource = computed(() => {
           <button type="button" class="workspace-schedule-notice-secondary" @click="closeScheduleNotice">
             닫기
           </button>
-          <button type="button" class="workspace-schedule-notice-primary" @click="confirmAllNoticeItems">
-            <span class="material-symbols-outlined" style="font-size:15px">done_all</span>
-            모두 확정
-          </button>
           <button type="button" class="workspace-schedule-notice-primary" @click="goSchedulePageFromNotice">
             일정관리로 이동
           </button>

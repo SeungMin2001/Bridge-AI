@@ -30,9 +30,6 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# 실시간 추출 일정 글로벌 캐시 (key: (session_id, recording_id), value: list[dict])
-SESSION_SCHEDULE_CACHE = {}
-
 # ── 설정 ──
 MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "false").lower() == "true"
 
@@ -387,10 +384,6 @@ def _filter_valid_schedules(schedules: list[dict]) -> list[dict]:
         combined = " ".join([title, description, item["event_type"], source_text])
         if not any(keyword in combined for keyword in SCHEDULE_EVENT_KEYWORDS):
             logger.info(f"[SCHEDULE] 후보 제외: 일정 키워드 없음 - {title}")
-            continue
-
-        if not SCHEDULE_DATE_HINT_PATTERN.search(source_text):
-            logger.info(f"[SCHEDULE] 후보 제외: source_text에 날짜/마감 표현 없음 - {title}")
             continue
 
         item["title"] = _normalize_schedule_title(title, item["event_type"], source_text)
@@ -822,56 +815,34 @@ SCHEDULE_CORE_KEYWORDS = ["시험", "고사", "퀴즈", "쪽지", "과제", "제
 SCHEDULE_DATE_KEYWORDS = ["월", "일", "내일", "오늘", "다음주", "다다음주", "요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일", "까지"]
 
 
+SESSION_IMPORTANT_TEXT_CACHE = {}
+
 async def trigger_realtime_schedule_extraction(session_id: str, recording_id: str, text: str):
     """
-    실시간으로 수신된 전사 텍스트 조각을 검사하여, 일정이 감지되면 백그라운드에서 분석 및 캐싱합니다.
+    실시간으로 수신된 전사 텍스트 조각을 검사하여, 일정이 포함될 가능성이 높은 문장만 메모리에 캐싱합니다.
+    녹음 종료 시 이 캐시된 텍스트만 모아서 LLM에 한 번에 보내어 추출 속도를 극대화합니다.
     """
     if not text or len(text.strip()) < 5:
         return
 
-    # 1. 1차 가벼운 키워드 필터링 (불필요한 LLM 호출 원천 차단)
+    # 1. 1차 가벼운 키워드 필터링
     has_core = any(kw in text for kw in SCHEDULE_CORE_KEYWORDS)
     has_date = any(kw in text for kw in SCHEDULE_DATE_KEYWORDS)
     
     if not (has_core and has_date):
         return
 
-    logger.info(f"[SCHEDULE-REALTIME] 실시간 일정 가능성 감지: '{text}' (백그라운드 LLM 추출 시도)")
+    logger.info(f"[SCHEDULE-REALTIME] 중요 일정 텍스트 감지 (캐시 저장): '{text}'")
     
-    try:
-        # LLM을 통해 이 문장에서 일정 추출 시도
-        extracted = await extract_schedules(text)
-        if not extracted:
-            return
+    # session_id, recording_id 문자열 포맷 정규화
+    norm_session_id = str(session_id).lower().replace("-", "")
+    norm_recording_id = str(recording_id).lower().replace("-", "") if recording_id else ""
+    cache_key = (norm_session_id, norm_recording_id)
 
-        # session_id, recording_id 문자열 포맷 정규화 (대소문자, 하이픈 제거로 매칭 완벽 보장)
-        norm_session_id = str(session_id).lower().replace("-", "")
-        norm_recording_id = str(recording_id).lower().replace("-", "") if recording_id else ""
-        cache_key = (norm_session_id, norm_recording_id)
-
-        if cache_key not in SESSION_SCHEDULE_CACHE:
-            SESSION_SCHEDULE_CACHE[cache_key] = []
-            
-        cached_list = SESSION_SCHEDULE_CACHE[cache_key]
+    if cache_key not in SESSION_IMPORTANT_TEXT_CACHE:
+        SESSION_IMPORTANT_TEXT_CACHE[cache_key] = []
         
-        # 캐시 내 중복 방지 적재
-        for new_s in extracted:
-            is_duplicate = False
-            for old_s in cached_list:
-                if new_s["title"].strip() == old_s["title"].strip() and new_s.get("due_date") == old_s.get("due_date"):
-                    is_duplicate = True
-                    break
-                similarity = jaccard_similarity(new_s["title"], old_s["title"])
-                if similarity >= 0.75 and new_s.get("due_date") == old_s.get("due_date"):
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                cached_list.append(new_s)
-                logger.info(f"[SCHEDULE-REALTIME] 실시간 일정 캐시 적재 성공: '{new_s['title']}' (마감: {new_s.get('due_date')})")
-                
-    except Exception as e:
-        logger.error(f"[SCHEDULE-REALTIME] 실시간 백그라운드 일정 추출 중 오류: {e}")
+    SESSION_IMPORTANT_TEXT_CACHE[cache_key].append(text)
 
 
 

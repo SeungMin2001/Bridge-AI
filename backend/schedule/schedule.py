@@ -41,7 +41,7 @@ from schedule.schedule_service import (
     parse_due_date, # due_date 파싱
     find_source_in_transcripts, # 전사문에서 일정 출처 찾기
     filter_already_ignored_semantic, # 시멘틱 필터링 함수
-    SESSION_SCHEDULE_CACHE, # 실시간 추출 캐시
+    SESSION_IMPORTANT_TEXT_CACHE, # 실시간 중요 전사 캐시
 )
 
 logger = logging.getLogger(__name__)
@@ -97,17 +97,24 @@ async def schedule_extract(req: ScheduleExtractRequest):
     norm_session_id = str(req.session_id).lower().replace("-", "")
     norm_recording_id = str(req.recording_id).lower().replace("-", "") if req.recording_id else ""
     cache_key = (norm_session_id, norm_recording_id)
-    cached_extracted = SESSION_SCHEDULE_CACHE.pop(cache_key, None)
+    cached_texts = SESSION_IMPORTANT_TEXT_CACHE.pop(cache_key, None)
 
-    # 1. 캐싱된 실시간 추출 일정이 있는지 확인 (비어있지 않은 실제 데이터가 있는 경우에만 활용)
-    if cached_extracted:
-        logger.info(f"[SCHEDULE] 실시간 캐시 로드 성공! 캐싱된 일정 수: {len(cached_extracted)}")
-        extracted = cached_extracted
-    else:
-        # 캐싱이 없거나 누락된 경우 전체 전사문에서 백업 LLM 추출 수행
-        logger.info("[SCHEDULE] 실시간 캐시 누락. 전체 전사문에서 일정 추출을 수행합니다.")
+    extracted = []
+    # 1. 실시간 중요 문장 캐시가 있는지 확인
+    if cached_texts:
+        logger.info(f"[SCHEDULE] 실시간 캐시 텍스트 감지! 중요 문장 수: {len(cached_texts)}")
+        combined_text = "\n".join(cached_texts)
+        try:
+            extracted = await extract_schedules(combined_text)
+            logger.info(f"[SCHEDULE] 실시간 캐시 텍스트 기반 추출 성공: {len(extracted)}개 일정")
+        except Exception as e:
+            logger.warning(f"[SCHEDULE] 실시간 캐시 텍스트 기반 추출 실패, 전체 전사문으로 백업 시도: {e}")
+
+    # 2. 캐시가 없거나, 캐시 추출 결과가 비어있는 경우 전체 전사문에서 백업 LLM 추출 수행
+    if not extracted:
+        logger.info("[SCHEDULE] 실시간 캐시 누락 또는 결과 없음. 전체 전사문에서 일정 추출을 수행합니다.")
         
-        # 1-1. 세션 전사문 조회
+        # 2-1. 세션 전사문 조회
         transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
         if not transcripts:
             raise HTTPException(
