@@ -1,16 +1,15 @@
 <!-- AI가 감지한 일정과 확정 일정을 큰 캘린더에서 관리하는 페이지입니다. -->
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import InfiniteGrid from '../../components/home/InfiniteGrid.vue'
 import HomeSidebar from '../../components/home/HomeSidebar.vue'
 import ScheduleCalendarPanel from '../../components/schedule/ScheduleCalendarPanel.vue'
 import ScheduleHoverPopover from '../../components/schedule/ScheduleHoverPopover.vue'
 import ScheduleSidebar from '../../components/schedule/ScheduleSidebar.vue'
 import { useScheduleCalendarView } from '../../composables/schedule/useScheduleCalendarView'
-import { useScheduleIcsExport } from '../../composables/schedule/useScheduleIcsExport'
 import { useScheduleState } from '../../composables/useScheduleState'
 
-const emit = defineEmits(['navigate'])
+const emit = defineEmits(['navigate', 'openWorkspace'])
 
 defineProps({
   fileTree: { type: Array, default: () => [] },
@@ -23,6 +22,7 @@ const {
   hydrateSchedules,
   confirmSchedule,
   ignoreSchedule,
+  syncConfirmedSchedulesToNotion,
   getSchedulesForDate,
   getScheduleDayFlags,
   formatDateKey,
@@ -34,7 +34,6 @@ const {
 
 const {
   calendarView,
-  calendarViewOptions,
   hourSlots,
   hoveredSchedule,
   selectedDateKey,
@@ -44,7 +43,6 @@ const {
   weekDays,
   getWeekEventStyle,
   formatHourSlot,
-  setCalendarView,
   movePeriod,
   moveToday,
   selectDate,
@@ -61,24 +59,67 @@ const {
   formatDateLabel
 })
 
-const { downloadGoogleCalendarIcs } = useScheduleIcsExport({
-  visibleSchedules,
-  formatDateKey,
-  getTypeLabel
-})
+const isNotionSyncing = ref(false)
+const notionToast = ref('')
+let notionToastTimer = null
 
-function handleConfirm(item) {
-  confirmSchedule(item.id)
+function showNotionToast(message) {
+  notionToast.value = message
+  if (notionToastTimer) window.clearTimeout(notionToastTimer)
+  notionToastTimer = window.setTimeout(() => {
+    notionToast.value = ''
+  }, 2400)
+}
+
+function showConfirmSyncToast(result) {
+  if (result?.status === 'success') {
+    showNotionToast('노션에 추가하였습니다.')
+    return
+  }
+  if (result?.status === 'already_synced') {
+    showNotionToast('이미 노션에 추가된 일정입니다.')
+    return
+  }
+  if (result?.status === 'notion_failed') {
+    showNotionToast('일정은 확정했지만 노션 추가에 실패했습니다.')
+  }
+}
+
+async function handleConfirm(item) {
+  const result = await confirmSchedule(item.id)
   selectedDateKey.value = item.dateKey
+  showConfirmSyncToast(result)
 }
 
 function handleIgnore(item) {
   ignoreSchedule(item.id)
 }
 
-function openWorkspace(item) {
-  if (item.status === 'pending') confirmSchedule(item.id)
-  emit('navigate', 'workspace')
+async function openWorkspace(item) {
+  if (item.status === 'pending') {
+    const result = await confirmSchedule(item.id)
+    showConfirmSyncToast(result)
+  }
+  emit('openWorkspace', item)
+}
+
+async function syncNotionSchedules() {
+  if (isNotionSyncing.value) return
+
+  isNotionSyncing.value = true
+  try {
+    const result = await syncConfirmedSchedulesToNotion()
+    if (result.synced_count > 0) {
+      showNotionToast(`노션에 ${result.synced_count}개 일정을 추가하였습니다.`)
+    } else {
+      showNotionToast('노션에 추가할 새 일정이 없습니다.')
+    }
+  } catch (error) {
+    console.error('[schedule] notion bulk sync failed:', error)
+    showNotionToast('노션 저장에 실패했습니다.')
+  } finally {
+    isNotionSyncing.value = false
+  }
 }
 
 onMounted(async () => {
@@ -107,9 +148,9 @@ onMounted(async () => {
             </button>
           </div>
           <div class="schedule-header-actions">
-            <button class="schedule-soft-btn export" @click="downloadGoogleCalendarIcs">
-              <span class="material-symbols-outlined">ios_share</span>
-              Google 캘린더
+            <button class="schedule-soft-btn export" :disabled="isNotionSyncing" @click="syncNotionSchedules">
+              <span class="material-symbols-outlined">database</span>
+              {{ isNotionSyncing ? '노션 저장 중' : '노션에 저장' }}
             </button>
             <button class="schedule-soft-btn" @click="moveToday">오늘</button>
             <button class="schedule-icon-btn" @click="movePeriod(-1)">
@@ -123,7 +164,6 @@ onMounted(async () => {
 
         <ScheduleCalendarPanel
           :calendarView="calendarView"
-          :calendarViewOptions="calendarViewOptions"
           :currentPeriodLabel="currentPeriodLabel"
           :calendarDays="calendarDays"
           :weekDays="weekDays"
@@ -133,7 +173,6 @@ onMounted(async () => {
           :getWeekEventStyle="getWeekEventStyle"
           :formatHourSlot="formatHourSlot"
           :getTypeLabel="getTypeLabel"
-          @set-calendar-view="setCalendarView"
           @select-date="selectDate"
           @focus-schedule="focusSchedule"
           @show-popover="showSchedulePopover"
@@ -163,6 +202,13 @@ onMounted(async () => {
       :getTypeIcon="getTypeIcon"
       :getStatusLabel="getStatusLabel"
     />
+
+    <transition name="schedule-toast">
+      <div v-if="notionToast" class="schedule-notion-toast">
+        <span class="material-symbols-outlined">check_circle</span>
+        {{ notionToast }}
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -254,6 +300,11 @@ onMounted(async () => {
   padding: 0 16px;
 }
 
+.schedule-soft-btn:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
 .schedule-soft-btn.export {
   display: inline-flex;
   align-items: center;
@@ -262,6 +313,40 @@ onMounted(async () => {
 
 .schedule-soft-btn.export .material-symbols-outlined {
   font-size: 17px;
+}
+
+.schedule-notion-toast {
+  position: fixed;
+  right: 34px;
+  bottom: 30px;
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  max-width: min(360px, calc(100vw - 40px));
+  padding: 0 16px;
+  border-radius: 14px;
+  color: #ffffff;
+  background: #18181b;
+  box-shadow: 0 18px 36px rgba(24, 24, 27, 0.22);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.schedule-notion-toast .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.schedule-toast-enter-active,
+.schedule-toast-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.schedule-toast-enter-from,
+.schedule-toast-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
 .schedule-header-actions {
