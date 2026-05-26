@@ -482,13 +482,13 @@ export function useAppState() {
         console.error('[workspace] session resources save failed:', error)
       }
 
-      if (recordingSnapshot.length > 0) {
-        try {
-          await extractSchedulesForSession(targetFileId, recordingId)
-        } catch (error) {
-          console.error('[schedule] extract after recording failed:', error)
-        }
+      try {
+        await extractSchedulesForSession(targetFileId, recordingId)
+      } catch (error) {
+        console.error('[schedule] extract after recording failed:', error)
+      }
 
+      if (recordingSnapshot.length > 0) {
         try {
           await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId, {
             live: false,

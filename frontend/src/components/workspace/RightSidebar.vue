@@ -1,4 +1,9 @@
 <!-- 워크스페이스 내에서 AI와 실시간으로 채팅하며 노트를 정리할 수 있는 오른쪽 채팅 패널입니다. -->
+<script>
+export default {
+  inheritAttrs: false
+}
+</script>
 <script setup>
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useChat } from '../../composables/useChat'

@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
+import CitationPopover from '../../components/workspace/citations/CitationPopover.vue'
 import { useChat } from '../../composables/useChat'
 import { deleteWorkspaceRecordingData, isWorkspaceUuid, saveSessionResources } from '../../api/workspaceApi.js'
 
