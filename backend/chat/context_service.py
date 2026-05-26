@@ -233,7 +233,7 @@ async def build_prompt_and_citations(
             f"{scope_boundary_instruction}\n\n"
             f"질문: {question}"
         )
-    elif has_selected_material:
+    elif has_selected_material and _is_current_scope_question(question):
         prompt = (
             "사용자가 PDF 자료를 선택했지만, 선택된 PDF 안에서 질문과 직접 관련된 근거 페이지를 찾지 못했습니다. "
             "외부 웹사이트나 일반 지식으로 대체하지 말고, 선택된 PDF에서 근거를 찾지 못했다고 짧게 답하세요.\n\n"
@@ -247,8 +247,9 @@ async def build_prompt_and_citations(
         )
     elif _is_grounded_content_question(question):
         prompt = (
-            "워크스페이스 전체에서 질문과 직접 관련된 검색 근거를 찾지 못했습니다. "
-            "외부 지식이나 추측으로 답하지 말고, 저장된 자료/녹음본에서 관련 근거를 찾지 못했다고 짧게 답하세요.\n\n"
+            "저장된 자료/녹음본/PDF에서 질문과 직접 관련된 검색 근거를 찾지 못했습니다. "
+            "그래도 사용자의 질문에는 일반 지식으로 짧고 명확하게 답하세요. "
+            "단, 저장 자료 근거가 없다는 점을 첫 문장에 간단히 밝히고 citation 번호는 붙이지 마세요.\n\n"
             f"질문: {question}"
         )
     else:
@@ -284,6 +285,31 @@ def source_filter_has_material(source_filter: dict | None) -> bool:
     if not isinstance(source_filter, dict):
         return False
     return bool(source_filter.get("material_ids") or source_filter.get("stored_names"))
+
+
+def _is_current_scope_question(question: str) -> bool:
+    """현재 선택 파일/PDF/녹음본으로 범위를 한정한 질문인지 확인합니다."""
+    text = str(question or "")
+    current_scope_terms = (
+        "현재 파일",
+        "이 파일",
+        "여기 파일",
+        "현재 여기에",
+        "선택된",
+        "열려 있는",
+        "열려있는",
+        "지금 파일",
+        "이 강의",
+        "이 자료",
+        "이 pdf",
+        "이 PDF",
+        "현재 자료",
+        "현재 pdf",
+        "현재 PDF",
+        "여기 내용",
+        "현재 내용",
+    )
+    return any(term in text for term in current_scope_terms)
 
 
 def build_direct_locator_answer(question: str, citations: list[dict]) -> str | None:

@@ -1924,6 +1924,19 @@ def search(
         if results:
             search_scope = "all_files_keyword_fallback"
 
+    if session_id and not results and not current_scope_query and not strict_keyword_query:
+        # 프론트는 현재 파일의 PDF/녹음본을 source_filter로 자동 선택한다.
+        # 다만 사용자가 "이 파일에서"라고 한정하지 않은 일반 개념 질문은
+        # 선택 파일에서 실패했을 때 전체 저장 자료까지 확장해야 샘플 DB 근거를 놓치지 않는다.
+        results = _run_hybrid_search(
+            queries,
+            top_k=candidate_top_k,
+            session_id=None,
+            source_filter=None,
+        )
+        if results:
+            search_scope = "all_files_fallback"
+
     if (
         not results
         and session_id

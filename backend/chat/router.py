@@ -25,7 +25,7 @@ router = APIRouter(tags=["chat"])
 class ChatRequest(BaseModel):
     """AI 채팅 요청 본문.
 
-    session_id와 source_filter는 현재 워크스페이스/선택 파일 기준으로 RAG 근거를 제한할 때 사용합니다.
+    session_id와 source_filter는 프론트 호환을 위해 받지만, AI 채팅 검색 범위는 항상 전체 워크스페이스입니다.
     """
 
     question: str
@@ -40,6 +40,11 @@ class RegisterRequest(BaseModel):
     """런타임에서 사용할 LLM 서버 URL 등록 요청 본문."""
 
     url: str
+
+
+def _global_chat_scope() -> tuple[None, None]:
+    """AI 질문은 파일 선택과 무관하게 모든 전사문/PDF 자료를 검색합니다."""
+    return None, None
 
 
 @router.post("/register-llm")
@@ -59,9 +64,12 @@ async def chat(req: ChatRequest):
         if is_smalltalk_question(req.question):
             prompt, citations = req.question, []
         else:
+            search_session_id, search_source_filter = _global_chat_scope()
+            # 기존 프론트가 session_id를 보내도 검색 범위는 전체로 풀고,
+            # 해당 파일 PDF는 누락된 인덱스가 있으면 증분 보강만 수행합니다.
             await ensure_material_rag_for_chat(req.session_id, req.source_filter)
-            prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
-        answer = await complete_answer(prompt, req.source_filter)
+            prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
+        answer = await complete_answer(prompt, None)
         if not answer:
             answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
         return {"thinking": "", "answer": answer, "citations": citations}
@@ -79,8 +87,10 @@ async def chat_stream(req: ChatRequest):
     if is_smalltalk_question(req.question):
         prompt, citations = req.question, []
     else:
+        search_session_id, search_source_filter = _global_chat_scope()
+        # 요약/퀴즈는 선택 파일 기준을 유지하지만, AI 채팅은 항상 전체 자료 검색으로 고정합니다.
         await ensure_material_rag_for_chat(req.session_id, req.source_filter)
-        prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
+        prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
     t_rag = time.perf_counter()
     print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
 
@@ -96,7 +106,7 @@ async def chat_stream(req: ChatRequest):
         try:
             async for token in stream_answer(
                 prompt,
-                req.source_filter,
+                None,
                 thinking=req.is_thinking,
             ):
                 emitted_content = True
