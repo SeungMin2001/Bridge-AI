@@ -521,7 +521,7 @@ const handleOpenMaterial = ({ fileId, node, materialId, material, recording, rec
   emit('openStoredMaterial', materialId)
 }
 
-const handleOpenRecording = ({ fileId, node, recording }) => {
+const handleOpenRecording = ({ fileId, node, recording, sourceStartTime = null, sourceEndTime = null }) => {
   if (fileId && node) {
     emit('fileSelect', fileId, node)
   }
@@ -530,11 +530,17 @@ const handleOpenRecording = ({ fileId, node, recording }) => {
   transcriptViewResetKey.value += 1
   if (recording) {
     setActivePlaybackRecording(recording, fileId)
+    const playbackStart = Number(sourceStartTime)
+    if (Number.isFinite(playbackStart)) {
+      setPlaybackSecond(playbackStart)
+    }
   }
   emit('openRecording', {
     sessionId: fileId,
     recordingId: recording?.id || recording?.recordingId || '',
-    recording
+    recording,
+    sourceStartTime,
+    sourceEndTime
   })
   activeTab.value = 'voice'
 }
@@ -666,7 +672,9 @@ watch(() => props.recordingSourceRequest, (request) => {
   handleOpenRecording({
     fileId: request.fileId || props.activeFileId,
     node: request.node || findNodeById(props.fileTree, request.fileId || props.activeFileId),
-    recording: request.recording
+    recording: request.recording,
+    sourceStartTime: request.sourceStartTime,
+    sourceEndTime: request.sourceEndTime
   })
 })
 </script>
