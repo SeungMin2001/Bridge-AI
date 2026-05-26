@@ -1,11 +1,5 @@
 import { computed, ref } from 'vue'
 
-const CALENDAR_VIEW_OPTIONS = [
-  { value: 'month', label: 'Month' },
-  { value: 'week', label: 'Week' },
-  { value: 'day', label: 'Day' }
-]
-
 const WEEK_START_HOUR = 8
 const WEEK_END_HOUR = 22
 const WEEK_HOUR_HEIGHT = 68
@@ -162,13 +156,6 @@ export function useScheduleCalendarView({
     activeMonthDate.value = nextDate
   }
 
-  function setCalendarView(view) {
-    calendarView.value = view
-    if (view !== 'month') {
-      syncActiveMonth(selectedDate.value)
-    }
-  }
-
   function movePeriod(offset) {
     if (calendarView.value === 'month') {
       moveMonth(offset)
@@ -230,7 +217,6 @@ export function useScheduleCalendarView({
 
   return {
     calendarView,
-    calendarViewOptions: CALENDAR_VIEW_OPTIONS,
     hourSlots: HOUR_SLOTS,
     hoveredSchedule,
     selectedDateKey,
@@ -241,7 +227,6 @@ export function useScheduleCalendarView({
     weekDays,
     getWeekEventStyle,
     formatHourSlot,
-    setCalendarView,
     movePeriod,
     moveToday,
     selectDate,
