@@ -85,6 +85,8 @@ services:
       - LLM_URL=http://host.docker.internal:8001
       - LLM_MODEL=bridgeprag-qwen25-3b-kv64
       - LLM_API_KEY=test-key
+      - NOTION_API_KEY=${NOTION_API_KEY}
+      - NOTION_DATABASE_ID=${NOTION_DATABASE_ID}
       - STT_BACKEND=openai-whisper
       - STT_MODEL=turbo
       - STT_DEVICE=cuda
