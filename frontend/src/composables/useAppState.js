@@ -500,6 +500,23 @@ export function useAppState() {
     }
   }
 
+  const updateScheduleNotionId = async (scheduleId, notionPageId) => {
+    try {
+      const response = await fetch(`/schedule/${scheduleId}/notion`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notion_page_id: notionPageId })
+      })
+      if (!response.ok) {
+        throw new Error(`notion id update failed: ${response.status}`)
+      }
+      return await response.json()
+    } catch (error) {
+      console.error('[schedule] update notion id failed:', error)
+      throw error
+    }
+  }
+
   // 앱이 내려갈 때 마이크/WebSocket 등 녹음 리소스를 정리합니다.
   onUnmounted(() => {
     stopLiveSummaryRefresh()
@@ -530,6 +547,8 @@ export function useAppState() {
     summaryNotes,
     aiInput,
     dismissScheduleExtractionNotice,
+    extractSchedulesForSession,
+    updateScheduleNotionId,
     handleFileTreeUpdate,
     handleFavoritesUpdate,
     handleAiInputUpdate,
