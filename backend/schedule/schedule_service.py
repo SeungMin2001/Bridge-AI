@@ -844,7 +844,11 @@ async def trigger_realtime_schedule_extraction(session_id: str, recording_id: st
         if not extracted:
             return
 
-        cache_key = (session_id, recording_id)
+        # session_id, recording_id 문자열 포맷 정규화 (대소문자, 하이픈 제거로 매칭 완벽 보장)
+        norm_session_id = str(session_id).lower().replace("-", "")
+        norm_recording_id = str(recording_id).lower().replace("-", "") if recording_id else ""
+        cache_key = (norm_session_id, norm_recording_id)
+
         if cache_key not in SESSION_SCHEDULE_CACHE:
             SESSION_SCHEDULE_CACHE[cache_key] = []
             

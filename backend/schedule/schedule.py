@@ -93,11 +93,14 @@ async def schedule_extract(req: ScheduleExtractRequest):
     """
     logger.info(f"[SCHEDULE] 일정 추출 요청: session_id={req.session_id}, recording_id={req.recording_id}")
 
-    cache_key = (str(req.session_id), str(req.recording_id) if req.recording_id else "")
+    # session_id, recording_id 문자열 포맷 정규화 (대소문자, 하이픈 제거)
+    norm_session_id = str(req.session_id).lower().replace("-", "")
+    norm_recording_id = str(req.recording_id).lower().replace("-", "") if req.recording_id else ""
+    cache_key = (norm_session_id, norm_recording_id)
     cached_extracted = SESSION_SCHEDULE_CACHE.pop(cache_key, None)
 
-    # 1. 캐싱된 실시간 추출 일정이 있는지 확인
-    if cached_extracted is not None:
+    # 1. 캐싱된 실시간 추출 일정이 있는지 확인 (비어있지 않은 실제 데이터가 있는 경우에만 활용)
+    if cached_extracted:
         logger.info(f"[SCHEDULE] 실시간 캐시 로드 성공! 캐싱된 일정 수: {len(cached_extracted)}")
         extracted = cached_extracted
     else:
