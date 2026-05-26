@@ -156,10 +156,9 @@ async def schedule_extract(req: ScheduleExtractRequest):
     for s in to_notify:
         schedule_id = str(uuid.uuid4())
 
-        source_match = find_source_in_transcripts(s.get("source_text", ""), transcripts)
+        source_match = find_source_in_transcripts(s.get("source_text", ""), transcripts) if transcripts else None
         if source_match is None:
-            logger.info(f"[SCHEDULE] 출처 매칭 실패 후보 제외: {s.get('title')}")
-            continue
+            logger.info(f"[SCHEDULE] 출처 매칭 실패 (알림은 유지): {s.get('title')}")
         transcript_id = source_match["transcript_id"] if source_match else None
 
         await save_schedule(
