@@ -290,7 +290,7 @@ export function useRecordingState() {
     const snapshot = JSON.parse(JSON.stringify(transcriptions.value || []))
     if (ws) { ws.close(); ws = null }
     resolveBackendFinalize({ status: 'closed' })
-    transcriptions.value = [] // 신창잉: 녹음이 끝나면 실시간 전사 목록을 비웁니다.
+    // transcriptions.value = [] // 신창잉: 녹음이 끝나면 실시간 전사 목록을 비웁니다.
     activeRecordingId.value = ''
     activeRecordingStartedAt.value = ''
     diarizationStatus.value = 'idle'

@@ -41,6 +41,7 @@ from schedule.schedule_service import (
     parse_due_date, # due_date 파싱
     find_source_in_transcripts, # 전사문에서 일정 출처 찾기
     filter_already_ignored_semantic, # 시멘틱 필터링 함수
+    SESSION_SCHEDULE_CACHE, # 실시간 추출 캐시
 )
 
 logger = logging.getLogger(__name__)
@@ -86,32 +87,46 @@ VALID_SCHEDULE_STATUSES = {"pending", "confirmed", "ignored"}
 async def schedule_extract(req: ScheduleExtractRequest):
     """
     녹음 세션 종료 시 호출한다.
-    전사문을 LLM에 보내 일정을 추출하고, 이전에 무시한 동일 일정(의미적 유사성 포함)은
-    자동 필터링하여 알림 대상에서 제외한다.
+    실시간 일정 감지 캐시가 있다면 즉각 로드하며, 없으면 전체 전사문에서 추출을 백업 시도한다.
+    이전에 무시한 동일 일정(의미적 유사성/텍스트 폴백 포함)은 자동 필터링하여 알림 대상에서 제외한다.
     새로운 일정만 pending 상태로 DB에 저장하고, 프론트에 알림 데이터를 반환한다.
     """
-    logger.info(f"[SCHEDULE] 일정 추출 요청: session_id={req.session_id}")
+    logger.info(f"[SCHEDULE] 일정 추출 요청: session_id={req.session_id}, recording_id={req.recording_id}")
 
-    # 1. 세션 전사문 조회
+    cache_key = (str(req.session_id), str(req.recording_id) if req.recording_id else "")
+    cached_extracted = SESSION_SCHEDULE_CACHE.pop(cache_key, None)
+
+    # 1. 캐싱된 실시간 추출 일정이 있는지 확인
+    if cached_extracted is not None:
+        logger.info(f"[SCHEDULE] 실시간 캐시 로드 성공! 캐싱된 일정 수: {len(cached_extracted)}")
+        extracted = cached_extracted
+    else:
+        # 캐싱이 없거나 누락된 경우 전체 전사문에서 백업 LLM 추출 수행
+        logger.info("[SCHEDULE] 실시간 캐시 누락. 전체 전사문에서 일정 추출을 수행합니다.")
+        
+        # 1-1. 세션 전사문 조회
+        transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
+        if not transcripts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"세션 '{req.session_id}'에 해당하는 전사문이 없습니다."
+            )
+
+        # 1-2. 전사문 합치기
+        transcript_text = "\n".join(t["text"] for t in transcripts if t["text"])
+        if len(transcript_text.strip()) < 5:
+            raise HTTPException(status_code=400, detail="전사문이 너무 짧아 일정을 추출할 수 없습니다.")
+
+        # 1-3. LLM으로 일정 추출
+        try:
+            extracted = await extract_schedules(transcript_text)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+    # 2. 모든 전사문(세션/녹음 범위) 조회 (출처 매칭을 위한 용도)
     transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
-    if not transcripts:
-        raise HTTPException(
-            status_code=404,
-            detail=f"세션 '{req.session_id}'에 해당하는 전사문이 없습니다."
-        )
-
-    # 2. 전사문 합치기
-    transcript_text = "\n".join(t["text"] for t in transcripts if t["text"])
-    if len(transcript_text.strip()) < 5:
-        raise HTTPException(status_code=400, detail="전사문이 너무 짧아 일정을 추출할 수 없습니다.")
-
-    # 3. LLM으로 일정 추출
-    try:
-        extracted = await extract_schedules(transcript_text)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
 
     if not extracted:
         return {
@@ -120,6 +135,7 @@ async def schedule_extract(req: ScheduleExtractRequest):
             "auto_ignored": [],
             "total_extracted": 0,
         }
+
 
     # 4. 이전 무시 일정 필터링 (시멘틱 유사도 기반)
     # DB에서 무시된 일정의 메타데이터(제목, 날짜)를 가져옴

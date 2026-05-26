@@ -24,10 +24,14 @@ import re
 import logging
 import httpx
 import os
+import asyncio
 import numpy as np
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+# 실시간 추출 일정 글로벌 캐시 (key: (session_id, recording_id), value: list[dict])
+SESSION_SCHEDULE_CACHE = {}
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "false").lower() == "true"
@@ -709,7 +713,7 @@ async def filter_already_ignored_semantic(
     threshold: float = 0.85
 ) -> tuple[list[dict], list[dict]]:
     """
-    날짜 대조 및 시멘틱 유사도를 이용해 중복 일정을 필터링한다.
+    날짜 대조 및 시멘틱 유사도(또는 자카드 유사도 폴백)를 이용해 중복 일정을 필터링한다.
     
     Args:
         extracted: LLM이 방금 추출한 일정 리스트
@@ -722,33 +726,66 @@ async def filter_already_ignored_semantic(
     if not ignored_metadata:
         return extracted, []
 
-    # 1. 무시된 일정들의 임베딩을 미리 생성 (비교 최적화)
+    # 1. 무시된 일정들의 임베딩을 병렬 생성 (asyncio.gather 사용)
     ignored_embeddings = []
-    try:
-        for item in ignored_metadata:
+    embedding_failed = False
+    
+    async def _safe_get_embedding(item):
+        try:
             emb = await get_embedding(item["title"])
-            ignored_embeddings.append({
-                "emb": emb,
-                "due_date": item["due_date"]  # DB에서 가져온 값 (이미 datetime이거나 변환된 상태)
-            })
-    except Exception as e:
-        logger.warning(f"[SCHEDULE] ignored 일정 임베딩 생성 실패, 중복 필터 생략: {e}")
-        return extracted, []
+            return {"emb": emb, "title": item["title"], "due_date": item["due_date"]}
+        except Exception as e:
+            logger.debug(f"[SCHEDULE] '{item['title']}' 임베딩 생성 실패 (폴백 적용 예정): {e}")
+            return {"emb": None, "title": item["title"], "due_date": item["due_date"]}
 
+    try:
+        tasks = [_safe_get_embedding(item) for item in ignored_metadata]
+        results = await asyncio.gather(*tasks)
+        ignored_embeddings = [r for r in results if r["emb"] is not None]
+        # 모든 임베딩 호출이 실패했다면 임베딩 서버가 꺼진 것으로 판단
+        if not ignored_embeddings and len(ignored_metadata) > 0:
+            embedding_failed = True
+    except Exception as e:
+        logger.warning(f"[SCHEDULE] ignored 일정 임베딩 병렬 생성 중 오류, 텍스트 폴백 모드로 전환: {e}")
+        embedding_failed = True
+
+    # 2. 각 신규 일정 비교
     for new_s in extracted:
         is_duplicate = False
         new_date = parse_due_date(new_s.get("due_date"))
-        try:
-            new_title_emb = await get_embedding(new_s["title"])
-        except Exception as e:
-            logger.warning(f"[SCHEDULE] 새 일정 임베딩 생성 실패, 알림 대상으로 유지: {e}")
-            to_notify.append(new_s)
-            continue
+        
+        # 임베딩 서버가 정상 작동하는 경우 시멘틱 비교 수행
+        if not embedding_failed:
+            try:
+                new_title_emb = await get_embedding(new_s["title"])
+                for ign in ignored_embeddings:
+                    # 날짜 비교: 두 날짜가 모두 존재하는데 다르면 무조건 새 일정
+                    if new_date and ign["due_date"]:
+                        ign_date = ign["due_date"]
+                        if isinstance(ign_date, str):
+                            ign_date = parse_due_date(ign_date)
+                        
+                        if new_date != ign_date:
+                            continue
 
-        for ign in ignored_embeddings:
-            # 날짜 비교: 두 날짜가 모두 존재하는데 다르면 무조건 새 일정
+                    # 벡터 유사도 비교
+                    similarity = calculate_cosine_similarity(new_title_emb, ign["emb"])
+                    if similarity >= threshold:
+                        logger.info(f"[SCHEDULE] 중복 감지(시멘틱 유사도 {similarity:.2f}): '{new_s['title']}' == 무시된 일정 '{ign['title']}'")
+                        is_duplicate = True
+                        break
+            except Exception as e:
+                logger.warning(f"[SCHEDULE] 새 일정 임베딩 생성 실패, 텍스트 폴백 모드 전환: {e}")
+                embedding_failed = True
+
+        # 임베딩 비교 결과 중복이 아니라면 텍스트 폴백 필터링 수행
+        if is_duplicate:
+            auto_ignored.append(new_s)
+            continue
+            
+        # 텍스트 기반 중복 제거 (Fallback)
+        for ign in ignored_metadata:
             if new_date and ign["due_date"]:
-                # DB 날짜 포맷이 문자열일 경우를 대비해 변환 확인 필요
                 ign_date = ign["due_date"]
                 if isinstance(ign_date, str):
                     ign_date = parse_due_date(ign_date)
@@ -756,10 +793,10 @@ async def filter_already_ignored_semantic(
                 if new_date != ign_date:
                     continue
 
-            # 벡터 유사도 비교
-            similarity = calculate_cosine_similarity(new_title_emb, ign["emb"])
-            if similarity >= threshold:
-                logger.info(f"[SCHEDULE] 중복 감지: '{new_s['title']}' (유사도: {similarity:.2f})")
+            # 제목 자카드 유사도 비교 (글자 수준 공통 비율 0.70 이상이면 중복 판단)
+            similarity = jaccard_similarity(new_s["title"], ign["title"])
+            if similarity >= 0.70 or new_s["title"].strip() == ign["title"].strip():
+                logger.info(f"[SCHEDULE] 중복 감지(텍스트 폴백 유사도 {similarity:.2f}): '{new_s['title']}' == 무시된 일정 '{ign['title']}'")
                 is_duplicate = True
                 break
 
@@ -769,6 +806,69 @@ async def filter_already_ignored_semantic(
             to_notify.append(new_s)
 
     return to_notify, auto_ignored
+
+
+def jaccard_similarity(str1: str, str2: str) -> float:
+    """두 문자열 간의 글자 기반 자카드 유사도를 계산합니다."""
+    s1 = set(str1.strip().lower())
+    s2 = set(str2.strip().lower())
+    if not s1 and not s2:
+        return 1.0
+    return len(s1 & s2) / len(s1 | s2)
+
+
+# 실시간 일정 추출을 위한 키워드 사전 정의
+SCHEDULE_CORE_KEYWORDS = ["시험", "고사", "퀴즈", "쪽지", "과제", "제출", "마감", "레포트", "리포트", "프로젝트", "팀플", "설계", "발표", "세미나", "보강", "휴강", "실습", "특강"]
+SCHEDULE_DATE_KEYWORDS = ["월", "일", "내일", "오늘", "다음주", "다다음주", "요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일", "까지"]
+
+
+async def trigger_realtime_schedule_extraction(session_id: str, recording_id: str, text: str):
+    """
+    실시간으로 수신된 전사 텍스트 조각을 검사하여, 일정이 감지되면 백그라운드에서 분석 및 캐싱합니다.
+    """
+    if not text or len(text.strip()) < 5:
+        return
+
+    # 1. 1차 가벼운 키워드 필터링 (불필요한 LLM 호출 원천 차단)
+    has_core = any(kw in text for kw in SCHEDULE_CORE_KEYWORDS)
+    has_date = any(kw in text for kw in SCHEDULE_DATE_KEYWORDS)
+    
+    if not (has_core and has_date):
+        return
+
+    logger.info(f"[SCHEDULE-REALTIME] 실시간 일정 가능성 감지: '{text}' (백그라운드 LLM 추출 시도)")
+    
+    try:
+        # LLM을 통해 이 문장에서 일정 추출 시도
+        extracted = await extract_schedules(text)
+        if not extracted:
+            return
+
+        cache_key = (session_id, recording_id)
+        if cache_key not in SESSION_SCHEDULE_CACHE:
+            SESSION_SCHEDULE_CACHE[cache_key] = []
+            
+        cached_list = SESSION_SCHEDULE_CACHE[cache_key]
+        
+        # 캐시 내 중복 방지 적재
+        for new_s in extracted:
+            is_duplicate = False
+            for old_s in cached_list:
+                if new_s["title"].strip() == old_s["title"].strip() and new_s.get("due_date") == old_s.get("due_date"):
+                    is_duplicate = True
+                    break
+                similarity = jaccard_similarity(new_s["title"], old_s["title"])
+                if similarity >= 0.75 and new_s.get("due_date") == old_s.get("due_date"):
+                    is_duplicate = True
+                    break
+            
+            if not is_duplicate:
+                cached_list.append(new_s)
+                logger.info(f"[SCHEDULE-REALTIME] 실시간 일정 캐시 적재 성공: '{new_s['title']}' (마감: {new_s.get('due_date')})")
+                
+    except Exception as e:
+        logger.error(f"[SCHEDULE-REALTIME] 실시간 백그라운드 일정 추출 중 오류: {e}")
+
 
 
 #  목업 데이터 (LLM 미연결 시)
