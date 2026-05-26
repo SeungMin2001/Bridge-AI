@@ -32,6 +32,8 @@ const {
   summaryNotes,
   aiInput,
   dismissScheduleExtractionNotice,
+  confirmAndSyncToNotion,
+  ignoreSchedule,
   handleFileTreeUpdate,
   handleFavoritesUpdate,
   handleAiInputUpdate,
@@ -116,6 +118,8 @@ const {
     @navigate="navigateTo"
     @fileSelect="handleFileSelect"
     @dismissScheduleNotice="dismissScheduleExtractionNotice"
+    @confirmAndSyncSchedule="confirmAndSyncToNotion"
+    @ignoreSchedule="ignoreSchedule"
     @startRecording="startRecording"
     @pauseRecording="pauseRecording"
     @resumeRecording="resumeRecording"
