@@ -5,11 +5,14 @@
   "main": "main.js",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:stable": "vite --host 0.0.0.0",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:lan": "vite --host 0.0.0.0 --port 5173 --strictPort",
+    "demo": "vite preview --host 127.0.0.1 --port 5173 --strictPort",
+    "demo:lan": "vite preview --host 0.0.0.0 --port 5173 --strictPort",
+    "start": "npm run demo",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 5173 --strictPort",
-    "serve": "vite preview --host 0.0.0.0 --port 5173 --strictPort",
+    "preview": "npm run demo",
+    "serve": "npm run demo",
     "serve:build": "npm run build && npm run preview",
     "lint": "eslint ."
   },

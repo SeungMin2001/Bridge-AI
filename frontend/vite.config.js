@@ -4,6 +4,8 @@ import { fileURLToPath, URL } from 'node:url'
 
 const BACKEND_URL = 'http://100.104.164.84:8000'
 const FRONTEND_ROOT = fileURLToPath(new URL('.', import.meta.url))
+const FRONTEND_HOST = '127.0.0.1'
+const FRONTEND_PORT = 5173
 
 function proxyConfig(backendUrl, backendWsUrl) {
   return {
@@ -52,9 +54,24 @@ export default defineConfig(() => {
 
   return {
     root: FRONTEND_ROOT,
+    cacheDir: 'node_modules/.vite-cache',
     plugins: [vue()],
+    optimizeDeps: {
+      entries: ['index.html'],
+      include: [
+        'vue',
+        'marked',
+        'chart.js',
+        'jszip',
+        'lottie-web/build/player/lottie_light',
+        'pdfjs-dist',
+        'pptxviewjs',
+      ],
+    },
     server: {
-      host: true,
+      host: FRONTEND_HOST,
+      port: FRONTEND_PORT,
+      strictPort: true,
       hmr: false,
       watch: {
         ignored: [
@@ -64,8 +81,8 @@ export default defineConfig(() => {
       proxy: proxyConfig(backendUrl, backendWsUrl),
     },
     preview: {
-      host: true,
-      port: 5173,
+      host: FRONTEND_HOST,
+      port: FRONTEND_PORT,
       strictPort: true,
       proxy: proxyConfig(backendUrl, backendWsUrl),
     },
