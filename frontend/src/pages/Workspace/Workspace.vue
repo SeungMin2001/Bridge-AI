@@ -45,6 +45,7 @@ const emit = defineEmits([
   'resumeRecording',
   'stopRecording',
   'generateMaterialSummary',
+  'generateRecordingSummary',
   'deleteSummary',
   'rightSidebarToggle',
   'addToNote',
@@ -980,12 +981,14 @@ const activeWorkspaceSource = computed(() => {
         :summaryState="summaryState"
         :summaryNotes="summaryNotes"
         :quizSource="activeWorkspaceSource"
+        :summarySource="activeWorkspaceSource"
         :tabRequest="mainContentTabRequest"
         @startRecording="emit('startRecording', $event)"
         @pauseRecording="emit('pauseRecording')"
         @resumeRecording="emit('resumeRecording')"
         @stopRecording="emit('stopRecording')"
         @generateMaterialSummary="emit('generateMaterialSummary', $event)"
+        @generateRecordingSummary="emit('generateRecordingSummary', $event)"
         @deleteSummary="emit('deleteSummary', $event)"
         @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
         @rightSidebarToggle="emit('rightSidebarToggle')"
