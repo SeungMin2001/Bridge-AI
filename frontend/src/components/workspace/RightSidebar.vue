@@ -3,12 +3,7 @@
 import { computed, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useChat } from '../../composables/useChat'
 import LoadingHourglass from '../ui/LoadingHourglass.vue'
-import { marked } from 'marked'
-
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-})
+import CitationInlineText from './citations/CitationInlineText.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: true },
@@ -31,12 +26,6 @@ const aiTextarea = ref(null)
 const isSending = ref(false) // 중복 전송 방지용 플래그
 const workspaceChatbotAnimationRef = ref(null)
 let workspaceChatbotTimer = null
-
-// 🚀 [환경 설정] 백엔드 연동 모드 전환 플래그
-// true: 백엔드 연결 없이 지정된 한국어 데모 데이터로 즉시 응답합니다.
-// false: 실제 백엔드 서버(http://100.104.164.84:8000)로 통신합니다.
-// 백엔드 사용시 여부분 주석 처리 조심
-const USE_DEMO_DATA = false
 
 function getChatSessionId() {
   // 오른쪽 AI 채팅은 선택 파일에 묶지 않고 전체 워크스페이스 자료에서 검색한다.
@@ -102,6 +91,10 @@ function shouldUseWorkspaceWideSearch(question = '') {
   ]
   if (explicitGlobalTerms.some((term) => text.includes(term))) return true
 
+  // 선택된 녹음/PDF/전사가 있으면 짧은 지식형 질문도 현재 소스의 근거를 우선 사용한다.
+  // 전체 검색은 사용자가 "전체/모든/다른 파일"을 명시한 경우에만 켠다.
+  if (hasWorkspaceChatSource.value) return false
+
   const activeTitle = String(props.chatSource?.title || '').replace(/전체 자료$/, '').replace(/\s+/g, '').trim()
   const sourceHintMatch = text.match(/^(.{2,30}?)(?:의|에서|에는|에)\s+.+/)
   const sourceHint = String(sourceHintMatch?.[1] || '').replace(/\s+/g, '').trim()
@@ -142,7 +135,9 @@ function shouldUseWorkspaceWideSearch(question = '') {
   const hasTarget = targetTerms.some((term) => text.includes(term))
   const hasKnowledgeQuestion = knowledgeQuestionTerms.some((term) => text.includes(term))
 
-  if (hasSubjectHint && hasKnowledgeQuestion) return true
+  // 개념/정의 질문은 현재 파일에서 먼저 찾고, 백엔드가 결과가 없을 때 전체 워크스페이스로 확장한다.
+  // 여기서 바로 전체 검색으로 풀면 현재 파일의 PDF보다 다른 녹음본 근거가 먼저 잡힐 수 있다.
+  if (hasSubjectHint && hasKnowledgeQuestion) return false
 
   return (
     hasSubjectHint &&
@@ -200,42 +195,8 @@ async function sendMessage() {
   emit('update:aiInput', '')
   isLoading.value = true
 
-  const idx = messages.value.length
   messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
 
-  /*
-  // 1. 데모(목업) 모드 동작 (비활성화)
-  if (USE_DEMO_DATA) {
-    console.log('[테스트 모드] USE_DEMO_DATA가 true이므로 미리 설정된 데모 데이터를 출력합니다.')
-    setTimeout(() => {
-      updateLastAiMessage({
-        role: 'ai',
-        thinking: 'CPU의 정의와 주요 역할을 강의 자료에서 검색했습니다...',
-        text: 'CPU(중앙 처리 장치)는 컴퓨터의 두뇌 역할을 하며, 프로그램의 명령어를 해석하고 실행하는 핵심 하드웨어입니다. CPU 내부에는 초고속 임시 저장 공간인 **레지스터** 가 있어, 연산 과정에서 필요한 데이터를 매우 빠르게 접근하고 처리할 수 있습니다.',
-        citations: [
-          {
-            transcript_id: "dd110001-0000-0000-1004",
-            text: "CPU 는 명령을 읽고 실행하며 레지스터는 초고속 임시 저장 공간이다.",
-            citation: "1 주차 - 데이터 표현과 메모리 > 6:00~8:00",
-            session_title: "1주차 - 데이터 표현과 메모리",
-            full_transcript: "오늘 수업 시작하겠습니다! 여러분 컴퓨터의 구조에 대해 많이 들어보셨죠?\n그 중에서 가장 핵심이 되는 부품이 뭘까요? 네 맞습니다. CPU입니다.\n\nCPU 는 명령을 읽고 실행하며 레지스터는 초고속 임시 저장 공간이다. 이 점을 꼭 기억하셔야 합니다.\n이러한 구조 덕분에 우리가 원하는 프로그램이 순식간에 처리될 수 있는 것이죠."
-          },
-          {
-            transcript_id: "dd110002-0000-0001-2005",
-            text: "운영체제는 하드웨어와 사용자 사이를 중개한다.",
-            citation: "컴퓨터공학개론 > 2 주차 - 프로세스와 스레드 > 0:00~2:00",
-            session_title: "2주차 - 프로세스와 스레드",
-            full_transcript: "자, 지난 시간에는 하드웨어에 대해 배웠죠.\n오늘은 소프트웨어를 배워봅시다. 특히 운영체제에 집중할 건데요.\n운영체제는 하드웨어와 사용자 사이를 중개한다. 이게 가장 중요한 역할입니다.\n마우스 클릭만으로 복잡한 연산이 처리되는게 다 운영체제 덕분이죠."
-          }
-        ],
-        phase: 'done',
-      })
-      isLoading.value = false
-    }, 800)
-    return
-  }
-  //데모(목업) 모드 동작 (비활성화)
-*/
   // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
   const t0 = performance.now()
   let ttftLogged = false
@@ -342,93 +303,24 @@ function handleEnter(e) {
   sendMessage()
 }
 
-function renderTextWithCitations(text) {
-  if (!text) return ''
-  // 이미지 스타일을 위해 인라인 [1] 마커 제거 후 마크다운 렌더링
-  let processedText = text
-    .replace(/\[\d+\]/g, '')
-    .replace(/\s*\[출처[:：]?[^\]]*\][^\n]*(?=\n|$)/g, '')
-    .trim()
-  return marked.parse(processedText)
-}
-
-function getSourceChips(msg) {
-  const citations = Array.isArray(msg?.citations) ? msg.citations : []
-  const seen = new Set()
-
-  return citations.filter((cite, index) => {
-    const key = getCitationKey(cite, index)
-    if (!key || seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
-function getCitationKey(cite = {}, index = 0) {
-  return String(
-    cite.citation
-    || cite.material_id
-    || cite.transcript_id
-    || cite.recording_id
-    || cite.stored_name
-    || cite.text
-    || index
-  )
-}
-
-function isMaterialCitation(cite = {}) {
-  return cite?.source_type === 'material'
-}
-
-function compactSourceLabel(value = '', fallback = '근거 자료') {
-  const label = String(value || '').replace(/\s+/g, ' ').trim()
-  if (!label) return fallback
-  return label.length > 28 ? `${label.slice(0, 28).trim()}...` : label
-}
-
-function formatCitationSeconds(seconds) {
-  const value = Number(seconds)
-  if (!Number.isFinite(value)) return ''
-  const totalSeconds = Math.max(0, Math.floor(value))
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
-}
-
-function transcriptChipLabel(cite = {}, index = 0) {
-  const title = cite.recording_title || cite.session_title || cite.file_title || `전사 ${index + 1}`
-  const start = formatCitationSeconds(cite.start_time)
-  const end = formatCitationSeconds(cite.end_time)
-  if (start && end) return compactSourceLabel(`${title} > ${start}~${end}`, `전사 ${index + 1}`)
-  return compactSourceLabel(cite.citation || title, `전사 ${index + 1}`)
-}
-
-function sourceChipLabel(cite = {}, index = 0) {
-  if (isMaterialCitation(cite)) {
-    const title = cite.material_name || cite.file_title || cite.stored_name || `PDF ${index + 1}`
-    const page = Number(cite.page || 0)
-    return compactSourceLabel(page > 0 ? `${title} p.${page}` : title, `PDF ${index + 1}`)
-  }
-  return transcriptChipLabel(cite, index)
-}
-
-function sourceChipIcon(cite = {}) {
-  return isMaterialCitation(cite) ? 'picture_as_pdf' : 'graphic_eq'
-}
-
 function clampPosition(value, min, max) {
   return Math.min(Math.max(value, min), max)
 }
 
-function handleCitationClick(event, cite) {
+function handleCitationClick({ cite, target }) {
   if (!cite) return
+  openCitationPopover(cite, target)
+}
 
-  const rect = event?.currentTarget?.getBoundingClientRect?.()
+function openCitationPopover(cite, target) {
+  const rect = target?.getBoundingClientRect?.()
   if (!rect) {
     openCitePopover(cite, Math.max(16, window.innerWidth - 380), 96)
     return
   }
 
-  const popoverWidth = 340
-  const estimatedPopoverHeight = 430
+  const popoverWidth = 390
+  const estimatedPopoverHeight = Math.min(620, window.innerHeight - 32)
   const viewportInset = 16
   const maxLeft = Math.max(viewportInset, window.innerWidth - popoverWidth - viewportInset)
   const left = clampPosition(rect.left, viewportInset, maxLeft)
@@ -441,7 +333,21 @@ function handleCitationClick(event, cite) {
   openCitePopover(cite, left, top)
 }
 
-const width = ref(420)
+function shouldShowCitations(msg = {}) {
+  return msg.phase === 'done'
+    && !isErrorAnswer(msg.text)
+    && Array.isArray(msg.citations)
+    && msg.citations.length > 0
+}
+
+function isErrorAnswer(text = '') {
+  const value = String(text || '').trim()
+  return value.startsWith('오류:')
+    || value.startsWith('⚠️')
+    || value.includes('All connection attempts failed')
+}
+
+const width = ref(310)
 const isResizing = ref(false)
 
 const stopWorkspaceChatbotTimer = () => {
@@ -471,7 +377,7 @@ const handleMouseMove = (e) => {
   if (!isResizing.value) return
   const newWidth = window.innerWidth - e.clientX - 12
   const maxWidth = Math.max(280, Math.min(600, window.innerWidth - 24))
-  const minWidth = Math.min(300, maxWidth)
+  const minWidth = Math.min(280, maxWidth)
   if (newWidth > minWidth && newWidth < maxWidth) width.value = newWidth
 }
 
@@ -585,28 +491,15 @@ watch(
               <!-- AI 답변 (문서 스타일) -->
               <template v-else>
                 <!-- 최종 답변 본문 -->
-                <div 
+                <CitationInlineText
                   v-if="msg.text" 
                   :class="{ 'answer-fade-in': msg.phase === 'answering' || msg.phase === 'done' }"
                   class="ai-doc-feed text-[#1d1d1f] text-[14px] leading-[1.7]"
-                  v-html="renderTextWithCitations(msg.text)"
-                >
-                </div>
-
-                <div v-if="msg.phase === 'done' && getSourceChips(msg).length" class="answer-citation-row" aria-label="근거 자료">
-                  <button
-                    v-for="(cite, ci) in getSourceChips(msg)"
-                    :key="getCitationKey(cite, ci)"
-                    type="button"
-                    class="answer-citation-pill"
-                    :class="{ 'is-material': isMaterialCitation(cite) }"
-                    :title="cite.citation || cite.text || sourceChipLabel(cite, ci)"
-                    @click="handleCitationClick($event, cite)"
-                  >
-                    <span class="material-symbols-outlined">{{ sourceChipIcon(cite) }}</span>
-                    <span>{{ sourceChipLabel(cite, ci) }}</span>
-                  </button>
-                </div>
+                  :text="msg.text"
+                  :citations="msg.citations"
+                  :enable-citations="shouldShowCitations(msg)"
+                  @citationClick="handleCitationClick"
+                />
 
                 <div
                   v-if="(msg.phase === 'streaming' || msg.phase === 'thinking') && !msg.text && !msg.thinking"
@@ -680,9 +573,9 @@ watch(
 
 <style scoped>
 .workspace-right-sidebar {
-  width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
-  min-width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
-  max-width: min(var(--right-sidebar-width, 420px), calc(100vw - 24px));
+  width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
+  min-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
+  max-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
 }
 
 .workspace-right-sidebar-card {
@@ -724,9 +617,9 @@ watch(
 
 @media (max-width: 1280px) {
   .workspace-right-sidebar {
-    width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
-    min-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
-    max-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+    width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
+    min-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
+    max-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
   }
 }
 
@@ -828,72 +721,6 @@ watch(
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-}
-
-/* 답변 끝에 붙는 ChatGPT 스타일 근거 pill */
-.answer-citation-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-  margin-top: 10px;
-  margin-bottom: 2px;
-}
-
-.answer-citation-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: min(100%, 220px);
-  padding: 6px 10px;
-  color: #475569;
-  background: rgba(241, 245, 249, 0.92);
-  border: 1px solid rgba(226, 232, 240, 0.96);
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 750;
-  line-height: 1.25;
-  cursor: pointer;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.86) inset;
-  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
-}
-
-.answer-citation-pill:hover {
-  color: #111827;
-  background: rgba(226, 232, 240, 0.98);
-  border-color: rgba(203, 213, 225, 1);
-  transform: translateY(-1px);
-}
-
-.answer-citation-pill.is-material {
-  color: #1d4ed8;
-  background: rgba(239, 246, 255, 0.96);
-  border-color: rgba(191, 219, 254, 0.98);
-}
-
-.answer-citation-pill.is-material:hover {
-  color: #1e40af;
-  background: rgba(219, 234, 254, 0.98);
-}
-
-.answer-citation-pill .material-symbols-outlined {
-  font-size: 15px;
-  flex: 0 0 auto;
-}
-
-.answer-citation-pill span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:deep(.ai-doc-feed p) {
-  margin-bottom: 0.5em;
-}
-:deep(.ai-doc-feed p:last-child) {
-  margin-bottom: 0;
 }
 
 </style>

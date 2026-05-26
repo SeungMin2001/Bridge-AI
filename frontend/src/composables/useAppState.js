@@ -1,5 +1,5 @@
 import { onUnmounted, ref } from 'vue'
-import { isWorkspaceUuid, saveSessionResources } from '../api/workspaceApi.js'
+import { isWorkspaceUuid, saveSessionResources, uploadWorkspaceRecording } from '../api/workspaceApi.js'
 import { useAiState } from './appState/aiState'
 import {
   addRecordingToCurrentWeek,
@@ -131,6 +131,47 @@ export function useAppState() {
     return `${activeFileName.value || '녹음'} ${period} ${hour}:${minute}`
   }
 
+  const getFileStem = (filename = '') => (
+    String(filename || '')
+      .replace(/\.[^.]+$/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
+
+  const getAudioDuration = (file) => new Promise((resolve) => {
+    if (!file || typeof document === 'undefined') {
+      resolve(0)
+      return
+    }
+
+    const audio = document.createElement('audio')
+    const objectUrl = URL.createObjectURL(file)
+    const cleanup = () => {
+      URL.revokeObjectURL(objectUrl)
+      audio.removeAttribute('src')
+      audio.load()
+    }
+
+    const timer = window.setTimeout(() => {
+      cleanup()
+      resolve(0)
+    }, 5000)
+
+    audio.preload = 'metadata'
+    audio.onloadedmetadata = () => {
+      window.clearTimeout(timer)
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0
+      cleanup()
+      resolve(duration)
+    }
+    audio.onerror = () => {
+      window.clearTimeout(timer)
+      cleanup()
+      resolve(0)
+    }
+    audio.src = objectUrl
+  })
+
   const handleFileSelect = (id, node) => {
     // 신창영 : 파일을 새로 선택할 때마다 이전 실시간 전사 화면을 초기화
     const isDifferentFile = activeFileId.value !== id
@@ -151,6 +192,71 @@ export function useAppState() {
   const handleOpenRecording = ({ sessionId = '', recordingId = '' } = {}) => {
     if (!isWorkspaceUuid(sessionId)) return
     loadSummariesForSession(sessionId, recordingId)
+  }
+
+  const handleUploadRecordingFile = async (files = []) => {
+    const file = Array.from(files || [])[0]
+    const targetFileId = activeFileId.value
+    if (!file || !targetFileId) return
+
+    if (!file.type?.startsWith('audio/') && !/\.(aac|flac|m4a|mp3|ogg|opus|wav|webm)$/i.test(file.name)) {
+      console.error('[workspace] recording upload failed: invalid audio file')
+      return
+    }
+
+    const durationSeconds = await getAudioDuration(file)
+    let recording = null
+    let nextTree = normalizeFileTree(fileTree.value)
+
+    if (isWorkspaceUuid(targetFileId)) {
+      const result = await uploadWorkspaceRecording(targetFileId, file, {
+        title: getFileStem(file.name),
+        durationSeconds
+      })
+      recording = result.recording
+      nextTree = result.node
+        ? updateNodeById(nextTree, targetFileId, () => result.node)
+        : updateNodeById(nextTree, targetFileId, (node) => addRecordingToCurrentWeek(node, recording))
+    } else {
+      const recordingId = createLocalId('recording')
+      const uploadedAt = new Date().toISOString()
+      recording = {
+        id: recordingId,
+        recordingId,
+        title: getFileStem(file.name) || '업로드한 음성파일',
+        startedAt: uploadedAt,
+        endedAt: uploadedAt,
+        durationText: '',
+        durationSeconds,
+        recordingMode: 'uploaded',
+        diarizationEnabled: false,
+        audioUrl: URL.createObjectURL(file),
+        originalName: file.name,
+        size: file.size,
+        type: file.type || 'audio/*',
+        uploadedAt,
+        transcriptionStatus: 'not_started',
+        transcriptions: []
+      }
+      nextTree = updateNodeById(nextTree, targetFileId, (node) => addRecordingToCurrentWeek(node, recording))
+    }
+
+    fileTree.value = nextTree
+    const updatedNode = findNodeById(fileTree.value, targetFileId)
+    if (isWorkspaceUuid(targetFileId) && Array.isArray(updatedNode?.weeks) && !recording?.storedName) {
+      try {
+        await saveSessionResources(targetFileId, updatedNode.weeks)
+      } catch (error) {
+        console.error('[workspace] session resources save failed:', error)
+      }
+    }
+
+    if (recording) {
+      handleOpenRecording({
+        sessionId: targetFileId,
+        recordingId: recording.id || recording.recordingId || ''
+      })
+    }
   }
 
   const cloneTranscriptions = () => {
@@ -285,13 +391,14 @@ export function useAppState() {
     const linkedMaterialName = currentPreviewMaterial.value?.name || ''
 
     stopLiveSummaryRefresh()
-    const stoppedRecording = await stopActiveRecording({ finalize: shouldDiarize })
+    const stoppedRecording = await stopActiveRecording({ finalize: true })
+    const finalizeResult = stoppedRecording?.finalizeResult || {}
     // 신창영: 수정 이유 - 녹음 종료 후 전체 오디오 화자분리로 보정된 전사 목록을 최종 저장/요약에 사용합니다.
     const recordingSnapshot = stoppedRecording?.transcriptions?.length
       ? stoppedRecording.transcriptions
       : initialRecordingSnapshot
 
-    if (!shouldSaveRecording || recordingSnapshot.length === 0) return
+    if (!shouldSaveRecording || (recordingSnapshot.length === 0 && !finalizeResult.audioUrl)) return
 
     const targetFileId = activeFileId.value
     if (!targetFileId) return
@@ -307,7 +414,11 @@ export function useAppState() {
       diarizationEnabled: shouldDiarize,
       materialIds: linkedMaterialId ? [linkedMaterialId] : [],
       materialNames: linkedMaterialName ? [linkedMaterialName] : [],
-      audioUrl: null,
+      audioUrl: finalizeResult.audioUrl || null,
+      storedName: finalizeResult.storedName || '',
+      size: finalizeResult.audioSize || 0,
+      type: finalizeResult.audioType || '',
+      durationSeconds: finalizeResult.durationSeconds ?? null,
       transcriptions: recordingSnapshot
     }
 
@@ -325,19 +436,21 @@ export function useAppState() {
         console.error('[workspace] session resources save failed:', error)
       }
 
-      try {
-        await extractSchedulesForSession(targetFileId, recordingId)
-      } catch (error) {
-        console.error('[schedule] extract after recording failed:', error)
-      }
+      if (recordingSnapshot.length > 0) {
+        try {
+          await extractSchedulesForSession(targetFileId, recordingId)
+        } catch (error) {
+          console.error('[schedule] extract after recording failed:', error)
+        }
 
-      try {
-        await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId, {
-          live: false,
-          diarizationEnabled: shouldDiarize
-        })
-      } catch (error) {
-        console.error('[summary] generate after recording failed:', error)
+        try {
+          await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId, {
+            live: false,
+            diarizationEnabled: shouldDiarize
+          })
+        } catch (error) {
+          console.error('[summary] generate after recording failed:', error)
+        }
       }
 
     }
@@ -387,6 +500,7 @@ export function useAppState() {
     handleAddToNote,
     handleAskAi,
     handleUploadLectureMaterials,
+    handleUploadRecordingFile,
     handleClosePreviewMaterial,
     handleOpenStoredMaterial,
     handleOpenRecording

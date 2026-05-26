@@ -56,9 +56,24 @@ _LOCATOR_SUBJECT_STOPWORDS = {
     "근거",
     "링크",
     "보여",
+    "어떻게",
+    "왜",
+    "설명",
+    "설명했어",
 }
 _GROUNDED_CONTENT_QUESTION_TERMS = (
     "누구",
+    "언제",
+    "언제까지",
+    "몇 시",
+    "몇시",
+    "마감",
+    "마감일",
+    "기한",
+    "제출",
+    "제출일",
+    "제출해야",
+    "까지",
     "무엇",
     "뭐야",
     "뭐여",
@@ -75,6 +90,57 @@ _GROUNDED_CONTENT_QUESTION_TERMS = (
     "알려",
     "개념",
     "뜻",
+    "이란",
+    "란",
+    "요약",
+    "정리",
+)
+_EVIDENCE_EXPLANATION_TERMS = (
+    "근거",
+    "출처",
+    "증거",
+    "원문",
+    "인용",
+    "정확히",
+    "뭐라고",
+    "뭐라",
+    "말했",
+    "그런 말",
+    "맥락",
+    "의도",
+    "해석",
+    "팩트",
+)
+
+BEGINNER_CONCEPT_STYLE_PROMPT = (
+    "[답변 양식: NotebookLM식 근거 기반 개념 설명]\n"
+    "- 1문단은 핵심 정의를 1~2문장으로 바로 설명하세요.\n"
+    "- 2문단은 초보자가 이해하기 쉬운 일상 예시나 비유를 짧게 덧붙이세요.\n"
+    "- 유형, 특징, 구현 방식처럼 분류가 필요할 때만 짧은 불릿을 사용하세요.\n"
+    "- 마지막 문단은 '결론적으로' 같은 자연스러운 말로 한 문장 요약을 붙이세요.\n"
+    "- '핵심 정의:', '일상적인 비유:', '핵심 개념 요약 및 구조화:' 같은 라벨 제목은 쓰지 마세요.\n"
+    "- 핵심 개념명과 분류명만 Markdown 굵게 처리하고, 문장 전체를 굵게 만들지 마세요.\n"
+    "- 수식, 형식, 코드처럼 고정된 표현은 Markdown 인라인 코드로 감싸세요.\n"
+    "- 불릿은 '- **분류명**: 설명 [번호]' 형식을 사용하고, 불릿을 과하게 늘리지 마세요.\n"
+    "- 근거가 있는 핵심 문장이나 불릿 끝에는 반드시 [1], [2]처럼 citation 번호를 붙이세요.\n"
+    "- citation 번호는 문장 앞이나 중간에 두지 말고 문장 끝에만 붙이세요.\n"
+    "- 검색된 참고자료에 없는 내용은 일반 지식으로 확장하지 마세요.\n"
+)
+
+EVIDENCE_EXPLANATION_STYLE_PROMPT = (
+    "[답변 양식: 근거 기반 인용 및 맥락 해설]\n"
+    "- 먼저 정확한 파일명, 자료명, 페이지 또는 녹음 시간대를 밝히세요.\n"
+    "- 검색된 참고자료 안에 있는 실제 문장만 짧게 직접 인용하세요.\n"
+    "- 참고자료에 없는 문장을 따옴표로 만들거나 원문처럼 꾸미지 마세요.\n"
+    "- 인용문 앞뒤 맥락을 바탕으로 사용자가 묻는 의미를 설명하세요.\n"
+    "- 마지막에는 질문에 대한 결론을 한두 문장으로 정리하세요.\n"
+)
+
+LOCATION_STYLE_PROMPT = (
+    "[답변 양식: 위치 찾기]\n"
+    "- 페이지 번호나 녹음 시간대를 먼저 답하세요.\n"
+    "- 이어서 파일명/자료명을 짧게 밝히세요.\n"
+    "- 사용자가 요청하지 않은 개념 설명은 길게 덧붙이지 마세요.\n"
 )
 
 
@@ -85,10 +151,24 @@ async def build_prompt_and_citations(
 ) -> tuple[str, list[dict]]:
     """질문, 현재 파일, 선택 자료 기준으로 LLM prompt와 citation 목록을 구성합니다."""
     has_selected_material = source_filter_has_material(source_filter)
-    inventory_context = await _build_workspace_inventory_context(session_id)
+    grounded_content_question = _is_grounded_content_question(question)
+    concept_synthesis_question = _is_concept_synthesis_question(question)
+    factual_grounded_question = _is_factual_grounded_question(question)
+    inventory_context = (
+        await _build_workspace_inventory_context(session_id)
+        if _should_include_inventory_context(question)
+        else ""
+    )
+    evidence_top_k = CHAT_EVIDENCE_TOP_K
+    if _is_elliptic_grounded_question(question) or factual_grounded_question:
+        evidence_top_k = 1
+    elif concept_synthesis_question:
+        evidence_top_k = CHAT_EVIDENCE_TOP_K
+    elif grounded_content_question:
+        evidence_top_k = min(CHAT_EVIDENCE_TOP_K, 3)
     rag_result = rag_search(
         question,
-        top_k=CHAT_EVIDENCE_TOP_K,
+        top_k=evidence_top_k,
         session_id=session_id,
         source_filter=source_filter,
     )
@@ -119,7 +199,36 @@ async def build_prompt_and_citations(
         if part
     )
 
+    if context and concept_synthesis_question:
+        prompt = (
+            f"[검색된 참고자료]\n{context}\n\n"
+            f"{BEGINNER_CONCEPT_STYLE_PROMPT}"
+            "검색된 참고자료 전체를 종합해서 답하세요. "
+            "같은 주제가 여러 구간에 나뉘어 나오면 한 구간만 요약하지 말고, 정의, 발생 이유, 해결 방법, 조건처럼 서로 보완되는 내용을 함께 반영하세요. "
+            "참고자료에 조건, 단계, 장점, 위험, 해결 기법이 함께 나오면 각각을 빠뜨리지 말고 답변에 포함하세요. "
+            "참고자료에 '첫째', '둘째', '셋째'처럼 열거된 내용이 있으면 열거된 항목을 모두 포함하세요. "
+            "참고자료에 직접 나온 내용만 사용하세요. "
+            "답변 본문에 '[검색된 참고자료]'라는 내부 제목을 그대로 쓰지 마세요. "
+            "근거 번호는 핵심 문장이나 불릿의 끝에만 [1], [2]처럼 붙이고, 문장 앞이나 중간에는 번호만 따로 두지 마세요. "
+            "답변 끝에 출처 목록을 따로 만들지 마세요.\n"
+            f"질문: {question}"
+        )
+        return prompt, citations
+
+    if context and grounded_content_question:
+        prompt = (
+            f"[검색된 참고자료]\n{context}\n\n"
+            f"{BEGINNER_CONCEPT_STYLE_PROMPT}"
+            "검색된 참고자료에 직접 나온 내용만 사용해서 답하세요. "
+            "답변 본문에 '[검색된 참고자료]'라는 내부 제목을 그대로 쓰지 마세요. "
+            "근거 번호는 핵심 문장이나 불릿의 끝에만 [1], [2]처럼 붙이고, 문장 앞이나 중간에는 번호만 따로 두지 마세요. "
+            "답변 끝에 출처 목록을 따로 만들지 마세요.\n"
+            f"질문: {question}"
+        )
+        return prompt, citations
+
     if reference_context:
+        answer_style_instruction = _get_answer_style_instruction(question)
         reference_intro = (
             "다음은 현재 워크스페이스 파일의 저장 목록과 강의 내용에서 검색된 참고자료입니다"
             if inventory_context
@@ -171,11 +280,20 @@ async def build_prompt_and_citations(
             f"{missing_selected_material_note}"
             f"{missing_locator_note}"
             f"{grounded_answer_instruction}"
+            f"{answer_style_instruction}"
             f"사용자가 강의 내용, PDF 페이지, 전사 내용의 의미를 물으면 [검색된 참고자료]를 바탕으로 답변하세요. "
             f"{scope_boundary_instruction}"
-            f"PDF 근거가 있으면 자료명과 p.페이지 번호를 답변 본문에 반드시 포함하세요. "
-            f"페이지 위치를 묻는 질문이면 관련 페이지 번호를 먼저 답하세요. "
-            f"답변 마지막에 참고한 출처를 '[출처]' 형식으로 표시해주세요.\n\n"
+            f"페이지 위치를 묻는 질문일 때만 관련 페이지 번호를 먼저 답하세요. "
+            f"NotebookLM처럼 검색 근거를 그대로 나열하지 말고, 사용자의 질문에 맞게 하나의 답변으로 재구성하세요. "
+            f"단, 근거가 있는 핵심 문장과 불릿 끝에는 citation 번호를 반드시 붙이세요. "
+            f"citation 번호는 문장 앞이나 중간에 단독으로 쓰지 말고, 반드시 문장 끝에만 붙이세요. "
+            f"citation 번호를 생략하면 프론트에서 근거 링크가 표시되지 않습니다. "
+            f"출처 표기는 근거가 필요한 핵심 문장이나 항목 끝마다 [검색된 참고자료] 앞의 번호를 [1], [2]처럼 붙이는 방식만 사용하세요. "
+            f"같은 근거를 여러 문장에서 사용하더라도 문장마다 번호를 생략하지 말고 반복해서 붙이세요. "
+            f"'결과적으로:', '일상적인 비유:', '핵심 개념 요약 및 구조화:' 같은 템플릿 라벨을 반복하지 마세요. "
+            f"[파일명, 페이지] 또는 [음성파일명, 시간] 같은 링크 형식을 새로 만들지 마세요. "
+            f"'출처:', '참고자료:', 'Sources:', 'References:' 같은 제목을 만들지 말고, 답변 끝에 파일명/페이지/시간 목록을 절대 나열하지 마세요. "
+            f"근거 파일명, 페이지, 시간 정보는 프론트 citation 팝업에서 보여주므로 답변 본문에는 번호만 붙이세요.\n\n"
             f"질문: {question}"
         )
     elif has_selected_material:
@@ -233,7 +351,7 @@ def source_filter_has_material(source_filter: dict | None) -> bool:
 
 def build_direct_locator_answer(question: str, citations: list[dict]) -> str | None:
     """언급 위치 찾기 질문은 citation 메타데이터만으로 짧고 안정적인 답변을 만듭니다."""
-    if not _is_locator_question(question):
+    if not _is_locator_question(question) or _is_evidence_explanation_question(question):
         return None
 
     transcript_citations = [
@@ -258,9 +376,114 @@ def build_direct_no_evidence_answer(question: str, citations: list[dict]) -> str
     """근거 기반 질문인데 citation이 없으면 LLM 호출 없이 '찾지 못함'으로 답합니다."""
     if citations:
         return None
-    if not (_is_locator_question(question) or _is_grounded_content_question(question)):
+    if not (
+        _is_locator_question(question)
+        or _is_grounded_content_question(question)
+        or _is_evidence_explanation_question(question)
+    ):
         return None
     return "저장된 자료/녹음본에서 질문과 직접 관련된 근거를 찾지 못했습니다."
+
+
+def _get_answer_style_instruction(question: str) -> str:
+    """질문 의도에 맞는 LLM 답변 양식을 고릅니다."""
+    if _is_evidence_explanation_question(question):
+        return f"{EVIDENCE_EXPLANATION_STYLE_PROMPT}\n"
+    if _is_locator_question(question):
+        return f"{LOCATION_STYLE_PROMPT}\n"
+    if _is_grounded_content_question(question):
+        return f"{BEGINNER_CONCEPT_STYLE_PROMPT}\n"
+    return ""
+
+
+def _should_include_inventory_context(question: str) -> bool:
+    """파일 목록/개수/저장 상태를 묻는 질문일 때만 워크스페이스 저장 목록을 prompt에 넣습니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+
+    inventory_terms = (
+        "파일",
+        "자료",
+        "녹음",
+        "녹음본",
+        "소스",
+        "저장",
+        "목록",
+        "리스트",
+        "몇 개",
+        "몇개",
+        "개수",
+        "뭐 있어",
+        "무엇이 있어",
+        "올려",
+        "업로드",
+    )
+    return any(term in text for term in inventory_terms) and not _is_locator_question(text)
+
+
+def _is_concept_synthesis_question(question: str) -> bool:
+    """여러 근거를 종합해 개념/절차/원인을 설명해야 하는 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+
+    synthesis_terms = (
+        "정리",
+        "요약",
+        "비교",
+        "차이",
+        "흐름",
+        "과정",
+        "절차",
+        "원리",
+        "구조",
+        "이유",
+        "왜",
+        "어떻게",
+        "설명",
+    )
+    return any(term in text for term in synthesis_terms) and bool(_extract_lookup_subjects(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _is_factual_grounded_question(question: str) -> bool:
+    """마감/일정/인물처럼 짧은 사실 답변이 필요한 근거 기반 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+
+    factual_terms = (
+        "누구",
+        "언제",
+        "언제까지",
+        "몇 시",
+        "몇시",
+        "마감",
+        "마감일",
+        "기한",
+        "제출",
+        "제출일",
+    )
+    return any(term in text for term in factual_terms)
+
+
+def _is_elliptic_grounded_question(question: str) -> bool:
+    """'선형리스트?', '연속공간은?'처럼 짧게 던진 개념 질문을 근거 기반 질문으로 봅니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+    if any(term in text for term in _GROUNDED_CONTENT_QUESTION_TERMS):
+        return False
+    if _is_locator_question(text) or _is_evidence_explanation_question(text):
+        return False
+
+    cleaned = re.sub(r"[?!?.。！？\s]+$", "", text).strip()
+    if not 2 <= len(cleaned) <= 30:
+        return False
+    if len(_extract_lookup_subjects(cleaned)) != 1 and not _ALNUM_TERM_RE.search(cleaned):
+        return False
+
+    return text.endswith(("?", "？")) or cleaned == text
 
 
 def _is_locator_question(question: str) -> bool:
@@ -291,9 +514,21 @@ def _is_grounded_content_question(question: str) -> bool:
     text = str(question or "").strip()
     if not text:
         return False
+    if _is_elliptic_grounded_question(text):
+        return True
     if not any(term in text for term in _GROUNDED_CONTENT_QUESTION_TERMS):
         return False
     return bool(_extract_lookup_subjects(text) or _ALNUM_TERM_RE.search(text))
+
+
+def _is_evidence_explanation_question(question: str) -> bool:
+    """출처, 원문, 맥락, 해석을 요구하는 질문인지 판별합니다."""
+    text = str(question or "").strip()
+    if not text:
+        return False
+    if any(term in text for term in _EVIDENCE_EXPLANATION_TERMS):
+        return True
+    return "왜" in text and any(term in text for term in ("그렇게", "그런", "말", "해석", "판단"))
 
 
 def _should_use_material_fallback(question: str, transcript_context: str) -> bool:

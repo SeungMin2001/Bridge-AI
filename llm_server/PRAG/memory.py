@@ -58,16 +58,32 @@ class HyperKVGenerator(nn.Module):
         num_kv: int = NUM_KV,
         hidden_dim: int = HIDDEN_DIM,
         feature_dim: int | None = None,
+        question_fusion: str = "none",
         legacy: bool = False,
     ):
         super().__init__()
         self.d_model = d_model
         self.feature_dim = feature_dim or d_model
         self.num_kv = num_kv
+        self.question_fusion = question_fusion or "none"
         self.legacy = legacy
+        if self.question_fusion not in {"none", "text_concat", "feature_concat", "kv_adapter"}:
+            raise ValueError(f"Unsupported question_fusion={self.question_fusion!r}")
+        if legacy and self.question_fusion in {"feature_concat", "kv_adapter"}:
+            raise ValueError(f"{self.question_fusion} question fusion is not supported with legacy HyperKV.")
         if legacy:
             self.att_pool = nn.Linear(d_model, 1)
         else:
+            if self.question_fusion == "feature_concat":
+                self.question_feature_fusion = nn.Sequential(
+                    nn.LayerNorm(self.feature_dim * 2),
+                    nn.Linear(self.feature_dim * 2, self.feature_dim),
+                    nn.GELU(),
+                    nn.LayerNorm(self.feature_dim),
+                )
+            if self.question_fusion == "kv_adapter":
+                self.k_adapter = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model))
+                self.v_adapter = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model))
             self.input_norm = nn.LayerNorm(self.feature_dim)
             self.input_proj = nn.Sequential(
                 nn.Linear(self.feature_dim, d_model),
@@ -90,10 +106,27 @@ class HyperKVGenerator(nn.Module):
             self.linear_K = nn.Linear(hidden_dim, d_model)
             self.linear_V = nn.Linear(hidden_dim, d_model)
 
-    def forward(self, features: torch.Tensor, attention_mask: torch.Tensor | None = None):
+    def forward(
+        self,
+        features: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        question_features: torch.Tensor | None = None,
+    ):
         if MAX_MEMORY_TOKENS > 0 and features.size(1) > MAX_MEMORY_TOKENS:
             features = features[:, :MAX_MEMORY_TOKENS]
             attention_mask = attention_mask[:, :MAX_MEMORY_TOKENS] if attention_mask is not None else None
+        if question_features is not None:
+            if self.question_fusion != "feature_concat" or not hasattr(self, "question_feature_fusion"):
+                raise ValueError("question_features require question_fusion='feature_concat'.")
+            if question_features.dim() == 2:
+                question_features = question_features.unsqueeze(1)
+            if question_features.size(1) == 1:
+                question_features = question_features.expand(-1, features.size(1), -1)
+            if question_features.shape[:2] != features.shape[:2]:
+                raise ValueError(
+                    f"Question features must align with memory tokens: {question_features.shape} vs {features.shape}"
+                )
+            features = self.question_feature_fusion(torch.cat([features, question_features.to(features.dtype)], dim=-1))
         if self.legacy:
             encoded = features
             scores = self.att_pool(encoded).squeeze(-1)
@@ -119,7 +152,21 @@ class HyperKVGenerator(nn.Module):
         
         K = self.linear_K(hidden)
         V = self.linear_V(hidden)
-        return {"encoded": encoded, "pooled": pooled, "hidden": hidden, "K": K, "V": V, "att_weights": weights}
+        result = {"encoded": encoded, "pooled": pooled, "hidden": hidden, "K": K, "V": V, "att_weights": weights}
+        if self.question_fusion == "kv_adapter":
+            k_delta = self.k_adapter(K)
+            v_delta = self.v_adapter(V)
+            result.update(
+                {
+                    "K_pre_adapter": K,
+                    "V_pre_adapter": V,
+                    "K_adapter_delta": k_delta,
+                    "V_adapter_delta": v_delta,
+                    "K": K + k_delta,
+                    "V": V + v_delta,
+                }
+            )
+        return result
 
 
 def build_memory_text(passage: str, question: str | None = None, question_conditioned: bool = QUESTION_CONDITIONED_MEMORY) -> str:
@@ -128,6 +175,10 @@ def build_memory_text(passage: str, question: str | None = None, question_condit
             return f"질문: {question}\n관련 수업/회의 내용: {passage}"
         return f"Question: {question}\nRelevant lecture/meeting content: {passage}"
     return passage
+
+
+def should_text_condition(question_conditioned: bool, question_fusion: str) -> bool:
+    return bool(question_conditioned and question_fusion in {"text_concat", "kv_adapter"})
 
 
 def tokenize_passage(tokenizer, passage: str, device):
@@ -151,8 +202,13 @@ def passage_features(
     question: str | None = None,
     use_contextual: bool | None = None,
     question_conditioned: bool = QUESTION_CONDITIONED_MEMORY,
+    question_fusion: str = "text_concat",
 ):
-    memory_text = build_memory_text(passage, question, question_conditioned=question_conditioned)
+    memory_text = build_memory_text(
+        passage,
+        question,
+        question_conditioned=should_text_condition(question_conditioned, question_fusion),
+    )
     encoded = tokenize_passage(tokenizer, memory_text, device)
     raw = model.model.embed_tokens(encoded["input_ids"]).to(dtype=torch.float32)
     if use_contextual is None:
@@ -171,6 +227,14 @@ def passage_features(
     return features, encoded.get("attention_mask"), encoded["input_ids"]
 
 
+def masked_mean(features: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    if attention_mask is None:
+        return features.mean(dim=1)
+    mask = attention_mask.to(device=features.device, dtype=features.dtype).unsqueeze(-1)
+    denom = mask.sum(dim=1).clamp_min(1.0)
+    return (features * mask).sum(dim=1) / denom
+
+
 def encode_memory(
     model,
     tokenizer,
@@ -184,6 +248,7 @@ def encode_memory(
 ):
     if use_contextual is None:
         use_contextual = hypernet.feature_dim != hypernet.d_model
+    question_fusion = getattr(hypernet, "question_fusion", "none")
     features, attention_mask, input_ids = passage_features(
         model,
         tokenizer,
@@ -192,8 +257,22 @@ def encode_memory(
         question=question,
         use_contextual=use_contextual,
         question_conditioned=question_conditioned,
+        question_fusion=question_fusion,
     )
-    memory = hypernet(features, attention_mask)
+    question_features = None
+    if question and question_conditioned and question_fusion == "feature_concat":
+        q_features, q_mask, _ = passage_features(
+            model,
+            tokenizer,
+            question,
+            device,
+            question=None,
+            use_contextual=use_contextual,
+            question_conditioned=False,
+            question_fusion="none",
+        )
+        question_features = masked_mean(q_features, q_mask)
+    memory = hypernet(features, attention_mask, question_features=question_features)
     memory["input_ids"] = input_ids
     memory["attention_mask"] = attention_mask
     return memory

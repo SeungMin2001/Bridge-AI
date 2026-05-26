@@ -13,16 +13,28 @@ import httpx
 from chat.context_service import source_filter_has_any_source
 
 
-llm_server_url = os.getenv("LLM_URL", "http://localhost:11434")
-llm_model_name = os.getenv("LLM_MODEL", "qwen2.5-3b")
+DEFAULT_LLM_URL = "http://localhost:8001"
+DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
+
+llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
+llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
 CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "512"))
 CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "768"))
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 
 SYSTEM_PROMPT = (
-    "You are a helpful lecture assistant. Answer in Korean. "
-    "반드시 3문장 이내로 핵심만 답변해. 불필요한 부연설명 하지 마."
+    "너는 대학교 전공 강의의 음성 녹취록과 PDF 강의자료를 분석해 학생의 학습을 돕는 AI 학습 조교다.\n"
+    "[공통 제약]\n"
+    "- 항상 한국어로 답하세요.\n"
+    "- 사용자가 업로드하거나 선택한 PDF 강의자료, 음성 녹취록, 검색된 참고자료만 근거로 사용하세요.\n"
+    "- 참고자료에 없는 내용은 추측하지 말고, 제공된 자료에서 근거를 찾을 수 없다고 답하세요.\n"
+    "- 파일명, 페이지 번호, 녹음 시간, 출처 번호를 임의로 만들지 마세요.\n"
+    "- 답변 끝에 별도 출처 목록을 만들지 말고, 사용자 프롬프트가 제공한 citation 번호만 문장/항목 끝에 붙이세요.\n"
+    "- citation 번호는 문장 앞이나 중간에 단독으로 쓰지 말고, 근거가 필요한 문장 끝에만 붙이세요.\n"
+    "- '출처:', '참고자료:', 'Sources:', 'References:' 같은 제목으로 파일명, 페이지, 시간 목록을 나열하지 마세요.\n"
+    "- 사용자가 과제, 코드 제출, 구현 결과물을 요구하면 완성본을 그대로 복사해 제출하도록 유도하지 말고, "
+    "사용자의 기존 아이디어나 코드를 바탕으로 수정 및 보완 방향을 설명하세요."
 )
 
 
@@ -184,7 +196,7 @@ def _ollama_chat_payload(messages: list[dict], source_filter: dict | None, *, st
 
 def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, stream: bool, thinking: bool = False) -> dict:
     """OpenAI 호환 /v1/chat/completions 요청 payload를 생성합니다."""
-    return {
+    payload = {
         "model": llm_model_name,
         "messages": messages,
         "max_tokens": _chat_max_tokens(source_filter),
@@ -192,6 +204,20 @@ def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, st
         "stream": stream,
         "chat_template_kwargs": {"enable_thinking": bool(thinking)},
     }
+    bridgeprag_alpha = _bridgeprag_alpha_for_prompt(messages)
+    if bridgeprag_alpha is not None:
+        payload["bridgeprag_alpha"] = bridgeprag_alpha
+    return payload
+
+
+def _bridgeprag_alpha_for_prompt(messages: list[dict]) -> float | None:
+    """여러 근거를 종합하는 질문에서는 RAG 텍스트가 주도권을 갖도록 PRAG 주입을 약하게 둡니다."""
+    prompt = "\n".join(str(item.get("content") or "") for item in messages)
+    if "검색된 참고자료 전체를 종합" in prompt:
+        return 0.05
+    if "[검색된 참고자료]" in prompt:
+        return 0.15
+    return None
 
 
 async def _raise_for_llm_stream_error(stream):

@@ -1,17 +1,6 @@
 -- pgvector 익스텐션 활성화
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
-CREATE TABLE course_memories
-(
-    memory_id     UUID PRIMARY KEY,
-    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
-    merged_k      BYTEA,
-    merged_v      BYTEA,
-    passage_count INT DEFAULT 0,
-    updated_at    TIMESTAMP NOT NULL
-);
-
 -- 테이블 생성
 CREATE TABLE SCHEDULES
 (
@@ -127,6 +116,17 @@ CREATE TABLE COURSES
     color            VARCHAR(50) NULL,    -- 신창영 : 추가. 프론트엔드 폴더 트리에서 폴더별 색상을 저장하기 위해 사용
     icon             VARCHAR(50) NULL,    -- 신창영 : 추가. 프론트엔드 폴더 트리에서 폴더별 아이콘을 저장하기 위해 사용
     created_at       TIMESTAMP NULL       -- 과목/폴더 생성 시각
+);
+
+-- 과목별 MergePRAG 메모리 (K,V 텐서를 직렬화하여 저장)
+CREATE TABLE course_memories
+(
+    memory_id     UUID PRIMARY KEY,
+    course_id     UUID      NOT NULL REFERENCES courses (course_id) UNIQUE,
+    merged_k      BYTEA,
+    merged_v      BYTEA,
+    passage_count INT DEFAULT 0,
+    updated_at    TIMESTAMP NOT NULL
 );
 
 CREATE TABLE USERS

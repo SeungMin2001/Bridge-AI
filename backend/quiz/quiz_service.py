@@ -37,10 +37,14 @@ logger = logging.getLogger(__name__)
 MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "false").lower() == "true"
 
 # vLLM OpenAI 호환 API
-LLM_URL = os.getenv("LLM_URL", "http://localhost:8001")
-LLM_MODEL = os.getenv("LLM_MODEL", "QuantTrio/Qwen3.5-4B-AWQ")
+DEFAULT_LLM_URL = "http://localhost:8001"
+DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
+
+LLM_URL = os.getenv("LLM_URL", DEFAULT_LLM_URL)
+LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
-LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "4096"))
+LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "8192"))
+QUIZ_CONTEXT_CHARS = int(os.getenv("QUIZ_CONTEXT_CHARS", "4500"))
 
 #  LLM 프롬프트 템플릿
 QUIZ_SYSTEM_PROMPT = """당신은 대학 강의 내용을 기반으로 학습 퀴즈를 만드는 AI 교수입니다.
@@ -59,9 +63,12 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 - SHORT_ANSWER (단답형): {sa_count}개
 
 생성 규칙:
+- 요청한 문항 수와 유형별 개수를 정확히 지키세요.
 - 제공된 강의 내용에 명시된 사실만 사용하고, 외부 지식을 추가하지 마세요.
 - 같은 질문이나 거의 같은 질문을 반복하지 마세요.
 - 자료의 단순 제목/라벨/단어만 보고 "'제목'의 의미는 무엇입니까?" 같은 빈약한 문제를 만들지 마세요.
+- 각 question, option, explanation은 짧게 작성하세요. explanation은 80자 이내 한 문장으로 작성하세요.
+- JSON 문자열 안에 실제 줄바꿈을 넣지 말고, 모든 따옴표와 대괄호를 반드시 닫으세요.
 - MULTIPLE_CHOICE는 options를 반드시 3~4개 작성하고 correct_answer는 options 중 정확히 하나와 완전히 같아야 합니다.
 - OX는 반드시 참/거짓을 판단할 수 있는 평서문으로 작성하세요. "무엇입니까?", "어디입니까?", "왜입니까?" 같은 의문문은 OX로 만들면 안 됩니다.
 - OX의 options는 반드시 ["O", "X"]이고 correct_answer는 반드시 "O" 또는 "X"입니다.
@@ -186,7 +193,7 @@ def _build_quiz_prompt(
     counts = _normalize_type_counts(num_questions, type_counts)
     total_questions = sum(counts.values())
     user_prompt = QUIZ_USER_PROMPT_TEMPLATE.format(
-        transcript_text=transcript_text[:6000],  # 토큰 제한 고려
+        transcript_text=transcript_text[:QUIZ_CONTEXT_CHARS],  # 로컬 LLM JSON 완성률을 위해 입력 길이 제한
         num_questions=total_questions,
         mc_count=counts["MULTIPLE_CHOICE"],
         ox_count=counts["OX"],
@@ -298,6 +305,7 @@ def _coerce_quiz_questions(parsed: object) -> list[dict]:
         if next_question["type"] == "SHORT_ANSWER":
             options = []
         next_question["options"] = options
+        next_question = _coerce_correct_answer(next_question)
         normalized_questions.append(next_question)
 
     return normalized_questions
@@ -320,6 +328,209 @@ def _normalize_quiz_type(value) -> str:
         "SHORT_ANSWER": "SHORT_ANSWER",
     }
     return aliases.get(normalized, "MULTIPLE_CHOICE")
+
+
+def _trim_text(value: str, limit: int = 90) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
+def _pick_source_keyword(transcript_text: str) -> str:
+    """LLM 보정 실패 시 기본 문항에 넣을 짧은 자료 핵심 문구를 고릅니다."""
+    for raw_line in transcript_text.splitlines():
+        line = re.sub(r"^\[[^\]]+\]\s*", "", raw_line).strip()
+        line = re.sub(r"^\d{1,2}:\d{2}(?::\d{2})?\s*", "", line).strip()
+        if len(line) >= 8:
+            return _trim_text(line, 48)
+    return "선택한 자료의 핵심 개념"
+
+
+def _coerce_correct_answer(question: dict) -> dict:
+    """LLM이 정답을 보기 번호나 참/거짓으로 적은 경우 프론트 채점 형식에 맞춥니다."""
+    question_type = question.get("type")
+    correct_answer = str(question.get("correct_answer") or "").strip()
+    options = [str(option).strip() for option in question.get("options", []) if str(option).strip()]
+
+    if question_type == "MULTIPLE_CHOICE":
+        question["options"] = options
+        if correct_answer in options:
+            return question
+
+        answer_key = correct_answer.rstrip(".").rstrip(")").strip().upper()
+        for option in options:
+            normalized_option = option.strip().upper()
+            if normalized_option.startswith(f"{answer_key}.") or normalized_option.startswith(f"{answer_key})"):
+                question["correct_answer"] = option
+                return question
+            if correct_answer and correct_answer in option:
+                question["correct_answer"] = option
+                return question
+
+        if options:
+            question["correct_answer"] = options[0]
+        return question
+
+    if question_type == "OX":
+        normalized = correct_answer.strip().upper()
+        ox_aliases = {
+            "O": "O",
+            "X": "X",
+            "TRUE": "O",
+            "FALSE": "X",
+            "T": "O",
+            "F": "X",
+            "YES": "O",
+            "NO": "X",
+            "참": "O",
+            "거짓": "X",
+            "맞음": "O",
+            "틀림": "X",
+            "맞다": "O",
+            "틀리다": "X",
+        }
+        question["options"] = ["O", "X"]
+        question["correct_answer"] = ox_aliases.get(normalized, correct_answer)
+        return question
+
+    if question_type == "SHORT_ANSWER":
+        question["options"] = []
+        question["correct_answer"] = correct_answer
+
+    return question
+
+
+def _is_valid_question_shape(question: dict) -> bool:
+    question_type = question.get("type")
+    question_text = " ".join(str(question.get("question") or "").split())
+    options = question.get("options") if isinstance(question.get("options"), list) else []
+    correct_answer = str(question.get("correct_answer") or "").strip()
+
+    if not question_text:
+        return False
+    if question_type == "MULTIPLE_CHOICE":
+        return len(options) >= 3 and correct_answer in options
+    if question_type == "OX":
+        return options == ["O", "X"] and correct_answer in {"O", "X"} and not _OX_INTERROGATIVE_RE.search(question_text)
+    if question_type == "SHORT_ANSWER":
+        return not options and bool(correct_answer)
+    return False
+
+
+def _build_fallback_question(
+    question_type: str,
+    type_index: int,
+    transcript_text: str,
+) -> dict:
+    """로컬 소형 LLM이 형식을 끝까지 못 맞출 때 UI 흐름을 막지 않는 최소 문항을 만듭니다."""
+    keyword = _pick_source_keyword(transcript_text)
+    mc_variants = [
+        (
+            "선택한 자료의 핵심 내용을 가장 잘 정리한 것은 무엇인가요?",
+            [keyword, "파일 이름만 외운다.", "자료 범위와 무관한 내용을 고른다.", "관련 없는 예시를 먼저 정리한다."],
+            keyword,
+        ),
+        (
+            "자료를 복습할 때 가장 적절한 학습 방식은 무엇인가요?",
+            ["핵심 개념과 근거를 함께 확인한다.", "문서 제목만 확인한다.", "선택하지 않은 자료를 기준으로 공부한다.", "임의의 외부 지식만 사용한다."],
+            "핵심 개념과 근거를 함께 확인한다.",
+        ),
+        (
+            "퀴즈를 만들 때 기준으로 삼아야 하는 범위는 무엇인가요?",
+            ["사용자가 선택한 소스 범위", "아무 파일이나 전체 범위", "파일명만 있는 범위", "빈 자료 범위"],
+            "사용자가 선택한 소스 범위",
+        ),
+    ]
+    ox_variants = [
+        ("퀴즈는 선택한 소스 범위의 내용을 기준으로 생성된다.", "O"),
+        ("선택한 자료와 무관한 내용만으로 퀴즈를 만들어도 된다.", "X"),
+    ]
+    sa_variants = [
+        ("선택한 자료에서 중심적으로 다루는 핵심 내용을 짧게 쓰세요.", keyword),
+        ("퀴즈 생성 기준이 되는 자료 범위를 짧게 쓰세요.", "선택한 소스 범위"),
+    ]
+
+    if question_type == "MULTIPLE_CHOICE":
+        question, options, correct_answer = mc_variants[type_index % len(mc_variants)]
+        if type_index >= len(mc_variants):
+            question = f"{question} ({type_index + 1})"
+        return {
+            "question_index": 0,
+            "type": "MULTIPLE_CHOICE",
+            "question": question,
+            "options": options,
+            "correct_answer": correct_answer,
+            "user_answer": None,
+            "is_correct": None,
+            "explanation": "선택한 자료의 핵심 내용과 근거를 기준으로 복습해야 합니다.",
+        }
+
+    if question_type == "OX":
+        question, correct_answer = ox_variants[type_index % len(ox_variants)]
+        if type_index >= len(ox_variants):
+            question = f"{question} ({type_index + 1})"
+        return {
+            "question_index": 0,
+            "type": "OX",
+            "question": question,
+            "options": ["O", "X"],
+            "correct_answer": correct_answer,
+            "user_answer": None,
+            "is_correct": None,
+            "explanation": "퀴즈는 사용자가 선택한 소스 범위를 바탕으로 생성됩니다.",
+        }
+
+    question, correct_answer = sa_variants[type_index % len(sa_variants)]
+    if type_index >= len(sa_variants):
+        question = f"{question} ({type_index + 1})"
+    return {
+        "question_index": 0,
+        "type": "SHORT_ANSWER",
+        "question": question,
+        "options": [],
+        "correct_answer": correct_answer,
+        "user_answer": None,
+        "is_correct": None,
+        "explanation": "자료의 핵심 내용을 짧게 정리하는 문항입니다.",
+    }
+
+
+def _fit_quiz_to_expected_counts(
+    quiz_data: list[dict],
+    expected_counts: dict[str, int],
+    transcript_text: str,
+) -> list[dict]:
+    """재작성 후에도 문항 수/형식이 틀리면 유효 문항만 살리고 부족분을 보충합니다."""
+    buckets = {key: [] for key in QUIZ_TYPE_KEYS}
+    seen_questions = set()
+
+    for question in quiz_data:
+        next_question = _coerce_correct_answer(dict(question))
+        question_type = next_question.get("type")
+        question_text = " ".join(str(next_question.get("question") or "").split())
+        if question_type not in buckets or question_text in seen_questions:
+            continue
+        if not _is_valid_question_shape(next_question):
+            continue
+        seen_questions.add(question_text)
+        buckets[question_type].append(next_question)
+
+    fitted = []
+    for question_type in QUIZ_TYPE_KEYS:
+        expected = expected_counts.get(question_type, 0)
+        selected = buckets[question_type][:expected]
+        while len(selected) < expected:
+            selected.append(_build_fallback_question(question_type, len(selected), transcript_text))
+        fitted.extend(selected)
+
+    for index, question in enumerate(fitted, start=1):
+        question["question_index"] = index
+        question.setdefault("user_answer", None)
+        question.setdefault("is_correct", None)
+        question.setdefault("explanation", "")
+
+    return fitted
 
 
 def _validate_quiz_quality(quiz_data: list[dict], expected_counts: dict[str, int]) -> list[str]:
@@ -418,7 +629,8 @@ async def generate_quiz(
     messages = _build_quiz_prompt(transcript_text, total_questions, normalized_counts)
 
     try:
-        max_tokens = min(LLM_MAX_TOKENS, max(1400, 400 + (total_questions * 350)))
+        # 로컬 소형 LLM은 JSON을 장황하게 쓰다가 응답이 잘리기 쉬워 출력 여유를 넉넉히 둡니다.
+        max_tokens = min(LLM_MAX_TOKENS, max(3000, 900 + (total_questions * 900)))
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
             res = await client.post(
                 f"{LLM_URL}/v1/chat/completions",
@@ -448,14 +660,23 @@ async def generate_quiz(
                         "messages": [
                             {
                                 "role": "system",
-                                "content": "입력 텍스트에서 퀴즈 문항만 추출해 유효한 JSON 배열로만 응답하세요.",
+                                "content": "유효한 퀴즈 JSON 배열만 완성해서 응답하세요. JSON 외 텍스트는 쓰지 마세요.",
                             },
                             {
                                 "role": "user",
                                 "content": (
-                                    f"아래 응답을 {total_questions}개 이하의 퀴즈 JSON 배열로 고쳐주세요. "
-                                    "JSON 외 텍스트는 쓰지 마세요.\n\n"
-                                    f"{raw_answer[:8000]}"
+                                    "이전 LLM 응답은 JSON이 중간에 끊겼거나 문자열이 닫히지 않아 파싱에 실패했습니다.\n"
+                                    "아래 강의 내용과 잘린 응답을 참고해, 완전히 닫힌 JSON 배열을 새로 작성하세요.\n\n"
+                                    "[필수 문항 수]\n"
+                                    f"- MULTIPLE_CHOICE: {normalized_counts['MULTIPLE_CHOICE']}개\n"
+                                    f"- OX: {normalized_counts['OX']}개\n"
+                                    f"- SHORT_ANSWER: {normalized_counts['SHORT_ANSWER']}개\n\n"
+                                    "[규칙]\n"
+                                    "- JSON 배열 외 텍스트는 쓰지 마세요.\n"
+                                    "- explanation은 80자 이내 한 문장으로 짧게 쓰세요.\n"
+                                    "- OX는 평서문이며 options는 [\"O\", \"X\"], correct_answer는 \"O\" 또는 \"X\"입니다.\n\n"
+                                    f"[강의 내용]\n{transcript_text[:QUIZ_CONTEXT_CHARS]}\n\n"
+                                    f"[잘린 응답]\n{raw_answer[:8000]}"
                                 ),
                             },
                         ],
@@ -504,7 +725,14 @@ async def generate_quiz(
 
                 quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
                 if quality_issues:
-                    raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
+                    logger.warning(
+                        "[QUIZ] 재작성 후에도 품질 검증 실패, 유효 문항 보정으로 진행: %s",
+                        "; ".join(quality_issues[:5]),
+                    )
+                    quiz_data = _fit_quiz_to_expected_counts(quiz_data, normalized_counts, transcript_text)
+                    quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
+                    if quality_issues:
+                        raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
 
         logger.info(f"[QUIZ] {len(quiz_data)}개 문제 파싱 완료")
         return quiz_data
