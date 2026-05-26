@@ -1,7 +1,6 @@
 <script setup>
 defineProps({
   calendarView: { type: String, required: true },
-  calendarViewOptions: { type: Array, required: true },
   currentPeriodLabel: { type: String, required: true },
   calendarDays: { type: Array, required: true },
   weekDays: { type: Array, required: true },
@@ -14,7 +13,6 @@ defineProps({
 })
 
 const emit = defineEmits([
-  'set-calendar-view',
   'select-date',
   'focus-schedule',
   'show-popover',
@@ -25,20 +23,7 @@ const emit = defineEmits([
 <template>
   <section class="schedule-calendar-panel">
     <div class="schedule-calendar-title-row">
-      <div class="schedule-view-switch" role="tablist" aria-label="일정 보기">
-        <button
-          v-for="option in calendarViewOptions"
-          :key="option.value"
-          type="button"
-          class="schedule-view-tab"
-          :class="{ active: calendarView === option.value }"
-          role="tab"
-          :aria-selected="calendarView === option.value"
-          @click="emit('set-calendar-view', option.value)"
-        >
-          {{ option.label }}
-        </button>
-      </div>
+      <div class="schedule-title-spacer" aria-hidden="true"></div>
       <h2>{{ currentPeriodLabel }}</h2>
       <div class="schedule-legend">
         <span><i class="confirmed"></i>확정</span>
@@ -205,37 +190,9 @@ const emit = defineEmits([
   color: var(--copy-text);
 }
 
-.schedule-view-switch {
-  display: inline-flex;
-  align-items: center;
+.schedule-title-spacer {
+  flex: 0 0 220px;
   min-width: 220px;
-  height: 38px;
-  padding: 3px;
-  border-radius: 10px;
-  background: var(--copy-surface-soft);
-  border: 1px solid var(--copy-line);
-}
-
-.schedule-view-tab {
-  flex: 1;
-  height: 30px;
-  border: 0;
-  border-radius: 8px;
-  color: #64748b;
-  background: transparent;
-  font-size: 11px;
-  font-weight: 900;
-  cursor: pointer;
-}
-
-.schedule-view-tab.active {
-  color: #ffffff;
-  background: var(--copy-black);
-}
-
-.schedule-view-tab:not(.active):hover {
-  color: var(--copy-text);
-  background: #fff;
 }
 
 .schedule-legend {
@@ -694,9 +651,8 @@ const emit = defineEmits([
     font-size: 19px;
   }
 
-  .schedule-view-switch {
-    width: 100%;
-    min-width: 0;
+  .schedule-title-spacer {
+    display: none;
   }
 
   .schedule-day-cell {
