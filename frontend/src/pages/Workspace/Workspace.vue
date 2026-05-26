@@ -4,7 +4,6 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import LeftSidebar from '../../components/workspace/LeftSidebar.vue'
 import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
-import CitationPopover from '../../components/workspace/citations/CitationPopover.vue'
 import { useChat } from '../../composables/useChat'
 import { deleteWorkspaceRecordingData, isWorkspaceUuid, saveSessionResources } from '../../api/workspaceApi.js'
 
@@ -40,6 +39,8 @@ const emit = defineEmits([
   'update:favorites',
   'update:aiInput',
   'dismissScheduleNotice',
+  'confirmAndSyncSchedule',
+  'ignoreSchedule',
   'startRecording',
   'pauseRecording',
   'resumeRecording',
@@ -231,6 +232,56 @@ function goSchedulePageFromNotice() {
   emit('dismissScheduleNotice')
   emit('navigate', 'schedule')
 }
+
+const confirmingScheduleIds = ref(new Set())
+
+async function confirmNoticeItem(item) {
+  confirmingScheduleIds.value.add(item.id)
+  try {
+    await emit('confirmAndSyncSchedule', item.id)
+  } catch { /* handled upstream */ }
+  confirmingScheduleIds.value.delete(item.id)
+  // If all items are confirmed/ignored, close the notice
+  const remaining = scheduleNoticeItems.value.filter(
+    (i) => !confirmedNoticeIds.value.has(i.id) && !ignoredNoticeIds.value.has(i.id)
+  )
+  if (remaining.length === 0) closeScheduleNotice()
+}
+
+const confirmedNoticeIds = ref(new Set())
+const ignoredNoticeIds = ref(new Set())
+
+function markNoticeItemConfirmed(item) {
+  confirmedNoticeIds.value.add(item.id)
+  confirmNoticeItem(item)
+}
+
+function markNoticeItemIgnored(item) {
+  ignoredNoticeIds.value.add(item.id)
+  emit('ignoreSchedule', item.id) // 누락되었던 백엔드 상태 동기화 호출
+  // Remove from visible list by tracking ignored ids
+  const remaining = scheduleNoticeItems.value.filter(
+    (i) => !confirmedNoticeIds.value.has(i.id) && !ignoredNoticeIds.value.has(i.id)
+  )
+  if (remaining.length === 0) closeScheduleNotice()
+}
+
+function confirmAllNoticeItems() {
+  for (const item of scheduleNoticeItems.value) {
+    if (!confirmedNoticeIds.value.has(item.id) && !ignoredNoticeIds.value.has(item.id)) {
+      markNoticeItemConfirmed(item)
+    }
+  }
+}
+
+const activeNoticeItems = computed(() =>
+  scheduleNoticeItems.value.filter(
+    (i) => !confirmedNoticeIds.value.has(i.id) && !ignoredNoticeIds.value.has(i.id)
+  )
+)
+
+const visibleActiveNoticeItems = computed(() => activeNoticeItems.value.slice(0, 3))
+const hiddenActiveNoticeCount = computed(() => Math.max(activeNoticeItems.value.length - 3, 0))
 
 function findNodeById(nodes = [], id = '') {
   for (const node of nodes) {
@@ -742,21 +793,46 @@ const activeWorkspaceSource = computed(() => {
 
         <div class="workspace-schedule-notice-list">
           <article
-            v-for="item in visibleScheduleNoticeItems"
+            v-for="item in visibleActiveNoticeItems"
             :key="item.id"
             class="workspace-schedule-notice-item"
           >
-            <strong>{{ item.title }}</strong>
-            <span>{{ formatScheduleNoticeDate(item.dueDate) }}</span>
+            <div class="workspace-schedule-notice-item-info">
+              <strong>{{ item.title }}</strong>
+              <span>{{ formatScheduleNoticeDate(item.dueDate) }}</span>
+            </div>
+            <div class="workspace-schedule-notice-item-actions">
+              <button
+                type="button"
+                class="workspace-schedule-notice-item-btn confirm"
+                :disabled="confirmingScheduleIds.has(item.id)"
+                @click="markNoticeItemConfirmed(item)"
+              >
+                <span class="material-symbols-outlined">check</span>
+                확정
+              </button>
+              <button
+                type="button"
+                class="workspace-schedule-notice-item-btn ignore"
+                @click="markNoticeItemIgnored(item)"
+              >
+                <span class="material-symbols-outlined">close</span>
+                무시
+              </button>
+            </div>
           </article>
-          <div v-if="hiddenScheduleNoticeCount" class="workspace-schedule-notice-more">
-            외 {{ hiddenScheduleNoticeCount }}개 일정
+          <div v-if="hiddenActiveNoticeCount" class="workspace-schedule-notice-more">
+            외 {{ hiddenActiveNoticeCount }}개 일정
           </div>
         </div>
 
         <div class="workspace-schedule-notice-actions">
           <button type="button" class="workspace-schedule-notice-secondary" @click="closeScheduleNotice">
-            확인
+            닫기
+          </button>
+          <button type="button" class="workspace-schedule-notice-primary" @click="confirmAllNoticeItems">
+            <span class="material-symbols-outlined" style="font-size:15px">done_all</span>
+            모두 확정
           </button>
           <button type="button" class="workspace-schedule-notice-primary" @click="goSchedulePageFromNotice">
             일정관리로 이동
@@ -1870,26 +1946,84 @@ const activeWorkspaceSource = computed(() => {
   border-radius: 14px;
   background: #f8fafc;
   border: 1px solid #e5edf6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.workspace-schedule-notice-item strong,
-.workspace-schedule-notice-item span {
+.workspace-schedule-notice-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-schedule-notice-item-info strong,
+.workspace-schedule-notice-item-info span {
   display: block;
   overflow-wrap: anywhere;
 }
 
-.workspace-schedule-notice-item strong {
+.workspace-schedule-notice-item-info strong {
   color: #111827;
   font-size: 14px;
   font-weight: 900;
   line-height: 1.35;
 }
 
-.workspace-schedule-notice-item span {
+.workspace-schedule-notice-item-info span {
   margin-top: 5px;
   color: #64748b;
   font-size: 12px;
   font-weight: 800;
+}
+
+.workspace-schedule-notice-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.workspace-schedule-notice-item-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.workspace-schedule-notice-item-btn .material-symbols-outlined {
+  font-size: 14px;
+}
+
+.workspace-schedule-notice-item-btn.confirm {
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.workspace-schedule-notice-item-btn.confirm:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+.workspace-schedule-notice-item-btn.confirm:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+.workspace-schedule-notice-item-btn.ignore {
+  color: #64748b;
+  background: #e2e8f0;
+}
+
+.workspace-schedule-notice-item-btn.ignore:hover {
+  background: #cbd5e1;
+  transform: translateY(-1px);
 }
 
 .workspace-schedule-notice-more {
