@@ -255,27 +255,39 @@ def answer_value_hit(prediction: str, references: list[str]) -> bool:
     return any((ref_key := compact_qa_answer(reference)) and ref_key in pred_key for reference in references)
 
 
-def token_f1_against_reference(prediction: str, reference: str) -> float:
+def token_overlap_scores_against_reference(prediction: str, reference: str) -> dict[str, float]:
     pred_tokens = eval_tokens(normalize_qa_answer(prediction))
     ref_tokens = eval_tokens(normalize_qa_answer(reference))
     if not pred_tokens and not ref_tokens:
-        return 1.0
+        return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
     if not pred_tokens or not ref_tokens:
-        return 0.0
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
     pred_counts = Counter(pred_tokens)
     ref_counts = Counter(ref_tokens)
     overlap = sum((pred_counts & ref_counts).values())
     if overlap <= 0:
-        return 0.0
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
     precision = overlap / max(len(pred_tokens), 1)
     recall = overlap / max(len(ref_tokens), 1)
-    return 2 * precision * recall / max(precision + recall, 1e-12)
+    f1 = 2 * precision * recall / max(precision + recall, 1e-12)
+    return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def token_f1_against_reference(prediction: str, reference: str) -> float:
+    return token_overlap_scores_against_reference(prediction, reference)["f1"]
+
+
+def max_token_overlap_scores(prediction: str, references: list[str]) -> dict[str, float]:
+    if not references:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+    return max(
+        (token_overlap_scores_against_reference(prediction, reference) for reference in references),
+        key=lambda scores: (scores["f1"], scores["recall"], scores["precision"]),
+    )
 
 
 def max_token_f1(prediction: str, references: list[str]) -> float:
-    if not references:
-        return 0.0
-    return max(token_f1_against_reference(prediction, reference) for reference in references)
+    return max_token_overlap_scores(prediction, references)["f1"]
 
 
 def char_f1(prediction: str, reference: str) -> float:
@@ -359,11 +371,16 @@ def relation_coverage(answer: str, case: dict) -> float:
 def score_answer(answer: str, case: dict) -> dict:
     references = accepted_answers(case)
     normalized_em = max_normalized_em(answer, references)
-    qa_token_f1 = max_token_f1(answer, references)
+    token_scores = max_token_overlap_scores(answer, references)
+    qa_token_precision = token_scores["precision"]
+    qa_token_recall = token_scores["recall"]
+    qa_token_f1 = token_scores["f1"]
     # Literature-aligned QA score: common PRAG/RAG papers report EM and/or F1.
     qa_score = 0.50 * float(normalized_em) + 0.50 * qa_token_f1
     return {
         "normalized_em": normalized_em,
+        "answer_token_precision": qa_token_precision,
+        "answer_token_recall": qa_token_recall,
         "answer_token_f1": qa_token_f1,
         "qa_score": qa_score,
     }
@@ -702,12 +719,16 @@ def apply_record_to_totals(record: dict, totals: dict, pairwise_counts: dict, *,
             if value is not None:
                 totals[key].append(value)
     for total_key, record_key_name in (
-        ("qp_token_f1", "qp_answer_token_f1"),
-        ("ponly_token_f1", "ponly_answer_token_f1"),
-        ("qp_qa_score", "qp_qa_score"),
-        ("ponly_qa_score", "ponly_qa_score"),
-        ("qp_inference_time_s", "qp_inference_time_s"),
-        ("ponly_inference_time_s", "ponly_inference_time_s"),
+            ("qp_token_f1", "qp_answer_token_f1"),
+            ("ponly_token_f1", "ponly_answer_token_f1"),
+            ("qp_token_precision", "qp_answer_token_precision"),
+            ("ponly_token_precision", "ponly_answer_token_precision"),
+            ("qp_token_recall", "qp_answer_token_recall"),
+            ("ponly_token_recall", "ponly_answer_token_recall"),
+            ("qp_qa_score", "qp_qa_score"),
+            ("ponly_qa_score", "ponly_qa_score"),
+            ("qp_inference_time_s", "qp_inference_time_s"),
+            ("ponly_inference_time_s", "ponly_inference_time_s"),
     ):
         value = as_float(record.get(record_key_name))
         if value is not None:
@@ -946,6 +967,10 @@ def main() -> None:
         "ponly_phrase": [],
         "qp_token_f1": [],
         "ponly_token_f1": [],
+        "qp_token_precision": [],
+        "ponly_token_precision": [],
+        "qp_token_recall": [],
+        "ponly_token_recall": [],
         "qp_qa_score": [],
         "ponly_qa_score": [],
         "qp_mergeprag_hit": 0,
@@ -1056,6 +1081,10 @@ def main() -> None:
             "no_memory_answer_token_f1": "" if no_memory_result is None else no_memory_result["answer_token_f1"],
             "qp_normalized_em": qp_result["normalized_em"],
             "ponly_normalized_em": ponly_result["normalized_em"],
+            "qp_answer_token_precision": qp_result["answer_token_precision"],
+            "ponly_answer_token_precision": ponly_result["answer_token_precision"],
+            "qp_answer_token_recall": qp_result["answer_token_recall"],
+            "ponly_answer_token_recall": ponly_result["answer_token_recall"],
             "qp_answer_token_f1": qp_result["answer_token_f1"],
             "ponly_answer_token_f1": ponly_result["answer_token_f1"],
             "qp_qa_score": qp_result["qa_score"],
@@ -1101,6 +1130,8 @@ def main() -> None:
     print(
         f"question+passage_em_rate={totals['qp_em'] / denom:.3f} "
         f"mergeprag_hit_rate={totals['qp_mergeprag_hit'] / denom:.3f} "
+        f"avg_token_precision={avg(totals['qp_token_precision'])} "
+        f"avg_token_recall={avg(totals['qp_token_recall'])} "
         f"avg_token_f1={avg(totals['qp_token_f1'])} "
         f"avg_qa_score={avg(totals['qp_qa_score'])} "
         f"avg_inference_time_s={avg(totals['qp_inference_time_s'])}"
@@ -1108,6 +1139,8 @@ def main() -> None:
     print(
         f"passage-only_em_rate={totals['ponly_em'] / denom:.3f} "
         f"mergeprag_hit_rate={totals['ponly_mergeprag_hit'] / denom:.3f} "
+        f"avg_token_precision={avg(totals['ponly_token_precision'])} "
+        f"avg_token_recall={avg(totals['ponly_token_recall'])} "
         f"avg_token_f1={avg(totals['ponly_token_f1'])} "
         f"avg_qa_score={avg(totals['ponly_qa_score'])} "
         f"avg_inference_time_s={avg(totals['ponly_inference_time_s'])}"
@@ -1130,6 +1163,8 @@ def main() -> None:
         "question+passage": {
             "normalized_em_rate": totals["qp_em"] / denom,
             "mergeprag_hit_rate": totals["qp_mergeprag_hit"] / denom,
+            "avg_answer_token_precision": avg_float(totals["qp_token_precision"]),
+            "avg_answer_token_recall": avg_float(totals["qp_token_recall"]),
             "avg_answer_token_f1": avg_float(totals["qp_token_f1"]),
             "avg_qa_score": avg_float(totals["qp_qa_score"]),
             "recall_at_k": totals["recall_hits"] / denom,
@@ -1138,6 +1173,8 @@ def main() -> None:
         "passage-only": {
             "normalized_em_rate": totals["ponly_em"] / denom,
             "mergeprag_hit_rate": totals["ponly_mergeprag_hit"] / denom,
+            "avg_answer_token_precision": avg_float(totals["ponly_token_precision"]),
+            "avg_answer_token_recall": avg_float(totals["ponly_token_recall"]),
             "avg_answer_token_f1": avg_float(totals["ponly_token_f1"]),
             "avg_qa_score": avg_float(totals["ponly_qa_score"]),
             "recall_at_k": totals["recall_hits"] / denom,

@@ -80,6 +80,12 @@ def epoch_metric_rows(rows: list[dict[str, str]]) -> list[dict]:
                 "qp_accuracy": qp_hit,
                 "ponly_accuracy": ponly_hit,
                 "delta_accuracy": qp_hit - ponly_hit,
+                "qp_token_precision": as_float(row, "qp_token_precision"),
+                "ponly_token_precision": as_float(row, "ponly_token_precision"),
+                "delta_token_precision": as_float(row, "delta_token_precision"),
+                "qp_token_recall": as_float(row, "qp_token_recall"),
+                "ponly_token_recall": as_float(row, "ponly_token_recall"),
+                "delta_token_recall": as_float(row, "delta_token_recall"),
                 "qp_token_f1": as_float(row, "qp_token_f1"),
                 "ponly_token_f1": as_float(row, "ponly_token_f1"),
                 "delta_token_f1": as_float(row, "delta_token_f1"),
@@ -111,6 +117,8 @@ def table_rows_for_epoch(rows: list[dict], epoch: int) -> list[dict]:
             "Model": LABELS["qp"],
             "Epoch": epoch,
             "Accuracy (%)": fmt_pct(row["qp_accuracy"]),
+            "Precision (%)": fmt_pct(row["qp_token_precision"]),
+            "Recall (%)": fmt_pct(row["qp_token_recall"]),
             "Token F1 (%)": fmt_pct(row["qp_token_f1"]),
             "Hit (%)": fmt_pct(row["qp_hit"]),
             "QA Score (%)": fmt_pct(row["qp_qa_score"]),
@@ -120,6 +128,8 @@ def table_rows_for_epoch(rows: list[dict], epoch: int) -> list[dict]:
             "Model": LABELS["ponly"],
             "Epoch": epoch,
             "Accuracy (%)": fmt_pct(row["ponly_accuracy"]),
+            "Precision (%)": fmt_pct(row["ponly_token_precision"]),
+            "Recall (%)": fmt_pct(row["ponly_token_recall"]),
             "Token F1 (%)": fmt_pct(row["ponly_token_f1"]),
             "Hit (%)": fmt_pct(row["ponly_hit"]),
             "QA Score (%)": fmt_pct(row["ponly_qa_score"]),
@@ -136,6 +146,8 @@ def best_table_rows(rows: list[dict]) -> list[dict]:
             "Model": LABELS["qp"],
             "Best Epoch": int(qp_best["epoch"]),
             "Accuracy (%)": fmt_pct(qp_best["qp_accuracy"]),
+            "Precision (%)": fmt_pct(qp_best["qp_token_precision"]),
+            "Recall (%)": fmt_pct(qp_best["qp_token_recall"]),
             "Token F1 (%)": fmt_pct(qp_best["qp_token_f1"]),
             "Hit (%)": fmt_pct(qp_best["qp_hit"]),
             "QA Score (%)": fmt_pct(qp_best["qp_qa_score"]),
@@ -145,6 +157,8 @@ def best_table_rows(rows: list[dict]) -> list[dict]:
             "Model": LABELS["ponly"],
             "Best Epoch": int(ponly_best["epoch"]),
             "Accuracy (%)": fmt_pct(ponly_best["ponly_accuracy"]),
+            "Precision (%)": fmt_pct(ponly_best["ponly_token_precision"]),
+            "Recall (%)": fmt_pct(ponly_best["ponly_token_recall"]),
             "Token F1 (%)": fmt_pct(ponly_best["ponly_token_f1"]),
             "Hit (%)": fmt_pct(ponly_best["ponly_hit"]),
             "QA Score (%)": fmt_pct(ponly_best["ponly_qa_score"]),
@@ -338,6 +352,12 @@ def main() -> None:
         "qp_accuracy",
         "ponly_accuracy",
         "delta_accuracy",
+        "qp_token_precision",
+        "ponly_token_precision",
+        "delta_token_precision",
+        "qp_token_recall",
+        "ponly_token_recall",
+        "delta_token_recall",
         "qp_token_f1",
         "ponly_token_f1",
         "delta_token_f1",
@@ -363,14 +383,34 @@ def main() -> None:
     save_loss_plot(output_dir / "epoch_loss.png", loss_rows)
 
     final_epoch = max(int(row["epoch"]) for row in rows)
-    table_fields = ["Model", "Epoch", "Accuracy (%)", "Token F1 (%)", "Hit (%)", "QA Score (%)", "Avg. Time (s)"]
+    table_fields = [
+        "Model",
+        "Epoch",
+        "Accuracy (%)",
+        "Precision (%)",
+        "Recall (%)",
+        "Token F1 (%)",
+        "Hit (%)",
+        "QA Score (%)",
+        "Avg. Time (s)",
+    ]
     final_rows = table_rows_for_epoch(rows, final_epoch)
     write_csv(output_dir / "final_metrics_table.csv", final_rows, table_fields)
     write_markdown_table(output_dir / "final_metrics_table.md", final_rows, table_fields)
     save_table_png(output_dir / "final_metrics_table.png", final_rows, table_fields, title="Final Epoch Metrics")
 
     best_rows = best_table_rows(rows)
-    best_fields = ["Model", "Best Epoch", "Accuracy (%)", "Token F1 (%)", "Hit (%)", "QA Score (%)", "Avg. Time (s)"]
+    best_fields = [
+        "Model",
+        "Best Epoch",
+        "Accuracy (%)",
+        "Precision (%)",
+        "Recall (%)",
+        "Token F1 (%)",
+        "Hit (%)",
+        "QA Score (%)",
+        "Avg. Time (s)",
+    ]
     write_csv(output_dir / "best_metrics_table.csv", best_rows, best_fields)
     write_markdown_table(output_dir / "best_metrics_table.md", best_rows, best_fields)
     save_table_png(output_dir / "best_metrics_table.png", best_rows, best_fields, title="Best Accuracy Metrics")
