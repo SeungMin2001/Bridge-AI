@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from chat.context_service import (
+    build_direct_smalltalk_answer,
     build_direct_locator_answer,
     build_direct_no_evidence_answer,
     build_prompt_and_citations,
@@ -57,6 +58,10 @@ async def chat(req: ChatRequest):
     """
     print(f"[CHAT] 요청 수신: {req.question}")
     try:
+        direct_answer = build_direct_smalltalk_answer(req.question)
+        if direct_answer is not None:
+            return {"thinking": "", "answer": direct_answer, "citations": []}
+
         await ensure_material_rag_for_chat(req.session_id, req.source_filter)
         prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)
         answer = build_direct_locator_answer(req.question, citations)
@@ -77,6 +82,15 @@ async def chat_stream(req: ChatRequest):
     """SSE 방식으로 citations와 LLM 토큰을 순차 전송하는 채팅 엔드포인트입니다."""
     request_started_at = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
+
+    smalltalk_answer = build_direct_smalltalk_answer(req.question)
+    if smalltalk_answer is not None:
+        async def generate_smalltalk():
+            yield f"data: {json.dumps({'type': 'citations', 'citations': []}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'token': smalltalk_answer}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(generate_smalltalk(), media_type="text/event-stream")
 
     await ensure_material_rag_for_chat(req.session_id, req.source_filter)
     prompt, citations = await build_prompt_and_citations(req.question, req.session_id, req.source_filter)

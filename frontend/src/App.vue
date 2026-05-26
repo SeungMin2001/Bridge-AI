@@ -42,6 +42,7 @@ const {
   resumeRecording,
   stopRecording,
   generateMaterialSummaryForSource,
+  generateRecordingSummaryForSource,
   deleteSummary,
   handleRightSidebarToggle,
   handleAddToNote,
@@ -123,6 +124,7 @@ const {
     @resumeRecording="resumeRecording"
     @stopRecording="stopRecording"
     @generateMaterialSummary="generateMaterialSummaryForSource"
+    @generateRecordingSummary="generateRecordingSummaryForSource"
     @deleteSummary="deleteSummary"
     @rightSidebarToggle="handleRightSidebarToggle"
     @addToNote="handleAddToNote"

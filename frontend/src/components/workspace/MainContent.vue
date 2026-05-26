@@ -36,6 +36,7 @@ const props = defineProps({
   summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] },
   quizSource: { type: Object, default: null },
+  summarySource: { type: Object, default: null },
   tabRequest: { type: Object, default: null },
   embedded: { type: Boolean, default: false }
 })
@@ -46,6 +47,7 @@ const emit = defineEmits([
   'resumeRecording',
   'stopRecording',
   'generateMaterialSummary',
+  'generateRecordingSummary',
   'deleteSummary',
   'mainSidebarToggle',
   'rightSidebarToggle',
@@ -290,18 +292,6 @@ const postRecordingProcessing = computed(() => {
     }
   }
 
-  if (!props.isRecording && props.summaryState?.status === 'generating') {
-    const isSpeakerSummary = props.summaryState?.diarizationEnabled ?? props.diarizationEnabled
-    return {
-      icon: 'auto_awesome',
-      title: '최종 요약 생성 중',
-      description: isSpeakerSummary
-        ? '전체 녹음 요약과 화자별 요약을 함께 생성하고 있습니다.'
-        : '전체 전사문을 기준으로 녹음 요약을 생성하고 있습니다.',
-      tone: 'summary'
-    }
-  }
-
   return null
 })
 </script>
@@ -483,13 +473,18 @@ const postRecordingProcessing = computed(() => {
           :tab-anim="tabAnim"
           :is-recording="isRecording"
           :is-recording-paused="isRecordingPaused"
+          :recording-time-text="recordingTimeText"
           :recording-mode="recordingMode"
           :diarization-enabled="diarizationEnabled"
           :transcriptions="transcriptions"
           :summary-state="summaryState"
+          :summary-source="summarySource"
+          :current-attachments="currentAttachments"
           :current-recordings="currentRecordings"
           :active-file-id="activeFileId"
           @deleteSummary="emit('deleteSummary', $event)"
+          @generateMaterialSummary="emit('generateMaterialSummary', $event)"
+          @generateRecordingSummary="emit('generateRecordingSummary', $event)"
           @askAi="emit('askAi', $event)"
           @addToNote="(text, source) => emit('addToNote', text, source)"
         />

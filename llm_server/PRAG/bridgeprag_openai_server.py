@@ -317,6 +317,8 @@ def _build_generation_text(system_texts: list[str], user_prompt: str, question: 
 
 
 def _encode_memory_for_request(request: dict[str, Any]):
+    if not _request_uses_memory(request):
+        return None
     passages = request["passages"]
     if not passages:
         return None
@@ -401,6 +403,8 @@ def _register_memory_hook(memory: dict[str, Any] | None, request_alpha: float | 
     if not memory:
         return None
     alpha = float(runtime_config.get("alpha", 1.0) if request_alpha is None else request_alpha)
+    if alpha <= 0.0:
+        return None
     return target_layer.register_forward_hook(
         make_memory_hook(
             memory["K"],
@@ -412,10 +416,17 @@ def _register_memory_hook(memory: dict[str, Any] | None, request_alpha: float | 
     )
 
 
+def _request_uses_memory(request: dict[str, Any]) -> bool:
+    if not request.get("passages"):
+        return False
+    alpha = float(runtime_config.get("alpha", 1.0) if request.get("alpha") is None else request.get("alpha"))
+    return alpha > 0.0
+
+
 def _request_trace(request: dict[str, Any], memory: dict[str, Any] | None = None) -> dict[str, Any]:
     passages = request.get("passages") or []
     return {
-        "memory_active": bool(passages),
+        "memory_active": bool(memory) and _request_uses_memory(request),
         "passage_count": len(passages),
         "reference_prompt": bool(request.get("reference_prompt")),
         "merged_count": int((memory or {}).get("merged_count") or len(passages) or 0),

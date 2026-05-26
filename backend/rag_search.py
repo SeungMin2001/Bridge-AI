@@ -1410,8 +1410,16 @@ def search(
             )
             search_scope = "current_file_hybrid" if session_id else "all_files_hybrid"
         else:
-            results = _run_vector_similarity_search(queries, top_k=candidate_top_k, session_id=session_id, source_filter=source_filter)
-            search_scope = "current_file" if session_id else "all_files"
+            # 서비스 채팅에서는 질문의 핵심 단어가 전사에 직접 등장하는 경우가 많다.
+            # 벡터 검색만 먼저 쓰면 "수학 과제"처럼 명확한 단서가 있어도 의미상 가까운
+            # 무관 문장이 선택될 수 있으므로 기본 검색도 키워드 후보를 섞은 hybrid로 수행한다.
+            results = _run_hybrid_search(
+                queries,
+                top_k=candidate_top_k,
+                session_id=session_id,
+                source_filter=source_filter,
+            )
+            search_scope = "current_file_hybrid" if session_id else "all_files_hybrid"
 
     if not results and not strict_keyword_query:
         results = _run_hybrid_search(queries, top_k=candidate_top_k, session_id=session_id, source_filter=source_filter)

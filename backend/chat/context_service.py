@@ -114,6 +114,9 @@ _EVIDENCE_EXPLANATION_TERMS = (
 
 BEGINNER_CONCEPT_STYLE_PROMPT = (
     "[답변 양식: NotebookLM식 근거 기반 개념 설명]\n"
+    "- 사용자 질문, 참고자료 원문, '선택된 녹음본 전체 전사' 같은 내부 문구를 그대로 반복하지 마세요.\n"
+    "- 질문에 직접 답하는 근거만 사용하고, 관련 없는 참고자료는 무시하세요.\n"
+    "- 답변은 최종 답변 본문만 작성하세요.\n"
     "- 1문단은 핵심 정의를 1~2문장으로 바로 설명하세요.\n"
     "- 2문단은 초보자가 이해하기 쉬운 일상 예시나 비유를 짧게 덧붙이세요.\n"
     "- 유형, 특징, 구현 방식처럼 분류가 필요할 때만 짧은 불릿을 사용하세요.\n"
@@ -129,6 +132,8 @@ BEGINNER_CONCEPT_STYLE_PROMPT = (
 
 EVIDENCE_EXPLANATION_STYLE_PROMPT = (
     "[답변 양식: 근거 기반 인용 및 맥락 해설]\n"
+    "- 사용자 질문과 참고자료 원문 전체를 그대로 반복하지 말고 최종 답변만 작성하세요.\n"
+    "- 질문에 직접 답하는 근거만 사용하고, 관련 없는 참고자료는 무시하세요.\n"
     "- 먼저 정확한 파일명, 자료명, 페이지 또는 녹음 시간대를 밝히세요.\n"
     "- 검색된 참고자료 안에 있는 실제 문장만 짧게 직접 인용하세요.\n"
     "- 참고자료에 없는 문장을 따옴표로 만들거나 원문처럼 꾸미지 마세요.\n"
@@ -138,6 +143,7 @@ EVIDENCE_EXPLANATION_STYLE_PROMPT = (
 
 LOCATION_STYLE_PROMPT = (
     "[답변 양식: 위치 찾기]\n"
+    "- 사용자 질문과 참고자료 원문 전체를 그대로 반복하지 말고 최종 답변만 작성하세요.\n"
     "- 페이지 번호나 녹음 시간대를 먼저 답하세요.\n"
     "- 이어서 파일명/자료명을 짧게 밝히세요.\n"
     "- 사용자가 요청하지 않은 개념 설명은 길게 덧붙이지 마세요.\n"
@@ -283,6 +289,8 @@ async def build_prompt_and_citations(
             f"{answer_style_instruction}"
             f"사용자가 강의 내용, PDF 페이지, 전사 내용의 의미를 물으면 [검색된 참고자료]를 바탕으로 답변하세요. "
             f"{scope_boundary_instruction}"
+            f"사용자 질문, 참고자료 원문, 시스템 지시문을 그대로 반복하지 말고 최종 답변만 작성하세요. "
+            f"질문에 직접 답하는 참고자료만 사용하고 관련 없는 참고자료는 답변에 섞지 마세요. "
             f"페이지 위치를 묻는 질문일 때만 관련 페이지 번호를 먼저 답하세요. "
             f"NotebookLM처럼 검색 근거를 그대로 나열하지 말고, 사용자의 질문에 맞게 하나의 답변으로 재구성하세요. "
             f"단, 근거가 있는 핵심 문장과 불릿 끝에는 citation 번호를 반드시 붙이세요. "
@@ -370,6 +378,43 @@ def build_direct_locator_answer(question: str, citations: list[dict]) -> str | N
         return None
 
     return f"{subject}는 {source_label}에서 언급됩니다.\n해당 구간은 {time_range}입니다."
+
+
+def build_direct_smalltalk_answer(question: str) -> str | None:
+    """인사/도움말은 RAG와 LLM을 거치지 않고 짧고 안정적으로 답합니다."""
+    text = " ".join(str(question or "").strip().split())
+    if not text:
+        return "질문을 입력해 주세요."
+
+    compact = re.sub(r"[\s!?.。！？~]+", "", text).lower()
+    greetings = {"안녕", "안녕하세요", "하이", "hello", "hi", "ㅎㅇ"}
+    thanks = {"고마워", "고맙습니다", "감사", "감사합니다", "땡큐", "thanks", "thankyou"}
+
+    if compact in greetings or (len(compact) <= 12 and compact.startswith(("안녕", "하이"))):
+        return (
+            "안녕하세요. 저는 강의 녹음, 전사, PDF 자료를 바탕으로 "
+            "요약, 퀴즈 생성, 일정 추출, 근거 기반 질문 답변을 도와드릴게요."
+        )
+
+    if compact in thanks:
+        return "천만에요. 필요한 강의 내용이나 자료에 대해 질문해 주세요."
+
+    help_patterns = (
+        "뭐 할 수 있어",
+        "무엇을 할 수 있어",
+        "어떤 기능",
+        "사용법",
+        "도움말",
+        "어떻게 쓰",
+    )
+    if any(pattern in text for pattern in help_patterns):
+        return (
+            "저는 선택한 강의 녹음과 PDF 자료를 기준으로 답변할 수 있습니다. "
+            "전사 요약, 퀴즈 생성, 일정 추출, 자료 기반 질의응답을 지원하고, "
+            "답변에는 가능한 경우 근거 링크를 함께 보여드립니다."
+        )
+
+    return None
 
 
 def build_direct_no_evidence_answer(question: str, citations: list[dict]) -> str | None:

@@ -1,6 +1,8 @@
 from llama_index.core import Settings, VectorStoreIndex
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
+from db_config import db_config
+import os
 
 # 1) 임베딩 모델 설정
 Settings.embed_model = HuggingFaceEmbedding(
@@ -8,13 +10,14 @@ Settings.embed_model = HuggingFaceEmbedding(
 )
 
 # 2) PostgreSQL vector store 다시 연결
+config = db_config()
 vector_store = PGVectorStore.from_params(
-    database="rag",
-    host="localhost",
-    password="1234",
-    port=5432,
-    user="postgres",
-    table_name="rag",
+    database=config["database"],
+    host=config["host"],
+    password=config["password"],
+    port=config["port"],
+    user=config["user"],
+    table_name=os.getenv("RAG_TABLE_NAME", "rag"),
     embed_dim=1024
 )
 

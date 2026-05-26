@@ -49,12 +49,169 @@ async def ensure_sessions_schema(conn) -> None:
     await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_notes JSONB NULL")
 
 
+async def ensure_courses_schema(conn) -> None:
+    await conn.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS parent_course_id UUID NULL")
+    await conn.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS color VARCHAR(50) NULL")
+    await conn.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS icon VARCHAR(50) NULL")
+
+
+async def ensure_feature_tables_schema(conn) -> None:
+    """Create/upgrade optional feature tables used by workspace, quiz, summary, and schedule routes."""
+    await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS key_sentences (
+            key_id UUID PRIMARY KEY,
+            transcript_id UUID NULL,
+            sentence_text TEXT NOT NULL,
+            score REAL NULL,
+            rank_order INTEGER NULL,
+            created_at TIMESTAMP NOT NULL
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS quizzes (
+            quiz_id UUID PRIMARY KEY,
+            user_id UUID NULL,
+            course_id UUID NULL,
+            request_id UUID NULL,
+            session_id UUID NULL,
+            quiz_data JSONB NULL,
+            total_questions INTEGER NULL,
+            correct_count INTEGER NULL,
+            created_at TIMESTAMP NULL
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS concept_requests (
+            request_id UUID PRIMARY KEY,
+            user_id UUID NULL,
+            session_id UUID NULL,
+            clicked_text VARCHAR(255) NULL,
+            normalized_term VARCHAR(255) NULL,
+            request_time REAL NULL,
+            request_type VARCHAR(50) NULL,
+            status VARCHAR(50) NULL,
+            created_at TIMESTAMP NULL
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS explanations (
+            explanation_id UUID PRIMARY KEY,
+            request_id UUID NULL,
+            answer_text TEXT NULL,
+            source_links TEXT NULL,
+            model_name VARCHAR(100) NULL,
+            latency_ms INTEGER NULL,
+            created_at TIMESTAMP NULL
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS explanation_chunks (
+            explanation_chunk_id UUID PRIMARY KEY,
+            explanation_id UUID NULL,
+            transcript_id UUID NULL,
+            similarity_score REAL NULL,
+            rank_order INTEGER NULL,
+            quoted_text TEXT NULL
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS schedules (
+            schedule_id UUID PRIMARY KEY,
+            session_id UUID NULL,
+            recording_id TEXT NULL,
+            transcript_id UUID NULL,
+            title TEXT NULL,
+            description TEXT NULL,
+            event_type TEXT NULL,
+            due_date TIMESTAMP NULL,
+            status VARCHAR(30) NULL,
+            calendar_flag BOOLEAN NULL,
+            source_start_time REAL NULL,
+            source_end_time REAL NULL,
+            source_text TEXT NULL,
+            notion_page_id TEXT NULL,
+            created_at TIMESTAMP NULL,
+            updated_at TIMESTAMP NULL
+        )
+    """)
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS calendar_flag BOOLEAN NULL")
+    await conn.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'schedules'
+                  AND column_name = 'calendar_flag'
+                  AND data_type <> 'boolean'
+            ) THEN
+                ALTER TABLE schedules
+                ALTER COLUMN calendar_flag TYPE BOOLEAN
+                USING CASE
+                    WHEN lower(COALESCE(calendar_flag::text, '')) IN ('true', 't', '1', 'yes', 'y') THEN TRUE
+                    ELSE FALSE
+                END;
+            END IF;
+        END $$;
+    """)
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS transcript_id UUID NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS status VARCHAR(30) NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS source_start_time REAL NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS source_end_time REAL NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS source_text TEXT NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS notion_page_id TEXT NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NULL")
+    await conn.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NULL")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS summaries (
+            summary_id UUID PRIMARY KEY,
+            session_id UUID NULL,
+            recording_id TEXT NULL,
+            course_id UUID NULL,
+            transcript_id UUID NULL,
+            speaker_id TEXT NULL,
+            speaker_summary TEXT NULL,
+            session_summary TEXT NULL,
+            course_summary TEXT NULL,
+            source_start_time REAL NULL,
+            source_end_time REAL NULL,
+            source_text TEXT NULL,
+            created_at TIMESTAMP NULL
+        )
+    """)
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS course_id UUID NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS transcript_id UUID NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS speaker_id TEXT NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS speaker_summary TEXT NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS session_summary TEXT NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS course_summary TEXT NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS source_start_time REAL NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS source_end_time REAL NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS source_text TEXT NULL")
+    await conn.execute("ALTER TABLE summaries ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NULL")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS course_memories (
+            memory_id UUID PRIMARY KEY,
+            course_id UUID UNIQUE,
+            merged_k BYTEA,
+            merged_v BYTEA,
+            passage_count INTEGER DEFAULT 0,
+            updated_at TIMESTAMP NOT NULL
+        )
+    """)
+
+
 async def ensure_runtime_schema() -> None:
     """Apply lightweight local schema upgrades needed by current develop code."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await ensure_courses_schema(conn)
         await ensure_sessions_schema(conn)
         await ensure_transcripts_schema(conn)
+        await ensure_feature_tables_schema(conn)
 
 
 async def create_session(session_id: str, title: str = "강의 녹음"):

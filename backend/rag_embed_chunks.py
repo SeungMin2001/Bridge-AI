@@ -5,18 +5,18 @@ llama_index PGVectorStore에 저장하는 스크립트.
 사용법: python rag_embed_chunks.py
 """
 import psycopg2
+import os
 from llama_index.core import Document, StorageContext, VectorStoreIndex, Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
+from db_config import psycopg2_config
 
 # 임베딩 모델
 Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-m3")
 
 # DB에서 transcripts 읽기
-conn = psycopg2.connect(
-    host="localhost", port=5432,
-    database="rag", user="postgres", password="1234"
-)
+db_config = psycopg2_config()
+conn = psycopg2.connect(**db_config)
 cur = conn.cursor()
 cur.execute("""
     SELECT t.transcript_id,
@@ -62,12 +62,12 @@ print(f"{len(documents)}개 Document 생성 완료, 임베딩 시작...")
 
 # PGVectorStore에 저장
 vector_store = PGVectorStore.from_params(
-    database="rag",
-    host="localhost",
-    password="1234",
-    port=5432,
-    user="postgres",
-    table_name="rag",
+    database=db_config["database"],
+    host=db_config["host"],
+    password=db_config["password"],
+    port=db_config["port"],
+    user=db_config["user"],
+    table_name=os.getenv("RAG_TABLE_NAME", "rag"),
     embed_dim=1024,
 )
 
