@@ -102,7 +102,7 @@ async def schedule_extract(req: ScheduleExtractRequest):
 
     # 2. 전사문 합치기
     transcript_text = "\n".join(t["text"] for t in transcripts if t["text"])
-    if len(transcript_text.strip()) < 20:
+    if len(transcript_text.strip()) < 5:
         raise HTTPException(status_code=400, detail="전사문이 너무 짧아 일정을 추출할 수 없습니다.")
 
     # 3. LLM으로 일정 추출
