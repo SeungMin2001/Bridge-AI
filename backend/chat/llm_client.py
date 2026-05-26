@@ -23,6 +23,7 @@ CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "160"))
 CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "320"))
 CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "900"))
 CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "5"))
+CHAT_STREAM_HOLD_CHARS = max(12, int(os.getenv("CHAT_STREAM_HOLD_CHARS", "28")))
 CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "token").strip().lower()
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
@@ -65,6 +66,7 @@ def remove_thinking(text: str) -> str:
 def _clean_visible_answer(text: str) -> str:
     """서비스 화면에 보여줄 최종 답변만 남기고 과생성된 예시/질문 반복을 잘라냅니다."""
     text = text.replace("\r\n", "\n").strip()
+    text, _ = _truncate_at_stop_pattern(text)
     text = re.sub(r"^\s*(assistant|답변|Answer)\s*[:：]?\s*", "", text, flags=re.IGNORECASE)
 
     stop_patterns = (
@@ -283,8 +285,9 @@ async def _clean_stream_chunks(raw_chunks):
 
 
 async def _clean_token_stream_chunks(raw_chunks):
-    """raw 토큰을 최대한 빨리 흘려보내되, 과생성 시작점과 답변 라벨은 잘라냅니다."""
+    """raw 토큰을 빠르게 흘려보내되, 과생성 라벨이 화면에 찍히기 전 작은 버퍼로 잡아냅니다."""
     buffer = ""
+    pending = ""
     visible_text = ""
     emitted_any = False
 
@@ -310,6 +313,18 @@ async def _clean_token_stream_chunks(raw_chunks):
                 return
             continue
 
+        pending += piece
+        if not stopped and len(pending) <= CHAT_STREAM_HOLD_CHARS:
+            continue
+
+        if stopped:
+            piece = pending
+            pending = ""
+        else:
+            safe_length = max(0, len(pending) - CHAT_STREAM_HOLD_CHARS)
+            piece = pending[:safe_length]
+            pending = pending[safe_length:]
+
         remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
         if remaining <= 0:
             return
@@ -323,6 +338,14 @@ async def _clean_token_stream_chunks(raw_chunks):
 
         if stopped or _stream_sentence_count(visible_text) >= CHAT_ANSWER_MAX_SENTENCES:
             return
+
+    if pending:
+        pending, _ = _truncate_at_stop_pattern(pending)
+        pending = _clean_visible_answer(pending)
+        remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
+        if pending and remaining > 0:
+            yield pending[:remaining]
+            emitted_any = True
 
     if not emitted_any:
         fallback = _clean_visible_answer(buffer)
@@ -345,7 +368,8 @@ def _stream_sentence_count(text: str) -> int:
 def _truncate_at_stop_pattern(text: str) -> tuple[str, bool]:
     """질문/자료 라벨처럼 답변 이후에 이어지는 과생성 시작점을 찾습니다."""
     stop_patterns = (
-        r"\n\s*(질문|Question|사용자|User)\s*[:：]",
+        r"(?:^|\n|\r)\s*(질문|Question|사용자|User|학생|Human|Prompt)\s*[:：]",
+        r"(?:^|\n|\r)\s*(출처|참고자료|Sources?|References?)\s*[:：]",
         r"\n\s*\[검색된 참고자료\]",
         r"\n\s*선택된\s+녹음본\s+전체\s+전사",
         r"\n\s*시스템\s*[:：]",
