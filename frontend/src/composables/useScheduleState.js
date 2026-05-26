@@ -156,6 +156,8 @@ const mapScheduleFromApi = (item) => {
     sourceText: item.source_text || '',
     sourceSessionTitle: item.session_title || item.course_title || '',
     workspaceFileId: item.session_id || '',
+    recordingId: item.recording_id || '',
+    notionPageId: item.notion_page_id || '',
     confidence: null,
     status: item.status,
     transcriptId: item.transcript_id || '',
@@ -202,6 +204,11 @@ const normalizeScheduleItem = (item) => {
     sourceText: item.sourceText || '',
     sourceSessionTitle: item.sourceSessionTitle || '',
     workspaceFileId: item.workspaceFileId || '',
+    recordingId: item.recordingId || item.recording_id || '',
+    transcriptId: item.transcriptId || item.transcript_id || '',
+    sourceStartTime: item.sourceStartTime ?? item.source_start_time,
+    sourceEndTime: item.sourceEndTime ?? item.source_end_time,
+    notionPageId: item.notionPageId || item.notion_page_id || '',
     confidence: typeof item.confidence === 'number' ? item.confidence : null,
     status: normalizeStatus(item.status, origin)
   }
@@ -241,6 +248,26 @@ const syncScheduleStatus = (scheduleId, status) => {
   requestJson(`${API_BASE}/${scheduleId}/${endpoint}`, { method: 'PUT' }).catch((error) => {
     console.warn('[Schedule] status sync failed', error)
   })
+}
+
+const patchScheduleItem = (scheduleId, patch) => {
+  persistSchedules(scheduleItems.value.map((item) => (
+    item.id === scheduleId
+      ? normalizeScheduleItem({ ...item, ...patch })
+      : item
+  )))
+}
+
+const syncScheduleToNotion = async (scheduleId) => {
+  if (!UUID_PATTERN.test(scheduleId)) {
+    return { status: 'skipped', message: 'DB에 저장되지 않은 로컬 일정입니다.' }
+  }
+
+  const result = await requestJson(`${API_BASE}/${scheduleId}/sync-notion`, { method: 'POST' })
+  if (result?.notion_page_id) {
+    patchScheduleItem(scheduleId, { notionPageId: result.notion_page_id })
+  }
+  return result
 }
 
 const syncManualSchedule = (localItem) => {
@@ -328,8 +355,35 @@ export function useScheduleState() {
     syncScheduleStatus(scheduleId, status)
   }
 
-  const confirmSchedule = (scheduleId) => updateScheduleStatus(scheduleId, 'confirmed')
+  const confirmSchedule = async (scheduleId, { syncNotion = true } = {}) => {
+    patchScheduleItem(scheduleId, { status: 'confirmed' })
+
+    if (UUID_PATTERN.test(scheduleId)) {
+      try {
+        await requestJson(`${API_BASE}/${scheduleId}/confirm`, { method: 'PUT' })
+      } catch (error) {
+        console.warn('[Schedule] confirm sync failed', error)
+        return { status: 'failed', message: error.message }
+      }
+    }
+
+    if (!syncNotion) {
+      return { status: 'confirmed' }
+    }
+
+    try {
+      return await syncScheduleToNotion(scheduleId)
+    } catch (error) {
+      console.warn('[Schedule] notion sync after confirm failed', error)
+      return { status: 'notion_failed', message: error.message }
+    }
+  }
   const ignoreSchedule = (scheduleId) => updateScheduleStatus(scheduleId, 'ignored')
+  const syncConfirmedSchedulesToNotion = async () => {
+    const result = await requestJson(`${API_BASE}/sync-notion-confirmed`, { method: 'POST' })
+    await hydrateSchedules({ force: true })
+    return result
+  }
   const updateScheduleSync = (scheduleId, updates) => {
     persistSchedules(scheduleItems.value.map((item) => (
       item.id === scheduleId
@@ -353,6 +407,8 @@ export function useScheduleState() {
     addManualSchedule,
     confirmSchedule,
     ignoreSchedule,
+    syncConfirmedSchedulesToNotion,
+    syncScheduleToNotion,
     updateScheduleSync,
     getSchedulesForDate,
     getScheduleDayFlags,
