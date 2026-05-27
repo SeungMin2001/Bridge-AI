@@ -108,32 +108,9 @@ async def schedule_extract(req: ScheduleExtractRequest):
             extracted = await extract_schedules(combined_text)
             logger.info(f"[SCHEDULE] 실시간 캐시 텍스트 기반 추출 성공: {len(extracted)}개 일정")
         except Exception as e:
-            logger.warning(f"[SCHEDULE] 실시간 캐시 텍스트 기반 추출 실패, 전체 전사문으로 백업 시도: {e}")
-
-    # 2. 캐시가 없거나, 캐시 추출 결과가 비어있는 경우 전체 전사문에서 백업 LLM 추출 수행
-    if not extracted:
-        logger.info("[SCHEDULE] 실시간 캐시 누락 또는 결과 없음. 전체 전사문에서 일정 추출을 수행합니다.")
-        
-        # 2-1. 세션 전사문 조회
-        transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
-        if not transcripts:
-            raise HTTPException(
-                status_code=404,
-                detail=f"세션 '{req.session_id}'에 해당하는 전사문이 없습니다."
-            )
-
-        # 1-2. 전사문 합치기
-        transcript_text = "\n".join(t["text"] for t in transcripts if t["text"])
-        if len(transcript_text.strip()) < 5:
-            raise HTTPException(status_code=400, detail="전사문이 너무 짧아 일정을 추출할 수 없습니다.")
-
-        # 1-3. LLM으로 일정 추출
-        try:
-            extracted = await extract_schedules(transcript_text)
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=str(e))
-        except RuntimeError as e:
-            raise HTTPException(status_code=503, detail=str(e))
+            logger.warning(f"[SCHEDULE] 실시간 캐시 텍스트 기반 추출 실패: {e}")
+    else:
+        logger.info("[SCHEDULE] 실시간 캐시 텍스트 없음. 추출할 일정이 없습니다.")
 
     # 2. 모든 전사문(세션/녹음 범위) 조회 (출처 매칭을 위한 용도)
     transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
