@@ -643,7 +643,9 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
             for i, chunk in enumerate(chunks):
                 messages = _build_schedule_prompt(chunk)
-                logger.info(f"[SCHEDULE] 청크 {i+1}/{len(chunks)} LLM 호출 ({len(chunk)}자)")
+                import time
+                chunk_start_time = time.time()
+                logger.info(f"[SCHEDULE] 청크 {i+1}/{len(chunks)} LLM 호출 시작 ({len(chunk)}자)")
 
                 res = await client.post(
                     f"{LLM_URL}/v1/chat/completions",
@@ -659,9 +661,10 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
                 )
                 res.raise_for_status()
 
+                chunk_duration = time.time() - chunk_start_time
                 data = res.json()
                 raw_answer = data["choices"][0]["message"]["content"]
-                logger.info(f"[SCHEDULE] 청크 {i+1} LLM 응답: {len(raw_answer)} chars")
+                logger.info(f"[SCHEDULE] 청크 {i+1} LLM 응답: {len(raw_answer)} chars (소요시간: {chunk_duration:.2f}초)")
 
                 chunk_schedules = _parse_schedule_json(raw_answer)
                 all_schedules.extend(chunk_schedules)

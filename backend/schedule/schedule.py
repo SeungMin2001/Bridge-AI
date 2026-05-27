@@ -22,6 +22,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 import uuid
 import logging
+import time
 
 from db import get_transcripts_by_session
 from schedule.schedule_db import (
@@ -91,6 +92,7 @@ async def schedule_extract(req: ScheduleExtractRequest):
     새로운 일정만 pending 상태로 DB에 저장하고, 프론트에 알림 데이터를 반환한다.
     """
     logger.info(f"[SCHEDULE] 일정 추출 요청: session_id={req.session_id}, recording_id={req.recording_id}")
+    endpoint_start_time = time.time()
 
     # 1. 세션 전사문 조회
     transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
@@ -107,9 +109,11 @@ async def schedule_extract(req: ScheduleExtractRequest):
 
     # 3. LLM으로 전체 전사문에서 일정 추출 (가장 확실한 방법)
     logger.info("[SCHEDULE] 전체 전사문에서 일정 추출을 수행합니다.")
+    llm_start_time = time.time()
     try:
         extracted = await extract_schedules(transcript_text)
-        logger.info(f"[SCHEDULE] 추출 완료: {len(extracted)}개 일정 찾음")
+        llm_duration = time.time() - llm_start_time
+        logger.info(f"[SCHEDULE] 추출 완료: {len(extracted)}개 일정 찾음 (LLM 소요시간: {llm_duration:.2f}초)")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except RuntimeError as e:
@@ -191,15 +195,17 @@ async def schedule_extract(req: ScheduleExtractRequest):
         # 즉시 ignored로 업데이트
         await update_schedule_status(schedule_id, "ignored")
 
+    endpoint_duration = time.time() - endpoint_start_time
     logger.info(
-        f"[SCHEDULE] 추출 완료: {len(notifications)}개 알림, "
-        f"{len(auto_ignored)}개 자동무시(시멘틱 필터링), 총 {len(extracted)}개"
+        f"[SCHEDULE] 추출 파이프라인 전체 완료: {len(notifications)}개 알림, "
+        f"{len(auto_ignored)}개 자동무시, 총 {len(extracted)}개 추출 "
+        f"(전체 소요시간: {endpoint_duration:.2f}초)"
     )
 
     return {
         "session_id": req.session_id,
         "notifications": notifications,
-        "auto_ignored_count": len(auto_ignored),
+        "auto_ignored": auto_ignored,
         "total_extracted": len(extracted),
     }
 
