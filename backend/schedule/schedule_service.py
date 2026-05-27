@@ -29,6 +29,11 @@ import numpy as np
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    logger.addHandler(handler)
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "false").lower() == "true"
@@ -96,7 +101,7 @@ SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜는 {today}입니다.
     "title": "일정 제목 (전사문 원문 기반, 간결하게)",
     "description": "일정에 대한 상세 설명",
     "event_type": "시험|과제|프로젝트|발표|기타",
-    "due_date": "2026-05-15" 또는 null,
+    "due_date": "YYYY-MM-DD" 또는 null,
     "source_text": "전사문에서 해당 일정이 언급된 원문 문장"
   }}
 ]"""

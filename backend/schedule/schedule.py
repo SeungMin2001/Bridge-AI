@@ -43,8 +43,12 @@ from schedule.schedule_service import (
     find_source_in_transcripts, # 전사문에서 일정 출처 찾기
     filter_already_ignored_semantic, # 시멘틱 필터링 함수
 )
-
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    logger.addHandler(handler)
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
