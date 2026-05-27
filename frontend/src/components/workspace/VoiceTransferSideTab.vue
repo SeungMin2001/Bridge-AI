@@ -19,20 +19,26 @@ const props = defineProps({
   isTranscriptionSubmitting: { type: Boolean, default: false },
   variant: { type: String, default: 'sidebar' },
   showToolbar: { type: Boolean, default: false },
-  toolbarTitle: { type: String, default: '스크립트' }
+  toolbarTitle: { type: String, default: '스크립트' },
+  toolbarTitleEditable: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['addToNote', 'askAi', 'startTranscription', 'seekPlayback'])
+const emit = defineEmits(['addToNote', 'askAi', 'startTranscription', 'seekPlayback', 'rename-toolbar-title'])
 
 const transSearch = ref('')
 const scrollContainer = ref(null)
 const isSearchOpen = ref(false)
 const searchTrigger = ref(null)
 const searchInput = ref(null)
+const toolbarTitleInput = ref(null)
 const searchPopoverStyle = ref({})
 const searchResultRefs = ref([])
 const activeSearchIndex = ref(0)
 const emptyTranscriptAnimationRef = ref(null)
+const isEditingToolbarTitle = ref(false)
+const toolbarTitleDraft = ref('')
+const isToolbarTitleComposing = ref(false)
+const shouldCommitToolbarTitleAfterComposition = ref(false)
 const isDiarizationBootstrapping = computed(() => (
   props.diarizationEnabled && props.diarizationStatus === 'bootstrapping'
 ))
@@ -311,6 +317,57 @@ const getSpeakerAccent = (transcription) => {
 }
 
 const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAccent(transcription)}`
+
+const startToolbarTitleEdit = async () => {
+  if (!props.toolbarTitleEditable) return
+  toolbarTitleDraft.value = props.toolbarTitle || ''
+  isEditingToolbarTitle.value = true
+  await nextTick()
+  toolbarTitleInput.value?.focus()
+  toolbarTitleInput.value?.select()
+}
+
+const cancelToolbarTitleEdit = () => {
+  isEditingToolbarTitle.value = false
+  isToolbarTitleComposing.value = false
+  shouldCommitToolbarTitleAfterComposition.value = false
+  toolbarTitleDraft.value = props.toolbarTitle || ''
+}
+
+const commitToolbarTitleEdit = () => {
+  if (!isEditingToolbarTitle.value || isToolbarTitleComposing.value) return
+
+  const nextTitle = toolbarTitleDraft.value.trim()
+  if (!nextTitle || nextTitle === props.toolbarTitle) {
+    cancelToolbarTitleEdit()
+    return
+  }
+
+  emit('rename-toolbar-title', nextTitle)
+  isEditingToolbarTitle.value = false
+}
+
+const handleToolbarTitleEnter = (event) => {
+  if (event.isComposing || event.keyCode === 229 || isToolbarTitleComposing.value) {
+    shouldCommitToolbarTitleAfterComposition.value = true
+    return
+  }
+
+  event.preventDefault()
+  commitToolbarTitleEdit()
+}
+
+const handleToolbarTitleCompositionStart = () => {
+  isToolbarTitleComposing.value = true
+}
+
+const handleToolbarTitleCompositionEnd = () => {
+  isToolbarTitleComposing.value = false
+  if (!shouldCommitToolbarTitleAfterComposition.value) return
+
+  shouldCommitToolbarTitleAfterComposition.value = false
+  commitToolbarTitleEdit()
+}
 </script>
 
 <template>
@@ -319,7 +376,30 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
       v-if="showToolbar"
       class="transcript-toolbar"
     >
-      <span class="transcript-toolbar-title">{{ toolbarTitle }}</span>
+      <input
+        v-if="isEditingToolbarTitle"
+        ref="toolbarTitleInput"
+        v-model="toolbarTitleDraft"
+        class="transcript-toolbar-title transcript-toolbar-title-input"
+        type="text"
+        aria-label="음성파일 이름 수정"
+        @blur="commitToolbarTitleEdit"
+        @keydown.enter="handleToolbarTitleEnter"
+        @keydown.esc.prevent="cancelToolbarTitleEdit"
+        @compositionstart="handleToolbarTitleCompositionStart"
+        @compositionend="handleToolbarTitleCompositionEnd"
+      />
+      <button
+        v-else-if="toolbarTitleEditable"
+        type="button"
+        class="transcript-toolbar-title transcript-toolbar-title-button"
+        :title="toolbarTitle"
+        aria-label="음성파일 이름 수정"
+        @click="startToolbarTitleEdit"
+      >
+        {{ toolbarTitle }}
+      </button>
+      <span v-else class="transcript-toolbar-title">{{ toolbarTitle }}</span>
       <div class="transcript-toolbar-actions">
         <button
           ref="searchTrigger"
@@ -946,13 +1026,48 @@ const getSpeakerAvatarClass = (transcription) => `speaker-avatar-${getSpeakerAcc
 .transcript-toolbar-title {
   position: relative;
   height: 34px;
+  min-width: 0;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   justify-self: start;
+  overflow: hidden;
   color: #1d1d1f;
   font-size: 13px;
   font-weight: 950;
   letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcript-toolbar-title-button,
+.transcript-toolbar-title-input {
+  width: auto;
+  border: 0 !important;
+  padding: 0;
+  background: transparent;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.transcript-toolbar-title-button {
+  cursor: text;
+}
+
+.transcript-toolbar-title-input {
+  width: min(100%, 280px);
+  cursor: text;
+}
+
+.transcript-toolbar-title-input:focus,
+.transcript-toolbar-title-input:focus-visible {
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.transcript-toolbar-title-button:hover {
+  color: #2563eb;
 }
 
 .transcript-toolbar-title::after {

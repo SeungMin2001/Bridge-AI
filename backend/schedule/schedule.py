@@ -393,6 +393,62 @@ async def schedule_sync_notion(schedule_id: str):
         raise HTTPException(status_code=500, detail=f"예기치 못한 노션 동기화 실패: {e}")
 
 
+@router.post("/sync-notion-confirmed")
+async def schedule_sync_confirmed_to_notion():
+    """노션에 아직 등록되지 않은 확정(confirmed) 일정을 모두 노션 데이터베이스에 저장한다."""
+    schedules = await get_all_schedules()
+    targets = [
+        schedule for schedule in schedules
+        if schedule.get("status") == "confirmed" and not schedule.get("notion_page_id")
+    ]
+
+    if not targets:
+        return {
+            "result": "already_synced",
+            "message": "노션에 새로 저장할 확정 일정이 없습니다.",
+            "synced_count": 0,
+            "failed_count": 0,
+            "synced": [],
+            "failed": [],
+        }
+
+    try:
+        from schedule.notion_service import sync_schedule_to_notion
+    except Exception as e:
+        logger.error(f"[SCHEDULE] 노션 서비스 로드 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"노션 서비스 로드 실패: {e}")
+
+    synced = []
+    failed = []
+    for schedule in targets:
+        try:
+            page_id = await sync_schedule_to_notion(schedule)
+            await update_schedule_notion_id(schedule["schedule_id"], page_id)
+            synced.append({
+                "schedule_id": schedule["schedule_id"],
+                "title": schedule["title"],
+                "notion_page_id": page_id,
+            })
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            logger.error(f"[SCHEDULE] 확정 일정 노션 동기화 실패: {schedule.get('schedule_id')} {e}")
+            failed.append({
+                "schedule_id": schedule.get("schedule_id"),
+                "title": schedule.get("title"),
+                "error": str(e),
+            })
+
+    return {
+        "result": "success" if not failed else "partial_success",
+        "message": f"노션에 {len(synced)}개 일정을 저장했습니다.",
+        "synced_count": len(synced),
+        "failed_count": len(failed),
+        "synced": synced,
+        "failed": failed,
+    }
+
+
 # 노션 캘린더 → 우리 DB 일정 가져오기
 @router.post("/sync-notion-import")
 async def schedule_import_from_notion():

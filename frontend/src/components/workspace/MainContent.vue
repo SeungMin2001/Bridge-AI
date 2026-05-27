@@ -36,6 +36,7 @@ const props = defineProps({
   summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] },
   quizSource: { type: Object, default: null },
+  summarySource: { type: Object, default: null },
   tabRequest: { type: Object, default: null },
   embedded: { type: Boolean, default: false }
 })
@@ -46,6 +47,7 @@ const emit = defineEmits([
   'resumeRecording',
   'stopRecording',
   'generateMaterialSummary',
+  'generateRecordingSummary',
   'deleteSummary',
   'mainSidebarToggle',
   'rightSidebarToggle',
@@ -224,22 +226,6 @@ const getMaterialIcon = (material) => (
   /\.(ppt|pptx)$/i.test(material?.name || material?.storedName || '') ? 'slideshow' : 'picture_as_pdf'
 )
 
-const formatMaterialSize = (size = 0) => {
-  const bytes = Number(size) || 0
-  if (!bytes) return '파일'
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
-const formatMaterialDate = (value = '') => {
-  if (!value) return ''
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return ''
-  const month = parsed.getMonth() + 1
-  const day = parsed.getDate()
-  return `${month}.${day}`
-}
-
 const handleAskAi = () => {
   if (selectedWordData.value) {
     emit('askAi', selectedWordData.value.word)
@@ -287,18 +273,6 @@ const postRecordingProcessing = computed(() => {
       title: '전체 녹음 화자분리 중',
       description: '녹음 전체를 다시 분석해 화자 구간을 정리하고 있습니다.',
       tone: 'speaker'
-    }
-  }
-
-  if (!props.isRecording && props.summaryState?.status === 'generating') {
-    const isSpeakerSummary = props.summaryState?.diarizationEnabled ?? props.diarizationEnabled
-    return {
-      icon: 'auto_awesome',
-      title: '최종 요약 생성 중',
-      description: isSpeakerSummary
-        ? '전체 녹음 요약과 화자별 요약을 함께 생성하고 있습니다.'
-        : '전체 전사문을 기준으로 녹음 요약을 생성하고 있습니다.',
-      tone: 'summary'
     }
   }
 
@@ -401,10 +375,13 @@ const postRecordingProcessing = computed(() => {
             <div v-if="currentPreviewMaterial" class="preview-panel-wrap">
               <LecturePreviewPanel
                 :material="currentPreviewMaterial"
+                :materials="materialCards"
                 :evidence-request="materialEvidenceRequest"
                 :pdf-search-query="pdfSearchQuery"
                 :pdf-search-command="pdfSearchCommand"
                 @pdf-search-results="handlePdfSearchResults"
+                @open-material="handleOpenStoredMaterial"
+                @add-material="triggerMaterialUpload"
               />
             </div>
 
@@ -417,10 +394,34 @@ const postRecordingProcessing = computed(() => {
               </div>
 
               <div
-                v-if="materialCards.length"
                 class="materials-grid"
                 :class="{ 'is-drag-over': isMaterialDragOver }"
               >
+                <button
+                  type="button"
+                  class="material-card material-add-card"
+                  aria-label="강의자료 추가"
+                  @click="triggerMaterialUpload"
+                  @pointerenter="playFolderOpenAnimation"
+                  @mouseenter="playFolderOpenAnimation"
+                  @focus="playFolderOpenAnimation"
+                >
+                  <LoadingHourglass
+                    ref="folderOpenAnimationRef"
+                    class="materials-empty-animation material-card-icon"
+                    src="/animations/Folder%20Open.json"
+                    width="38px"
+                    height="38px"
+                    :autoplay="false"
+                    :loop="false"
+                    fallback-icon="folder_open"
+                  />
+                  <span class="material-card-copy">
+                    <strong>강의자료를 추가해주세요</strong>
+                  </span>
+                  <span class="material-card-open material-symbols-outlined">add</span>
+                </button>
+
                 <button
                   v-for="material in materialCards"
                   :key="material.id || material.name"
@@ -431,40 +432,10 @@ const postRecordingProcessing = computed(() => {
                   <span class="material-card-icon material-symbols-outlined">{{ getMaterialIcon(material) }}</span>
                   <span class="material-card-copy">
                     <strong>{{ material.name || material.title || material.storedName || '강의자료' }}</strong>
-                    <small>
-                      {{ formatMaterialSize(material.size) }}
-                      <template v-if="formatMaterialDate(material.uploadedAt || material.createdAt)">
-                        · {{ formatMaterialDate(material.uploadedAt || material.createdAt) }}
-                      </template>
-                    </small>
                   </span>
                   <span class="material-card-open material-symbols-outlined">open_in_new</span>
                 </button>
               </div>
-
-              <button
-                v-else
-                type="button"
-                class="materials-empty-state"
-                :class="{ 'is-drag-over': isMaterialDragOver }"
-                aria-label="강의자료 추가"
-                @click="triggerMaterialUpload"
-                @pointerenter="playFolderOpenAnimation"
-                @mouseenter="playFolderOpenAnimation"
-                @focus="playFolderOpenAnimation"
-              >
-                <LoadingHourglass
-                  ref="folderOpenAnimationRef"
-                  class="materials-empty-animation"
-                  src="/animations/Folder%20Open.json"
-                  width="88px"
-                  height="88px"
-                  :autoplay="false"
-                  :loop="false"
-                  fallback-icon="folder_open"
-                />
-                <strong>강의자료가 없습니다</strong>
-              </button>
             </template>
 
             <input
@@ -483,24 +454,32 @@ const postRecordingProcessing = computed(() => {
           :tab-anim="tabAnim"
           :is-recording="isRecording"
           :is-recording-paused="isRecordingPaused"
+          :recording-time-text="recordingTimeText"
           :recording-mode="recordingMode"
           :diarization-enabled="diarizationEnabled"
           :transcriptions="transcriptions"
           :summary-state="summaryState"
+          :summary-source="summarySource"
+          :current-attachments="currentAttachments"
           :current-recordings="currentRecordings"
           :active-file-id="activeFileId"
           @deleteSummary="emit('deleteSummary', $event)"
+          @generateMaterialSummary="emit('generateMaterialSummary', $event)"
+          @generateRecordingSummary="emit('generateRecordingSummary', $event)"
           @askAi="emit('askAi', $event)"
           @addToNote="(text, source) => emit('addToNote', text, source)"
         />
 
         <WorkspaceQuizPanel
-          v-else-if="activeTab === 'quiz'"
+          v-show="activeTab === 'quiz'"
           :key="'tab-quiz'"
+          :aria-hidden="activeTab !== 'quiz'"
           :tab-anim="tabAnim"
           :active-file-name="activeFileName"
           :active-file-id="activeFileId"
           :current-preview-material="currentPreviewMaterial"
+          :current-attachments="currentAttachments"
+          :current-recordings="currentRecordings"
           :quiz-source="quizSource"
         />
       </div>
@@ -734,15 +713,17 @@ const postRecordingProcessing = computed(() => {
 }
 
 .materials-grid {
+  width: 100%;
+  max-width: 560px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 2px;
+  align-content: start;
   overflow-y: auto;
 }
 
-.materials-grid.is-drag-over,
-.materials-empty-state.is-drag-over {
+.materials-grid.is-drag-over {
   outline: 1.5px dashed rgba(59, 130, 246, 0.44);
   outline-offset: 8px;
   background: rgba(239, 246, 255, 0.42);
@@ -760,14 +741,14 @@ const postRecordingProcessing = computed(() => {
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: #ffffff;
   text-align: left;
-  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.045);
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: none;
+  transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
 }
 
 .material-card:hover {
   transform: translateY(-1px);
   border-color: rgba(148, 163, 184, 0.5);
-  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.075);
+  box-shadow: none;
 }
 
 .material-card-icon {
@@ -810,29 +791,29 @@ const postRecordingProcessing = computed(() => {
   font-size: 18px;
 }
 
-.materials-empty-state {
-  min-height: 240px;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 12px;
+.material-add-card {
   border: 1px dashed rgba(203, 213, 225, 0.95);
-  border-radius: 8px;
   color: #9ca3af;
   background: rgba(248, 250, 252, 0.74);
-  cursor: pointer;
-  text-align: center;
-  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.materials-empty-state:hover,
-.materials-empty-state:focus-visible {
+.material-add-card:hover,
+.material-add-card:focus-visible {
   border-color: rgba(59, 130, 246, 0.34);
   background: rgba(239, 246, 255, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+  box-shadow: none;
 }
 
-.materials-empty-state:active {
+.material-add-card .material-card-icon {
+  color: #9ca3af;
+  background: transparent;
+}
+
+.material-add-card .material-card-open {
+  color: #9ca3af;
+}
+
+.material-add-card:active {
   transform: scale(0.995);
 }
 
@@ -840,12 +821,6 @@ const postRecordingProcessing = computed(() => {
   opacity: 0.9;
   user-select: none;
   pointer-events: none;
-}
-
-.materials-empty-state strong {
-  color: #8e8e93;
-  font-size: 14px;
-  font-weight: 900;
 }
 
 .recording-choice-overlay {

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { isWorkspaceUuid } from '../../../api/workspaceApi.js'
 import { isPdfMaterial } from '../../../utils/pdfMaterial.js'
+import LoadingHourglass from '../../ui/LoadingHourglass.vue'
 
 const QUIZ_API_BASE = '/quiz'
 
@@ -10,10 +11,13 @@ const props = defineProps({
   activeFileName: { type: String, default: '' },
   activeFileId: { type: String, default: '' },
   currentPreviewMaterial: { type: Object, default: null },
+  currentAttachments: { type: Array, default: () => [] },
+  currentRecordings: { type: Array, default: () => [] },
   quizSource: { type: Object, default: null }
 })
 
 const quizStatus = ref('idle')
+const quizListStatus = ref('idle')
 const quizError = ref('')
 const quizMode = ref('create')
 const quizList = ref([])
@@ -22,6 +26,10 @@ const quizAnswers = ref({})
 const quizResult = ref(null)
 const activeQuestionPage = ref(0)
 const deletingQuizId = ref('')
+const isSourcePickerOpen = ref(false)
+const sourcePickerAnchor = ref({ left: 0, top: 0 })
+const localQuizSourceIds = ref([])
+const hasPickedQuizSources = ref(false)
 const DEFAULT_QUIZ_COUNT = 5
 
 function buildSingleTypeCounts(type, count = DEFAULT_QUIZ_COUNT) {
@@ -32,13 +40,12 @@ function buildSingleTypeCounts(type, count = DEFAULT_QUIZ_COUNT) {
   }
 }
 
-const frontendQuizType = ref('SHORT_ANSWER')
+const frontendQuizType = ref('MULTIPLE_CHOICE')
 const quizTypeCounts = ref(buildSingleTypeCounts(frontendQuizType.value))
 
 const quizModes = [
-  { key: 'create', label: '만들기', icon: 'tune' },
-  { key: 'list', label: '퀴즈 리스트', icon: 'format_list_bulleted' },
-  { key: 'solve', label: '문제 풀기', icon: 'edit_note' }
+  { key: 'create', label: '퀴즈', icon: 'tune' },
+  { key: 'list', label: '퀴즈 리스트', icon: 'format_list_bulleted' }
 ]
 
 const quizTypeOptions = [
@@ -113,6 +120,32 @@ const canUseQuiz = computed(() => isWorkspaceUuid(props.activeFileId))
 const previewPdfMaterial = computed(() => (
   isPdfMaterial(props.currentPreviewMaterial) ? props.currentPreviewMaterial : null
 ))
+
+const getSourceStableId = (item = {}, prefix = 'source', index = 0) => (
+  item?.id || item?.materialId || item?.recordingId || item?.storedName || item?.url || item?.name || item?.title || `${prefix}-${index}`
+)
+
+const getAttachmentTitle = (material = {}, index = 0) => (
+  material?.name || material?.title || material?.storedName || `강의자료 ${index + 1}`
+)
+
+const getRecordingTitle = (recording = {}, index = 0) => (
+  recording?.title || recording?.name || `녹음본 ${index + 1}`
+)
+
+const collectRecordingTranscriptIds = (recording = {}) => {
+  const ids = new Set()
+  const transcriptions = Array.isArray(recording?.transcriptions) ? recording.transcriptions : []
+  transcriptions.forEach((transcription) => {
+    const segments = Array.isArray(transcription?.segments) ? transcription.segments : []
+    segments.forEach((segment) => {
+      const id = segment?.transcript_id || segment?.transcriptId
+      if (isWorkspaceUuid(String(id || '').trim())) ids.add(String(id).trim())
+    })
+  })
+  return Array.from(ids)
+}
+
 const materialFromSource = (source = {}) => (
   source?.material || (
     source?.type === 'material'
@@ -127,16 +160,106 @@ const materialFromSource = (source = {}) => (
       : null
   )
 )
+
+const availableQuizSourceItems = computed(() => {
+  const sources = []
+  const seen = new Set()
+
+  const addSource = (source) => {
+    if (!source?.uid || seen.has(source.uid)) return
+    seen.add(source.uid)
+    sources.push(source)
+  }
+
+  const attachments = Array.isArray(props.currentAttachments) ? props.currentAttachments : []
+  attachments.forEach((material, index) => {
+    const id = getSourceStableId(material, 'material', index)
+    const pdf = isPdfMaterial(material)
+    addSource({
+      uid: `material:${id}`,
+      id,
+      type: 'material',
+      title: getAttachmentTitle(material, index),
+      icon: pdf ? 'picture_as_pdf' : 'description',
+      material,
+      transcriptIds: [],
+      disabled: !pdf,
+      disabledReason: 'PDF 자료만 퀴즈로 만들 수 있습니다.'
+    })
+  })
+
+  if (previewPdfMaterial.value) {
+    const id = getSourceStableId(previewPdfMaterial.value, 'preview-material', 0)
+    addSource({
+      uid: `material:${id}`,
+      id,
+      type: 'material',
+      title: getAttachmentTitle(previewPdfMaterial.value, 0),
+      icon: 'picture_as_pdf',
+      material: previewPdfMaterial.value,
+      transcriptIds: [],
+      disabled: false,
+      disabledReason: ''
+    })
+  }
+
+  const recordings = Array.isArray(props.currentRecordings) ? props.currentRecordings : []
+  recordings.forEach((recording, index) => {
+    const id = getSourceStableId(recording, 'recording', index)
+    const transcriptIds = collectRecordingTranscriptIds(recording)
+    addSource({
+      uid: `recording:${id}`,
+      id,
+      type: 'recording',
+      title: getRecordingTitle(recording, index),
+      icon: 'graphic_eq',
+      recordingId: recording?.id || recording?.recordingId || id,
+      recording,
+      transcriptIds,
+      disabled: transcriptIds.length === 0,
+      disabledReason: '전사된 녹음본만 퀴즈로 만들 수 있습니다.'
+    })
+  })
+
+  return sources
+})
+
+const externalSelectedSourceItems = computed(() => (
+  Array.isArray(props.quizSource?.sources)
+    ? props.quizSource.sources
+    : (props.quizSource?.title ? [{
+        id: props.quizSource?.materialId || props.quizSource?.recordingId || props.quizSource?.title,
+        type: props.quizSource?.type || 'source',
+        title: props.quizSource?.title,
+        material: props.quizSource?.material || null,
+        transcriptIds: Array.isArray(props.quizSource?.transcriptIds) ? props.quizSource.transcriptIds : []
+      }] : (previewPdfMaterial.value ? [{
+        id: previewPdfMaterial.value.id || previewPdfMaterial.value.url || previewPdfMaterial.value.name,
+        type: 'material',
+        title: previewPdfMaterial.value.name || 'PDF 강의자료',
+        material: previewPdfMaterial.value,
+        transcriptIds: []
+      }] : []))
+))
+
+const selectedSourceItems = computed(() => {
+  if (!hasPickedQuizSources.value) return externalSelectedSourceItems.value
+  const selectedIds = new Set(localQuizSourceIds.value)
+  return availableQuizSourceItems.value.filter((source) => selectedIds.has(source.uid) && !source.disabled)
+})
+const selectedPdfCount = computed(() => selectedSourceItems.value.filter((source) => isPdfMaterial(materialFromSource(source))).length)
+
 const sourceTranscriptIds = computed(() => {
-  if (!Array.isArray(props.quizSource?.transcriptIds)) return []
   const ids = new Set()
-  props.quizSource.transcriptIds.forEach((id) => {
-    const transcriptId = String(id || '').trim()
-    if (isWorkspaceUuid(transcriptId)) ids.add(transcriptId)
+  selectedSourceItems.value.forEach((source) => {
+    ;(source.transcriptIds || []).forEach((id) => {
+      const transcriptId = String(id || '').trim()
+      if (isWorkspaceUuid(transcriptId)) ids.add(transcriptId)
+    })
   })
   return Array.from(ids)
 })
-const hasSelectedQuizSource = computed(() => !!props.quizSource?.title || !!previewPdfMaterial.value)
+const hasSelectedQuizSource = computed(() => selectedSourceItems.value.length > 0)
 const hasTranscriptScope = computed(() => sourceTranscriptIds.value.length > 0)
 const selectedPdfMaterials = computed(() => {
   const materials = []
@@ -150,52 +273,21 @@ const selectedPdfMaterials = computed(() => {
     materials.push(material)
   }
 
-  const sourceItems = Array.isArray(props.quizSource?.sources) ? props.quizSource.sources : []
-  if (sourceItems.length > 0) {
-    sourceItems.forEach((source) => addMaterial(materialFromSource(source)))
-    return materials
-  }
-
-  addMaterial(props.quizSource?.material)
-
-  if (
-    props.quizSource?.type !== 'recording' &&
-    previewPdfMaterial.value &&
-    (!props.quizSource?.materialId || previewPdfMaterial.value.id === props.quizSource.materialId)
-  ) {
-    addMaterial(previewPdfMaterial.value)
-  }
+  selectedSourceItems.value.forEach((source) => addMaterial(materialFromSource(source)))
 
   return materials
 })
 const hasPdfScope = computed(() => selectedPdfMaterials.value.length > 0)
 const hasGeneratableScope = computed(() => hasTranscriptScope.value || hasPdfScope.value)
 const selectedQuizSourceTitle = computed(() => (
-  props.quizSource?.title
-  || previewPdfMaterial.value?.name
+  selectedSourceItems.value[0]?.title
+  || props.quizSource?.title
   || '파일을 선택하세요'
-))
-const selectedSourceItems = computed(() => (
-  Array.isArray(props.quizSource?.sources)
-    ? props.quizSource.sources
-    : (props.quizSource?.title ? [{
-        id: props.quizSource?.materialId || props.quizSource?.recordingId || props.quizSource?.title,
-        type: props.quizSource?.type || 'source',
-        title: props.quizSource?.title,
-        material: props.quizSource?.material || null,
-        transcriptIds: sourceTranscriptIds.value
-      }] : (previewPdfMaterial.value ? [{
-        id: previewPdfMaterial.value.id || previewPdfMaterial.value.url || previewPdfMaterial.value.name,
-        type: 'material',
-        title: previewPdfMaterial.value.name || 'PDF 강의자료',
-        material: previewPdfMaterial.value,
-        transcriptIds: []
-      }] : []))
 ))
 const quizQuestionCount = computed(() => Object.values(quizTypeCounts.value).reduce((sum, count) => sum + Number(count || 0), 0))
 const quizCapacityPercent = computed(() => `${Math.min(100, Math.max(0, (quizQuestionCount.value / 20) * 100))}%`)
 const hasActiveQuiz = computed(() => Array.isArray(activeQuiz.value?.quiz_data) && activeQuiz.value.quiz_data.length > 0)
-const isQuizBusy = computed(() => ['loading', 'generating', 'submitting'].includes(quizStatus.value))
+const isQuizBusy = computed(() => ['generating', 'submitting'].includes(quizStatus.value))
 const selectedSourceCount = computed(() => selectedSourceItems.value.length)
 const visibleSelectedSourceItems = computed(() => selectedSourceItems.value.slice(0, 3))
 const hiddenSelectedSourceCount = computed(() => Math.max(0, selectedSourceCount.value - visibleSelectedSourceItems.value.length))
@@ -227,10 +319,10 @@ const canUseQuizNavigation = computed(() => (
   isCurrentQuestionAnswered.value && !quizResult.value && !isQuizBusy.value
 ))
 const shouldShowQuizListLoading = computed(() => (
-  quizMode.value === 'list' && quizStatus.value === 'loading' && quizList.value.length === 0
+  quizMode.value === 'list' && quizListStatus.value === 'loading' && quizList.value.length === 0
 ))
 const hasEmptyQuizList = computed(() => (
-  quizMode.value === 'list' && quizStatus.value !== 'loading' && quizList.value.length === 0
+  quizMode.value === 'list' && quizListStatus.value !== 'loading' && quizList.value.length === 0
 ))
 const canGenerateQuiz = computed(() => (
   isWorkspaceUuid(quizSessionId.value) &&
@@ -241,23 +333,87 @@ const canGenerateQuiz = computed(() => (
   !isQuizBusy.value
 ))
 const selectedSourceMeta = computed(() => {
-  if (!hasSelectedQuizSource.value) return '파일을 선택하면 현재 파일의 자료와 녹음본을 사용합니다.'
+  if (!hasSelectedQuizSource.value) return '소스 추가를 눌러 퀴즈에 사용할 자료를 선택하세요.'
   if (!hasGeneratableScope.value) return '현재 파일에 연결된 전사 또는 PDF 텍스트가 없습니다.'
-  const sourceCount = props.quizSource?.sourceCount ?? selectedSourceItems.value.length
+  const sourceCount = selectedSourceItems.value.length
   const scopeParts = []
-  if (hasPdfScope.value) scopeParts.push(`PDF ${selectedPdfMaterials.value.length}개`)
+  if (hasPdfScope.value) scopeParts.push(`PDF ${selectedPdfCount.value}개`)
   if (hasTranscriptScope.value) scopeParts.push(`전사 ${sourceTranscriptIds.value.length}개`)
-  return `선택 자료 ${sourceCount}개 · ${scopeParts.join(' · ')} 연결됨`
+  return `선택자료 ${sourceCount}개 · ${scopeParts.join(' · ')} 연결 됨`
 })
 const selectedQuizListSourceTitle = computed(() => {
-  if (selectedSourceCount.value > 1) return `선택 자료 ${selectedSourceCount.value}개`
   const firstSource = visibleSelectedSourceItems.value[0]
-  return firstSource?.title || ''
+  if (!firstSource?.title) return ''
+  if (selectedSourceCount.value > 1) return `${firstSource.title} 외 +${selectedSourceCount.value - 1}개 소스`
+  return firstSource.title
 })
 const getSourceIcon = (source = {}) => {
   if (source.type === 'recording') return 'graphic_eq'
   if (isPdfMaterial(materialFromSource(source))) return 'picture_as_pdf'
   return 'draft'
+}
+
+const getAvailableSourceMeta = (source = {}) => {
+  if (source.disabled) return source.disabledReason || '퀴즈 생성에 사용할 수 없습니다.'
+  if (source.type === 'recording') return `전사 ${source.transcriptIds?.length || 0}개`
+  if (isPdfMaterial(materialFromSource(source))) return 'PDF 자료'
+  return '강의자료'
+}
+
+const getSourceIdentity = (source = {}) => (
+  `${source.type || 'source'}:${source.id || source.materialId || source.recordingId || source.title || ''}`
+)
+
+const syncLocalSourcesFromCurrentSelection = () => {
+  const selectedIdentities = new Set(externalSelectedSourceItems.value.map(getSourceIdentity))
+  localQuizSourceIds.value = availableQuizSourceItems.value
+    .filter((source) => selectedIdentities.has(getSourceIdentity(source)) && !source.disabled)
+    .map((source) => source.uid)
+}
+
+const isQuizSourceSelected = (source) => localQuizSourceIds.value.includes(source.uid)
+
+const updateSourcePickerAnchor = (target) => {
+  const rect = target?.getBoundingClientRect?.()
+  if (!rect) return
+  const popoverWidth = Math.min(360, Math.max(280, window.innerWidth - 48))
+  const gap = 10
+  sourcePickerAnchor.value = {
+    left: Math.min(rect.right + gap, Math.max(16, window.innerWidth - popoverWidth - 16)),
+    top: Math.min(Math.max(16, rect.top), Math.max(16, window.innerHeight - 536))
+  }
+}
+
+const toggleSourcePicker = (event) => {
+  if (!isSourcePickerOpen.value && !hasPickedQuizSources.value) {
+    syncLocalSourcesFromCurrentSelection()
+  }
+  if (!isSourcePickerOpen.value) {
+    updateSourcePickerAnchor(event?.currentTarget)
+  }
+  isSourcePickerOpen.value = !isSourcePickerOpen.value
+}
+
+const closeSourcePicker = () => {
+  isSourcePickerOpen.value = false
+}
+
+const toggleQuizSourceSelection = (source) => {
+  if (!source || source.disabled) return
+  hasPickedQuizSources.value = true
+  const selected = new Set(localQuizSourceIds.value)
+  if (selected.has(source.uid)) selected.delete(source.uid)
+  else selected.add(source.uid)
+  localQuizSourceIds.value = Array.from(selected)
+}
+
+const handleSourcePickerBackdrop = () => {
+  closeSourcePicker()
+}
+
+const clearQuizSourceSelection = () => {
+  hasPickedQuizSources.value = true
+  localQuizSourceIds.value = []
 }
 
 const getQuizQuestions = (quiz = activeQuiz.value) => (
@@ -305,11 +461,12 @@ const getQuizListTypeLabel = (quiz = {}) => {
 }
 
 const getQuizListTitle = (quiz = {}) => {
+  return quiz.source_title || quiz.sourceTitle || '소스 정보 없음'
+}
+
+const getQuizListTypeText = (quiz = {}) => {
   const totalQuestions = quiz.total_questions || getQuizQuestions(quiz).length || 0
-  const titleParts = []
-  if (quiz.source_title) titleParts.push(quiz.source_title)
-  titleParts.push(`${getQuizListTypeLabel(quiz)} ${totalQuestions}문항`)
-  return titleParts.join(' · ')
+  return `${getQuizListTypeLabel(quiz)} ${totalQuestions}문항`
 }
 
 const getQuizSummaryLabel = (quiz) => {
@@ -331,7 +488,11 @@ const buildQuizListItem = (quiz) => ({
 
 const resetQuizState = () => {
   quizStatus.value = 'idle'
+  quizListStatus.value = 'idle'
   quizError.value = ''
+  isSourcePickerOpen.value = false
+  localQuizSourceIds.value = []
+  hasPickedQuizSources.value = false
   quizList.value = []
   activeQuiz.value = null
   quizAnswers.value = {}
@@ -370,17 +531,17 @@ const setActiveQuiz = (quiz) => {
       }
 }
 
-const loadQuizDetail = async (quizId, nextMode = 'solve') => {
+const loadQuizDetail = async (quizId, nextMode = 'create') => {
   if (!quizId) return
-  quizStatus.value = 'loading'
+  quizListStatus.value = 'loading'
   quizError.value = ''
   try {
     const quiz = await requestQuizJson(`/${quizId}`)
     setActiveQuiz(quiz)
     quizMode.value = nextMode
-    quizStatus.value = 'done'
+    quizListStatus.value = 'done'
   } catch (error) {
-    quizStatus.value = 'error'
+    quizListStatus.value = 'error'
     quizError.value = error?.message || '퀴즈를 불러오지 못했습니다.'
   }
 }
@@ -391,7 +552,7 @@ const loadQuizzesForSession = async (nextMode = 'list') => {
     return
   }
 
-  quizStatus.value = 'loading'
+  quizListStatus.value = 'loading'
   quizError.value = ''
   try {
     const result = await requestQuizJson(`/session/${props.activeFileId}`)
@@ -399,9 +560,9 @@ const loadQuizzesForSession = async (nextMode = 'list') => {
       ? result.quizzes.map((quiz) => buildQuizListItem(quiz))
       : []
     quizMode.value = nextMode
-    quizStatus.value = 'done'
+    quizListStatus.value = 'done'
   } catch (error) {
-    quizStatus.value = 'error'
+    quizListStatus.value = 'error'
     quizError.value = error?.message || '퀴즈 목록을 불러오지 못했습니다.'
   }
 }
@@ -412,6 +573,23 @@ const setQuizMode = async (mode) => {
   if (mode === 'list') {
     await loadQuizzesForSession('list')
   }
+}
+
+const startNewQuiz = () => {
+  quizError.value = ''
+  if (quizStatus.value === 'generating') {
+    quizMode.value = 'create'
+    return
+  }
+  quizStatus.value = 'idle'
+  resetActiveQuiz()
+  quizMode.value = 'create'
+}
+
+const returnToQuizBuilder = () => {
+  quizStatus.value = 'idle'
+  resetActiveQuiz()
+  quizMode.value = 'create'
 }
 
 const applyPreset = (total) => {
@@ -450,7 +628,8 @@ const generateQuizForSource = async () => {
     const sourcePayload = {
       session_id: quizSessionId.value,
       num_questions: quizQuestionCount.value,
-      type_counts: quizTypeCounts.value
+      type_counts: quizTypeCounts.value,
+      source_title: selectedQuizListSourceTitle.value
     }
     const materialPayload = {
       material_ids: selectedPdfMaterials.value.map((material) => material.id).filter(Boolean),
@@ -486,7 +665,7 @@ const generateQuizForSource = async () => {
       buildQuizListItem(generatedQuiz),
       ...quizList.value.filter((item) => item.quiz_id !== quiz.quiz_id)
     ]
-    quizMode.value = 'solve'
+    quizMode.value = 'create'
     quizStatus.value = 'done'
   } catch (error) {
     quizStatus.value = 'error'
@@ -558,7 +737,7 @@ const generateDemoQuiz = () => {
   ]
   quizError.value = ''
   quizStatus.value = 'done'
-  quizMode.value = 'solve'
+  quizMode.value = 'create'
 }
 
 const normalizeDemoAnswer = (value) => String(value || '').trim().toLowerCase()
@@ -638,9 +817,13 @@ const goToNextQuizPage = async () => {
   }
   if (activeQuiz.value?.is_demo) {
     finalizePagedQuiz()
+    returnToQuizBuilder()
     return
   }
   await submitQuizAnswers()
+  if (quizStatus.value === 'done') {
+    returnToQuizBuilder()
+  }
 }
 
 const resetPagedQuiz = () => {
@@ -712,7 +895,7 @@ const submitDemoQuizAnswers = () => {
 const openQuizFromList = (quiz) => {
   if (quiz?.is_demo) {
     setActiveQuiz(quiz)
-    quizMode.value = 'solve'
+    quizMode.value = 'create'
     quizStatus.value = 'done'
     quizError.value = ''
     return
@@ -808,9 +991,23 @@ watch(
 watch(
   () => props.quizSource,
   () => {
+    if (quizStatus.value === 'generating') return
     quizError.value = ''
+    isSourcePickerOpen.value = false
+    hasPickedQuizSources.value = false
+    localQuizSourceIds.value = []
     resetActiveQuiz()
     quizMode.value = 'create'
+  },
+  { deep: true }
+)
+
+watch(
+  availableQuizSourceItems,
+  (sources) => {
+    const availableIds = new Set(sources.filter((source) => !source.disabled).map((source) => source.uid))
+    localQuizSourceIds.value = localQuizSourceIds.value.filter((id) => availableIds.has(id))
+    if (!sources.length) isSourcePickerOpen.value = false
   },
   { deep: true }
 )
@@ -841,68 +1038,149 @@ watch(
         <p>워크스페이스 파일을 선택하면 퀴즈를 만들 수 있습니다.</p>
       </div>
 
-      <div v-else-if="quizMode === 'create'" class="quiz-create-view">
-        <section class="quiz-simple-builder" aria-label="퀴즈 만들기 설정">
-          <div class="quiz-simple-builder-header">
-            <div class="quiz-simple-title">
-              <h2>퀴즈 만들기</h2>
-              <span class="material-symbols-outlined" aria-hidden="true">info</span>
-            </div>
+      <div v-else-if="quizMode === 'create' && !hasActiveQuiz" class="quiz-create-view">
+        <section
+          :class="['quiz-simple-builder', { 'is-generating': quizStatus === 'generating' }]"
+          aria-label="퀴즈 만들기 설정"
+        >
+          <div v-if="quizStatus === 'generating'" class="quiz-generating-state">
+            <LoadingHourglass
+              class="quiz-generating-animation"
+              src="/animations/motion_quizflip_loop.json"
+              :size="118"
+              fallback-icon="quiz"
+            />
+            <strong>퀴즈 생성중</strong>
           </div>
 
-          <div class="quiz-selected-source-box">
-            <div class="quiz-selected-source-top">
-              <span>선택 소스</span>
-              <strong>{{ selectedSourceCount }}개</strong>
+          <template v-else>
+            <div class="quiz-simple-builder-header">
+              <div class="quiz-simple-title">
+                <h2>퀴즈 만들기</h2>
+              </div>
+              <div class="quiz-source-header-actions">
+                <button
+                  v-if="selectedSourceCount"
+                  type="button"
+                  class="quiz-source-clear-button"
+                  @click="clearQuizSourceSelection"
+                >
+                  초기화
+                </button>
+                <button type="button" class="quiz-source-picker-button" @click="toggleSourcePicker">
+                  <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                  <span>소스 추가</span>
+                </button>
+              </div>
             </div>
-            <p>{{ selectedSourceMeta }}</p>
-            <div v-if="selectedSourceCount" class="quiz-selected-source-list">
-              <span
-                v-for="source in visibleSelectedSourceItems"
-                :key="source.id || source.materialId || source.recordingId || source.title"
-                class="quiz-selected-source-chip"
-                :title="source.title"
+
+            <div class="quiz-selected-source-box">
+              <div class="quiz-selected-source-top">
+                <span>{{ selectedSourceMeta }}</span>
+                <strong>{{ selectedSourceCount }}개</strong>
+              </div>
+              <div v-if="selectedSourceCount" class="quiz-selected-source-list">
+                <span
+                  v-for="source in visibleSelectedSourceItems"
+                  :key="source.id || source.materialId || source.recordingId || source.title"
+                  class="quiz-selected-source-chip"
+                  :title="source.title"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">{{ getSourceIcon(source) }}</span>
+                  <span>{{ source.title }}</span>
+                </span>
+                <span v-if="hiddenSelectedSourceCount" class="quiz-selected-source-more">
+                  +{{ hiddenSelectedSourceCount }}
+                </span>
+              </div>
+            </div>
+
+            <Teleport to="body">
+              <div
+                v-if="isSourcePickerOpen"
+                class="quiz-source-picker-layer"
+                @click.self="handleSourcePickerBackdrop"
               >
-                <span class="material-symbols-outlined" aria-hidden="true">{{ getSourceIcon(source) }}</span>
-                <span>{{ source.title }}</span>
-              </span>
-              <span v-if="hiddenSelectedSourceCount" class="quiz-selected-source-more">
-                +{{ hiddenSelectedSourceCount }}
-              </span>
+                <div
+                  class="quiz-source-picker-popover"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="소스 선택"
+                  :style="{ left: `${sourcePickerAnchor.left}px`, top: `${sourcePickerAnchor.top}px` }"
+                >
+                  <div class="quiz-source-picker-head">
+                    <strong>소스 선택</strong>
+                    <button type="button" aria-label="소스 선택 닫기" @click="closeSourcePicker">
+                      <span class="material-symbols-outlined">close</span>
+                    </button>
+                  </div>
+
+                  <div v-if="availableQuizSourceItems.length" class="quiz-source-picker-list">
+                    <button
+                      v-for="source in availableQuizSourceItems"
+                      :key="source.uid"
+                      type="button"
+                      :class="[
+                        'quiz-source-picker-item',
+                        {
+                          selected: isQuizSourceSelected(source),
+                          disabled: source.disabled,
+                          'is-recording': source.type === 'recording'
+                        }
+                      ]"
+                      :disabled="source.disabled"
+                      :title="source.disabled ? source.disabledReason : source.title"
+                      @click="toggleQuizSourceSelection(source)"
+                    >
+                      <span class="quiz-source-picker-icon material-symbols-outlined">{{ source.icon || getSourceIcon(source) }}</span>
+                      <span class="quiz-source-picker-copy">
+                        <strong>{{ source.title }}</strong>
+                        <small>{{ getAvailableSourceMeta(source) }}</small>
+                      </span>
+                      <span class="quiz-source-picker-check material-symbols-outlined">
+                        {{ isQuizSourceSelected(source) ? 'check_circle' : 'radio_button_unchecked' }}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div v-else class="quiz-source-picker-empty">
+                    현재 세션에 저장된 소스가 없습니다.
+                  </div>
+                </div>
+              </div>
+            </Teleport>
+
+            <div class="quiz-simple-form">
+              <label class="quiz-simple-field">
+                <span>퀴즈 유형</span>
+                <span class="quiz-simple-select-wrap">
+                  <select v-model="frontendQuizType" aria-label="퀴즈 유형">
+                    <option v-for="option in quizTypeOptions" :key="option.key" :value="option.key">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                  <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
+                </span>
+              </label>
             </div>
-            <div v-else class="quiz-selected-source-empty">좌측 소스에서 퀴즈에 사용할 자료를 체크하세요.</div>
-          </div>
 
-          <div class="quiz-simple-form">
-            <label class="quiz-simple-field">
-              <span>퀴즈 유형</span>
-              <span class="quiz-simple-select-wrap">
-                <select v-model="frontendQuizType" aria-label="퀴즈 유형">
-                  <option v-for="option in quizTypeOptions" :key="option.key" :value="option.key">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
-              </span>
-            </label>
-          </div>
-
-          <div class="quiz-simple-actions">
-            <button
-              type="button"
-              class="quiz-simple-primary"
-              :disabled="!canGenerateQuiz"
-              @click="generateQuizForSource"
-            >
-              {{ quizStatus === 'generating' ? '생성 중' : '퀴즈 만들기' }}
-            </button>
-          </div>
+            <div class="quiz-simple-actions">
+              <button
+                type="button"
+                class="quiz-simple-primary"
+                :disabled="!canGenerateQuiz"
+                @click="generateQuizForSource"
+              >
+                퀴즈 만들기
+              </button>
+            </div>
+          </template>
         </section>
       </div>
 
       <div v-else-if="quizMode === 'list'" class="quiz-list-view">
         <div class="quiz-list-header">
-          <button type="button" class="quiz-secondary-button" @click="setQuizMode('create')">
+          <button type="button" class="quiz-secondary-button" @click="startNewQuiz">
             <span class="material-symbols-outlined">add</span>
             <span>새로 만들기</span>
           </button>
@@ -926,7 +1204,10 @@ watch(
             <span class="material-symbols-outlined">assignment</span>
             <div class="quiz-session-main">
               <strong>{{ getQuizListTitle(quiz) }}</strong>
-              <p>{{ formatQuizDate(quiz.created_at) }} · {{ getQuizSummaryLabel(quiz) }}</p>
+              <p>
+                <span class="quiz-session-type">{{ getQuizListTypeText(quiz) }}</span>
+                <span>{{ formatQuizDate(quiz.created_at) }} · {{ getQuizSummaryLabel(quiz) }}</span>
+              </p>
             </div>
             <div class="quiz-session-actions">
               <button type="button" class="quiz-secondary-button" @click="openQuizFromList(quiz)">
@@ -947,7 +1228,7 @@ watch(
         </div>
       </div>
 
-      <div v-else class="quiz-solve-view">
+      <div v-else-if="quizMode === 'create' && hasActiveQuiz" class="quiz-solve-view">
         <div v-if="!hasActiveQuiz" class="quiz-empty compact">
           <span class="material-symbols-outlined">edit_note</span>
           <p>퀴즈 목록에서 풀 퀴즈를 선택하거나 새 퀴즈를 생성하세요.</p>
@@ -982,13 +1263,14 @@ watch(
             </div>
 
             <div v-if="currentQuestion.type === 'SHORT_ANSWER'" class="quiz-play-short-answer">
-              <textarea
+              <input
+                type="text"
                 :value="quizAnswers[String(currentQuestion.question_index)] || ''"
                 :disabled="currentQuestionIsGraded || !!quizResult"
                 placeholder="단답을 입력하세요"
-                rows="4"
                 @input="setQuizAnswer(currentQuestion, $event.target.value)"
-              ></textarea>
+                @keydown.enter.prevent="goToNextQuizPage"
+              />
             </div>
 
             <div v-else class="quiz-play-options">
@@ -1070,36 +1352,34 @@ watch(
 
 .quiz-mode-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: min(100%, 420px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
-  padding: 5px;
-  border: 0;
-  border-radius: 10px;
-  background: #e8eaee;
-  box-shadow: none;
+  padding: 4px;
+  border: 1px solid #dfe4ec;
+  border-radius: 8px;
+  background: #e9edf2;
 }
 
 .quiz-mode-tabs button {
-  height: 42px;
+  height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0 12px;
   border: 0;
-  border-radius: 8px;
-  color: #7b7f86;
+  border-radius: 6px;
+  color: #7b8492;
   background: transparent;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 900;
   white-space: nowrap;
   transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .quiz-mode-tabs button.active {
-  color: #1d1d1f;
+  color: #111827;
   background: #ffffff;
-  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.09);
+  box-shadow: 0 1px 5px rgba(15, 23, 42, 0.1);
 }
 
 .quiz-mode-tabs .material-symbols-outlined,
@@ -1126,7 +1406,7 @@ watch(
 }
 
 .quiz-simple-builder {
-  width: min(100%, 520px);
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -1135,6 +1415,32 @@ watch(
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.07);
+}
+
+.quiz-simple-builder.is-generating {
+  min-height: 320px;
+  align-items: center;
+  justify-content: center;
+}
+
+.quiz-generating-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.quiz-generating-animation {
+  margin-bottom: 2px;
+}
+
+.quiz-generating-state strong {
+  color: #111827;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.25;
 }
 
 .quiz-simple-builder-header {
@@ -1157,17 +1463,6 @@ watch(
   font-size: 22px;
   font-weight: 900;
   line-height: 1.2;
-}
-
-.quiz-simple-title .material-symbols-outlined {
-  width: 19px;
-  height: 19px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #111111;
-  font-size: 18px;
-  font-variation-settings: 'FILL' 0;
 }
 
 .quiz-selected-source-box {
@@ -1195,7 +1490,48 @@ watch(
   font-weight: 900;
 }
 
-.quiz-selected-source-box p,
+.quiz-source-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.quiz-source-picker-button,
+.quiz-source-clear-button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.quiz-source-picker-button {
+  padding: 0 12px;
+  color: #64748b;
+  background: #eef2f7;
+}
+
+.quiz-source-picker-button .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.quiz-source-clear-button {
+  padding: 0 10px;
+  color: #64748b;
+  background: #eef2f7;
+}
+
+.quiz-source-picker-button:hover,
+.quiz-source-clear-button:hover {
+  background: #e2e8f0;
+}
+
 .quiz-selected-source-empty {
   margin: 0;
   color: #8e8e93;
@@ -1243,6 +1579,141 @@ watch(
   border-color: #e2e8f0;
   background: #ffffff;
   color: #64748b;
+}
+
+.quiz-source-picker-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: transparent;
+}
+
+.quiz-source-picker-popover {
+  position: fixed;
+  width: min(360px, calc(100vw - 48px));
+  max-height: min(520px, calc(100vh - 72px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dfe5ee;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.14);
+}
+
+.quiz-source-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.quiz-source-picker-head button {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  color: #64748b;
+  background: #f1f5f9;
+}
+
+.quiz-source-picker-head .material-symbols-outlined {
+  font-size: 17px;
+}
+
+.quiz-source-picker-list {
+  max-height: 390px;
+  display: grid;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.quiz-source-picker-item {
+  min-width: 0;
+  height: 48px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #1f2937;
+  background: #f8fafc;
+  text-align: left;
+}
+
+.quiz-source-picker-item.selected {
+  box-shadow: inset 0 0 0 2px #2563eb;
+  background: #eef4ff;
+}
+
+.quiz-source-picker-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.quiz-source-picker-icon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #2563eb;
+  background: #dbeafe;
+  font-size: 18px;
+}
+
+.quiz-source-picker-item.is-recording .quiz-source-picker-icon {
+  color: #f59e0b;
+  background: rgba(255, 242, 207, 0.9);
+}
+
+.quiz-source-picker-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.quiz-source-picker-copy strong,
+.quiz-source-picker-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quiz-source-picker-copy strong {
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.quiz-source-picker-copy small {
+  color: #7b8492;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.quiz-source-picker-check {
+  color: #2563eb;
+  font-size: 19px;
+}
+
+.quiz-source-picker-empty {
+  padding: 18px 10px;
+  border-radius: 8px;
+  color: #8e8e93;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .quiz-simple-form {
@@ -1766,13 +2237,17 @@ watch(
   padding: 0 16px;
   color: #ffffff;
   background: #1d1d1f;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+  box-shadow: none;
 }
 
 .quiz-secondary-button {
   padding: 0 13px;
-  color: #1d1d1f;
-  background: #f2f4f7;
+  color: #64748b;
+  background: #eef2f7;
+}
+
+.quiz-secondary-button:hover:not(:disabled) {
+  background: #e2e8f0;
 }
 
 .quiz-primary-button:disabled,
@@ -1840,11 +2315,20 @@ watch(
 .quiz-session-main p {
   margin: 4px 0 0;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   color: #8e8e93;
   font-size: 12px;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.quiz-session-type {
+  flex: 0 0 auto;
+  color: #475569;
+  font-weight: 900;
 }
 
 .quiz-session-actions {
@@ -2072,22 +2556,21 @@ watch(
   cursor: default;
 }
 
-.quiz-play-short-answer textarea {
+.quiz-play-short-answer input {
   width: 100%;
-  min-height: 92px;
-  resize: vertical;
-  padding: 12px 13px;
+  height: 48px;
+  padding: 0 14px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   color: #1f2937;
   background: #ffffff;
   font-size: 13px;
   font-weight: 850;
-  line-height: 1.45;
+  line-height: 48px;
   outline: none;
 }
 
-.quiz-play-short-answer textarea:focus {
+.quiz-play-short-answer input:focus {
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }

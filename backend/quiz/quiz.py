@@ -50,6 +50,7 @@ class QuizGenerateRequest(BaseModel):
     session_id: str
     num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
+    source_title: str | None = Field(default=None, description="퀴즈 목록에 표시할 소스 제목")
     user_id: str | None = None
     course_id: str | None = None
 
@@ -60,6 +61,7 @@ class QuizGenerateTranscriptsRequest(BaseModel):
     transcript_ids: list[str] = Field(..., description="퀴즈 생성 대상 transcript_id 목록")
     num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
+    source_title: str | None = Field(default=None, description="퀴즈 목록에 표시할 소스 제목")
     user_id: str | None = None
     course_id: str | None = None
 
@@ -71,6 +73,7 @@ class QuizGenerateMaterialsRequest(BaseModel):
     stored_names: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 저장 파일명 목록")
     num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
+    source_title: str | None = Field(default=None, description="퀴즈 목록에 표시할 소스 제목")
     user_id: str | None = None
     course_id: str | None = None
 
@@ -83,6 +86,7 @@ class QuizGenerateSourcesRequest(BaseModel):
     transcript_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 transcript_id 목록")
     num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
+    source_title: str | None = Field(default=None, description="퀴즈 목록에 표시할 소스 제목")
     user_id: str | None = None
     course_id: str | None = None
 
@@ -93,6 +97,7 @@ class QuizGenerateTextRequest(BaseModel):
     num_questions: int = Field(default=5, ge=1, le=20)
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
     session_id: str | None = None
+    source_title: str | None = Field(default=None, description="퀴즈 목록에 표시할 소스 제목")
     user_id: str | None = None
     course_id: str | None = None
 
@@ -141,6 +146,19 @@ def dump_type_counts(type_counts: QuizTypeCounts | None) -> dict[str, int] | Non
     return type_counts.dict()
 
 
+def build_source_title_from_materials(materials: list[dict]) -> str | None:
+    titles = [
+        str(material.get("name") or material.get("storedName") or "").strip()
+        for material in materials
+        if material.get("name") or material.get("storedName")
+    ]
+    if not titles:
+        return None
+    if len(titles) == 1:
+        return titles[0]
+    return f"{titles[0]} 외 +{len(titles) - 1}개 소스"
+
+
 async def build_selected_transcript_text(
     session_id: str,
     transcript_ids: list[str],
@@ -167,6 +185,7 @@ async def create_and_save_quiz(
     type_counts: QuizTypeCounts | None = None,
     user_id: str | None = None,
     course_id: str | None = None,
+    source_title: str | None = None,
 ) -> dict:
     if len(transcript_text.strip()) < 20:
         raise HTTPException(
@@ -193,6 +212,7 @@ async def create_and_save_quiz(
         total_questions=len(quiz_data),
         user_id=user_id,
         course_id=course_id,
+        source_title=source_title,
     )
 
     logger.info(f"[QUIZ] 퀴즈 저장 완료: quiz_id={quiz_id}, {len(quiz_data)}문제")
@@ -200,6 +220,7 @@ async def create_and_save_quiz(
         "quiz_id": quiz_id,
         "total_questions": len(quiz_data),
         "type_counts": count_quiz_types(quiz_data),
+        "source_title": source_title,
         "quiz_data": quiz_data,
     }
 
@@ -234,6 +255,7 @@ async def quiz_generate(req: QuizGenerateRequest):
         type_counts=req.type_counts,
         user_id=req.user_id,
         course_id=req.course_id,
+        source_title=req.source_title,
     )
 
 
@@ -264,6 +286,7 @@ async def quiz_generate_from_transcripts(req: QuizGenerateTranscriptsRequest):
         type_counts=req.type_counts,
         user_id=req.user_id,
         course_id=req.course_id,
+        source_title=req.source_title,
     )
     return {
         **result,
@@ -303,6 +326,7 @@ async def quiz_generate_from_materials(req: QuizGenerateMaterialsRequest):
         type_counts=req.type_counts,
         user_id=req.user_id,
         course_id=req.course_id,
+        source_title=req.source_title or build_source_title_from_materials(materials),
     )
 
     return {
@@ -370,6 +394,7 @@ async def quiz_generate_from_sources(req: QuizGenerateSourcesRequest):
         type_counts=req.type_counts,
         user_id=req.user_id,
         course_id=req.course_id,
+        source_title=req.source_title or build_source_title_from_materials(source_materials),
     )
 
     return {
@@ -419,6 +444,7 @@ async def quiz_generate_from_text(req: QuizGenerateTextRequest):
         total_questions=len(quiz_data),
         user_id=req.user_id,
         course_id=req.course_id,
+        source_title=req.source_title,
     )
 
     return {
@@ -426,6 +452,7 @@ async def quiz_generate_from_text(req: QuizGenerateTextRequest):
         "session_id": session_id,
         "total_questions": len(quiz_data),
         "type_counts": count_quiz_types(quiz_data),
+        "source_title": req.source_title,
         "quiz_data": quiz_data,
     }
 

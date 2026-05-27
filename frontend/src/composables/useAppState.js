@@ -58,13 +58,16 @@ export function useAppState() {
   } = useRecordingState()
 
   const {
-    hydrateSchedules
+    hydrateSchedules,
+    confirmAndSyncToNotion,
+    ignoreSchedule
   } = useScheduleState()
 
   const {
     summaryState,
     clearSummaryState,
     startLiveSummary,
+    startFinalRecordingSummary,
     loadSummariesForSession,
     generateSummariesForSession,
     generateMaterialSummaryForSource,
@@ -192,6 +195,35 @@ export function useAppState() {
   const handleOpenRecording = ({ sessionId = '', recordingId = '' } = {}) => {
     if (!isWorkspaceUuid(sessionId)) return
     loadSummariesForSession(sessionId, recordingId)
+  }
+
+  const generateRecordingSummaryForSource = async ({
+    sessionId = activeFileId.value,
+    recordingId = '',
+    recording = null,
+    recordings = []
+  } = {}) => {
+    const targetSessionId = sessionId || activeFileId.value
+    if (!isWorkspaceUuid(targetSessionId)) return
+
+    const selectedRecordings = Array.isArray(recordings) && recordings.length
+      ? recordings
+      : (recording ? [recording] : [])
+    const recordingSnapshot = selectedRecordings.flatMap((item) => (
+      Array.isArray(item?.transcriptions) ? item.transcriptions : []
+    ))
+    if (!recordingSnapshot.length) return
+
+    const targetRecordingId = recordingId
+      || selectedRecordings.map((item) => item?.id || item?.recordingId).filter(Boolean).join('+')
+      || `combined-recording-${Date.now()}`
+    const mode = selectedRecordings[0]?.recordingMode || recordingMode.value || 'lecture'
+    const shouldDiarize = selectedRecordings.some((item) => item?.diarizationEnabled === true)
+
+    await generateSummariesForSession(targetSessionId, recordingSnapshot, mode, targetRecordingId, {
+      live: false,
+      diarizationEnabled: shouldDiarize
+    })
   }
 
   const handleUploadRecordingFile = async (files = []) => {
@@ -391,6 +423,9 @@ export function useAppState() {
     const linkedMaterialName = currentPreviewMaterial.value?.name || ''
 
     stopLiveSummaryRefresh()
+    if (shouldSaveRecording && isWorkspaceUuid(activeFileId.value)) {
+      startFinalRecordingSummary(activeFileId.value, recordingId, { diarizationEnabled: shouldDiarize })
+    }
     const stoppedRecording = await stopActiveRecording({ finalize: true })
     const finalizeResult = stoppedRecording?.finalizeResult || {}
     // 신창영: 수정 이유 - 녹음 종료 후 전체 오디오 화자분리로 보정된 전사 목록을 최종 저장/요약에 사용합니다.
@@ -398,10 +433,21 @@ export function useAppState() {
       ? stoppedRecording.transcriptions
       : initialRecordingSnapshot
 
-    if (!shouldSaveRecording || (recordingSnapshot.length === 0 && !finalizeResult.audioUrl)) return
+    if (!shouldSaveRecording || (recordingSnapshot.length === 0 && !finalizeResult.audioUrl)) {
+      if (isWorkspaceUuid(activeFileId.value)) {
+        await loadSummariesForSession(activeFileId.value, recordingId, {
+          silent: true,
+          diarizationEnabled: shouldDiarize
+        })
+      }
+      return
+    }
 
     const targetFileId = activeFileId.value
-    if (!targetFileId) return
+    if (!targetFileId) {
+      clearSummaryState()
+      return
+    }
 
     const recording = {
       id: recordingId,
@@ -436,13 +482,13 @@ export function useAppState() {
         console.error('[workspace] session resources save failed:', error)
       }
 
-      if (recordingSnapshot.length > 0) {
-        try {
-          await extractSchedulesForSession(targetFileId, recordingId)
-        } catch (error) {
-          console.error('[schedule] extract after recording failed:', error)
-        }
+      try {
+        await extractSchedulesForSession(targetFileId, recordingId)
+      } catch (error) {
+        console.error('[schedule] extract after recording failed:', error)
+      }
 
+      if (recordingSnapshot.length > 0) {
         try {
           await generateSummariesForSession(targetFileId, recordingSnapshot, mode, recordingId, {
             live: false,
@@ -453,6 +499,23 @@ export function useAppState() {
         }
       }
 
+    }
+  }
+
+  const updateScheduleNotionId = async (scheduleId, notionPageId) => {
+    try {
+      const response = await fetch(`/schedule/${scheduleId}/notion`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notion_page_id: notionPageId })
+      })
+      if (!response.ok) {
+        throw new Error(`notion id update failed: ${response.status}`)
+      }
+      return await response.json()
+    } catch (error) {
+      console.error('[schedule] update notion id failed:', error)
+      throw error
     }
   }
 
@@ -486,6 +549,10 @@ export function useAppState() {
     summaryNotes,
     aiInput,
     dismissScheduleExtractionNotice,
+    extractSchedulesForSession,
+    updateScheduleNotionId,
+    confirmAndSyncToNotion,
+    ignoreSchedule,
     handleFileTreeUpdate,
     handleFavoritesUpdate,
     handleAiInputUpdate,
@@ -495,6 +562,7 @@ export function useAppState() {
     resumeRecording,
     stopRecording: handleStopRecording,
     generateMaterialSummaryForSource,
+    generateRecordingSummaryForSource,
     deleteSummary,
     handleRightSidebarToggle,
     handleAddToNote,

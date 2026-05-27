@@ -40,11 +40,14 @@ const emit = defineEmits([
   'update:favorites',
   'update:aiInput',
   'dismissScheduleNotice',
+  'confirmAndSyncSchedule',
+  'ignoreSchedule',
   'startRecording',
   'pauseRecording',
   'resumeRecording',
   'stopRecording',
   'generateMaterialSummary',
+  'generateRecordingSummary',
   'deleteSummary',
   'rightSidebarToggle',
   'addToNote',
@@ -65,19 +68,38 @@ const mainContentTabRequest = ref(null)
 const isMiniSourceOpen = ref(false)
 const workspaceActiveMainTab = ref('materials')
 const workspaceUnifiedCardRef = ref(null)
-const miniMaterialFileInput = ref(null)
-const miniRecordingFileInput = ref(null)
+const sourceUploadFileInput = ref(null)
 const miniSourceMenu = ref({ visible: false, x: 0, y: 0, source: null })
 const scriptPaneWidth = ref(50)
 const isScriptPaneResizing = ref(false)
 const selectedMiniSourceIds = ref(new Set())
-const userTouchedMiniSourceSelection = ref(false)
+const isSourceUploadDialogOpen = ref(false)
+const isSourceUploadDragging = ref(false)
+const pendingSourceUploadRecording = ref(null)
+const pendingStoppedRecordingPlayer = ref(null)
 
 const DEFAULT_SCRIPT_PANE_PERCENT = 50
 const MAX_SCRIPT_PANE_PERCENT = 72
 const MIN_SCRIPT_PANE_WIDTH = 280
 const MIN_MAIN_PANE_WIDTH = 340
 const RESIZE_KEY_STEP = 2
+const SOURCE_UPLOAD_ACCEPT = [
+  '.pdf',
+  '.ppt',
+  '.pptx',
+  'application/pdf',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'audio/*',
+  '.aac',
+  '.flac',
+  '.m4a',
+  '.mp3',
+  '.ogg',
+  '.opus',
+  '.wav',
+  '.webm'
+].join(',')
 
 function toggleMiniSourcePanel() {
   isMiniSourceOpen.value = !isMiniSourceOpen.value
@@ -87,11 +109,110 @@ function handleMiniCardClick(event) {
   if (isMiniSourceOpen.value) return
 
   const target = event.target
-  if (target instanceof Element && target.closest('button, input, .workspace-mini-add-menu, .mini-source-context-menu')) {
+  if (target instanceof Element && target.closest('button, input, .mini-source-context-menu')) {
     return
   }
 
   isMiniSourceOpen.value = true
+}
+
+function openSourceUploadDialog() {
+  if (!props.activeFileId) return
+  isSourceUploadDialogOpen.value = true
+}
+
+function closeSourceUploadDialog() {
+  isSourceUploadDialogOpen.value = false
+  isSourceUploadDragging.value = false
+}
+
+function browseSourceUploadFiles() {
+  sourceUploadFileInput.value?.click()
+}
+
+function isMaterialUploadFile(file) {
+  return (
+    /(\.pdf|\.ppt|\.pptx)$/i.test(file?.name || '') ||
+    [
+      'application/pdf',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ].includes(file?.type || '')
+  )
+}
+
+function isRecordingUploadFile(file) {
+  return !!file && (
+    file.type?.startsWith('audio/') ||
+    /\.(aac|flac|m4a|mp3|ogg|opus|wav|webm)$/i.test(file.name || '')
+  )
+}
+
+function getSourceUploadFileStem(filename = '') {
+  return String(filename || '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeSourceUploadText(value = '') {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function matchesPendingUploadedRecording(source = {}, pending = {}) {
+  if (source.type !== 'recording') return false
+
+  const recording = source.recording || {}
+  const pendingTitle = normalizeSourceUploadText(pending.title)
+  const pendingFileName = normalizeSourceUploadText(pending.fileName)
+  const candidates = [
+    source.title,
+    recording.title,
+    recording.name,
+    recording.originalName,
+    recording.original_name,
+    recording.fileName,
+    recording.file_name
+  ].map(normalizeSourceUploadText)
+
+  return candidates.some((candidate) => (
+    candidate &&
+    (candidate === pendingTitle || candidate === pendingFileName)
+  ))
+}
+
+function uploadSourceFiles(files = []) {
+  const sourceFiles = Array.from(files || []).filter(Boolean)
+  if (!sourceFiles.length) return
+
+  const sourceFile = sourceFiles.find((file) => isMaterialUploadFile(file) || isRecordingUploadFile(file))
+  if (!sourceFile) {
+    alert('PDF, PPT 또는 음성 파일만 추가할 수 있습니다.')
+    return
+  }
+
+  if (isMaterialUploadFile(sourceFile)) {
+    emit('uploadLectureMaterials', [sourceFile])
+  } else {
+    pendingSourceUploadRecording.value = {
+      fileName: sourceFile.name || '',
+      title: getSourceUploadFileStem(sourceFile.name),
+      requestedAt: Date.now()
+    }
+    emit('uploadRecordingFile', [sourceFile])
+  }
+
+  closeSourceUploadDialog()
+}
+
+function handleSourceUploadFileChange(event) {
+  uploadSourceFiles(event.target.files)
+  event.target.value = ''
+}
+
+function handleSourceUploadDrop(event) {
+  isSourceUploadDragging.value = false
+  uploadSourceFiles(event.dataTransfer?.files)
 }
 
 function getScriptPaneMinPercent() {
@@ -189,6 +310,7 @@ watch(() => props.activeFileId, () => {
   citationSourceRequest.value = null
   recordingSourceRequest.value = null
   materialEvidenceRequest.value = null
+  pendingStoppedRecordingPlayer.value = null
   closeMiniSourceMenu()
   selectedMiniSourceIds.value = new Set()
   clearHistory()
@@ -231,6 +353,56 @@ function goSchedulePageFromNotice() {
   emit('dismissScheduleNotice')
   emit('navigate', 'schedule')
 }
+
+const confirmingScheduleIds = ref(new Set())
+
+async function confirmNoticeItem(item) {
+  confirmingScheduleIds.value.add(item.id)
+  try {
+    await emit('confirmAndSyncSchedule', item.id)
+  } catch { /* handled upstream */ }
+  confirmingScheduleIds.value.delete(item.id)
+  // If all items are confirmed/ignored, close the notice
+  const remaining = scheduleNoticeItems.value.filter(
+    (i) => !confirmedNoticeIds.value.has(i.id) && !ignoredNoticeIds.value.has(i.id)
+  )
+  if (remaining.length === 0) closeScheduleNotice()
+}
+
+const confirmedNoticeIds = ref(new Set())
+const ignoredNoticeIds = ref(new Set())
+
+function markNoticeItemConfirmed(item) {
+  confirmedNoticeIds.value.add(item.id)
+  confirmNoticeItem(item)
+}
+
+function markNoticeItemIgnored(item) {
+  ignoredNoticeIds.value.add(item.id)
+  emit('ignoreSchedule', item.id) // 누락되었던 백엔드 상태 동기화 호출
+  // Remove from visible list by tracking ignored ids
+  const remaining = scheduleNoticeItems.value.filter(
+    (i) => !confirmedNoticeIds.value.has(i.id) && !ignoredNoticeIds.value.has(i.id)
+  )
+  if (remaining.length === 0) closeScheduleNotice()
+}
+
+function confirmAllNoticeItems() {
+  for (const item of scheduleNoticeItems.value) {
+    if (!confirmedNoticeIds.value.has(item.id) && !ignoredNoticeIds.value.has(item.id)) {
+      markNoticeItemConfirmed(item)
+    }
+  }
+}
+
+const activeNoticeItems = computed(() =>
+  scheduleNoticeItems.value.filter(
+    (i) => !confirmedNoticeIds.value.has(i.id) && !ignoredNoticeIds.value.has(i.id)
+  )
+)
+
+const visibleActiveNoticeItems = computed(() => activeNoticeItems.value.slice(0, 3))
+const hiddenActiveNoticeCount = computed(() => Math.max(activeNoticeItems.value.length - 3, 0))
 
 function findNodeById(nodes = [], id = '') {
   for (const node of nodes) {
@@ -414,6 +586,20 @@ function getMiniRecordingTitle(recording = {}, index = 0) {
   return recording?.title || recording?.name || `녹음본 ${index + 1}`
 }
 
+function getMiniRecordingIdentity(source = {}) {
+  const recording = source.recording || source
+  return String(
+    source.recordingId ||
+    source.id ||
+    recording?.id ||
+    recording?.recordingId ||
+    recording?.storedName ||
+    recording?.audioUrl ||
+    recording?.title ||
+    ''
+  )
+}
+
 const miniSourceItems = computed(() => (
   miniSourceWeeks.value.flatMap((week) => [
     ...week.materials.map((material, index) => {
@@ -458,23 +644,44 @@ watch(
   miniSourceItems,
   (sources) => {
     const validIds = new Set(sources.map((source) => source.uid))
-    const nextSelection = new Set(
+    selectedMiniSourceIds.value = new Set(
       Array.from(selectedMiniSourceIds.value).filter((id) => validIds.has(id))
     )
-    if (!userTouchedMiniSourceSelection.value && sources.length) {
-      selectedMiniSourceIds.value = new Set(sources.map((source) => source.uid))
+
+    const recordingSources = sources.filter((source) => source.type === 'recording')
+    const pending = pendingSourceUploadRecording.value
+    if (pending) {
+      if (Date.now() - pending.requestedAt > 30000) {
+        pendingSourceUploadRecording.value = null
+      } else {
+        const targetSource = recordingSources.find((source) => matchesPendingUploadedRecording(source, pending))
+          || recordingSources[recordingSources.length - 1]
+
+        if (targetSource?.recording) {
+          pendingSourceUploadRecording.value = null
+          selectedMiniSourceIds.value = new Set([...selectedMiniSourceIds.value, targetSource.uid])
+          openMiniRecording(targetSource.recording)
+        }
+      }
+    }
+
+    const pendingStoppedRecording = pendingStoppedRecordingPlayer.value
+    if (!pendingStoppedRecording) return
+
+    if (Date.now() - pendingStoppedRecording.requestedAt > 30000) {
+      pendingStoppedRecordingPlayer.value = null
       return
     }
-    selectedMiniSourceIds.value = nextSelection
+
+    const stoppedRecordingSource = recordingSources.find((source) => (
+      !pendingStoppedRecording.existingIds.has(getMiniRecordingIdentity(source))
+    ))
+    if (!stoppedRecordingSource?.recording) return
+
+    pendingStoppedRecordingPlayer.value = null
+    openMiniRecording(stoppedRecordingSource.recording)
   },
   { immediate: true }
-)
-
-watch(
-  () => props.activeFileId,
-  () => {
-    userTouchedMiniSourceSelection.value = false
-  }
 )
 
 function isMiniSourceSelected(uid) {
@@ -482,7 +689,6 @@ function isMiniSourceSelected(uid) {
 }
 
 function toggleMiniSource(uid) {
-  userTouchedMiniSourceSelection.value = true
   const next = new Set(selectedMiniSourceIds.value)
   if (next.has(uid)) next.delete(uid)
   else next.add(uid)
@@ -490,7 +696,6 @@ function toggleMiniSource(uid) {
 }
 
 function toggleAllMiniSources() {
-  userTouchedMiniSourceSelection.value = true
   selectedMiniSourceIds.value = areAllMiniSourcesSelected.value
     ? new Set()
     : new Set(miniSourceItems.value.map((source) => source.uid))
@@ -514,6 +719,20 @@ function openMiniRecording(recording = {}) {
     recordingId,
     recording
   }
+}
+
+function handleStopRecordingRequest() {
+  pendingStoppedRecordingPlayer.value = {
+    fileId: props.activeFileId,
+    requestedAt: Date.now(),
+    existingIds: new Set(
+      miniSourceItems.value
+        .filter((source) => source.type === 'recording')
+        .map((source) => getMiniRecordingIdentity(source))
+        .filter(Boolean)
+    )
+  }
+  emit('stopRecording')
 }
 
 function closeMiniSourceMenu() {
@@ -682,20 +901,6 @@ async function handleMiniSourceAction(action) {
   }
 }
 
-function handleMiniMaterialFileChange(event) {
-  const files = Array.from(event.target.files || [])
-  event.target.value = ''
-  if (!files.length) return
-  emit('uploadLectureMaterials', files)
-}
-
-function handleMiniRecordingFileChange(event) {
-  const files = Array.from(event.target.files || [])
-  event.target.value = ''
-  if (!files.length) return
-  emit('uploadRecordingFile', files)
-}
-
 const activeWorkspaceSource = computed(() => {
   if (!props.activeFileId) return null
 
@@ -756,21 +961,42 @@ const activeWorkspaceSource = computed(() => {
 
         <div class="workspace-schedule-notice-list">
           <article
-            v-for="item in visibleScheduleNoticeItems"
+            v-for="item in visibleActiveNoticeItems"
             :key="item.id"
             class="workspace-schedule-notice-item"
           >
-            <strong>{{ item.title }}</strong>
-            <span>{{ formatScheduleNoticeDate(item.dueDate) }}</span>
+            <div class="workspace-schedule-notice-item-info">
+              <strong>{{ item.title }}</strong>
+              <span>{{ formatScheduleNoticeDate(item.dueDate) }}</span>
+            </div>
+            <div class="workspace-schedule-notice-item-actions">
+              <button
+                type="button"
+                class="workspace-schedule-notice-item-btn confirm"
+                :disabled="confirmingScheduleIds.has(item.id)"
+                @click="markNoticeItemConfirmed(item)"
+              >
+                <span class="material-symbols-outlined">check</span>
+                확정
+              </button>
+              <button
+                type="button"
+                class="workspace-schedule-notice-item-btn ignore"
+                @click="markNoticeItemIgnored(item)"
+              >
+                <span class="material-symbols-outlined">close</span>
+                무시
+              </button>
+            </div>
           </article>
-          <div v-if="hiddenScheduleNoticeCount" class="workspace-schedule-notice-more">
-            외 {{ hiddenScheduleNoticeCount }}개 일정
+          <div v-if="hiddenActiveNoticeCount" class="workspace-schedule-notice-more">
+            외 {{ hiddenActiveNoticeCount }}개 일정
           </div>
         </div>
 
         <div class="workspace-schedule-notice-actions">
           <button type="button" class="workspace-schedule-notice-secondary" @click="closeScheduleNotice">
-            확인
+            닫기
           </button>
           <button type="button" class="workspace-schedule-notice-primary" @click="goSchedulePageFromNotice">
             일정관리로 이동
@@ -804,35 +1030,18 @@ const activeWorkspaceSource = computed(() => {
               title="소스 추가"
               data-label="소스 추가"
               :disabled="!activeFileId"
+              @click.stop="openSourceUploadDialog"
             >
               <span class="material-symbols-outlined">add</span>
               <span class="workspace-mini-add-label">소스 추가</span>
             </button>
-            <div class="workspace-mini-add-menu" role="menu">
-              <button type="button" role="menuitem" @click="miniMaterialFileInput?.click()">
-                <span class="material-symbols-outlined">article</span>
-                <span>강의자료</span>
-              </button>
-              <button type="button" role="menuitem" @click="miniRecordingFileInput?.click()">
-                <span class="material-symbols-outlined">graphic_eq</span>
-                <span>음성파일</span>
-              </button>
-            </div>
           </div>
           <input
-            ref="miniMaterialFileInput"
+            ref="sourceUploadFileInput"
             class="hidden"
             type="file"
-            accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            multiple
-            @change="handleMiniMaterialFileChange"
-          />
-          <input
-            ref="miniRecordingFileInput"
-            class="hidden"
-            type="file"
-            accept="audio/*,.aac,.flac,.m4a,.mp3,.ogg,.opus,.wav,.webm"
-            @change="handleMiniRecordingFileChange"
+            :accept="SOURCE_UPLOAD_ACCEPT"
+            @change="handleSourceUploadFileChange"
           />
         </div>
       </div>
@@ -956,7 +1165,7 @@ const activeWorkspaceSource = computed(() => {
         @startRecording="emit('startRecording', $event)"
         @pauseRecording="emit('pauseRecording')"
         @resumeRecording="emit('resumeRecording')"
-        @stopRecording="emit('stopRecording')"
+        @stopRecording="handleStopRecordingRequest"
       />
 
       <div
@@ -995,12 +1204,14 @@ const activeWorkspaceSource = computed(() => {
         :summaryState="summaryState"
         :summaryNotes="summaryNotes"
         :quizSource="activeWorkspaceSource"
+        :summarySource="activeWorkspaceSource"
         :tabRequest="mainContentTabRequest"
         @startRecording="emit('startRecording', $event)"
         @pauseRecording="emit('pauseRecording')"
         @resumeRecording="emit('resumeRecording')"
-        @stopRecording="emit('stopRecording')"
+        @stopRecording="handleStopRecordingRequest"
         @generateMaterialSummary="emit('generateMaterialSummary', $event)"
+        @generateRecordingSummary="emit('generateRecordingSummary', $event)"
         @deleteSummary="emit('deleteSummary', $event)"
         @mainSidebarToggle="isLeftSidebarCollapsed = !isLeftSidebarCollapsed"
         @rightSidebarToggle="emit('rightSidebarToggle')"
@@ -1024,6 +1235,52 @@ const activeWorkspaceSource = computed(() => {
     />
 
   </div>
+
+  <Teleport to="body">
+    <transition name="source-upload-modal">
+      <div
+        v-if="isSourceUploadDialogOpen"
+        class="source-upload-backdrop"
+        @click.self="closeSourceUploadDialog"
+      >
+        <section
+          class="source-upload-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="source-upload-title"
+        >
+          <button
+            type="button"
+            class="source-upload-close"
+            aria-label="소스 추가 창 닫기"
+            @click="closeSourceUploadDialog"
+          >
+            <span class="material-symbols-outlined">close</span>
+          </button>
+
+          <div class="source-upload-heading">
+            <span class="source-upload-kicker">소스 추가</span>
+            <h2 id="source-upload-title">자료와 음성 파일을 추가하세요</h2>
+            <p>음성파일또는 강의자료를 워크페이스 소스로 저장합니다.</p>
+          </div>
+
+          <button
+            type="button"
+            class="source-upload-dropzone"
+            :class="{ 'is-dragging': isSourceUploadDragging }"
+            @click="browseSourceUploadFiles"
+            @dragenter.prevent="isSourceUploadDragging = true"
+            @dragover.prevent="isSourceUploadDragging = true"
+            @dragleave.prevent="isSourceUploadDragging = false"
+            @drop.prevent="handleSourceUploadDrop"
+          >
+            <span class="material-symbols-outlined source-upload-icon">upload_file</span>
+            <strong>파일을 드래그하거나 클릭해서 추가</strong>
+          </button>
+        </section>
+      </div>
+    </transition>
+  </Teleport>
 
   <CitationPopover
     :visible="showCitePopover"
@@ -1175,7 +1432,7 @@ const activeWorkspaceSource = computed(() => {
 
 .workspace-mini-add-label {
   display: none;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 800;
   color: inherit;
   white-space: nowrap;
@@ -1187,18 +1444,18 @@ const activeWorkspaceSource = computed(() => {
 
 .workspace-mini-card.is-open .workspace-mini-add-btn {
   width: 100%;
-  height: 48px;
-  flex-basis: 48px;
+  height: 40px;
+  flex-basis: 40px;
   border: 0;
   border-radius: 999px;
-  gap: 12px;
+  gap: 9px;
   color: var(--workspace-mini-fg);
   background: var(--workspace-mini-panel);
   box-shadow: none;
 }
 
 .workspace-mini-card.is-open .workspace-mini-add-btn .material-symbols-outlined {
-  font-size: 25px;
+  font-size: 22px;
 }
 
 .workspace-mini-card.is-open .workspace-mini-add-label {
@@ -1251,59 +1508,6 @@ const activeWorkspaceSource = computed(() => {
 
 .workspace-mini-add-btn::after {
   display: none;
-}
-
-.workspace-mini-add-menu {
-  position: absolute;
-  top: 0;
-  left: calc(100% + 10px);
-  z-index: 40;
-  width: 132px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.16);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-6px);
-  transition: opacity 0.16s ease, transform 0.16s ease;
-}
-
-.workspace-mini-add-wrap:hover .workspace-mini-add-menu,
-.workspace-mini-add-wrap:focus-within .workspace-mini-add-menu {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0);
-}
-
-.workspace-mini-add-menu button {
-  width: 100%;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  border-radius: 11px;
-  padding: 8px 9px;
-  color: #334155;
-  background: transparent;
-  font-size: 12px;
-  font-weight: 800;
-  text-align: left;
-}
-
-.workspace-mini-add-menu button:hover {
-  color: #111827;
-  background: #f1f5f9;
-}
-
-.workspace-mini-add-menu .material-symbols-outlined {
-  font-size: 18px;
-  color: #64748b;
 }
 
 .workspace-mini-source-panel {
@@ -1882,26 +2086,84 @@ const activeWorkspaceSource = computed(() => {
   border-radius: 14px;
   background: #f8fafc;
   border: 1px solid #e5edf6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.workspace-schedule-notice-item strong,
-.workspace-schedule-notice-item span {
+.workspace-schedule-notice-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-schedule-notice-item-info strong,
+.workspace-schedule-notice-item-info span {
   display: block;
   overflow-wrap: anywhere;
 }
 
-.workspace-schedule-notice-item strong {
+.workspace-schedule-notice-item-info strong {
   color: #111827;
   font-size: 14px;
   font-weight: 900;
   line-height: 1.35;
 }
 
-.workspace-schedule-notice-item span {
+.workspace-schedule-notice-item-info span {
   margin-top: 5px;
   color: #64748b;
   font-size: 12px;
   font-weight: 800;
+}
+
+.workspace-schedule-notice-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.workspace-schedule-notice-item-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.workspace-schedule-notice-item-btn .material-symbols-outlined {
+  font-size: 14px;
+}
+
+.workspace-schedule-notice-item-btn.confirm {
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.workspace-schedule-notice-item-btn.confirm:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+.workspace-schedule-notice-item-btn.confirm:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+.workspace-schedule-notice-item-btn.ignore {
+  color: #64748b;
+  background: #e2e8f0;
+}
+
+.workspace-schedule-notice-item-btn.ignore:hover {
+  background: #cbd5e1;
+  transform: translateY(-1px);
 }
 
 .workspace-schedule-notice-more {
@@ -1954,6 +2216,167 @@ const activeWorkspaceSource = computed(() => {
 .schedule-notice-fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+.source-upload-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.34);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.source-upload-dialog {
+  position: relative;
+  width: min(620px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 34px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 24px;
+  color: #111827;
+  background: #ffffff;
+  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.22);
+}
+
+.source-upload-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  color: #111827;
+  background: #f1eef6;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.source-upload-close:hover {
+  color: #111827;
+  background: #e8e3ee;
+  transform: translateY(-1px);
+}
+
+.source-upload-close .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.source-upload-heading {
+  max-width: 520px;
+  padding-right: 28px;
+}
+
+.source-upload-kicker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin-bottom: 10px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #2563eb;
+  background: rgba(219, 234, 254, 0.9);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.source-upload-heading h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 25px;
+  line-height: 1.25;
+  font-weight: 900;
+}
+
+.source-upload-heading p {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.source-upload-dropzone {
+  width: 100%;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 20px;
+  color: #334155;
+  background: rgba(248, 250, 252, 0.82);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.source-upload-dropzone:hover,
+.source-upload-dropzone.is-dragging {
+  border-color: #2563eb;
+  background: rgba(239, 246, 255, 0.92);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.14);
+  transform: translateY(-1px);
+}
+
+.source-upload-icon {
+  width: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  color: #2563eb;
+  background: #dbeafe;
+  font-size: 28px;
+}
+
+.source-upload-dropzone strong {
+  color: #111827;
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 900;
+}
+
+.source-upload-dropzone span:not(.material-symbols-outlined) {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 800;
+}
+
+.source-upload-modal-enter-active,
+.source-upload-modal-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.source-upload-modal-enter-active .source-upload-dialog,
+.source-upload-modal-leave-active .source-upload-dialog {
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.source-upload-modal-enter-from,
+.source-upload-modal-leave-to {
+  opacity: 0;
+}
+
+.source-upload-modal-enter-from .source-upload-dialog,
+.source-upload-modal-leave-to .source-upload-dialog {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
 }
 
 /* 팝오버 스크롤바 디자인 */

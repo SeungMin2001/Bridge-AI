@@ -11,12 +11,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const props = defineProps({
   material: { type: Object, default: null },
+  materials: { type: Array, default: () => [] },
   evidenceRequest: { type: Object, default: null },
   pdfSearchQuery: { type: String, default: '' },
   pdfSearchCommand: { type: Object, default: null }
 })
 
-const emit = defineEmits(['pdf-search-results'])
+const emit = defineEmits(['pdf-search-results', 'open-material', 'add-material'])
 
 const pptCanvasRef = ref(null)
 const pptViewer = ref(null)
@@ -29,6 +30,7 @@ const pdfLoading = ref(false)
 const pdfError = ref('')
 const pdfPageCount = ref(0)
 const pdfZoom = ref(1)
+const isMaterialListOpen = ref(false)
 
 let activePdfTask = null
 let activePdfDocument = null
@@ -44,8 +46,16 @@ const PDF_ZOOM_STEP = 0.1
 
 const isPdfAttachment = (file) => /\.pdf$/i.test(file?.name || '')
 const isPptAttachment = (file) => /\.(ppt|pptx)$/i.test(file?.name || '')
+const materialList = computed(() => Array.isArray(props.materials) ? props.materials : [])
 const normalizedPdfSearchQuery = computed(() => String(props.pdfSearchQuery || '').trim().toLowerCase())
 const normalizePdfSearchText = (value = '') => String(value || '').toLowerCase().replace(/\s+/g, '')
+const getMaterialId = (material = {}) => material?.id || material?.storedName || material?.name || ''
+const getMaterialTitle = (material = {}) => material?.name || material?.title || material?.storedName || '강의자료'
+const isCurrentMaterial = (material = {}) => {
+  const currentId = getMaterialId(props.material)
+  const targetId = getMaterialId(material)
+  return currentId && targetId && currentId === targetId
+}
 
 const emitPdfSearchResults = () => {
   emit('pdf-search-results', {
@@ -161,6 +171,20 @@ const zoomInPdf = () => {
 
 const resetPdfZoom = () => {
   updatePdfZoom(1)
+}
+
+const toggleMaterialList = () => {
+  isMaterialListOpen.value = !isMaterialListOpen.value
+}
+
+const openMaterialFromList = (material) => {
+  isMaterialListOpen.value = false
+  emit('open-material', material)
+}
+
+const addMaterialFromList = () => {
+  isMaterialListOpen.value = false
+  emit('add-material')
 }
 
 // 업로드한 PDF의 텍스트를 페이지별 JSON 형태로 추출합니다.
@@ -462,6 +486,7 @@ const goToNextPptSlide = async () => {
 watch(
   () => props.material,
   async (file) => {
+    isMaterialListOpen.value = false
     if (!file) {
       destroyPptViewer()
       await destroyPdfPreview()
@@ -548,6 +573,43 @@ onBeforeUnmount(() => {
             <button type="button" class="pdf-zoom-btn" :disabled="pdfZoom >= PDF_ZOOM_MAX" title="확대" @click="zoomInPdf">
               +
             </button>
+            <div class="pdf-material-list-wrap">
+              <button
+                type="button"
+                class="pdf-zoom-btn pdf-material-list-btn"
+                title="파일 목록"
+                aria-label="파일 목록"
+                :class="{ 'is-active': isMaterialListOpen }"
+                @click="toggleMaterialList"
+              >
+                <span class="material-symbols-outlined">format_list_bulleted</span>
+              </button>
+              <div v-if="isMaterialListOpen" class="pdf-material-list-popover">
+                <div class="pdf-material-list-head">파일 목록</div>
+                <button
+                  type="button"
+                  class="pdf-material-list-item pdf-material-add-item"
+                  @click="addMaterialFromList"
+                >
+                  <span class="pdf-material-list-icon material-symbols-outlined">add</span>
+                  <span>파일 추가</span>
+                </button>
+                <button
+                  v-for="item in materialList"
+                  :key="getMaterialId(item)"
+                  type="button"
+                  class="pdf-material-list-item"
+                  :class="{ 'is-current': isCurrentMaterial(item) }"
+                  @click="openMaterialFromList(item)"
+                >
+                  <span class="pdf-material-list-icon material-symbols-outlined">{{ isPptAttachment(item) ? 'slideshow' : 'picture_as_pdf' }}</span>
+                  <span>{{ getMaterialTitle(item) }}</span>
+                </button>
+                <div v-if="!materialList.length" class="pdf-material-list-empty">
+                  저장된 강의자료가 없습니다.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -620,7 +682,7 @@ onBeforeUnmount(() => {
 }
 
 :global(.workspace-unified-card:has(.is-unified-audio-player) .pdf-zoom-controls) {
-  bottom: 96px;
+  bottom: 106px;
 }
 
 .pdf-zoom-btn {
@@ -633,7 +695,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   color: #ffffff;
   background: rgba(17, 24, 39, 0.86);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.22);
+  box-shadow: none;
   font-size: 24px;
   line-height: 1;
   pointer-events: auto;
@@ -650,6 +712,100 @@ onBeforeUnmount(() => {
 .pdf-zoom-btn:disabled {
   cursor: not-allowed;
   opacity: 0.38;
+}
+
+.pdf-material-list-wrap {
+  position: relative;
+  pointer-events: auto;
+}
+
+.pdf-material-list-btn .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.pdf-material-list-btn.is-active {
+  background: rgba(17, 24, 39, 0.96);
+}
+
+.pdf-material-list-popover {
+  position: absolute;
+  right: calc(100% + 10px);
+  bottom: 0;
+  width: min(260px, calc(100vw - 96px));
+  max-height: 280px;
+  padding: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
+  overflow-y: auto;
+}
+
+.pdf-material-list-head {
+  padding: 6px 8px 8px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.pdf-material-list-item {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 9px;
+  padding: 8px;
+  color: #334155;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.pdf-material-add-item {
+  margin-bottom: 4px;
+  color: #475569;
+  background: #f8fafc;
+}
+
+.pdf-material-list-item:hover,
+.pdf-material-list-item.is-current {
+  color: #111827;
+  background: #f1f5f9;
+}
+
+.pdf-material-list-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: #2563eb;
+  background: #eef4ff;
+  font-size: 16px;
+  font-variation-settings: 'FILL' 1;
+}
+
+.pdf-material-add-item .pdf-material-list-icon {
+  color: #334155;
+  background: #eef2f7;
+}
+
+.pdf-material-list-item span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-material-list-empty {
+  padding: 12px 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .pdf-preview-scroll.is-hidden {

@@ -1,6 +1,6 @@
 <!-- 홈 화면 상단에 표시되는 환영 문구와 광고/안내 배너를 포함하는 컴포넌트입니다. -->
 <script setup>
-import { ref, defineEmits, nextTick } from 'vue'
+import { ref, nextTick } from 'vue'
 import MultimodalInput from './MultimodalInput.vue'
 import LoadingHourglass from '../ui/LoadingHourglass.vue'
 import { marked } from 'marked'

@@ -55,6 +55,7 @@ const createEmptySummaryState = (sessionId = '', recordingId = '', status = 'idl
   diarizationEnabled: options.diarizationEnabled !== false,
   speakerSummaries: [],
   sessionSummary: null,
+  recordingSummaries: [],
   materialSummaries: [],
   materialStatus: 'idle',
   materialError: '',
@@ -89,6 +90,15 @@ const postSummaryJson = (endpoint, payload) => requestSummaryJson(endpoint, {
   method: 'POST',
   body: JSON.stringify(payload)
 })
+
+const getMaterialSummaryTopK = (summaryLevel = 'standard', summarySentences = 8) => {
+  const sentences = Math.max(1, Number(summarySentences) || 8)
+  const level = String(summaryLevel || 'standard').toLowerCase()
+  if (level === 'detailed' || level === 'page') {
+    return Math.min(14, Math.max(12, sentences * 2))
+  }
+  return Math.min(12, Math.max(10, sentences * 2))
+}
 
 const getTranscriptText = (transcription = {}) => {
   if (Array.isArray(transcription.segments) && transcription.segments.length) {
@@ -243,6 +253,15 @@ const normalizeSummaryRow = (item = {}) => ({
   createdAt: item.created_at || ''
 })
 
+const normalizeSessionSummary = (item = {}) => ({
+  id: item.summary_id,
+  key: item.summary_id || item.recording_id || 'session-summary',
+  recordingId: item.recording_id || '',
+  summary: item.session_summary || '',
+  createdAt: item.created_at || '',
+  sourceText: item.source_text || ''
+})
+
 // DB에 계속 저장되는 실시간 요약 중 화면에는 화자별 최신 1개만 노출합니다.
 const normalizeSummaries = (summaries = [], recordingId = '') => {
   const scopedSummaries = recordingId
@@ -279,21 +298,33 @@ const normalizeSummaries = (summaries = [], recordingId = '') => {
     })
 
   const sessionSummary = scopedSummaries.find((item) => item?.session_summary && !isMaterialSummaryRow(item)) || null
+  const recordingSummaryGroups = new Map()
+  summaries
+    .filter((item) => item?.session_summary && !isMaterialSummaryRow(item))
+    .forEach((item) => {
+      const key = item.recording_id || 'session'
+      if (!recordingSummaryGroups.has(key)) {
+        recordingSummaryGroups.set(key, [])
+      }
+      recordingSummaryGroups.get(key).push(item)
+    })
+
+  const recordingSummaries = Array.from(recordingSummaryGroups.values())
+    .map((items) => {
+      const [latest] = items.sort((left, right) => (
+        new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime()
+      ))
+      return normalizeSessionSummary(latest)
+    })
+
   const materialSummaries = summaries
     .filter((item) => item?.session_summary && isMaterialSummaryRow(item))
     .map(normalizeMaterialSummary)
 
   return {
     speakerSummaries,
-    sessionSummary: sessionSummary
-      ? {
-          id: sessionSummary.summary_id,
-          recordingId: sessionSummary.recording_id || '',
-          summary: sessionSummary.session_summary,
-          createdAt: sessionSummary.created_at || '',
-          sourceText: sessionSummary.source_text || ''
-        }
-      : null,
+    sessionSummary: sessionSummary ? normalizeSessionSummary(sessionSummary) : null,
+    recordingSummaries,
     materialSummaries
   }
 }
@@ -327,6 +358,18 @@ export function useSummaryState() {
     }
   }
 
+  const startFinalRecordingSummary = (sessionId = '', recordingId = '', options = {}) => {
+    if (!isWorkspaceUuid(sessionId)) return summaryState.value
+    setSummaryState({
+      sessionId,
+      recordingId,
+      diarizationEnabled: options.diarizationEnabled !== false,
+      status: 'generating',
+      error: ''
+    })
+    return summaryState.value
+  }
+
   const loadSummariesForSession = async (sessionId, recordingId = '', options = {}) => {
     if (!isWorkspaceUuid(sessionId)) {
       summaryState.value = createEmptySummaryState()
@@ -349,6 +392,7 @@ export function useSummaryState() {
         status: 'done',
         speakerSummaries: normalized.speakerSummaries,
         sessionSummary: normalized.sessionSummary,
+        recordingSummaries: normalized.recordingSummaries,
         materialSummaries: normalized.materialSummaries
       }
       return summaryState.value
@@ -525,7 +569,7 @@ export function useSummaryState() {
         stored_names: normalizedMaterials.map((material) => material.storedName).filter(Boolean),
         summary_sentences: summarySentences,
         summary_level: summaryLevel,
-        top_k: summarySentences
+        top_k: getMaterialSummaryTopK(summaryLevel, summarySentences)
       })
 
       const sourceMaterials = Array.isArray(result.source_materials)
@@ -578,6 +622,7 @@ export function useSummaryState() {
         sessionSummary: currentState.sessionSummary?.id === targetId
           ? null
           : currentState.sessionSummary,
+        recordingSummaries: (currentState.recordingSummaries || []).filter((item) => item.id !== targetId),
         speakerSummaries: (currentState.speakerSummaries || [])
           .filter((item) => item.id !== targetId),
         materialSummaries: (currentState.materialSummaries || []).filter((item) => item.id !== targetId)
@@ -595,6 +640,7 @@ export function useSummaryState() {
     summaryState,
     clearSummaryState,
     startLiveSummary,
+    startFinalRecordingSummary,
     loadSummariesForSession,
     generateSummariesForSession,
     generateMaterialSummaryForSource,

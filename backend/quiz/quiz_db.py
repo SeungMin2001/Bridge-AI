@@ -40,6 +40,7 @@ async def save_quiz(
     user_id: str | None = None,
     course_id: str | None = None,
     request_id: str | None = None,
+    source_title: str | None = None,
 ) -> dict:
     """퀴즈를 QUIZZES 테이블에 저장"""
     pool = await get_pool()
@@ -47,8 +48,8 @@ async def save_quiz(
         await conn.execute("""
             INSERT INTO quizzes
                 (quiz_id, user_id, course_id, request_id, session_id,
-                 quiz_data, total_questions, correct_count, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 quiz_data, total_questions, correct_count, source_title, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """,
             _uuid.UUID(quiz_id),
             _uuid.UUID(user_id) if user_id else None,
@@ -58,6 +59,7 @@ async def save_quiz(
             json.dumps(quiz_data, ensure_ascii=False),
             total_questions,
             None,  # correct_count는 채점 후 업데이트
+            source_title,
             datetime.now(),
         )
 
@@ -70,7 +72,7 @@ async def get_quiz(quiz_id: str) -> dict | None:
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT quiz_id, user_id, course_id, request_id, session_id,
-                   quiz_data, total_questions, correct_count, created_at
+                   quiz_data, total_questions, correct_count, source_title, created_at
             FROM quizzes
             WHERE quiz_id = $1
         """, _uuid.UUID(quiz_id))
@@ -89,6 +91,7 @@ async def get_quiz(quiz_id: str) -> dict | None:
             "quiz_data": quiz_data_parsed,
             "total_questions": row["total_questions"],
             "correct_count": row["correct_count"],
+            "source_title": row["source_title"],
             "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         }
 
@@ -99,7 +102,7 @@ async def get_quizzes_by_session(session_id: str) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT quiz_id, user_id, course_id, session_id,
-                   quiz_data, total_questions, correct_count, created_at
+                   quiz_data, total_questions, correct_count, source_title, created_at
             FROM quizzes
             WHERE session_id = $1
             ORDER BY created_at DESC
@@ -113,6 +116,7 @@ async def get_quizzes_by_session(session_id: str) -> list[dict]:
                 "session_id": str(r["session_id"]) if r["session_id"] else None,
                 "total_questions": r["total_questions"],
                 "correct_count": r["correct_count"],
+                "source_title": r["source_title"],
                 "type_counts": _count_quiz_types(_parse_quiz_data(r["quiz_data"])),
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             }

@@ -88,9 +88,11 @@ async def ensure_feature_tables_schema(conn) -> None:
             quiz_data JSONB NULL,
             total_questions INTEGER NULL,
             correct_count INTEGER NULL,
+            source_title TEXT NULL,
             created_at TIMESTAMP NULL
         )
     """)
+    await conn.execute("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS source_title TEXT NULL")
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS concept_requests (
             request_id UUID PRIMARY KEY,

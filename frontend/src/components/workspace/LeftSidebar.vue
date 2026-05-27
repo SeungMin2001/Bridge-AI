@@ -1,9 +1,14 @@
 <!-- 워크스페이스의 왼쪽 사이드바 본체로, 폴더 탐색기와 음성 전사 탭을 전환하며 보여줍니다. -->
+<script>
+export default {
+  inheritAttrs: false
+}
+</script>
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import FolderSideTab from './FolderSideTab.vue'
 import VoiceTransferSideTab from './VoiceTransferSideTab.vue'
-import { isWorkspaceUuid, transcribeWorkspaceRecording, updateWorkspaceFile } from '../../api/workspaceApi.js'
+import { isWorkspaceUuid, saveSessionResources, transcribeWorkspaceRecording, updateWorkspaceFile } from '../../api/workspaceApi.js'
 
 const props = defineProps({
   fileTree: { type: Array, default: () => [] },
@@ -53,6 +58,7 @@ const activePlaybackRecording = ref(null)
 const playbackAudioRef = ref(null)
 const playbackMediaDuration = ref(0)
 const isPlaybackPlaying = ref(false)
+const isPlaybackStarting = ref(false)
 const playbackProgress = ref(0)
 const playbackSpeed = ref(1)
 const isTranscriptionRequesting = ref(false)
@@ -98,6 +104,16 @@ const playbackSourceTitle = computed(() => (
   || activePlaybackRecording.value?.title
   || '저장된 녹음'
 ))
+const canEditTranscriptToolbarTitle = computed(() => (
+  !!activePlaybackRecording.value?.recordingId && !!activePlaybackRecording.value?.sessionId
+))
+const transcriptToolbarTitle = computed(() => (
+  selectedTranscriptSource.value?.title
+  || activePlaybackRecording.value?.title
+  || activePlaybackRecording.value?.originalName
+  || activePlaybackRecording.value?.name
+  || '스크립트'
+))
 const playbackSourceMeta = computed(() => (
   selectedTranscriptSource.value?.meta
   || formatTranscriptSourceDate(activePlaybackRecording.value?.endedAt)
@@ -123,6 +139,38 @@ const replaceNodeById = (nodes = [], id = '', replacement = null) => (
     return node
   })
 )
+
+const getRecordingIdentity = (recording = {}) => recording?.id || recording?.recordingId || ''
+
+const updateRecordingTitleInNode = (node = {}, recordingId = '', nextTitle = '') => {
+  if (!node || !recordingId || !nextTitle) return false
+  let updated = false
+  const updateRecording = (recording = {}) => {
+    const id = getRecordingIdentity(recording)
+    if (id !== recordingId) return recording
+    updated = true
+    return {
+      ...recording,
+      title: nextTitle,
+      name: nextTitle
+    }
+  }
+
+  if (Array.isArray(node.weeks)) {
+    node.weeks = node.weeks.map((week) => ({
+      ...week,
+      recordings: Array.isArray(week.recordings)
+        ? week.recordings.map(updateRecording)
+        : week.recordings
+    }))
+  }
+
+  if (Array.isArray(node.recordings)) {
+    node.recordings = node.recordings.map(updateRecording)
+  }
+
+  return updated
+}
 
 const startFileTitleEdit = async () => {
   if (!isWorkspaceUuid(props.activeFileId)) return
@@ -173,6 +221,50 @@ const commitFileTitleEdit = async () => {
     showToast('제목 수정에 실패했습니다.')
   } finally {
     isFileTitleSaving.value = false
+  }
+}
+
+const renameActiveRecordingTitle = async (nextTitle = '') => {
+  const trimmedTitle = String(nextTitle || '').trim()
+  const recording = activePlaybackRecording.value
+  const sessionId = recording?.sessionId || props.activeFileId
+  const recordingId = recording?.recordingId || getRecordingIdentity(recording)
+
+  if (!trimmedTitle || !sessionId || !recordingId) return
+  if (trimmedTitle === transcriptToolbarTitle.value) return
+
+  const nextTree = JSON.parse(JSON.stringify(props.fileTree || []))
+  const node = findNodeById(nextTree, sessionId)
+  if (!node || !updateRecordingTitleInNode(node, recordingId, trimmedTitle)) {
+    showToast('녹음본 이름을 찾지 못했습니다.')
+    return
+  }
+
+  try {
+    emit('update:fileTree', replaceNodeById(nextTree, sessionId, node))
+    emit('fileSelect', sessionId, node)
+
+    if (isWorkspaceUuid(sessionId) && Array.isArray(node.weeks)) {
+      await saveSessionResources(sessionId, node.weeks)
+    }
+
+    activePlaybackRecording.value = {
+      ...activePlaybackRecording.value,
+      title: trimmedTitle,
+      name: trimmedTitle
+    }
+
+    if (selectedTranscriptSource.value) {
+      selectedTranscriptSource.value = {
+        ...selectedTranscriptSource.value,
+        title: trimmedTitle
+      }
+    }
+
+    showToast(`"${trimmedTitle}"으로 이름 변경됨`)
+  } catch (error) {
+    console.error('[workspace] recording title update failed:', error)
+    showToast('녹음본 이름 변경 저장에 실패했습니다.')
   }
 }
 
@@ -317,6 +409,7 @@ const closePlaybackBar = () => {
   playbackAudioRef.value?.pause()
   activePlaybackRecording.value = null
   isPlaybackPlaying.value = false
+  isPlaybackStarting.value = false
   playbackProgress.value = 0
   playbackMediaDuration.value = 0
 }
@@ -330,6 +423,10 @@ const setActivePlaybackRecording = (recording = {}, sessionId = '') => {
   playbackProgress.value = 0
   playbackMediaDuration.value = 0
   isPlaybackPlaying.value = false
+  isPlaybackStarting.value = false
+  nextTick(() => {
+    playbackAudioRef.value?.load?.()
+  })
 }
 
 const applyLocalTranscriptionState = (patch = {}) => {
@@ -352,6 +449,12 @@ const applyLocalTranscriptionState = (patch = {}) => {
 
 const togglePlayback = async () => {
   if (!activePlaybackRecording.value) return
+  if (isPlaybackStarting.value) return
+
+  if (activePlaybackRecording.value?.audioUrl && !playbackAudioRef.value) {
+    await nextTick()
+  }
+
   const audio = playbackAudioRef.value
   if (activePlaybackRecording.value?.audioUrl && audio) {
     audio.playbackRate = playbackSpeed.value
@@ -361,12 +464,15 @@ const togglePlayback = async () => {
       return
     }
 
+    isPlaybackStarting.value = true
+    isPlaybackPlaying.value = true
     try {
       await audio.play()
-      isPlaybackPlaying.value = true
     } catch (error) {
       console.error('[workspace] audio playback failed:', error)
       isPlaybackPlaying.value = false
+    } finally {
+      isPlaybackStarting.value = false
     }
     return
   }
@@ -424,6 +530,7 @@ const handlePlaybackRangeInput = () => {
 const handlePlaybackEnded = () => {
   setPlaybackSecond(playbackDurationSeconds.value)
   isPlaybackPlaying.value = false
+  isPlaybackStarting.value = false
 }
 
 const handleMouseMove = (e) => {
@@ -475,6 +582,9 @@ watch(playbackSpeed, (speed) => {
 
 watch(() => props.activeFileId, () => {
   cancelFileTitleEdit()
+  selectedTranscriptSource.value = null
+  closePlaybackBar()
+  transcriptViewResetKey.value += 1
 })
 
 watch(() => props.activeFileName, (nextTitle) => {
@@ -857,11 +967,13 @@ watch(() => props.recordingSourceRequest, (request) => {
             :is-transcription-submitting="isTranscriptionRequesting"
             :variant="embedded ? 'content' : 'sidebar'"
             :show-toolbar="embedded"
-            toolbar-title="스크립트"
+            :toolbar-title="transcriptToolbarTitle"
+            :toolbar-title-editable="canEditTranscriptToolbarTitle"
             @addToNote="(text, source) => emit('addToNote', text, source)"
             @askAi="emit('askAi', $event)"
             @startTranscription="handleStartUploadedTranscription"
             @seekPlayback="handleSeekTranscriptPlayback"
+            @rename-toolbar-title="renameActiveRecordingTitle"
           />
           <Teleport defer to="#workspace-unified-audio-player-host" :disabled="!embedded">
             <transition name="sidebar-audio-player">
@@ -875,7 +987,7 @@ watch(() => props.recordingSourceRequest, (request) => {
                   v-if="activePlaybackRecording.audioUrl"
                   ref="playbackAudioRef"
                   :src="activePlaybackRecording.audioUrl"
-                  preload="metadata"
+                  preload="auto"
                   @loadedmetadata="handlePlaybackLoadedMetadata"
                   @timeupdate="handlePlaybackTimeUpdate"
                   @ended="handlePlaybackEnded"

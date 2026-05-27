@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, readonly, ref } from 'vue'
 
 const STORAGE_KEY = 'lecto_home_calendar_schedules'
 const API_BASE = '/schedule'
@@ -6,6 +6,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 const scheduleItems = ref([])
 const hasLoadedSchedules = ref(false)
+const notionSyncing = ref(false)
 
 const TYPE_LABELS = {
   lecture: '수업',
@@ -156,6 +157,8 @@ const mapScheduleFromApi = (item) => {
     sourceText: item.source_text || '',
     sourceSessionTitle: item.session_title || item.course_title || '',
     workspaceFileId: item.session_id || '',
+    recordingId: item.recording_id || '',
+    notionPageId: item.notion_page_id || '',
     confidence: null,
     status: item.status,
     transcriptId: item.transcript_id || '',
@@ -202,8 +205,13 @@ const normalizeScheduleItem = (item) => {
     sourceText: item.sourceText || '',
     sourceSessionTitle: item.sourceSessionTitle || '',
     workspaceFileId: item.workspaceFileId || '',
+    recordingId: item.recordingId || item.recording_id || '',
+    notionPageId: item.notionPageId || item.notion_page_id || '',
     confidence: typeof item.confidence === 'number' ? item.confidence : null,
-    status: normalizeStatus(item.status, origin)
+    status: normalizeStatus(item.status, origin),
+    transcriptId: item.transcriptId || item.transcript_id || '',
+    sourceStartTime: item.sourceStartTime ?? item.source_start_time ?? null,
+    sourceEndTime: item.sourceEndTime ?? item.source_end_time ?? null
   }
 }
 
@@ -241,6 +249,17 @@ const syncScheduleStatus = (scheduleId, status) => {
   requestJson(`${API_BASE}/${scheduleId}/${endpoint}`, { method: 'PUT' }).catch((error) => {
     console.warn('[Schedule] status sync failed', error)
   })
+}
+
+const syncToNotion = async (scheduleId) => {
+  if (!UUID_PATTERN.test(scheduleId)) return null
+  try {
+    const result = await requestJson(`${API_BASE}/${scheduleId}/sync-notion`, { method: 'POST' })
+    return result?.notion_page_id || null
+  } catch (error) {
+    console.warn('[Schedule] notion sync failed for', scheduleId, error)
+    return null
+  }
 }
 
 const syncManualSchedule = (localItem) => {
@@ -330,6 +349,48 @@ export function useScheduleState() {
 
   const confirmSchedule = (scheduleId) => updateScheduleStatus(scheduleId, 'confirmed')
   const ignoreSchedule = (scheduleId) => updateScheduleStatus(scheduleId, 'ignored')
+
+  const confirmAndSyncToNotion = async (scheduleId) => {
+    updateScheduleStatus(scheduleId, 'confirmed')
+    const notionPageId = await syncToNotion(scheduleId)
+    if (notionPageId) {
+      persistSchedules(scheduleItems.value.map((item) => (
+        item.id === scheduleId
+          ? normalizeScheduleItem({ ...item, notionPageId })
+          : item
+      )))
+    }
+    return notionPageId
+  }
+
+  const syncNotionExport = async () => {
+    notionSyncing.value = true
+    try {
+      const result = await requestJson(`${API_BASE}/sync-notion-confirmed`, { method: 'POST' })
+      await hydrateSchedules({ force: true })
+      return result
+    } catch (error) {
+      console.error('[Schedule] notion export failed', error)
+      throw error
+    } finally {
+      notionSyncing.value = false
+    }
+  }
+
+  const syncNotionImport = async () => {
+    notionSyncing.value = true
+    try {
+      const result = await requestJson(`${API_BASE}/sync-notion-import`, { method: 'POST' })
+      await hydrateSchedules({ force: true })
+      return result
+    } catch (error) {
+      console.error('[Schedule] notion import failed', error)
+      throw error
+    } finally {
+      notionSyncing.value = false
+    }
+  }
+
   const updateScheduleSync = (scheduleId, updates) => {
     persistSchedules(scheduleItems.value.map((item) => (
       item.id === scheduleId
@@ -349,10 +410,14 @@ export function useScheduleState() {
     scheduleItems,
     visibleSchedules,
     pendingSchedules,
+    notionSyncing: readonly(notionSyncing),
     hydrateSchedules,
     addManualSchedule,
     confirmSchedule,
     ignoreSchedule,
+    confirmAndSyncToNotion,
+    syncNotionExport,
+    syncNotionImport,
     updateScheduleSync,
     getSchedulesForDate,
     getScheduleDayFlags,
