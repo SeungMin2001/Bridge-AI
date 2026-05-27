@@ -790,6 +790,12 @@ async def filter_already_ignored_semantic(
                     continue
 
             # 제목 자카드 유사도 비교 (글자 수준 공통 비율 0.70 이상이면 중복 판단)
+            # 단, '시험', '과제' 등 너무 짧고 일반적인 제목이 무조건 중복으로 처리되는 것을 방지
+            if len(new_s["title"].strip()) <= 3 and new_s["title"].strip() == ign["title"].strip():
+                # 날짜가 명시되어 있고 일치하는 경우가 아니라면, 너무 짧은 제목은 중복 처리하지 않음
+                if not (new_s.get("due_date") and ign.get("due_date") and new_date == ign_date):
+                    continue
+
             similarity = jaccard_similarity(new_s["title"], ign["title"])
             if similarity >= 0.70 or new_s["title"].strip() == ign["title"].strip():
                 logger.info(f"[SCHEDULE] 중복 감지(텍스트 폴백 유사도 {similarity:.2f}): '{new_s['title']}' == 무시된 일정 '{ign['title']}'")
