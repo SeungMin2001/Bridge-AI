@@ -41,7 +41,6 @@ from schedule.schedule_service import (
     parse_due_date, # due_date 파싱
     find_source_in_transcripts, # 전사문에서 일정 출처 찾기
     filter_already_ignored_semantic, # 시멘틱 필터링 함수
-    SESSION_IMPORTANT_TEXT_CACHE, # 실시간 중요 전사 캐시
 )
 
 logger = logging.getLogger(__name__)
@@ -93,24 +92,28 @@ async def schedule_extract(req: ScheduleExtractRequest):
     """
     logger.info(f"[SCHEDULE] 일정 추출 요청: session_id={req.session_id}, recording_id={req.recording_id}")
 
-    # session_id, recording_id 문자열 포맷 정규화 (대소문자, 하이픈 제거)
-    norm_session_id = str(req.session_id).lower().replace("-", "")
-    norm_recording_id = str(req.recording_id).lower().replace("-", "") if req.recording_id else ""
-    cache_key = (norm_session_id, norm_recording_id)
-    cached_texts = SESSION_IMPORTANT_TEXT_CACHE.pop(cache_key, None)
+    # 1. 세션 전사문 조회
+    transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)
+    if not transcripts:
+        raise HTTPException(
+            status_code=404,
+            detail=f"세션 '{req.session_id}'에 해당하는 전사문이 없습니다."
+        )
 
-    extracted = []
-    # 1. 실시간 중요 문장 캐시가 있는지 확인
-    if cached_texts:
-        logger.info(f"[SCHEDULE] 실시간 캐시 텍스트 감지! 중요 문장 수: {len(cached_texts)}")
-        combined_text = "\n".join(cached_texts)
-        try:
-            extracted = await extract_schedules(combined_text)
-            logger.info(f"[SCHEDULE] 실시간 캐시 텍스트 기반 추출 성공: {len(extracted)}개 일정")
-        except Exception as e:
-            logger.warning(f"[SCHEDULE] 실시간 캐시 텍스트 기반 추출 실패: {e}")
-    else:
-        logger.info("[SCHEDULE] 실시간 캐시 텍스트 없음. 추출할 일정이 없습니다.")
+    # 2. 전사문 합치기
+    transcript_text = "\n".join(t["text"] for t in transcripts if t["text"])
+    if len(transcript_text.strip()) < 5:
+        raise HTTPException(status_code=400, detail="전사문이 너무 짧아 일정을 추출할 수 없습니다.")
+
+    # 3. LLM으로 전체 전사문에서 일정 추출 (가장 확실한 방법)
+    logger.info("[SCHEDULE] 전체 전사문에서 일정 추출을 수행합니다.")
+    try:
+        extracted = await extract_schedules(transcript_text)
+        logger.info(f"[SCHEDULE] 추출 완료: {len(extracted)}개 일정 찾음")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
     # 2. 모든 전사문(세션/녹음 범위) 조회 (출처 매칭을 위한 용도)
     transcripts = await get_transcripts_by_session(req.session_id, req.recording_id)

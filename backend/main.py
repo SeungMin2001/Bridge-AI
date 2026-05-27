@@ -329,17 +329,6 @@ async def websocket_endpoint(ws: WebSocket):
             except Exception as e:
                 print(f"[RAG] 임베딩 추가 실패 (전사는 정상): {e}")
 
-            # 실시간 백그라운드 일정 감지 및 캐싱 연동
-            try:
-                from schedule.schedule_service import trigger_realtime_schedule_extraction
-                asyncio.create_task(trigger_realtime_schedule_extraction(
-                    session_id=str(session_id),
-                    recording_id=str(recording_id),
-                    text=corrected_text
-                ))
-            except Exception as e:
-                print(f"[WS-SCHEDULE] 실시간 백그라운드 일정 추출 연동 오류: {e}")
-
 
     def build_speaker_updates(segments: list, force: bool = False) -> list[dict]:
         """전사 청크 시간과 화자 구간을 비교해서 speaker_id 보정 목록을 만듭니다."""
