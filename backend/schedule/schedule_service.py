@@ -103,8 +103,8 @@ SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜는 {today}입니다.
 
 
 # 청크 분할 설정
-CHUNK_SIZE = 4000       # 각 청크의 최대 글자 수
-CHUNK_OVERLAP = 500     # 청크 간 오버랩 글자 수 (경계 일정 누락 방지)
+CHUNK_SIZE = 2000       # 각 청크의 최대 글자 수
+CHUNK_OVERLAP = 300     # 청크 간 오버랩 글자 수 (경계 일정 누락 방지)
 
 
 def _split_transcript_chunks(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
@@ -652,8 +652,9 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
                     json={
                         "model": LLM_MODEL,
                         "messages": messages,
-                        "max_tokens": 2048,
+                        "max_tokens": 1024,
                         "temperature": 0.1,  # 정확한 추출을 위해 낮은 temperature
+                        "stream": False,
                         "bridgeprag_alpha": 0.0,
                         "chat_template_kwargs": {"enable_thinking": False},
                     },
