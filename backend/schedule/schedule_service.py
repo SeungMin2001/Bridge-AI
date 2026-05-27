@@ -60,15 +60,11 @@ SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜: {today}
 
 위 전사문에서 학사 일정을 찾아 아래 JSON 배열로만 출력하세요. 일정이 없으면 []를 반환하세요.
 상대 날짜(내일 등)는 오늘을 기준으로 YYYY-MM-DD 형식으로 변환하세요.
+어떠한 설명이나 <think> 태그도 쓰지 말고, 오직 JSON 배열만 출력하세요.
 
+출력 예시:
 [
-  {{
-    "title": "일정 제목",
-    "description": "상세 설명",
-    "event_type": "시험|과제|프로젝트|발표|기타",
-    "due_date": "YYYY-MM-DD",
-    "source_text": "전사문에 언급된 원문 문장"
-  }}
+  {{"title": "일정 제목", "event_type": "시험|과제|프로젝트|발표|기타", "due_date": "YYYY-MM-DD"}}
 ]"""
 
 
