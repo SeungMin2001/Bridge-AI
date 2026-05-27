@@ -8,16 +8,19 @@ import json
 import logging
 import os
 import re
+import time
 
 from rag_search import search as rag_search
 
 
 logger = logging.getLogger(__name__)
 
-CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "3"))
+CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "2"))
 CHAT_SELECTED_MATERIAL_CONTEXT_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_CHARS", "6000"))
 CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS", "2000"))
 CHAT_WORKSPACE_INVENTORY_MAX_ITEMS = int(os.getenv("CHAT_WORKSPACE_INVENTORY_MAX_ITEMS", "40"))
+CHAT_MATERIAL_RAG_CHECK_TTL_SEC = int(os.getenv("CHAT_MATERIAL_RAG_CHECK_TTL_SEC", "300"))
+_material_rag_checked_at: dict[str, float] = {}
 _ALNUM_TERM_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+#.-]*")
 _LOCATOR_SUBJECT_STOPWORDS = {
     "혹시",
@@ -262,10 +265,15 @@ async def ensure_material_rag_for_chat(session_id: str | None, source_filter: di
     """현재 파일에 PDF 자료가 있으면 채팅 전에 해당 세션 자료의 RAG 인덱싱을 보장합니다."""
     if not session_id:
         return
+    now = time.monotonic()
+    last_checked_at = _material_rag_checked_at.get(str(session_id))
+    if last_checked_at and (now - last_checked_at) < CHAT_MATERIAL_RAG_CHECK_TTL_SEC:
+        return
     try:
         from materials.material_rag_service import ensure_session_materials_indexed
 
         await ensure_session_materials_indexed(session_id)
+        _material_rag_checked_at[str(session_id)] = now
     except Exception as exc:
         logger.warning("[CHAT] PDF RAG 인덱싱 확인 실패: session=%s, error=%s", session_id, exc)
 

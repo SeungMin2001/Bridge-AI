@@ -1,5 +1,5 @@
 import { computed, onMounted, watch, ref } from 'vue'
-import { getWorkspaceTree } from '../../api/workspaceApi.js'
+import { getWorkspaceSession, getWorkspaceTree, isWorkspaceUuid } from '../../api/workspaceApi.js'
 
 // 홈/워크스페이스에서 사용하는 파일 트리, 즐겨찾기, 현재 선택 파일을 관리합니다.
 const STORAGE_KEYS = {
@@ -215,6 +215,43 @@ const normalizeNode = (node) => {
   return normalized
 }
 
+const stripRecordingForStorage = (recording = {}) => {
+  if (!recording || typeof recording !== 'object') return recording
+  const { transcriptions, ...rest } = recording
+  return {
+    ...rest,
+    transcriptionCount: Array.isArray(transcriptions)
+      ? transcriptions.length
+      : (rest.transcriptionCount || 0),
+    resourcesLoaded: false
+  }
+}
+
+const stripNodeForStorage = (node) => {
+  if (!node || typeof node !== 'object') return node
+
+  const nextNode = { ...node }
+  if (nextNode.type === 'file') {
+    nextNode.resourcesLoaded = false
+    nextNode.recordings = Array.isArray(nextNode.recordings)
+      ? nextNode.recordings.map(stripRecordingForStorage)
+      : []
+    nextNode.weeks = Array.isArray(nextNode.weeks)
+      ? nextNode.weeks.map((week) => ({
+          ...week,
+          recordings: Array.isArray(week?.recordings)
+            ? week.recordings.map(stripRecordingForStorage)
+            : []
+        }))
+      : []
+  }
+
+  if (Array.isArray(nextNode.children)) {
+    nextNode.children = nextNode.children.map(stripNodeForStorage)
+  }
+  return nextNode
+}
+
 // 저장된 트리의 파일 노드 자료/녹음 배열 형태 보정
 export const normalizeFileTree = (nodes) => {
   const list = Array.isArray(nodes) ? nodes.map(normalizeNode) : []
@@ -280,6 +317,7 @@ export function useFileTreeState() {
   const activeFileName = ref(localStorage.getItem(STORAGE_KEYS.activeFileName) || '')
   const activeFileId = ref(localStorage.getItem(STORAGE_KEYS.activeFileId) || '')
   const recentFileIds = ref([])
+  const hydratingFileIds = new Set()
 
   const currentFileNode = computed(() => findNodeById(fileTree.value, activeFileId.value))
   const activeFileType = computed(() => currentFileNode.value?.fileKind || 'lecture')
@@ -313,6 +351,24 @@ export function useFileTreeState() {
   }
 
   // 현재 열려 있는 파일 id와 이름을 바꿉니다.
+  const hydrateFileResources = async (id, node) => {
+    if (!isWorkspaceUuid(id) || node?.type !== 'file' || node?.resourcesLoaded !== false) return
+    if (hydratingFileIds.has(id)) return
+
+    hydratingFileIds.add(id)
+    try {
+      const fullNode = await getWorkspaceSession(id)
+      fileTree.value = updateNodeById(fileTree.value, id, () => normalizeNode(fullNode))
+      if (activeFileId.value === id) {
+        activeFileName.value = fullNode.name || activeFileName.value
+      }
+    } catch (error) {
+      console.warn('[workspace] file resource hydration failed:', error)
+    } finally {
+      hydratingFileIds.delete(id)
+    }
+  }
+
   const handleFileSelect = (id, node) => {
     if (!node) return
     activeFileId.value = id
@@ -322,6 +378,7 @@ export function useFileTreeState() {
         id,
         ...recentFileIds.value.filter((fileId) => fileId !== id)
       ].slice(0, 8)
+      hydrateFileResources(id, node)
     }
   }
 
@@ -355,6 +412,8 @@ export function useFileTreeState() {
       loadLocalFileTree()
     }
     syncActiveFileWithTree()
+    const activeNode = findNodeById(fileTree.value, activeFileId.value)
+    if (activeNode) hydrateFileResources(activeFileId.value, activeNode)
   }
 
   onMounted(() => {
@@ -372,7 +431,7 @@ export function useFileTreeState() {
   })
 
   watch(fileTree, (newVal) => {
-    localStorage.setItem(STORAGE_KEYS.fileTree, JSON.stringify(newVal))
+    localStorage.setItem(STORAGE_KEYS.fileTree, JSON.stringify(newVal.map(stripNodeForStorage)))
   }, { deep: true })
 
   watch(favorites, (newVal) => {

@@ -124,6 +124,39 @@ def week_shells_from_media(*media_groups: list) -> list:
     return weeks
 
 
+def _light_recording(recording: dict) -> dict:
+    """Initial tree payload should keep recording metadata but not full transcript text."""
+    if not isinstance(recording, dict):
+        return recording
+
+    next_recording = dict(recording)
+    transcriptions = next_recording.pop("transcriptions", None)
+    if isinstance(transcriptions, list):
+        next_recording["transcriptionCount"] = len(transcriptions)
+        if transcriptions and not next_recording.get("transcriptionStatus"):
+            next_recording["transcriptionStatus"] = "done"
+    return next_recording
+
+
+def _light_voicefile_resources(session_voicefile: list) -> list:
+    if not isinstance(session_voicefile, list):
+        return []
+
+    light_items = []
+    for entry in session_voicefile:
+        if not isinstance(entry, dict):
+            continue
+
+        next_entry = dict(entry)
+        recordings = next_entry.get("recordings")
+        if isinstance(recordings, list):
+            next_entry["recordings"] = [_light_recording(recording) for recording in recordings]
+        else:
+            next_entry = _light_recording(next_entry)
+        light_items.append(next_entry)
+    return light_items
+
+
 def merge_session_resources(session_pdf: list, session_voicefile: list) -> list:
     weeks = week_shells_from_media(session_pdf, session_voicefile)
     materials_by_week = grouped_week_resources(session_pdf, "materials")
@@ -161,10 +194,12 @@ def course_node(row) -> dict:
     }
 
 
-def session_node(row) -> dict:
+def session_node(row, *, include_transcriptions: bool = True) -> dict:
     # SESSIONS row를 프론트 파일 노드 구조로 변환
     session_pdf = json_value(row["session_pdf"], [])
     session_voicefile = json_value(row["session_voicefile"], [])
+    if not include_transcriptions:
+        session_voicefile = _light_voicefile_resources(session_voicefile)
     weeks = merge_session_resources(session_pdf, session_voicefile)
 
     return {
@@ -181,4 +216,5 @@ def session_node(row) -> dict:
         "recordings": flatten_week_resources(session_voicefile, "recordings"),
         "summaryNotes": json_value(row["summary_notes"], []),
         "weeks": weeks,
+        "resourcesLoaded": include_transcriptions,
     }

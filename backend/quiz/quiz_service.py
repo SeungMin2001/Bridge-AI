@@ -45,6 +45,8 @@ LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "8192"))
 QUIZ_CONTEXT_CHARS = int(os.getenv("QUIZ_CONTEXT_CHARS", "4500"))
+QUIZ_MIN_OUTPUT_TOKENS = int(os.getenv("QUIZ_MIN_OUTPUT_TOKENS", "1800"))
+QUIZ_TOKENS_PER_QUESTION = int(os.getenv("QUIZ_TOKENS_PER_QUESTION", "550"))
 
 #  LLM 프롬프트 템플릿
 QUIZ_SYSTEM_PROMPT = """당신은 대학 강의 내용을 기반으로 학습 퀴즈를 만드는 AI 교수입니다.
@@ -630,7 +632,7 @@ async def generate_quiz(
 
     try:
         # 로컬 소형 LLM은 JSON을 장황하게 쓰다가 응답이 잘리기 쉬워 출력 여유를 넉넉히 둡니다.
-        max_tokens = min(LLM_MAX_TOKENS, max(3000, 900 + (total_questions * 900)))
+        max_tokens = min(LLM_MAX_TOKENS, max(QUIZ_MIN_OUTPUT_TOKENS, 900 + (total_questions * QUIZ_TOKENS_PER_QUESTION)))
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
             res = await client.post(
                 f"{LLM_URL}/v1/chat/completions",

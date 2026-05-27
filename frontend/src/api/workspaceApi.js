@@ -50,6 +50,18 @@ export const getWorkspaceTree = async () => {
   return result.tree
 }
 
+export const getWorkspaceSession = async (sessionId) => {
+  const result = await requestWorkspaceJson(
+    `sessions/${sessionId}`,
+    {},
+    '워크스페이스 파일 정보를 불러오지 못했습니다.'
+  )
+  if (!result.node) {
+    throw new Error('워크스페이스 파일 정보를 불러오지 못했습니다.')
+  }
+  return result.node
+}
+
 export const createWorkspaceFolder = async (payload) => {
   const result = await requestWorkspaceJson(
     'courses',

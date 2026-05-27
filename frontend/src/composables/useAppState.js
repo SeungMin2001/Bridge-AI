@@ -20,7 +20,7 @@ export function useAppState() {
   const scheduleExtractionNotice = ref(null)
   const { clearHistory, closeCitePopover } = useChat()
   // 녹음 중에는 현재 전사 스냅샷을 8초마다 요약 API로 넘깁니다.
-  const LIVE_SUMMARY_REFRESH_MS = 8000
+  const LIVE_SUMMARY_REFRESH_MS = Number(import.meta.env.VITE_LIVE_SUMMARY_REFRESH_MS || 20000)
   let liveSummaryTimer = null
   let liveSummaryInFlight = false
 

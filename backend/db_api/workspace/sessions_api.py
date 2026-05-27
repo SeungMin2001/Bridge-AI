@@ -105,6 +105,34 @@ async def update_session_file(session_id: str, payload: dict) -> dict:
     }
 
 
+async def get_session_file(session_id: str) -> dict:
+    """Return one full session node, including transcriptions, when the user opens it."""
+    session_uuid = uuid_or_none(session_id, "session_id")
+    if session_uuid is None:
+        raise WorkspaceApiError("session_id is required.")
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT session_id, course_id, session_date, title, status, created_at,
+                   file_kind, tag, icon, color, session_pdf, session_voicefile, summary_notes
+            FROM sessions
+            WHERE session_id = $1
+            """,
+            session_uuid,
+        )
+
+    if row is None:
+        raise WorkspaceApiError("Session file not found.", status_code=404)
+
+    return {
+        "ok": True,
+        "sessionId": str(row["session_id"]),
+        "node": session_node(row, include_transcriptions=True),
+    }
+
+
 async def delete_session_file(session_id: str) -> dict:
     # 신창영 : 파일 삭제 요청 시 sessions row만 지우지 않고 전사/RAG 관련 데이터까지 함께 정리
     session_uuid = uuid_or_none(session_id, "session_id")

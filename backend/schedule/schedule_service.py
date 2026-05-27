@@ -38,6 +38,7 @@ DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
 LLM_URL = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
+SCHEDULE_SEMANTIC_DUP_FILTER = os.getenv("SCHEDULE_SEMANTIC_DUP_FILTER", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 #  LLM 프롬프트 템플릿
@@ -720,6 +721,10 @@ async def filter_already_ignored_semantic(
     auto_ignored = []
 
     if not ignored_metadata:
+        return extracted, []
+
+    if not SCHEDULE_SEMANTIC_DUP_FILTER:
+        logger.info("[SCHEDULE] semantic duplicate filter disabled; skipping embeddings")
         return extracted, []
 
     # 1. 무시된 일정들의 임베딩을 미리 생성 (비교 최적화)

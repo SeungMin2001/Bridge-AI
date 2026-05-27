@@ -3,7 +3,7 @@ from db_api.workspace.default_folder import attach_orphan_sessions_to_default_fo
 from db_api.workspace.serializers import course_node, session_node
 
 
-async def get_workspace_tree() -> dict:
+async def get_workspace_tree(*, include_resources: bool = False) -> dict:
     # COURSES와 SESSIONS를 조회해서 프론트 fileTree 형태로 조립합니다.
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -40,7 +40,7 @@ async def get_workspace_tree() -> dict:
             root_nodes.append(node)
 
     for row in session_rows:
-        node = session_node(row)
+        node = session_node(row, include_transcriptions=include_resources)
         course_id = str(row["course_id"]) if row["course_id"] else None
         parent = course_nodes.get(course_id)
         if parent:

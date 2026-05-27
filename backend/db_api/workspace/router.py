@@ -6,7 +6,7 @@ from db_api.workspace.common import WorkspaceApiError
 from db_api.workspace.courses_api import create_course, delete_course, update_course
 from db_api.workspace.files_api import get_workspace_material_file, get_workspace_recording_file, save_workspace_material
 from db_api.workspace.recording_transcription_api import transcribe_session_recording
-from db_api.workspace.sessions_api import create_session_file, delete_session_file, delete_session_recording, update_session_file, update_session_resources, upload_session_recording
+from db_api.workspace.sessions_api import create_session_file, delete_session_file, delete_session_recording, get_session_file, update_session_file, update_session_resources, upload_session_recording
 from db_api.workspace.tree_api import get_workspace_tree
 
 
@@ -62,10 +62,10 @@ def _raise_http_error(error: Exception) -> None:
 
 
 @router.get("/tree")
-async def workspace_tree():
+async def workspace_tree(include_resources: bool = False):
     # COURSES와 SESSIONS를 프론트 fileTree 구조로 조회합니다.
     try:
-        return await get_workspace_tree()
+        return await get_workspace_tree(include_resources=include_resources)
     except Exception as error:
         _raise_http_error(error)
 
@@ -111,6 +111,15 @@ async def workspace_delete_session(session_id: str):
     # 파일 삭제 요청을 SESSIONS 테이블 삭제로 연결
     try:
         return await delete_session_file(session_id)
+    except Exception as error:
+        _raise_http_error(error)
+
+
+@router.get("/sessions/{session_id}")
+async def workspace_get_session(session_id: str):
+    # 초기 트리는 가볍게 받고, 파일을 열 때만 전체 자료/전사를 조회합니다.
+    try:
+        return await get_session_file(session_id)
     except Exception as error:
         _raise_http_error(error)
 
