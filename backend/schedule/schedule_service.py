@@ -47,62 +47,27 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 
 
 #  LLM 프롬프트 템플릿
-SCHEDULE_SYSTEM_PROMPT = """당신은 대학 강의 전사문에서 **학사 일정**만 추출하는 AI 비서입니다.
+SCHEDULE_SYSTEM_PROMPT = """당신은 전사문에서 **학사 일정**만 추출하는 AI입니다.
+어떠한 설명이나 <think> 태그도 쓰지 말고, 오직 JSON 배열만 출력하세요.
 
-추출 대상 (학사 일정만):
-- 시험(중간고사, 기말고사, 퀴즈, 쪽지시험)
-- 과제(보고서, 레포트, 리포트, 제출, 마감)
-- 프로젝트(팀플, 팀프로젝트, 설계)
-- 발표(중간발표, 최종발표, 세미나)
-- 수업 관련(보강, 휴강, 실습, 특강)
+추출 대상: 시험, 과제, 프로젝트, 발표, 보강 등 학사 일정 (날짜가 명시된 것만)
+제외 대상: 개인 약속, 식사, 날짜 없는 할 일 등 비학사 일정"""
 
-절대 추출하지 마세요 (비학사 일정):
-- 친구 만남, 약속, 모임, 여행, 식사 등 개인 일정
-- 잡담, 인사, 간식, 농담
-- 일반적인 개념 설명, 학습 조언
-- 날짜가 없는 할 일이나 계획
+SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜: {today}
 
-핵심 규칙:
-- 전사문에 명시된 날짜/시간/마감 표현이 있는 항목만 추출하세요.
-- 전사문에 없는 시험/과제/날짜를 추측하거나 만들어내면 안 됩니다.
-- event_type은 전사문 원문 내용을 기반으로 분류하세요. 원문에 "시험"이 없으면 "시험"으로 분류하지 마세요.
-- 제목은 전사문에 실제로 나온 표현만 사용하세요. 새로 만들지 마세요.
-- 반드시 아래 JSON 형식으로만 응답하세요. JSON 외의 텍스트는 절대 포함하지 마세요.
-- 일정이 없으면 빈 배열 []을 반환하세요."""
-
-SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜는 {today}입니다.
-
-아래는 강의 전사문입니다:
-
+전사문:
 {transcript_text}
 
-위 전사문에서 **학사 일정**만 찾아 아래 JSON 배열 형식으로 추출하세요.
-
-추출 규칙:
-- 시험, 과제, 발표, 프로젝트, 보강처럼 학사와 관련된 항목만 추출하세요.
-- 친구 만남, 개인 약속, 여행, 식사 등 비학사 일정은 절대 추출하지 마세요.
-- 반드시 날짜나 시간이 있는 문장만 추출하세요. 날짜/시간이 없으면 제외하세요.
-- "내일", "다음 주" 같은 상대 날짜는 오늘 날짜를 기준으로 YYYY-MM-DDTHH:MM:SS로 바꾸세요.
-- 제목(title)은 전사문에 실제로 나온 과목명/대상을 포함해 작성하세요.
-- 제목에 전사문에 없는 과목명, 약어, 주제어를 만들지 마세요.
-- event_type은 전사문 원문에 해당 키워드가 있을 때만 해당 타입으로 분류하세요:
-  - "시험" → 원문에 시험/고사/퀴즈가 있을 때만
-  - "과제" → 원문에 과제/제출/마감/보고서/레포트가 있을 때만
-  - "프로젝트" → 원문에 프로젝트/팀플/설계가 있을 때만
-  - "발표" → 원문에 발표/세미나가 있을 때만
-  - "기타" → 위에 해당하지 않는 학사 일정 (보강, 휴강, 실습 등)
-- source_text는 반드시 전사문에 실제로 나온 문장이어야 합니다.
-- 같은 일정이 여러 번 언급되면 1개만 추출하세요.
-- 일정이 없으면 []만 반환하세요.
-날짜 형식은 "YYYY-MM-DD" 또는 "YYYY-MM-DDTHH:MM:SS"로 작성하세요.
+위 전사문에서 학사 일정을 찾아 아래 JSON 배열로만 출력하세요. 일정이 없으면 []를 반환하세요.
+상대 날짜(내일 등)는 오늘을 기준으로 YYYY-MM-DD 형식으로 변환하세요.
 
 [
   {{
-    "title": "일정 제목 (전사문 원문 기반, 간결하게)",
-    "description": "일정에 대한 상세 설명",
+    "title": "일정 제목",
+    "description": "상세 설명",
     "event_type": "시험|과제|프로젝트|발표|기타",
-    "due_date": "YYYY-MM-DD" 또는 null,
-    "source_text": "전사문에서 해당 일정이 언급된 원문 문장"
+    "due_date": "YYYY-MM-DD",
+    "source_text": "전사문에 언급된 원문 문장"
   }}
 ]"""
 
@@ -714,16 +679,26 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
 
 # 시멘틱 유사도 필터링 기능
 async def get_embedding(text: str) -> list[float]:
-    """LLM API를 호출하여 텍스트의 임베딩 벡터를 가져옵니다."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-        res = await client.post(
-            f"{LLM_URL}/v1/embeddings", 
-            json={"input": text, "model": LLM_MODEL},
-            headers={"Authorization": f"Bearer {LLM_API_KEY}"}
-        )
-        res.raise_for_status()
-        data = res.json()
-        return data["data"][0]["embedding"]
+    """텍스트의 임베딩 벡터를 반환한다."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{LLM_URL}/v1/embeddings",
+                json={"input": text, "model": "text-embedding-3-small"},
+                headers={"Authorization": f"Bearer {LLM_API_KEY}"}
+            )
+            res.raise_for_status()
+            return res.json()["data"][0]["embedding"]
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            # 로컬 LLM 서버가 임베딩을 지원하지 않는 경우 조용히 넘어감
+            pass
+        else:
+            logger.warning(f"[SCHEDULE] 임베딩 실패 (상태 코드 {e.response.status_code})")
+        return []
+    except Exception as e:
+        logger.warning(f"[SCHEDULE] 임베딩 실패 (유사도 필터링 스킵): {e}")
+        return []
 
 def calculate_cosine_similarity(v1: list[float], v2: list[float]) -> float:
     """두 벡터 간의 코사인 유사도를 계산합니다."""
