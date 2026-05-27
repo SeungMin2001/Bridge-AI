@@ -112,6 +112,29 @@ CHUNK_SIZE = 2000       # 각 청크의 최대 글자 수
 CHUNK_OVERLAP = 300     # 청크 간 오버랩 글자 수 (경계 일정 누락 방지)
 
 
+def filter_schedule_relevant_text(text: str) -> str:
+    """
+    전사문 텍스트에서 학사 일정(시험, 과제, 등)과 관련된 
+    핵심 문장만 필터링하여 반환합니다. 키워드가 전혀 없으면 빈 문자열을 반환합니다.
+    """
+    sentences = re.split(r'(?<=[.!?])\s+|\n+', text)
+    relevant = []
+    
+    core_keywords = ["시험", "고사", "퀴즈", "과제", "제출", "마감", "보고서", "레포트", "리포트", "프로젝트", "팀플", "설계", "발표", "보강", "휴강"]
+    date_keywords = ["일", "월", "주", "내일", "모레", "오늘", "오전", "오후", "시", "까지"]
+    
+    for sent in sentences:
+        if not sent.strip():
+            continue
+            
+        has_core = any(kw in sent for kw in core_keywords)
+        has_date = any(kw in sent for kw in date_keywords)
+        
+        if has_core and has_date:
+            relevant.append(sent.strip())
+            
+    return " ".join(relevant)
+
 def _split_transcript_chunks(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
     """
     긴 전사문을 오버랩이 있는 청크로 분할한다.
