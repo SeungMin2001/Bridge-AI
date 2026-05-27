@@ -111,11 +111,24 @@ async def schedule_extract(req: ScheduleExtractRequest):
     if len(transcript_text.strip()) < 5:
         raise HTTPException(status_code=400, detail="전사문이 너무 짧아 일정을 추출할 수 없습니다.")
 
-    # 3. LLM으로 전체 전사문에서 일정 추출 (가장 확실한 방법)
-    logger.info("[SCHEDULE] 전체 전사문에서 일정 추출을 수행합니다.")
+    # 3. 핵심 문장 필터링 (불필요한 LLM 호출 방지)
+    from schedule.schedule_service import filter_schedule_relevant_text
+    relevant_text = filter_schedule_relevant_text(transcript_text)
+    
+    if not relevant_text:
+        logger.info("[SCHEDULE] 일정 관련 키워드가 없어 추출을 생략합니다.")
+        return {
+            "session_id": req.session_id,
+            "notifications": [],
+            "auto_ignored": [],
+            "total_extracted": 0,
+        }
+
+    # 4. 필터링된 문장으로 LLM 추출 (초고속)
+    logger.info(f"[SCHEDULE] 필터링된 문장({len(relevant_text)}자)에서 일정 추출을 수행합니다.")
     llm_start_time = time.time()
     try:
-        extracted = await extract_schedules(transcript_text)
+        extracted = await extract_schedules(relevant_text)
         llm_duration = time.time() - llm_start_time
         logger.info(f"[SCHEDULE] 추출 완료: {len(extracted)}개 일정 찾음 (LLM 소요시간: {llm_duration:.2f}초)")
     except ValueError as e:
