@@ -399,6 +399,133 @@ def _source_phrase(sentence: str, limit: int = 34) -> str:
     return _trim_text(sentence, limit)
 
 
+def _strip_option_prefix(value: str) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    text = re.sub(r"^[A-Da-d]\s*[\.\)]\s*", "", text)
+    text = re.sub(r"^[1-4]\s*[\.\)]\s*", "", text)
+    return text.strip()
+
+
+def _option_key(value: str) -> str:
+    text = _strip_option_prefix(value)
+    text = re.sub(r"\s+", "", text).lower()
+    return re.sub(r"[^0-9a-z가-힣]", "", text)
+
+
+def _append_unique_phrase(phrases: list[str], value: str, *, limit: int = 44) -> None:
+    phrase = _strip_option_prefix(value)
+    phrase = phrase.strip(" ,.:;\"'")
+    if not phrase:
+        return
+    phrase = _trim_text(phrase, limit)
+    key = _option_key(phrase)
+    if not key or any(_option_key(item) == key for item in phrases):
+        return
+    phrases.append(phrase)
+
+
+def _source_option_phrases(transcript_text: str, *, limit: int = 12) -> list[str]:
+    """원문 문장과 절을 짧은 보기 후보로 변환합니다."""
+    phrases: list[str] = []
+    for sentence in _source_sentences(transcript_text, limit=20):
+        _append_unique_phrase(phrases, _source_phrase(sentence, 44), limit=44)
+        clauses = re.split(r"(?:,|，|;|；|\s+반면\s+|\s+하지만\s+|\s+그리고\s+|\s+또한\s+|\s+때문에\s+)", sentence)
+        for clause in clauses:
+            clause = clause.strip()
+            if 8 <= len(clause) <= 90:
+                _append_unique_phrase(phrases, _source_phrase(clause, 44), limit=44)
+            if len(phrases) >= limit:
+                return phrases
+    return phrases
+
+
+def _numbered_mc_question(
+    question: dict,
+    answer_text: str,
+    distractors: list[str],
+    transcript_text: str,
+    answer_slot: int,
+) -> dict | None:
+    answer = _strip_option_prefix(answer_text)
+    if not answer:
+        return None
+
+    option_texts: list[str] = []
+    _append_unique_phrase(option_texts, answer, limit=44)
+    for distractor in distractors:
+        _append_unique_phrase(option_texts, distractor, limit=44)
+    for source_phrase in _source_option_phrases(transcript_text, limit=12):
+        _append_unique_phrase(option_texts, source_phrase, limit=44)
+        if len(option_texts) >= 4:
+            break
+
+    if len(option_texts) < 4:
+        return None
+
+    option_texts = option_texts[:4]
+    answer_text = option_texts[0]
+    answer_index = max(0, min(3, answer_slot % 4))
+    if answer_index != 0:
+        option_texts[0], option_texts[answer_index] = option_texts[answer_index], option_texts[0]
+
+    numbered_options = [
+        f"{index}. {text}"
+        for index, text in enumerate(option_texts, start=1)
+    ]
+    correct_answer = numbered_options[answer_index]
+
+    next_question = dict(question)
+    next_question["type"] = "MULTIPLE_CHOICE"
+    next_question["question"] = _trim_text(next_question.get("question") or "자료의 핵심 내용으로 알맞은 것은?", 70)
+    next_question["options"] = numbered_options
+    next_question["correct_answer"] = correct_answer
+    next_question["explanation"] = _trim_text(next_question.get("explanation") or answer_text, 70)
+    return next_question
+
+
+def _normalize_single_llm_question(
+    candidate: dict,
+    question_type: str,
+    transcript_text: str,
+    type_index: int,
+) -> dict | None:
+    """LLM이 만든 의미 단위 응답을 프론트가 풀 수 있는 퀴즈 JSON으로 변환합니다."""
+    next_question = dict(candidate)
+    next_question["type"] = question_type
+
+    if question_type == "MULTIPLE_CHOICE":
+        raw_options = next_question.get("options") if isinstance(next_question.get("options"), list) else []
+        raw_distractors = next_question.get("distractors") if isinstance(next_question.get("distractors"), list) else []
+        answer_text = (
+            next_question.get("answer")
+            or next_question.get("correct_answer")
+            or next_question.get("정답")
+            or ""
+        )
+        if not answer_text and raw_options:
+            answer_text = raw_options[0]
+
+        distractors: list[str] = []
+        for value in [*raw_distractors, *raw_options]:
+            if _option_key(value) != _option_key(answer_text):
+                distractors.append(str(value))
+        return _numbered_mc_question(next_question, str(answer_text), distractors, transcript_text, type_index)
+
+    if question_type == "OX":
+        next_question["options"] = ["O", "X"]
+        next_question = _coerce_correct_answer(next_question)
+        next_question["question"] = _trim_text(next_question.get("question") or "", 90)
+        next_question["explanation"] = _trim_text(next_question.get("explanation") or "", 70)
+        return next_question
+
+    next_question["options"] = []
+    next_question = _coerce_correct_answer(next_question)
+    next_question["question"] = _trim_text(next_question.get("question") or "", 80)
+    next_question["correct_answer"] = _trim_text(next_question.get("correct_answer") or next_question.get("answer") or "", 60)
+    next_question["explanation"] = _trim_text(next_question.get("explanation") or next_question["correct_answer"], 70)
+    return next_question
+
+
 def _coerce_correct_answer(question: dict) -> dict:
     """LLM이 정답을 보기 번호나 참/거짓으로 적은 경우 프론트 채점 형식에 맞춥니다."""
     question_type = question.get("type")
@@ -458,11 +585,17 @@ def _is_valid_question_shape(question: dict) -> bool:
     question_text = " ".join(str(question.get("question") or "").split())
     options = question.get("options") if isinstance(question.get("options"), list) else []
     correct_answer = str(question.get("correct_answer") or "").strip()
+    option_keys = [_option_key(option) for option in options]
 
     if not question_text:
         return False
     if question_type == "MULTIPLE_CHOICE":
-        return len(options) >= 3 and correct_answer in options
+        return (
+            len(options) == 4
+            and correct_answer in options
+            and len(set(option_keys)) == 4
+            and all(option_keys)
+        )
     if question_type == "OX":
         return options == ["O", "X"] and correct_answer in {"O", "X"} and not _OX_INTERROGATIVE_RE.search(question_text)
     if question_type == "SHORT_ANSWER":
@@ -484,27 +617,26 @@ def _build_fallback_question(
     correct_phrase = _source_phrase(sentence)
 
     if question_type == "MULTIPLE_CHOICE":
-        correct_answer = f"1. {correct_phrase}"
-        option_phrases = [correct_phrase]
-        for candidate in sentences:
-            phrase = _source_phrase(candidate)
-            if phrase and phrase not in option_phrases:
-                option_phrases.append(phrase)
-            if len(option_phrases) >= 4:
-                break
-        while len(option_phrases) < 4:
-            option_phrases.append(f"자료에 없는 설명 {len(option_phrases)}")
-        options = [f"{idx}. {phrase}" for idx, phrase in enumerate(option_phrases[:4], start=1)]
-        return {
+        stems = (
+            "자료에서 '{topic}'에 대해 설명한 내용은?",
+            "자료의 내용으로 볼 때 '{topic}'와 가장 관련 있는 설명은?",
+            "'{topic}'에 대한 설명으로 알맞은 것은?",
+            "강의에서 '{topic}'와 연결해 설명한 핵심 내용은?",
+            "다음 중 자료의 '{topic}' 설명과 일치하는 것은?",
+        )
+        question = {
             "question_index": 0,
             "type": "MULTIPLE_CHOICE",
-            "question": f"자료에서 '{topic}'에 대해 설명한 내용은?",
-            "options": options,
-            "correct_answer": correct_answer,
+            "question": stems[type_index % len(stems)].format(topic=topic),
             "user_answer": None,
             "is_correct": None,
             "explanation": _trim_text(sentence, 50),
         }
+        source_phrases = [phrase for phrase in _source_option_phrases(transcript_text, limit=12) if _option_key(phrase) != _option_key(correct_phrase)]
+        normalized = _numbered_mc_question(question, correct_phrase, source_phrases, transcript_text, type_index)
+        if normalized is not None:
+            return normalized
+        raise ValueError("객관식 보기를 만들 수 있을 만큼 선택 소스 문장이 충분하지 않습니다.")
 
     if question_type == "OX":
         return {
@@ -555,7 +687,13 @@ def _fit_quiz_to_expected_counts(
         expected = expected_counts.get(question_type, 0)
         selected = buckets[question_type][:expected]
         while len(selected) < expected:
-            selected.append(_build_fallback_question(question_type, len(selected), transcript_text))
+            fallback_index = len(fitted) + len(selected)
+            fallback = _build_fallback_question(question_type, fallback_index, transcript_text)
+            fallback_text = " ".join(str(fallback.get("question") or "").split())
+            if fallback_text in seen_questions:
+                fallback["question"] = f"{fallback_text} ({len(selected) + 1})"
+            seen_questions.add(" ".join(str(fallback.get("question") or "").split()))
+            selected.append(fallback)
         fitted.extend(selected)
 
     for index, question in enumerate(fitted, start=1):
@@ -590,8 +728,11 @@ def _validate_quiz_quality(quiz_data: list[dict], expected_counts: dict[str, int
         seen_questions.add(question_text)
 
         if question_type == "MULTIPLE_CHOICE":
-            if len(options) < 3:
-                issues.append(f"{index}번 객관식 문항의 보기가 3개 미만입니다.")
+            option_keys = [_option_key(option) for option in options]
+            if len(options) != 4:
+                issues.append(f"{index}번 객관식 문항의 보기가 4개가 아닙니다.")
+            if len(set(option_keys)) != len(option_keys):
+                issues.append(f"{index}번 객관식 문항에 중복 보기가 있습니다.")
             if correct_answer not in options:
                 issues.append(f"{index}번 객관식 문항의 correct_answer가 options 중 하나와 일치하지 않습니다.")
         elif question_type == "OX":
@@ -660,7 +801,7 @@ def _type_instruction(question_type: str) -> str:
     if question_type == "MULTIPLE_CHOICE":
         return (
             "MULTIPLE_CHOICE 객관식만 생성하세요. "
-            "각 문항은 options 4개를 갖고, correct_answer는 options 중 하나와 완전히 같아야 합니다."
+            "question, answer, distractors 3개를 작성하세요."
         )
     if question_type == "OX":
         return (
@@ -714,29 +855,53 @@ def _build_single_question_messages(
     transcript_text: str,
     question_type: str,
     existing_questions: list[str],
+    type_index: int,
 ) -> list[dict]:
     """소형 LLM 안정성을 위해 퀴즈를 한 문항씩 생성하는 프롬프트를 만듭니다."""
     existing_block = "\n".join(f"- {item}" for item in existing_questions[:20]) or "- 없음"
+    source_sentences = _source_sentences(transcript_text, limit=20)
+    focus_sentence = source_sentences[type_index % len(source_sentences)] if source_sentences else ""
     if question_type == "MULTIPLE_CHOICE":
         option_rule = (
-            "options는 정확히 4개이며, 각 보기는 '1. ...' 형식의 짧은 구입니다. "
-            "correct_answer는 options 중 하나와 완전히 같아야 합니다."
+            "answer에는 정답이 되는 짧은 핵심 구를 쓰고, distractors에는 정답과 다른 오답 후보 3개를 쓰세요. "
+            "보기 번호와 options/correct_answer는 쓰지 마세요."
         )
-        example_options = '["1. 정답 보기", "2. 오답 보기", "3. 오답 보기", "4. 오답 보기"]'
-        example_answer = "1. 정답 보기"
+        response_example = """{
+  "question_index": 1,
+  "type": "MULTIPLE_CHOICE",
+  "question": "질문",
+  "answer": "짧은 정답",
+  "distractors": ["짧은 오답1", "짧은 오답2", "짧은 오답3"],
+  "explanation": "짧은 해설"
+}"""
     elif question_type == "OX":
         option_rule = "options는 정확히 [\"O\", \"X\"]이고 correct_answer는 \"O\" 또는 \"X\"입니다."
-        example_options = '["O", "X"]'
-        example_answer = "O"
+        response_example = """{
+  "question_index": 1,
+  "type": "OX",
+  "question": "참/거짓을 판단할 수 있는 평서문",
+  "options": ["O", "X"],
+  "correct_answer": "O",
+  "explanation": "짧은 해설"
+}"""
     else:
         option_rule = "options는 정확히 []이고 correct_answer는 짧은 핵심 답안입니다."
-        example_options = "[]"
-        example_answer = "정답"
+        response_example = """{
+  "question_index": 1,
+  "type": "SHORT_ANSWER",
+  "question": "질문",
+  "options": [],
+  "correct_answer": "짧은 정답",
+  "explanation": "짧은 해설"
+}"""
 
     user_prompt = f"""아래 선택 소스에서 {question_type} 퀴즈 1개만 생성하세요.
 
 [선택 소스]
 {transcript_text[:QUIZ_CONTEXT_CHARS]}
+
+[이번 문항에서 우선 참고할 문장]
+{focus_sentence or "선택 소스 전체"}
 
 [이미 만든 질문]
 {existing_block}
@@ -746,19 +911,13 @@ def _build_single_question_messages(
 - {_type_instruction(question_type)}
 - {option_rule}
 - 선택 소스에 실제로 나온 내용만 사용하세요.
+- 이번 문항에서 우선 참고할 문장을 중심으로 만들되, 필요하면 선택 소스의 다른 문장도 참고하세요.
 - 이미 만든 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
 - question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
 - JSON 객체 1개만 응답하세요. JSON 외 텍스트는 쓰지 마세요.
 
 응답 형식:
-{{
-  "question_index": 1,
-  "type": "{question_type}",
-  "question": "질문",
-  "options": {example_options},
-  "correct_answer": "{example_answer}",
-  "explanation": "짧은 해설"
-}}"""
+{response_example}"""
     return [
         {"role": "system", "content": QUIZ_SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
@@ -791,6 +950,36 @@ def _same_question_exists(question: dict, existing_questions: list[str]) -> bool
     return any(text == re.sub(r"\s+", "", item).strip() for item in existing_questions)
 
 
+def _question_shape_issues(question: dict) -> list[str]:
+    question_type = question.get("type")
+    options = question.get("options") if isinstance(question.get("options"), list) else []
+    correct_answer = str(question.get("correct_answer") or "").strip()
+    issues = []
+    if not str(question.get("question") or "").strip():
+        issues.append("empty_question")
+    if question_type == "MULTIPLE_CHOICE":
+        option_keys = [_option_key(option) for option in options]
+        if len(options) != 4:
+            issues.append(f"options={len(options)}")
+        if len(set(option_keys)) != len(option_keys):
+            issues.append("duplicate_options")
+        if correct_answer not in options:
+            issues.append("answer_not_in_options")
+    elif question_type == "OX":
+        if options != ["O", "X"]:
+            issues.append("bad_ox_options")
+        if correct_answer not in {"O", "X"}:
+            issues.append("bad_ox_answer")
+    elif question_type == "SHORT_ANSWER":
+        if options:
+            issues.append("short_answer_has_options")
+        if not correct_answer:
+            issues.append("empty_short_answer")
+    else:
+        issues.append(f"bad_type={question_type}")
+    return issues
+
+
 async def _generate_single_question(
     client: httpx.AsyncClient,
     transcript_text: str,
@@ -804,21 +993,39 @@ async def _generate_single_question(
         try:
             candidates = await _request_quiz_json(
                 client,
-                _build_single_question_messages(transcript_text, question_type, existing_questions),
+                _build_single_question_messages(transcript_text, question_type, existing_questions, type_index),
                 max_tokens,
                 temperature=0.0,
             )
+            rejected_reasons: list[str] = []
+            rejected_sample: dict | None = None
             for candidate in candidates:
                 candidate = dict(candidate)
                 if _normalize_quiz_type(candidate.get("type")) != question_type:
+                    rejected_reasons.append("type_mismatch")
+                    rejected_sample = rejected_sample or candidate
                     continue
-                candidate["type"] = question_type
-                candidate = _coerce_correct_answer(candidate)
-                if _same_question_exists(candidate, existing_questions):
+                normalized_candidate = _normalize_single_llm_question(candidate, question_type, transcript_text, type_index)
+                if normalized_candidate is None:
+                    rejected_reasons.append("normalize_failed")
+                    rejected_sample = rejected_sample or candidate
                     continue
-                if _is_valid_question_shape(candidate):
-                    return candidate
-            logger.warning("[QUIZ] %s 단일 문항 검증 실패: attempt=%s", question_type, attempt + 1)
+                if _same_question_exists(normalized_candidate, existing_questions):
+                    rejected_reasons.append("duplicate_question")
+                    rejected_sample = rejected_sample or normalized_candidate
+                    continue
+                if _is_valid_question_shape(normalized_candidate):
+                    return normalized_candidate
+                rejected_reasons.extend(_question_shape_issues(normalized_candidate))
+                rejected_sample = rejected_sample or normalized_candidate
+            sample = rejected_sample or (candidates[0] if candidates else {})
+            logger.warning(
+                "[QUIZ] %s 단일 문항 검증 실패: attempt=%s reasons=%s sample=%s",
+                question_type,
+                attempt + 1,
+                rejected_reasons or _question_shape_issues(sample if isinstance(sample, dict) else {}),
+                json.dumps(sample, ensure_ascii=False)[:400] if isinstance(sample, dict) else str(sample)[:400],
+            )
         except Exception as exc:
             logger.warning("[QUIZ] %s 단일 문항 LLM 생성 실패: attempt=%s error=%s", question_type, attempt + 1, exc)
 
