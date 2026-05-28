@@ -274,8 +274,13 @@ def _coerce_quiz_questions(parsed: object) -> list[dict]:
     if isinstance(parsed, list):
         questions = parsed
     elif isinstance(parsed, dict):
-        questions = None
+        if any(key in parsed for key in ("question", "type", "correct_answer", "answer")):
+            questions = [parsed]
+        else:
+            questions = None
         for key in ("quiz_data", "questions", "quizzes", "items", "data", "result"):
+            if questions is not None:
+                break
             value = parsed.get(key)
             if isinstance(value, list):
                 questions = value
@@ -294,6 +299,8 @@ def _coerce_quiz_questions(parsed: object) -> list[dict]:
         next_question.setdefault("type", "MULTIPLE_CHOICE")
         next_question["type"] = _normalize_quiz_type(next_question.get("type"))
         next_question.setdefault("question", "")
+        if "correct_answer" not in next_question and "answer" in next_question:
+            next_question["correct_answer"] = next_question.get("answer")
         next_question.setdefault("correct_answer", "")
         next_question.setdefault("user_answer", None)
         next_question.setdefault("is_correct", None)
@@ -703,6 +710,61 @@ def _build_type_specific_messages(
     ]
 
 
+def _build_single_question_messages(
+    transcript_text: str,
+    question_type: str,
+    existing_questions: list[str],
+) -> list[dict]:
+    """소형 LLM 안정성을 위해 퀴즈를 한 문항씩 생성하는 프롬프트를 만듭니다."""
+    existing_block = "\n".join(f"- {item}" for item in existing_questions[:20]) or "- 없음"
+    if question_type == "MULTIPLE_CHOICE":
+        option_rule = (
+            "options는 정확히 4개이며, 각 보기는 '1. ...' 형식의 짧은 구입니다. "
+            "correct_answer는 options 중 하나와 완전히 같아야 합니다."
+        )
+        example_options = '["1. 정답 보기", "2. 오답 보기", "3. 오답 보기", "4. 오답 보기"]'
+        example_answer = "1. 정답 보기"
+    elif question_type == "OX":
+        option_rule = "options는 정확히 [\"O\", \"X\"]이고 correct_answer는 \"O\" 또는 \"X\"입니다."
+        example_options = '["O", "X"]'
+        example_answer = "O"
+    else:
+        option_rule = "options는 정확히 []이고 correct_answer는 짧은 핵심 답안입니다."
+        example_options = "[]"
+        example_answer = "정답"
+
+    user_prompt = f"""아래 선택 소스에서 {question_type} 퀴즈 1개만 생성하세요.
+
+[선택 소스]
+{transcript_text[:QUIZ_CONTEXT_CHARS]}
+
+[이미 만든 질문]
+{existing_block}
+
+[규칙]
+- 반드시 {question_type} 유형 1개만 생성하세요.
+- {_type_instruction(question_type)}
+- {option_rule}
+- 선택 소스에 실제로 나온 내용만 사용하세요.
+- 이미 만든 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
+- question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
+- JSON 객체 1개만 응답하세요. JSON 외 텍스트는 쓰지 마세요.
+
+응답 형식:
+{{
+  "question_index": 1,
+  "type": "{question_type}",
+  "question": "질문",
+  "options": {example_options},
+  "correct_answer": "{example_answer}",
+  "explanation": "짧은 해설"
+}}"""
+    return [
+        {"role": "system", "content": QUIZ_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 async def _request_quiz_json(
     client: httpx.AsyncClient,
     messages: list[dict],
@@ -720,6 +782,83 @@ async def _request_quiz_json(
     raw_answer = data["choices"][0]["message"]["content"]
     logger.info(f"[QUIZ] LLM JSON 응답 수신: {len(raw_answer)} chars")
     return _parse_quiz_json(raw_answer)
+
+
+def _same_question_exists(question: dict, existing_questions: list[str]) -> bool:
+    text = re.sub(r"\s+", "", str(question.get("question") or "")).strip()
+    if not text:
+        return True
+    return any(text == re.sub(r"\s+", "", item).strip() for item in existing_questions)
+
+
+async def _generate_single_question(
+    client: httpx.AsyncClient,
+    transcript_text: str,
+    question_type: str,
+    type_index: int,
+    existing_questions: list[str],
+) -> dict:
+    """한 문항씩 LLM 생성하고, 실패 시 선택 소스 기반 문항으로 복구합니다."""
+    max_tokens = min(LLM_MAX_TOKENS, 760)
+    for attempt in range(2):
+        try:
+            candidates = await _request_quiz_json(
+                client,
+                _build_single_question_messages(transcript_text, question_type, existing_questions),
+                max_tokens,
+                temperature=0.0,
+            )
+            for candidate in candidates:
+                candidate = dict(candidate)
+                if _normalize_quiz_type(candidate.get("type")) != question_type:
+                    continue
+                candidate["type"] = question_type
+                candidate = _coerce_correct_answer(candidate)
+                if _same_question_exists(candidate, existing_questions):
+                    continue
+                if _is_valid_question_shape(candidate):
+                    return candidate
+            logger.warning("[QUIZ] %s 단일 문항 검증 실패: attempt=%s", question_type, attempt + 1)
+        except Exception as exc:
+            logger.warning("[QUIZ] %s 단일 문항 LLM 생성 실패: attempt=%s error=%s", question_type, attempt + 1, exc)
+
+    fallback = _build_fallback_question(question_type, type_index, transcript_text)
+    logger.info("[QUIZ] %s 문항을 선택 소스 기반으로 보충했습니다: %s", question_type, fallback.get("question"))
+    return fallback
+
+
+async def _generate_quiz_one_by_one(
+    client: httpx.AsyncClient,
+    transcript_text: str,
+    expected_counts: dict[str, int],
+) -> list[dict]:
+    """요청한 유형/개수대로 한 문항씩 생성하여 전체 실패 가능성을 낮춥니다."""
+    quiz_data: list[dict] = []
+    existing_questions: list[str] = []
+
+    for question_type in QUIZ_TYPE_KEYS:
+        for type_index in range(expected_counts.get(question_type, 0)):
+            question = await _generate_single_question(
+                client,
+                transcript_text,
+                question_type,
+                type_index,
+                existing_questions,
+            )
+            quiz_data.append(question)
+            existing_questions.append(str(question.get("question") or ""))
+
+    for index, question in enumerate(quiz_data, start=1):
+        question["question_index"] = index
+        question.setdefault("user_answer", None)
+        question.setdefault("is_correct", None)
+        question.setdefault("explanation", "")
+
+    issues = _validate_quiz_quality(quiz_data, expected_counts)
+    if issues:
+        logger.warning("[QUIZ] 단일 문항 생성 후 보정 필요: %s", "; ".join(issues[:5]))
+        quiz_data = _fit_quiz_to_expected_counts(quiz_data, expected_counts, transcript_text)
+    return quiz_data
 
 
 async def _complete_expected_counts_with_llm(
@@ -819,139 +958,31 @@ async def generate_quiz(
         logger.info("[QUIZ] MOCK_MODE: 목업 퀴즈 데이터 반환")
         return _generate_mock_quiz(total_questions, normalized_counts)
 
-    messages = _build_quiz_prompt(transcript_text, total_questions, normalized_counts)
-
     try:
-        # 퀴즈는 JSON 완결성이 중요하므로 문항 수에 비례한 예산만 주고, 프롬프트에서 짧은 문항을 강제합니다.
-        max_tokens = min(LLM_MAX_TOKENS, max(QUIZ_MIN_OUTPUT_TOKENS, 600 + (total_questions * QUIZ_TOKENS_PER_QUESTION)))
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
-            res = await client.post(
-                f"{LLM_URL}/v1/chat/completions",
-                json={
-                    "model": LLM_MODEL,
-                    "messages": messages,
-                    "max_tokens": max_tokens,
-                    "temperature": 0.1,  # 정확한 JSON 생성을 위해 낮은 temperature
-                    "bridgeprag_alpha": 0.0,
-                    "response_format": {"type": "json_object"},
-                    "chat_template_kwargs": {"enable_thinking": False},
-                },
-                headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-            )
-            res.raise_for_status()
+        logger.info(
+            "[QUIZ] 단일 문항 반복 생성 시작: total=%s counts=%s",
+            total_questions,
+            normalized_counts,
+        )
+        async with httpx.AsyncClient(timeout=httpx.Timeout(6.0, read=60.0)) as client:
+            quiz_data = await _generate_quiz_one_by_one(client, transcript_text, normalized_counts)
 
-            data = res.json()
-            raw_answer = data["choices"][0]["message"]["content"]
-            logger.info(f"[QUIZ] LLM 응답 수신: {len(raw_answer)} chars")
-
-            try:
-                quiz_data = _parse_quiz_json(raw_answer)
-            except ValueError as first_error:
-                logger.warning(f"[QUIZ] LLM 응답 JSON 파싱 실패, 복구 요청 시도: {first_error}")
-                repair_res = await client.post(
-                    f"{LLM_URL}/v1/chat/completions",
-                    json={
-                        "model": LLM_MODEL,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "유효한 퀴즈 JSON 배열만 완성해서 응답하세요. JSON 외 텍스트는 쓰지 마세요.",
-                            },
-                            {
-                                "role": "user",
-                                "content": (
-                                    "이전 LLM 응답은 JSON이 중간에 끊겼거나 문자열이 닫히지 않아 파싱에 실패했습니다.\n"
-                                    "아래 강의 내용과 잘린 응답을 참고해, 완전히 닫힌 JSON 배열을 새로 작성하세요.\n\n"
-                                    "[필수 문항 수]\n"
-                                    f"- MULTIPLE_CHOICE: {normalized_counts['MULTIPLE_CHOICE']}개\n"
-                                    f"- OX: {normalized_counts['OX']}개\n"
-                                    f"- SHORT_ANSWER: {normalized_counts['SHORT_ANSWER']}개\n\n"
-                                    "[규칙]\n"
-                                    "- JSON 배열 외 텍스트는 쓰지 마세요.\n"
-                                    "- explanation은 80자 이내 한 문장으로 짧게 쓰세요.\n"
-                                    "- OX는 평서문이며 options는 [\"O\", \"X\"], correct_answer는 \"O\" 또는 \"X\"입니다.\n\n"
-                                    f"[강의 내용]\n{transcript_text[:QUIZ_CONTEXT_CHARS]}\n\n"
-                                    f"[잘린 응답]\n{raw_answer[:8000]}"
-                                ),
-                            },
-                        ],
-                        "max_tokens": max_tokens,
-                        "temperature": 0.0,
-                        "bridgeprag_alpha": 0.0,
-                        "response_format": {"type": "json_object"},
-                        "chat_template_kwargs": {"enable_thinking": False},
-                    },
-                    headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-                )
-                repair_res.raise_for_status()
-                repair_data = repair_res.json()
-                raw_answer = repair_data["choices"][0]["message"]["content"]
-                logger.info(f"[QUIZ] LLM 복구 응답 수신: {len(raw_answer)} chars")
-                try:
-                    quiz_data = _parse_quiz_json(raw_answer)
-                except ValueError as repair_error:
-                    logger.warning("[QUIZ] LLM 복구 응답도 파싱 실패, 유형별 보강으로 전환: %s", repair_error)
-                    quiz_data = []
-
+        quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
+        if quality_issues:
+            logger.warning("[QUIZ] 최종 품질 검증 실패, 소스 기반 보정 재적용: %s", "; ".join(quality_issues[:5]))
+            quiz_data = _fit_quiz_to_expected_counts(quiz_data, normalized_counts, transcript_text)
             quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
             if quality_issues:
-                logger.warning("[QUIZ] 퀴즈 품질 검증 실패, 재작성 요청: %s", "; ".join(quality_issues[:5]))
-                repair_prompt = QUIZ_REPAIR_PROMPT_TEMPLATE.format(
-                    transcript_text=transcript_text[:6000],
-                    mc_count=normalized_counts["MULTIPLE_CHOICE"],
-                    ox_count=normalized_counts["OX"],
-                    sa_count=normalized_counts["SHORT_ANSWER"],
-                    issues="\n".join(f"- {issue}" for issue in quality_issues[:12]),
-                    quiz_json=json.dumps(quiz_data, ensure_ascii=False, indent=2),
-                )
-                repair_res = await client.post(
-                    f"{LLM_URL}/v1/chat/completions",
-                    json={
-                        "model": LLM_MODEL,
-                        "messages": [
-                            {"role": "system", "content": QUIZ_SYSTEM_PROMPT},
-                            {"role": "user", "content": repair_prompt},
-                        ],
-                        "max_tokens": max_tokens,
-                        "temperature": 0.0,
-                        "bridgeprag_alpha": 0.0,
-                        "response_format": {"type": "json_object"},
-                        "chat_template_kwargs": {"enable_thinking": False},
-                    },
-                    headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-                )
-                repair_res.raise_for_status()
-                repair_data = repair_res.json()
-                raw_answer = repair_data["choices"][0]["message"]["content"]
-                logger.info(f"[QUIZ] 퀴즈 품질 재작성 응답 수신: {len(raw_answer)} chars")
-                try:
-                    quiz_data = _parse_quiz_json(raw_answer)
-                except ValueError as repair_error:
-                    logger.warning("[QUIZ] 품질 재작성 응답 파싱 실패, 기존 유효 문항 기반 보강: %s", repair_error)
-
-                quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
-                if quality_issues:
-                    logger.warning(
-                        "[QUIZ] 재작성 후에도 품질 검증 실패, 유형별 LLM 보강으로 진행: %s",
-                        "; ".join(quality_issues[:5]),
-                    )
-                    quiz_data = await _complete_expected_counts_with_llm(
-                        client,
-                        transcript_text,
-                        quiz_data,
-                        normalized_counts,
-                        max_tokens,
-                    )
-                    quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
-                    if quality_issues:
-                        raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
+                raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
 
         logger.info(f"[QUIZ] {len(quiz_data)}개 문제 파싱 완료")
         return quiz_data
 
     except httpx.HTTPError as e:
-        logger.error(f"[QUIZ] LLM 호출 실패: {e}")
-        raise RuntimeError(f"LLM 서버 연결 실패: {e}")
+        logger.warning("[QUIZ] LLM 서버 연결 실패, 선택 소스 기반 문항으로 생성합니다: %s", e)
+        quiz_data = _fit_quiz_to_expected_counts([], normalized_counts, transcript_text)
+        logger.info(f"[QUIZ] 소스 기반 {len(quiz_data)}개 문제 생성 완료")
+        return quiz_data
     except ValueError:
         raise
     except Exception as e:
