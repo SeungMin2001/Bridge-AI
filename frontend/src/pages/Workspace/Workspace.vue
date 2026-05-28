@@ -1748,7 +1748,7 @@ const activeWorkspaceSource = computed(() => {
 .mini-source-folder-shell {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
 }
 
 .mini-source-folder-heading,
@@ -1762,16 +1762,14 @@ const activeWorkspaceSource = computed(() => {
 
 .mini-source-folder-heading {
   grid-template-columns: 22px minmax(0, 1fr) auto;
-  padding: 8px 9px;
-  border-radius: 13px;
-  color: #1e293b;
-  background: rgba(241, 245, 249, 0.95);
-  border: 1px solid rgba(226, 232, 240, 0.98);
+  min-height: 32px;
+  padding: 2px 0 6px;
+  color: var(--workspace-mini-fg);
 }
 
 .mini-source-folder-heading .material-symbols-outlined {
   font-size: 18px;
-  color: #2563eb;
+  color: rgba(203, 213, 225, 0.86);
   font-variation-settings: 'FILL' 1;
 }
 
@@ -1787,54 +1785,57 @@ const activeWorkspaceSource = computed(() => {
 
 .mini-source-folder-heading small,
 .mini-source-file-row small {
-  color: #64748b;
+  color: rgba(203, 213, 225, 0.58);
   font-size: 10px;
   font-weight: 800;
 }
 
 .mini-source-file-group {
-  padding: 7px 7px 7px 10px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.64);
-  border: 1px solid rgba(226, 232, 240, 0.85);
+  padding: 0;
 }
 
 .mini-source-file-group.is-active {
-  border-color: rgba(37, 99, 235, 0.32);
-  background: rgba(239, 246, 255, 0.72);
+  color: var(--workspace-mini-fg);
 }
 
 .mini-source-file-row {
   grid-template-columns: 22px minmax(0, 1fr) auto;
   border: 0;
-  padding: 2px 0 7px;
-  color: #1e293b;
+  border-radius: 10px;
+  padding: 5px 2px 5px 0;
+  color: rgba(203, 213, 225, 0.82);
   background: transparent;
   text-align: left;
+  transition: color 0.16s ease, background-color 0.16s ease;
+}
+
+.mini-source-file-row:hover {
+  color: var(--workspace-mini-fg);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .mini-source-file-row .material-symbols-outlined {
   font-size: 17px;
-  color: #64748b;
+  color: rgba(203, 213, 225, 0.62);
 }
 
 .mini-source-file-group.is-active .mini-source-file-row .material-symbols-outlined {
-  color: #2563eb;
+  color: rgba(147, 197, 253, 0.96);
 }
 
 .mini-source-file-sources {
-  padding-left: 12px;
-  border-left: 2px solid rgba(148, 163, 184, 0.24);
+  margin-left: 11px;
+  padding-left: 11px;
+  border-left: 1px solid rgba(203, 213, 225, 0.16);
 }
 
 .mini-source-file-empty {
-  margin-left: 12px;
-  padding: 7px 0 2px;
-  border-left: 2px solid rgba(148, 163, 184, 0.18);
-  color: #94a3b8;
+  margin-left: 11px;
+  padding: 7px 0 6px 11px;
+  border-left: 1px solid rgba(203, 213, 225, 0.12);
+  color: rgba(203, 213, 225, 0.46);
   font-size: 11px;
   font-weight: 700;
-  text-indent: 10px;
 }
 
 .mini-source-open-btn {
