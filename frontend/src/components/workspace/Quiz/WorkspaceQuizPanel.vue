@@ -13,6 +13,7 @@ const props = defineProps({
   currentPreviewMaterial: { type: Object, default: null },
   currentAttachments: { type: Array, default: () => [] },
   currentRecordings: { type: Array, default: () => [] },
+  folderFiles: { type: Array, default: () => [] },
   quizSource: { type: Object, default: null }
 })
 
@@ -146,6 +147,26 @@ const collectRecordingTranscriptIds = (recording = {}) => {
   return Array.from(ids)
 }
 
+const getFileMaterials = (file = {}) => {
+  const weekMaterials = Array.isArray(file.weeks)
+    ? file.weeks.flatMap((week) => Array.isArray(week?.materials) ? week.materials : [])
+    : []
+  return weekMaterials.length ? weekMaterials : (Array.isArray(file.attachments) ? file.attachments : [])
+}
+
+const getFileRecordings = (file = {}) => {
+  const weekRecordings = Array.isArray(file.weeks)
+    ? file.weeks.flatMap((week) => Array.isArray(week?.recordings) ? week.recordings : [])
+    : []
+  return weekRecordings.length ? weekRecordings : (Array.isArray(file.recordings) ? file.recordings : [])
+}
+
+const getQuizSourceTitle = (sourceTitle = '', file = null) => {
+  const title = String(sourceTitle || '').trim() || '소스'
+  const fileTitle = String(file?.name || '').trim()
+  return fileTitle ? `${fileTitle} · ${title}` : title
+}
+
 const materialFromSource = (source = {}) => (
   source?.material || (
     source?.type === 'material'
@@ -164,27 +185,65 @@ const materialFromSource = (source = {}) => (
 const availableQuizSourceItems = computed(() => {
   const sources = []
   const seen = new Set()
+  const seenIdentity = new Set()
 
   const addSource = (source) => {
     if (!source?.uid || seen.has(source.uid)) return
+    const identity = `${source.type || 'source'}:${source.id || source.materialId || source.recordingId || source.title || source.uid}`
+    if (seenIdentity.has(identity)) return
     seen.add(source.uid)
+    seenIdentity.add(identity)
     sources.push(source)
   }
 
-  const attachments = Array.isArray(props.currentAttachments) ? props.currentAttachments : []
-  attachments.forEach((material, index) => {
-    const id = getSourceStableId(material, 'material', index)
-    const pdf = isPdfMaterial(material)
-    addSource({
-      uid: `material:${id}`,
-      id,
-      type: 'material',
-      title: getAttachmentTitle(material, index),
-      icon: pdf ? 'picture_as_pdf' : 'description',
-      material,
-      transcriptIds: [],
-      disabled: !pdf,
-      disabledReason: 'PDF 자료만 퀴즈로 만들 수 있습니다.'
+  const folderFiles = Array.isArray(props.folderFiles) && props.folderFiles.length
+    ? props.folderFiles
+    : [{
+        id: props.activeFileId || 'current',
+        name: props.activeFileName || '',
+        attachments: props.currentAttachments,
+        recordings: props.currentRecordings
+      }]
+
+  folderFiles.forEach((file, fileIndex) => {
+    const fileId = file?.id || `file-${fileIndex}`
+    getFileMaterials(file).forEach((material, index) => {
+      const id = getSourceStableId(material, 'material', index)
+      const pdf = isPdfMaterial(material)
+      const title = getAttachmentTitle(material, index)
+      addSource({
+        uid: `material:${fileId}:${id}`,
+        id,
+        fileId,
+        fileTitle: file?.name || '',
+        type: 'material',
+        title: getQuizSourceTitle(title, file),
+        icon: pdf ? 'picture_as_pdf' : 'description',
+        material,
+        transcriptIds: [],
+        disabled: !pdf,
+        disabledReason: 'PDF 자료만 퀴즈로 만들 수 있습니다.'
+      })
+    })
+
+    getFileRecordings(file).forEach((recording, index) => {
+      const id = getSourceStableId(recording, 'recording', index)
+      const transcriptIds = collectRecordingTranscriptIds(recording)
+      const title = getRecordingTitle(recording, index)
+      addSource({
+        uid: `recording:${fileId}:${id}`,
+        id,
+        fileId,
+        fileTitle: file?.name || '',
+        type: 'recording',
+        title: getQuizSourceTitle(title, file),
+        icon: 'graphic_eq',
+        recordingId: recording?.id || recording?.recordingId || id,
+        recording,
+        transcriptIds,
+        disabled: transcriptIds.length === 0,
+        disabledReason: file?.resourcesLoaded === false ? '전사문을 불러오는 중입니다.' : '전사된 녹음본만 퀴즈로 만들 수 있습니다.'
+      })
     })
   })
 
@@ -202,24 +261,6 @@ const availableQuizSourceItems = computed(() => {
       disabledReason: ''
     })
   }
-
-  const recordings = Array.isArray(props.currentRecordings) ? props.currentRecordings : []
-  recordings.forEach((recording, index) => {
-    const id = getSourceStableId(recording, 'recording', index)
-    const transcriptIds = collectRecordingTranscriptIds(recording)
-    addSource({
-      uid: `recording:${id}`,
-      id,
-      type: 'recording',
-      title: getRecordingTitle(recording, index),
-      icon: 'graphic_eq',
-      recordingId: recording?.id || recording?.recordingId || id,
-      recording,
-      transcriptIds,
-      disabled: transcriptIds.length === 0,
-      disabledReason: '전사된 녹음본만 퀴즈로 만들 수 있습니다.'
-    })
-  })
 
   return sources
 })
@@ -372,6 +413,15 @@ const syncLocalSourcesFromCurrentSelection = () => {
 }
 
 const isQuizSourceSelected = (source) => localQuizSourceIds.value.includes(source.uid)
+const selectableQuizSourceIds = computed(() => (
+  availableQuizSourceItems.value
+    .filter((source) => !source.disabled)
+    .map((source) => source.uid)
+))
+const areAllQuizSourcesSelected = computed(() => (
+  selectableQuizSourceIds.value.length > 0 &&
+  selectableQuizSourceIds.value.every((uid) => localQuizSourceIds.value.includes(uid))
+))
 
 const updateSourcePickerAnchor = (target) => {
   const rect = target?.getBoundingClientRect?.()
@@ -414,6 +464,13 @@ const handleSourcePickerBackdrop = () => {
 const clearQuizSourceSelection = () => {
   hasPickedQuizSources.value = true
   localQuizSourceIds.value = []
+}
+
+const selectAllQuizFolderSources = () => {
+  hasPickedQuizSources.value = true
+  localQuizSourceIds.value = areAllQuizSourcesSelected.value
+    ? []
+    : selectableQuizSourceIds.value
 }
 
 const getQuizQuestions = (quiz = activeQuiz.value) => (
@@ -1115,6 +1172,12 @@ watch(
                     </button>
                   </div>
 
+                  <div v-if="availableQuizSourceItems.length" class="quiz-source-picker-actions">
+                    <button type="button" @click="selectAllQuizFolderSources">
+                      {{ areAllQuizSourcesSelected ? '전체 해제' : '같은 폴더 전체 선택' }}
+                    </button>
+                  </div>
+
                   <div v-if="availableQuizSourceItems.length" class="quiz-source-picker-list">
                     <button
                       v-for="source in availableQuizSourceItems"
@@ -1629,6 +1692,26 @@ watch(
 
 .quiz-source-picker-head .material-symbols-outlined {
   font-size: 17px;
+}
+
+.quiz-source-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.quiz-source-picker-actions button {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #2563eb;
+  background: #eff6ff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.quiz-source-picker-actions button:hover {
+  background: #dbeafe;
 }
 
 .quiz-source-picker-list {

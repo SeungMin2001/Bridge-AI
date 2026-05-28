@@ -30,6 +30,7 @@ const props = defineProps({
   activeFileType: { type: String, default: 'lecture' },
   currentAttachments: { type: Array, default: () => [] },
   currentRecordings: { type: Array, default: () => [] },
+  folderFiles: { type: Array, default: () => [] },
   transcriptions: { type: Array, default: () => [] },
   currentPreviewMaterial: { type: Object, default: null },
   materialEvidenceRequest: { type: Object, default: null },
@@ -462,6 +463,7 @@ const postRecordingProcessing = computed(() => {
           :summary-source="summarySource"
           :current-attachments="currentAttachments"
           :current-recordings="currentRecordings"
+          :folder-files="folderFiles"
           :active-file-id="activeFileId"
           @deleteSummary="emit('deleteSummary', $event)"
           @generateMaterialSummary="emit('generateMaterialSummary', $event)"
@@ -480,6 +482,7 @@ const postRecordingProcessing = computed(() => {
           :current-preview-material="currentPreviewMaterial"
           :current-attachments="currentAttachments"
           :current-recordings="currentRecordings"
+          :folder-files="folderFiles"
           :quiz-source="quizSource"
         />
       </div>

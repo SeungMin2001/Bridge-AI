@@ -10,6 +10,7 @@ const props = defineProps({
   activeFileId: { type: String, default: '' },
   currentAttachments: { type: Array, default: () => [] },
   currentRecordings: { type: Array, default: () => [] },
+  folderFiles: { type: Array, default: () => [] },
   isRecording: Boolean,
   isRecordingPaused: Boolean,
   recordingTimeText: { type: String, default: '00:00:00' },
@@ -279,6 +280,26 @@ const getSummarySourceStableId = (source = {}, type = 'source', index = 0) => (
 const materialFromSource = (source = {}) => source.material || (source.type === 'material' ? source : null)
 const recordingFromSource = (source = {}) => source.recording || (source.type === 'recording' ? source : null)
 
+const getFileMaterials = (file = {}) => {
+  const weekMaterials = Array.isArray(file.weeks)
+    ? file.weeks.flatMap((week) => Array.isArray(week?.materials) ? week.materials : [])
+    : []
+  return weekMaterials.length ? weekMaterials : (Array.isArray(file.attachments) ? file.attachments : [])
+}
+
+const getFileRecordings = (file = {}) => {
+  const weekRecordings = Array.isArray(file.weeks)
+    ? file.weeks.flatMap((week) => Array.isArray(week?.recordings) ? week.recordings : [])
+    : []
+  return weekRecordings.length ? weekRecordings : (Array.isArray(file.recordings) ? file.recordings : [])
+}
+
+const getSummarySourceTitle = (sourceTitle = '', file = null) => {
+  const title = String(sourceTitle || '').trim() || '소스'
+  const fileTitle = String(file?.name || '').trim()
+  return fileTitle ? `${fileTitle} · ${title}` : title
+}
+
 const availableSummarySourceItems = computed(() => {
   const sources = []
   const seen = new Set()
@@ -288,35 +309,53 @@ const availableSummarySourceItems = computed(() => {
     sources.push(source)
   }
 
-  ;(Array.isArray(props.currentAttachments) ? props.currentAttachments : []).forEach((material, index) => {
-    const id = getSummarySourceStableId(material, 'material', index)
-    const pdf = isPdfMaterial(material)
-    addSource({
-      uid: `material:${id}`,
-      id,
-      type: 'material',
-      title: getSourceTitle(material, `강의자료 ${index + 1}`),
-      icon: pdf ? 'picture_as_pdf' : 'description',
-      material,
-      disabled: !pdf,
-      disabledReason: 'PDF 자료만 요약할 수 있습니다.'
-    })
-  })
+  const folderFiles = Array.isArray(props.folderFiles) && props.folderFiles.length
+    ? props.folderFiles
+    : [{
+        id: props.activeFileId || 'current',
+        name: '',
+        attachments: props.currentAttachments,
+        recordings: props.currentRecordings
+      }]
 
-  ;(Array.isArray(props.currentRecordings) ? props.currentRecordings : []).forEach((recording, index) => {
-    const id = getSummarySourceStableId(recording, 'recording', index)
-    const transcriptCount = getRecordingTranscriptions(recording).length
-    addSource({
-      uid: `recording:${id}`,
-      id,
-      type: 'recording',
-      title: getSourceTitle(recording, `녹음본 ${index + 1}`),
-      icon: 'graphic_eq',
-      recording,
-      recordingId: recording?.id || recording?.recordingId || id,
-      transcriptCount,
-      disabled: !hasRecordingTranscript(recording),
-      disabledReason: '전사된 녹음본만 요약할 수 있습니다.'
+  folderFiles.forEach((file, fileIndex) => {
+    const fileId = file?.id || `file-${fileIndex}`
+    getFileMaterials(file).forEach((material, index) => {
+      const id = getSummarySourceStableId(material, 'material', index)
+      const pdf = isPdfMaterial(material)
+      const title = getSourceTitle(material, `강의자료 ${index + 1}`)
+      addSource({
+        uid: `material:${fileId}:${id}`,
+        id,
+        fileId,
+        fileTitle: file?.name || '',
+        type: 'material',
+        title: getSummarySourceTitle(title, file),
+        icon: pdf ? 'picture_as_pdf' : 'description',
+        material,
+        disabled: !pdf,
+        disabledReason: 'PDF 자료만 요약할 수 있습니다.'
+      })
+    })
+
+    getFileRecordings(file).forEach((recording, index) => {
+      const id = getSummarySourceStableId(recording, 'recording', index)
+      const transcriptCount = getRecordingTranscriptions(recording).length
+      const title = getSourceTitle(recording, `녹음본 ${index + 1}`)
+      addSource({
+        uid: `recording:${fileId}:${id}`,
+        id,
+        fileId,
+        fileTitle: file?.name || '',
+        type: 'recording',
+        title: getSummarySourceTitle(title, file),
+        icon: 'graphic_eq',
+        recording,
+        recordingId: recording?.id || recording?.recordingId || id,
+        transcriptCount,
+        disabled: !hasRecordingTranscript(recording),
+        disabledReason: file?.resourcesLoaded === false ? '전사문을 불러오는 중입니다.' : '전사된 녹음본만 요약할 수 있습니다.'
+      })
     })
   })
 
@@ -433,6 +472,15 @@ const syncLocalSummarySourcesFromExternal = () => {
 }
 
 const isSummarySourceSelected = (source = {}) => localSummarySourceIds.value.includes(source.uid)
+const selectableSummarySourceIds = computed(() => (
+  availableSummarySourceItems.value
+    .filter((source) => !source.disabled)
+    .map((source) => source.uid)
+))
+const areAllSummarySourcesSelected = computed(() => (
+  selectableSummarySourceIds.value.length > 0 &&
+  selectableSummarySourceIds.value.every((uid) => localSummarySourceIds.value.includes(uid))
+))
 
 const updateSummarySourcePickerAnchor = (target) => {
   const rect = target?.getBoundingClientRect?.()
@@ -475,6 +523,13 @@ const toggleSummarySourceSelection = (source = {}) => {
 const clearSummarySourceSelection = () => {
   hasPickedSummarySources.value = true
   localSummarySourceIds.value = []
+}
+
+const selectAllSummaryFolderSources = () => {
+  hasPickedSummarySources.value = true
+  localSummarySourceIds.value = areAllSummarySourcesSelected.value
+    ? []
+    : selectableSummarySourceIds.value
 }
 
 const formatSpeakerLabel = (speakerId = '') => {
@@ -995,6 +1050,12 @@ watch(
                   </button>
                 </div>
 
+                <div v-if="availableSummarySourceItems.length" class="summary-source-picker-actions">
+                  <button type="button" @click="selectAllSummaryFolderSources">
+                    {{ areAllSummarySourcesSelected ? '전체 해제' : '같은 폴더 전체 선택' }}
+                  </button>
+                </div>
+
                 <div v-if="availableSummarySourceItems.length" class="summary-source-picker-list">
                   <button
                     v-for="source in availableSummarySourceItems"
@@ -1486,6 +1547,26 @@ watch(
 
 .summary-source-picker-head .material-symbols-outlined {
   font-size: 18px;
+}
+
+.summary-source-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.summary-source-picker-actions button {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #2563eb;
+  background: #eff6ff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.summary-source-picker-actions button:hover {
+  background: #dbeafe;
 }
 
 .summary-source-picker-list {

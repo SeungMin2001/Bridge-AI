@@ -6,7 +6,7 @@ import MainContent from '../../components/workspace/MainContent.vue'
 import RightSidebar from '../../components/workspace/RightSidebar.vue'
 import CitationPopover from '../../components/workspace/citations/CitationPopover.vue'
 import { useChat } from '../../composables/useChat'
-import { deleteWorkspaceRecordingData, isWorkspaceUuid, saveSessionResources } from '../../api/workspaceApi.js'
+import { deleteWorkspaceRecordingData, getWorkspaceSession, isWorkspaceUuid, saveSessionResources } from '../../api/workspaceApi.js'
 
 const props = defineProps({
   transcriptions: { type: Array, default: () => [] },
@@ -77,6 +77,7 @@ const isSourceUploadDialogOpen = ref(false)
 const isSourceUploadDragging = ref(false)
 const pendingSourceUploadRecording = ref(null)
 const pendingStoppedRecordingPlayer = ref(null)
+const hydratingFolderFileIds = new Set()
 
 const DEFAULT_SCRIPT_PANE_PERCENT = 50
 const MAX_SCRIPT_PANE_PERCENT = 72
@@ -415,6 +416,17 @@ function findNodeById(nodes = [], id = '') {
   return null
 }
 
+function findParentFolderByChildId(nodes = [], id = '', parent = null) {
+  for (const node of nodes) {
+    if (node?.id === id) return parent
+    if (Array.isArray(node?.children)) {
+      const found = findParentFolderByChildId(node.children, id, node)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 function replaceNodeById(nodes = [], id = '', replacement = null) {
   return nodes.map((node) => {
     if (node?.id === id) return replacement || node
@@ -536,6 +548,52 @@ function collectTranscriptIds(recordings = []) {
 const activeSourceNode = computed(() => (
   props.activeFileId ? findNodeById(props.fileTree, props.activeFileId) : null
 ))
+
+const activeFolderFiles = computed(() => {
+  if (!props.activeFileId) return []
+  const parent = findParentFolderByChildId(props.fileTree, props.activeFileId)
+  const siblings = Array.isArray(parent?.children)
+    ? parent.children
+    : (activeSourceNode.value ? [activeSourceNode.value] : [])
+  return siblings.filter((node) => node?.type === 'file')
+})
+
+watch(
+  activeFolderFiles,
+  async (files) => {
+    const targets = files.filter((file) => (
+      file?.type === 'file' &&
+      isWorkspaceUuid(file.id) &&
+      file.resourcesLoaded === false &&
+      !hydratingFolderFileIds.has(file.id)
+    ))
+    if (!targets.length) return
+
+    const hydratedNodes = await Promise.all(targets.map(async (file) => {
+      hydratingFolderFileIds.add(file.id)
+      try {
+        return {
+          id: file.id,
+          node: await getWorkspaceSession(file.id)
+        }
+      } catch (error) {
+        console.warn('[workspace] folder file hydration failed:', file.id, error)
+        return null
+      } finally {
+        hydratingFolderFileIds.delete(file.id)
+      }
+    }))
+
+    const validNodes = hydratedNodes.filter(Boolean)
+    if (!validNodes.length) return
+    const nextTree = validNodes.reduce(
+      (tree, item) => replaceNodeById(tree, item.id, item.node),
+      props.fileTree
+    )
+    emit('update:fileTree', nextTree)
+  },
+  { immediate: true, deep: true }
+)
 
 const miniSourceWeeks = computed(() => {
   const weeks = Array.isArray(activeSourceNode.value?.weeks) ? activeSourceNode.value.weeks : []
@@ -1198,6 +1256,7 @@ const activeWorkspaceSource = computed(() => {
         :activeFileType="activeFileType"
         :currentAttachments="currentAttachments"
         :currentRecordings="currentRecordings"
+        :folderFiles="activeFolderFiles"
         :transcriptions="transcriptions"
         :currentPreviewMaterial="currentPreviewMaterial"
         :materialEvidenceRequest="materialEvidenceRequest"
