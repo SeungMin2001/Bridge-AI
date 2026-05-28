@@ -888,6 +888,28 @@ def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[st
     return candidates[:limit]
 
 
+def _make_contrastive_distractors(answer_text: str, *, limit: int = 3) -> list[str]:
+    """짧은 소스에서도 객관식이 실패하지 않도록 정답 주제 기반의 대비 오답을 만든다."""
+    answer = _clean_quiz_fragment(answer_text)
+    topic = _extract_topic(answer, "해당 개념")
+    topic = re.sub(r"(은|는|이|가|을|를|의|에)$", "", topic).strip() or "해당 개념"
+    candidates: list[str] = []
+
+    templates = (
+        "{topic}은 하나의 고정값으로만 표현된다",
+        "{topic}은 원인과 결과의 관계를 고려하지 않는다",
+        "{topic}은 모든 상황에서 같은 방식으로만 적용된다",
+        "{topic}은 측정이나 비교의 기준이 되지 않는다",
+        "{topic}은 여러 요소 사이의 관계를 고려하지 않는다",
+        "{topic}은 결과에 영향을 주지 않는 부가 정보이다",
+    )
+    for template in templates:
+        _append_unique_phrase(candidates, template.format(topic=topic), limit=60)
+        if len(candidates) >= limit:
+            return candidates[:limit]
+    return candidates[:limit]
+
+
 def _keywords_for_match(value: str) -> set[str]:
     return {
         token.lower()
@@ -982,9 +1004,21 @@ def _numbered_mc_question(
                 break
 
     if len(option_texts) < 4:
+        for distractor in _make_contrastive_distractors(answer, limit=4):
+            _append_unique_phrase(option_texts, distractor, limit=60)
+            if len(option_texts) >= 4:
+                break
+
+    if len(option_texts) < 4:
         for source_phrase in _source_option_phrases(transcript_text, limit=12):
             if not _is_same_topic_option(answer, source_phrase):
                 continue
+            _append_unique_phrase(option_texts, source_phrase, limit=44)
+            if len(option_texts) >= 4:
+                break
+
+    if len(option_texts) < 4:
+        for source_phrase in _source_option_phrases(transcript_text, limit=12):
             _append_unique_phrase(option_texts, source_phrase, limit=44)
             if len(option_texts) >= 4:
                 break
