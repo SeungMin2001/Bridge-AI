@@ -29,8 +29,8 @@ CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
 CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
-CHAT_REPETITION_PENALTY = float(os.getenv("CHAT_REPETITION_PENALTY", "1.15"))
-CHAT_NO_REPEAT_NGRAM_SIZE = int(os.getenv("CHAT_NO_REPEAT_NGRAM_SIZE", "4"))
+CHAT_REPETITION_PENALTY = float(os.getenv("CHAT_REPETITION_PENALTY", "1.03"))
+CHAT_NO_REPEAT_NGRAM_SIZE = int(os.getenv("CHAT_NO_REPEAT_NGRAM_SIZE", "0"))
 
 SYSTEM_PROMPT = (
     "너는 강의 녹취록과 PDF 자료를 근거로 답하는 AI 학습 조교다. "
