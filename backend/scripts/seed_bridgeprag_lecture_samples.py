@@ -369,6 +369,19 @@ def ensure_schema(cur) -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_session_chunk ON transcripts(session_id, chunk_index)")
 
 
+def remove_legacy_root_folder(cur) -> None:
+    """이전 시드의 BridgePRAG 루트 폴더를 제거하고 과목 폴더를 최상위로 올립니다."""
+    legacy_id = deterministic_uuid(f"course:{FOLDER_TITLE}")
+    cur.execute(
+        "UPDATE courses SET parent_course_id = NULL WHERE parent_course_id = %s",
+        (legacy_id,),
+    )
+    cur.execute(
+        "DELETE FROM courses WHERE course_id = %s AND title = %s",
+        (legacy_id, FOLDER_TITLE),
+    )
+
+
 def upsert_course(cur, title: str, *, parent_id: uuid.UUID | None = None) -> uuid.UUID:
     course_id = deterministic_uuid(f"course:{title}")
     cur.execute(
@@ -389,8 +402,8 @@ def upsert_course(cur, title: str, *, parent_id: uuid.UUID | None = None) -> uui
             course_id,
             parent_id,
             title,
-            "folder" if parent_id is None else "course",
-            FOLDER_DESCRIPTION if parent_id is None else f"{title} 샘플 강의",
+            "folder",
+            f"{title} 샘플 강의",
             "folder" if parent_id is None else "school",
             datetime.now(),
         ),
@@ -555,9 +568,9 @@ def main() -> None:
     with psycopg2.connect(**config) as conn:
         with conn.cursor() as cur:
             ensure_schema(cur)
-            root_course_id = upsert_course(cur, FOLDER_TITLE)
+            remove_legacy_root_folder(cur)
             for sample in SAMPLES:
-                course_id = upsert_course(cur, sample.course_title, parent_id=root_course_id)
+                course_id = upsert_course(cur, sample.course_title)
                 session_id = deterministic_uuid(f"session:{sample.slug}")
                 recording_id = f"{SAMPLE_PREFIX}-{sample.slug}"
                 started_at = datetime.now().replace(microsecond=0)
@@ -645,7 +658,7 @@ def main() -> None:
     print(json.dumps({
         "ok": True,
         "database": config.get("database"),
-        "folder": FOLDER_TITLE,
+        "folders": sorted({sample.course_title for sample in SAMPLES}),
         "indexed_chunks": indexed_chunks,
         "index_skipped": bool(args.skip_index),
         "inserted": inserted,
