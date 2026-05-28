@@ -176,6 +176,9 @@ _BAD_OPTION_PHRASES = (
     "별도의 개념이다",
     "외부 자료에만",
     "위 내용과 무관",
+    "주차에서는",
+    "강의에서는",
+    "수업에서는",
 )
 _GENERIC_MC_QUESTION_PHRASES = (
     "다음 중 선택한 자료의 설명과 일치",
@@ -184,6 +187,7 @@ _GENERIC_MC_QUESTION_PHRASES = (
     "다음 중 자료의 핵심 개념",
     "선택한 소스의 내용으로 옳은 것",
     "자료의 핵심 내용으로 알맞은 것",
+    "주차에서 정리한",
 )
 _EXPLANATORY_MARKERS = (
     "한다",
@@ -471,6 +475,8 @@ def _looks_like_heading_fragment(value: str) -> bool:
     text = _clean_quiz_fragment(value)
     if not text or _has_bad_quiz_artifact(text):
         return True
+    if re.search(r"(?:주차|강의|수업).{0,35}(?:정리|살펴|학습|다룹|소개)", text):
+        return True
     if len(text) < 6:
         return True
     if re.fullmatch(r"\d+", text):
@@ -509,6 +515,10 @@ def _is_good_question_text(value: str) -> bool:
     if re.fullmatch(r"\d+", text):
         return False
     if re.search(r"(학습목표|목차|contents|index)$", text, flags=re.IGNORECASE):
+        return False
+    if "?" not in text and "？" not in text and not any(
+        phrase in text for phrase in ("옳은 것은", "알맞은 것은", "무엇", "어떤", "쓰세요")
+    ):
         return False
     return True
 
@@ -688,6 +698,62 @@ def _option_key(value: str) -> str:
     return re.sub(r"[^0-9a-z가-힣]", "", text)
 
 
+def _keyword_root(token: str) -> str:
+    token = token.lower().strip()
+    for suffix in ("으로부터", "으로서", "으로써", "에서는", "에게는", "까지의", "부터", "에서", "으로", "에게", "이다", "이며", "이고", "라는", "까지", "보다", "처럼", "만큼", "에는", "은", "는", "이", "가", "을", "를", "의", "에", "와", "과", "도"):
+        if len(token) > len(suffix) + 1 and token.endswith(suffix):
+            token = token[: -len(suffix)]
+            break
+    return token
+
+
+def _content_keywords(value: str) -> set[str]:
+    stop_words = {
+        "것",
+        "것은",
+        "설명",
+        "자료",
+        "강의",
+        "내용",
+        "핵심",
+        "대한",
+        "관련",
+        "옳은",
+        "알맞은",
+        "입니다",
+        "합니다",
+        "됩니다",
+        "있습니다",
+        "없습니다",
+    }
+    keywords = set()
+    for token in re.findall(r"[A-Za-z0-9가-힣]{2,}", _clean_quiz_fragment(value)):
+        root = _keyword_root(token)
+        if len(root) >= 2 and root not in stop_words:
+            keywords.add(root)
+    return keywords
+
+
+def _is_same_topic_option(answer_text: str, option_text: str) -> bool:
+    """객관식 오답이 정답과 같은 개념권에서 만들어졌는지 확인합니다."""
+    answer_keywords = _content_keywords(answer_text)
+    option_keywords = _content_keywords(option_text)
+    if not answer_keywords or not option_keywords:
+        return False
+    return bool(answer_keywords & option_keywords)
+
+
+def _question_duplicates_option(question_text: str, options: list[str]) -> bool:
+    question_key = _option_key(question_text)
+    if len(question_key) < 14:
+        return False
+    for option in options:
+        option_key = _option_key(option)
+        if len(option_key) >= 14 and (question_key in option_key or option_key in question_key):
+            return True
+    return False
+
+
 def _append_unique_phrase(phrases: list[str], value: str, *, limit: int = 44) -> None:
     phrase = _clean_quiz_fragment(_strip_option_prefix(value))
     phrase = phrase.strip(" ,:;\"'")
@@ -731,6 +797,23 @@ def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[st
         ("출력층", "입력층"),
         ("입력층", "출력층"),
         ("은닉층", "출력층"),
+        ("처음 위치", "평균 속도"),
+        ("나중 위치", "가속도"),
+        ("방향을 가진", "크기만 가진"),
+        ("변화량", "고정값"),
+        ("가속도가 일정하다고", "속도가 일정하다고"),
+        ("가속도가 일정하다고", "가속도가 0이라고"),
+        ("가속도가 일정하다고", "가속도가 계속 변한다고"),
+        ("가속도가 일정", "가속도가 계속 변함"),
+        ("일정", "계속 변함"),
+        ("시간에 비례", "시간과 무관"),
+        ("시간의 제곱 항", "시간의 세제곱 항"),
+        ("비선형성", "선형성"),
+        ("부여", "제거"),
+        ("9.8미터", "0미터"),
+        ("9.8m/s", "0m/s"),
+        ("8미터", "0미터"),
+        ("8m/s", "0m/s"),
         ("각 층", "마지막 층"),
         ("가중치가", "입력값이"),
         ("가중치를", "입력값을"),
@@ -772,7 +855,11 @@ def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[st
             return candidates
 
     negated = ""
-    if answer.endswith("수 있다"):
+    if answer.endswith("수 있습니다"):
+        negated = answer[:-6].rstrip() + " 수 없습니다"
+    elif answer.endswith("수 없습니다"):
+        negated = answer[:-6].rstrip() + " 수 있습니다"
+    elif answer.endswith("수 있다"):
         negated = answer[:-4].rstrip() + " 수 없다"
     elif answer.endswith("입니다"):
         negated = answer[:-3].rstrip() + "이 아닙니다"
@@ -882,8 +969,11 @@ def _numbered_mc_question(
 
     option_texts: list[str] = []
     _append_unique_phrase(option_texts, answer, limit=60)
+    if not option_texts:
+        return None
     for distractor in distractors:
-        _append_unique_phrase(option_texts, distractor, limit=44)
+        if _is_same_topic_option(answer, distractor):
+            _append_unique_phrase(option_texts, distractor, limit=44)
 
     if len(option_texts) < 4:
         for distractor in _make_rule_based_distractors(answer, limit=4):
@@ -893,6 +983,8 @@ def _numbered_mc_question(
 
     if len(option_texts) < 4:
         for source_phrase in _source_option_phrases(transcript_text, limit=12):
+            if not _is_same_topic_option(answer, source_phrase):
+                continue
             _append_unique_phrase(option_texts, source_phrase, limit=44)
             if len(option_texts) >= 4:
                 break
@@ -1042,6 +1134,7 @@ def _is_valid_question_shape(question: dict) -> bool:
             and len(set(option_keys)) == 4
             and all(option_keys)
             and _is_good_question_text(question_text)
+            and not _question_duplicates_option(question_text, options)
             and all(_is_good_option_text(option) for option in options)
         )
     if question_type == "OX":
@@ -1131,7 +1224,16 @@ def _fit_quiz_to_expected_counts(
             fallback = _build_fallback_question(question_type, fallback_index, transcript_text)
             fallback_text = " ".join(str(fallback.get("question") or "").split())
             if fallback_text in seen_questions:
-                fallback["question"] = f"{fallback_text} ({len(selected) + 1})"
+                if question_type == "MULTIPLE_CHOICE":
+                    source_hint = str(fallback.get("explanation") or "")
+                    answer_hint = _strip_option_prefix(str(fallback.get("correct_answer") or ""))
+                    for offset in range(1, 6):
+                        candidate_text = _mc_question_from_source(source_hint, answer_hint, fallback_index + offset)
+                        if candidate_text not in seen_questions:
+                            fallback["question"] = candidate_text
+                            break
+                if " ".join(str(fallback.get("question") or "").split()) in seen_questions:
+                    fallback["question"] = f"{fallback_text} - 추가 확인"
             seen_questions.add(" ".join(str(fallback.get("question") or "").split()))
             selected.append(fallback)
         fitted.extend(selected)
@@ -1171,6 +1273,8 @@ def _validate_quiz_quality(quiz_data: list[dict], expected_counts: dict[str, int
             option_keys = [_option_key(option) for option in options]
             if not _is_good_question_text(question_text):
                 issues.append(f"{index}번 객관식 문항의 질문이 구체적인 개념 질문이 아닙니다.")
+            if _question_duplicates_option(question_text, options):
+                issues.append(f"{index}번 객관식 문항의 질문이 보기 문장과 중복됩니다.")
             if len(options) != 4:
                 issues.append(f"{index}번 객관식 문항의 보기가 4개가 아닙니다.")
             if len(set(option_keys)) != len(option_keys):
