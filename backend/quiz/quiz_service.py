@@ -70,6 +70,9 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 - 제공된 강의 내용에 명시된 사실만 사용하고, 외부 지식을 추가하지 마세요.
 - 같은 질문이나 거의 같은 질문을 반복하지 마세요.
 - 자료의 단순 제목/라벨/단어만 보고 "'제목'의 의미는 무엇입니까?" 같은 빈약한 문제를 만들지 마세요.
+- 객관식 질문은 "강의 내용과 가장 일치하는 설명"처럼 전체 자료를 묻지 말고, 역전파/손실 함수처럼 특정 개념을 직접 물으세요.
+- 객관식 오답도 반드시 선택 소스의 개념을 바탕으로 만든 짧은 지식 문장이어야 합니다.
+- "자료에서 확인할 수 없는 별도의 개념", "자료의 설명과 반대" 같은 메타 문장을 보기로 쓰지 마세요.
 - 각 question은 60자 이내, 각 option은 35자 이내, explanation은 50자 이내 한 문장으로 작성하세요.
 - 객관식 보기는 긴 문장을 쓰지 말고 핵심어/짧은 구로 작성하세요.
 - JSON 문자열 안에 실제 줄바꿈을 넣지 말고, 모든 따옴표와 대괄호를 반드시 닫으세요.
@@ -165,12 +168,34 @@ _BAD_QUIZ_PHRASES = (
     "correct_answer",
     "PDF page",
 )
+_BAD_OPTION_PHRASES = (
+    "자료에서 확인할 수 없는",
+    "자료의 설명과 반대",
+    "선택한 소스의 핵심 설명",
+    "핵심 설명과 일치하지 않는다",
+    "별도의 개념이다",
+    "외부 자료에만",
+    "위 내용과 무관",
+)
+_GENERIC_MC_QUESTION_PHRASES = (
+    "다음 중 선택한 자료의 설명과 일치",
+    "자료에서 설명한 핵심 내용",
+    "강의 내용과 가장 일치",
+    "다음 중 자료의 핵심 개념",
+    "선택한 소스의 내용으로 옳은 것",
+    "자료의 핵심 내용으로 알맞은 것",
+)
 _EXPLANATORY_MARKERS = (
     "한다",
+    "합니다",
     "된다",
+    "됩니다",
     "이다",
+    "입니다",
     "있다",
+    "있습니다",
     "없다",
+    "없습니다",
     "의미",
     "정의",
     "특징",
@@ -431,6 +456,16 @@ def _has_bad_quiz_artifact(value: str) -> bool:
     return any(phrase in text for phrase in _BAD_QUIZ_PHRASES)
 
 
+def _has_bad_option_phrase(value: str) -> bool:
+    text = _clean_quiz_fragment(value)
+    return any(phrase in text for phrase in _BAD_OPTION_PHRASES)
+
+
+def _is_generic_mc_question(value: str) -> bool:
+    text = _clean_quiz_fragment(value)
+    return any(phrase in text for phrase in _GENERIC_MC_QUESTION_PHRASES)
+
+
 def _looks_like_heading_fragment(value: str) -> bool:
     """목차/슬라이드 제목처럼 보이는 조각은 보기와 질문 후보에서 제외합니다."""
     text = _clean_quiz_fragment(value)
@@ -463,11 +498,17 @@ def _looks_like_heading_fragment(value: str) -> bool:
 
 def _is_good_question_text(value: str) -> bool:
     text = _clean_quiz_fragment(value)
-    if _looks_like_heading_fragment(text):
+    if not text or _has_bad_quiz_artifact(text):
         return False
     if len(text) < 8 or len(text) > 100:
         return False
     if any(phrase in text for phrase in ("작성하세요", "설명해주세요", "요약하세요", "요약하여")):
+        return False
+    if _is_generic_mc_question(text):
+        return False
+    if re.fullmatch(r"\d+", text):
+        return False
+    if re.search(r"(학습목표|목차|contents|index)$", text, flags=re.IGNORECASE):
         return False
     return True
 
@@ -483,6 +524,8 @@ def _is_recoverable_plain_question(value: str) -> bool:
 
 def _is_good_option_text(value: str) -> bool:
     text = _clean_quiz_fragment(_strip_option_prefix(value))
+    if _has_bad_option_phrase(text):
+        return False
     if _looks_like_heading_fragment(text):
         return False
     if len(text) < 8 or len(text) > 90:
@@ -618,6 +661,20 @@ def _source_phrase(sentence: str, limit: int = 34) -> str:
     return _trim_text(sentence, limit)
 
 
+def _mc_question_from_source(source_sentence: str, answer_text: str, type_index: int) -> str:
+    """객관식 질문을 '강의 내용' 같은 메타 질문이 아니라 특정 개념 질문으로 만듭니다."""
+    topic = _extract_topic(source_sentence or answer_text, f"핵심 개념 {type_index + 1}")
+    if topic.startswith("핵심 개념"):
+        topic = _extract_topic(answer_text, topic)
+    templates = (
+        "{topic}에 대한 설명으로 옳은 것은?",
+        "{topic}의 핵심 역할로 알맞은 것은?",
+        "{topic}의 특징으로 옳은 것은?",
+        "{topic}와 관련된 설명으로 옳은 것은?",
+    )
+    return templates[type_index % len(templates)].format(topic=topic)
+
+
 def _strip_option_prefix(value: str) -> str:
     text = " ".join(str(value or "").split()).strip()
     text = re.sub(r"^[A-Da-d]\s*[\.\)]\s*", "", text)
@@ -671,6 +728,25 @@ def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[st
     answer = _clean_quiz_fragment(answer_text)
     candidates: list[str] = []
     replacements = (
+        ("출력층", "입력층"),
+        ("입력층", "출력층"),
+        ("은닉층", "출력층"),
+        ("각 층", "마지막 층"),
+        ("가중치가", "입력값이"),
+        ("가중치를", "입력값을"),
+        ("가중치는", "입력값은"),
+        ("손실을", "정확도를"),
+        ("손실이", "정확도가"),
+        ("손실은", "정확도는"),
+        ("손실에", "정확도에"),
+        ("예측값", "입력값"),
+        ("정답", "가중치"),
+        ("역전파", "순전파"),
+        ("순전파", "역전파"),
+        ("경사하강법은", "활성화 함수는"),
+        ("경사하강법을", "활성화 함수를"),
+        ("활성화 함수는", "손실 함수는"),
+        ("활성화 함수를", "손실 함수를"),
         ("논리적 순서", "임의 순서"),
         ("연속", "분산"),
         ("인접한", "서로 무관한"),
@@ -678,6 +754,10 @@ def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[st
         ("같은", "서로 다른"),
         ("공유", "분리"),
         ("독립적인", "공유된"),
+        ("선형 리스트", "트리"),
+        ("순차", "연결"),
+        ("배열", "그래프"),
+        ("인덱스", "포인터"),
         ("증가", "감소"),
         ("감소", "증가"),
         ("가능", "불가능"),
@@ -694,6 +774,16 @@ def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[st
     negated = ""
     if answer.endswith("수 있다"):
         negated = answer[:-4].rstrip() + " 수 없다"
+    elif answer.endswith("입니다"):
+        negated = answer[:-3].rstrip() + "이 아닙니다"
+    elif answer.endswith("합니다"):
+        negated = answer[:-3].rstrip() + "하지 않습니다"
+    elif answer.endswith("됩니다"):
+        negated = answer[:-3].rstrip() + "되지 않습니다"
+    elif answer.endswith("있습니다"):
+        negated = answer[:-4].rstrip() + "없습니다"
+    elif answer.endswith("없습니다"):
+        negated = answer[:-4].rstrip() + "있습니다"
     elif answer.endswith("이다"):
         negated = answer[:-2].rstrip() + "이 아니다"
     elif answer.endswith("한다"):
@@ -708,16 +798,6 @@ def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[st
         negated = answer[:-1].rstrip() + "지 않는다"
     if negated:
         _append_unique_phrase(candidates, negated, limit=60)
-
-    generic_distractors = (
-        "자료의 설명과 반대되는 방식으로 처리한다",
-        "자료에서 확인할 수 없는 별도의 개념이다",
-        "선택한 소스의 핵심 설명과 일치하지 않는다",
-    )
-    for distractor in generic_distractors:
-        _append_unique_phrase(candidates, distractor, limit=60)
-        if len(candidates) >= limit:
-            break
     return candidates[:limit]
 
 
@@ -804,10 +884,12 @@ def _numbered_mc_question(
     _append_unique_phrase(option_texts, answer, limit=60)
     for distractor in distractors:
         _append_unique_phrase(option_texts, distractor, limit=44)
-    for distractor in _make_rule_based_distractors(answer, limit=4):
-        _append_unique_phrase(option_texts, distractor, limit=60)
-        if len(option_texts) >= 4:
-            break
+
+    if len(option_texts) < 4:
+        for distractor in _make_rule_based_distractors(answer, limit=4):
+            _append_unique_phrase(option_texts, distractor, limit=60)
+            if len(option_texts) >= 4:
+                break
 
     if len(option_texts) < 4:
         for source_phrase in _source_option_phrases(transcript_text, limit=12):
@@ -831,8 +913,13 @@ def _numbered_mc_question(
     correct_answer = numbered_options[answer_index]
 
     next_question = dict(question)
+    question_text = _clean_quiz_fragment(next_question.get("question") or "")
+    source_sentence = _best_source_sentence_for_question(question_text or answer, transcript_text, answer_slot)
+    if not _is_good_question_text(question_text):
+        question_text = _mc_question_from_source(source_sentence, answer, answer_slot)
+
     next_question["type"] = "MULTIPLE_CHOICE"
-    next_question["question"] = _trim_text(next_question.get("question") or "자료의 핵심 내용으로 알맞은 것은?", 70)
+    next_question["question"] = _trim_text(question_text, 70)
     next_question["options"] = numbered_options
     next_question["correct_answer"] = correct_answer
     next_question["explanation"] = _trim_text(next_question.get("explanation") or answer_text, 70)
@@ -954,6 +1041,8 @@ def _is_valid_question_shape(question: dict) -> bool:
             and correct_answer in options
             and len(set(option_keys)) == 4
             and all(option_keys)
+            and _is_good_question_text(question_text)
+            and all(_is_good_option_text(option) for option in options)
         )
     if question_type == "OX":
         return options == ["O", "X"] and correct_answer in {"O", "X"} and not _OX_INTERROGATIVE_RE.search(question_text)
@@ -976,17 +1065,10 @@ def _build_fallback_question(
     correct_phrase = _source_phrase(sentence, 60)
 
     if question_type == "MULTIPLE_CHOICE":
-        stems = (
-            "다음 중 선택한 자료의 설명과 일치하는 것은?",
-            "자료에서 설명한 핵심 내용으로 알맞은 것은?",
-            "강의 내용과 가장 일치하는 설명은?",
-            "다음 중 자료의 핵심 개념을 바르게 설명한 것은?",
-            "선택한 소스의 내용으로 옳은 것은?",
-        )
         question = {
             "question_index": 0,
             "type": "MULTIPLE_CHOICE",
-            "question": stems[type_index % len(stems)],
+            "question": _mc_question_from_source(sentence, correct_phrase, type_index),
             "user_answer": None,
             "is_correct": None,
             "explanation": _trim_text(sentence, 50),
@@ -1087,12 +1169,18 @@ def _validate_quiz_quality(quiz_data: list[dict], expected_counts: dict[str, int
 
         if question_type == "MULTIPLE_CHOICE":
             option_keys = [_option_key(option) for option in options]
+            if not _is_good_question_text(question_text):
+                issues.append(f"{index}번 객관식 문항의 질문이 구체적인 개념 질문이 아닙니다.")
             if len(options) != 4:
                 issues.append(f"{index}번 객관식 문항의 보기가 4개가 아닙니다.")
             if len(set(option_keys)) != len(option_keys):
                 issues.append(f"{index}번 객관식 문항에 중복 보기가 있습니다.")
             if correct_answer not in options:
                 issues.append(f"{index}번 객관식 문항의 correct_answer가 options 중 하나와 일치하지 않습니다.")
+            for option in options:
+                if not _is_good_option_text(option):
+                    issues.append(f"{index}번 객관식 문항에 학습 내용이 아닌 보기가 포함되어 있습니다.")
+                    break
         elif question_type == "OX":
             if options != ["O", "X"]:
                 issues.append(f"{index}번 O/X 문항의 options가 ['O', 'X']가 아닙니다.")
@@ -1159,7 +1247,8 @@ def _type_instruction(question_type: str) -> str:
     if question_type == "MULTIPLE_CHOICE":
         return (
             "MULTIPLE_CHOICE 객관식만 생성하세요. "
-            "question, answer, distractors 3개를 작성하세요."
+            "question은 특정 개념/정의/특징을 직접 묻고, answer와 distractors 3개는 모두 선택 소스의 학습 내용에서 만든 지식 문장으로 작성하세요. "
+            "\"자료에서 확인할 수 없는\", \"반대되는 방식\", \"일치하지 않는다\" 같은 메타 보기는 금지합니다."
         )
     if question_type == "OX":
         return (
@@ -1189,6 +1278,8 @@ def _build_type_specific_messages(
 - 다른 유형의 문항은 절대 만들지 마세요.
 - 제공된 선택 소스에 있는 내용만 사용하세요.
 - 이미 사용한 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
+- 객관식은 특정 개념을 묻고, 정답과 오답 모두 학습 내용이 담긴 짧은 설명으로 쓰세요.
+- "자료에서 확인할 수 없는 별도의 개념이다"처럼 형식만 맞춘 보기는 만들지 마세요.
 - question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
 - JSON 배열 외 텍스트는 쓰지 마세요.
 
@@ -1221,8 +1312,8 @@ def _build_single_question_messages(
     focus_sentence = source_sentences[type_index % len(source_sentences)] if source_sentences else ""
     if question_type == "MULTIPLE_CHOICE":
         option_rule = (
-            "answer에는 정답이 되는 짧은 핵심 구를 쓰고, distractors에는 정답과 다른 오답 후보 3개를 쓰세요. "
-            "보기 번호와 options/correct_answer는 쓰지 마세요."
+            "answer에는 정답이 되는 짧은 핵심 설명을 쓰고, distractors에는 같은 주제권에서 헷갈릴 수 있지만 정답과 다른 오답 후보 3개를 쓰세요. "
+            "모든 distractor는 선택 소스의 개념을 바탕으로 한 지식 문장이어야 하며, 보기 번호와 options/correct_answer는 쓰지 마세요."
         )
         response_example = """{
   "question_index": 1,
@@ -1271,6 +1362,8 @@ def _build_single_question_messages(
 - 선택 소스 요약본에 실제로 나온 내용만 사용하세요.
 - 이번 문항에서 우선 참고할 문장을 중심으로 만들되, 필요하면 요약본의 다른 문장도 참고하세요.
 - 슬라이드 제목이나 목차 조각을 그대로 질문/보기로 쓰지 말고, 개념을 묻는 퀴즈 문장으로 바꾸세요.
+- 객관식 질문은 특정 개념명을 포함하세요. "강의 내용과 가장 일치하는 설명은?" 같은 포괄 질문은 금지합니다.
+- 객관식 보기에는 "자료에서 확인할 수 없는", "자료의 설명과 반대", "일치하지 않는다" 같은 메타 문장을 넣지 마세요.
 - 이미 만든 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
 - question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
 - JSON 객체 1개만 응답하세요. JSON 외 텍스트는 쓰지 마세요.
