@@ -200,6 +200,14 @@ _GENERIC_MC_QUESTION_PHRASES = (
     "자료의 핵심 내용으로 알맞은 것",
     "주차에서 정리한",
 )
+_GENERIC_SHORT_QUESTION_PHRASES = (
+    "자료에서 설명한",
+    "핵심 내용을 쓰세요",
+    "강의 내용의 핵심",
+    "선택 소스의 핵심",
+    "요약하여 쓰세요",
+    "설명하세요",
+)
 _EXPLANATORY_MARKERS = (
     "한다",
     "하다",
@@ -800,6 +808,53 @@ def _mc_question_from_source(source_sentence: str, answer_text: str, type_index:
     return question
 
 
+def _short_answer_from_sentence(
+    source_sentence: str,
+    fallback_answer: str,
+    type_index: int,
+) -> tuple[str, str]:
+    """단답형 문항을 서로 다른 지식/정보를 묻는 형태로 구성합니다."""
+    sentence = _clean_quiz_fragment(source_sentence or fallback_answer)
+    subject, predicate = _split_subject_predicate(sentence)
+
+    if "수직" in sentence and "일" in sentence and re.search(r"\b0\b|0이|영", sentence):
+        return "힘이 이동 방향과 수직일 때 일의 값은 얼마인가?", "0"
+    if "속력의 제곱" in sentence and "운동에너지" in sentence:
+        return "운동에너지는 속력에 대해 어떻게 비례하는가?", "속력의 제곱에 비례한다"
+    if "질량" in sentence and "속력" in sentence and "운동에너지" in sentence:
+        return "운동에너지를 증가시키는 두 요인은 무엇인가?", "질량과 속력"
+    if "역학적 에너지" in sentence and "보존" in sentence:
+        return "역학적 에너지 보존에서 일정하게 유지되는 값은 무엇인가?", "운동에너지와 위치에너지의 합"
+    if "위치에너지" in sentence and "높이" in sentence:
+        return "위치에너지는 어떤 조건 때문에 저장되는 에너지인가?", "위치나 높이"
+    if subject and predicate:
+        if subject == "일":
+            return "물리에서 일은 무엇을 의미하는가?", _clip_text(predicate, 56)
+        if any(marker in predicate for marker in ("에너지", "과정", "의미", "개념", "구조", "방식")):
+            return f"{subject}{_topic_particle(subject)} 무엇을 의미하는가?", _clip_text(predicate, 56)
+        templates = (
+            "{subject}은 무엇을 의미하는가?",
+            "{subject}의 핵심 특징은 무엇인가?",
+            "{subject}은 어떤 역할을 하는가?",
+            "{subject}와 관련된 핵심 조건은 무엇인가?",
+        )
+        return templates[type_index % len(templates)].format(subject=subject), _clip_text(predicate, 56)
+
+    topic = _extract_topic(sentence, f"핵심 개념 {type_index + 1}")
+    question_templates = (
+        "{topic}의 핵심 의미는 무엇인가?",
+        "{topic}에서 중요한 조건은 무엇인가?",
+        "{topic}와 관련된 주요 결과는 무엇인가?",
+        "{topic}의 대표적인 특징은 무엇인가?",
+    )
+    return question_templates[type_index % len(question_templates)].format(topic=topic), _compact_answer_from_sentence(sentence, limit=56)
+
+
+def _is_generic_short_answer_question(value: str) -> bool:
+    text = _clean_quiz_fragment(value)
+    return any(phrase in text for phrase in _GENERIC_SHORT_QUESTION_PHRASES)
+
+
 def _strip_option_prefix(value: str) -> str:
     text = " ".join(str(value or "").split()).strip()
     text = re.sub(r"^[A-Da-d]\s*[\.\)]\s*", "", text)
@@ -891,6 +946,21 @@ def _mc_question_leaks_answer(question_text: str, answer_text: str, options: lis
         option_keywords = _content_keywords(option_text)
         if len(option_keywords) >= 3 and len(question_keywords & option_keywords) >= 3:
             return True
+    return False
+
+
+def _short_question_leaks_answer(question_text: str, answer_text: str) -> bool:
+    """단답형 질문이 답을 그대로 포함하면 복습 문항으로 부적절합니다."""
+    question = _clean_quiz_fragment(question_text)
+    answer = _clean_quiz_fragment(answer_text)
+    if not question or not answer:
+        return False
+    if len(answer) >= 10 and answer in question:
+        return True
+    question_keywords = _content_keywords(question)
+    answer_keywords = _content_keywords(answer)
+    if len(answer_keywords) >= 3 and len(question_keywords & answer_keywords) >= 3:
+        return True
     return False
 
 
@@ -1362,8 +1432,20 @@ def _normalize_single_llm_question(
 
     next_question["options"] = []
     next_question = _coerce_correct_answer(next_question)
-    next_question["question"] = _trim_text(next_question.get("question") or "", 80)
-    next_question["correct_answer"] = _trim_text(next_question.get("correct_answer") or next_question.get("answer") or "", 60)
+    question_text = _clean_quiz_fragment(next_question.get("question") or "")
+    answer_text = _clean_quiz_fragment(next_question.get("correct_answer") or next_question.get("answer") or "")
+    source_sentence = _best_source_sentence_for_question(f"{question_text} {answer_text}", transcript_text, type_index)
+    fallback_question, fallback_answer = _short_answer_from_sentence(source_sentence, answer_text, type_index)
+    if (
+        not _is_good_question_text(question_text)
+        or _is_generic_short_answer_question(question_text)
+        or _short_question_leaks_answer(question_text, answer_text)
+    ):
+        question_text = fallback_question
+    if not answer_text or len(answer_text) > 72 or _has_bad_quiz_artifact(answer_text):
+        answer_text = fallback_answer
+    next_question["question"] = _clip_text(question_text, 80)
+    next_question["correct_answer"] = _clip_text(answer_text, 60)
     next_question["explanation"] = _trim_text(next_question.get("explanation") or next_question["correct_answer"], 70)
     return next_question
 
@@ -1445,7 +1527,13 @@ def _is_valid_question_shape(question: dict) -> bool:
     if question_type == "OX":
         return options == ["O", "X"] and correct_answer in {"O", "X"} and not _OX_INTERROGATIVE_RE.search(question_text)
     if question_type == "SHORT_ANSWER":
-        return not options and bool(correct_answer)
+        return (
+            not options
+            and bool(correct_answer)
+            and _is_good_question_text(question_text)
+            and not _is_generic_short_answer_question(question_text)
+            and not _short_question_leaks_answer(question_text, correct_answer)
+        )
     return False
 
 
@@ -1459,7 +1547,6 @@ def _build_fallback_question(
     if not sentences:
         raise ValueError("퀴즈 생성에 사용할 소스 문장을 찾지 못했습니다.")
     sentence = sentences[type_index % len(sentences)]
-    topic = _extract_topic(sentence, f"핵심 개념 {type_index + 1}")
     correct_phrase = _source_phrase(sentence, 60)
 
     if question_type == "MULTIPLE_CHOICE":
@@ -1500,12 +1587,13 @@ def _build_fallback_question(
             "explanation": _trim_text(sentence, 50),
         }
 
+    question_text, answer_text = _short_answer_from_sentence(sentence, correct_phrase, type_index)
     return {
         "question_index": 0,
         "type": "SHORT_ANSWER",
-        "question": f"자료에서 설명한 '{topic}'의 핵심 내용을 쓰세요.",
+        "question": _clip_text(question_text, 80),
         "options": [],
-        "correct_answer": correct_phrase,
+        "correct_answer": _clip_text(answer_text, 60),
         "user_answer": None,
         "is_correct": None,
         "explanation": _trim_text(sentence, 50),
@@ -1643,6 +1731,12 @@ def _validate_quiz_quality(quiz_data: list[dict], expected_counts: dict[str, int
                 issues.append(f"{index}번 단답형 문항의 options는 비어 있어야 합니다.")
             if not correct_answer:
                 issues.append(f"{index}번 단답형 문항의 correct_answer가 비어 있습니다.")
+            if not _is_good_question_text(question_text):
+                issues.append(f"{index}번 단답형 문항의 질문이 구체적인 지식 질문이 아닙니다.")
+            if _is_generic_short_answer_question(question_text):
+                issues.append(f"{index}번 단답형 문항이 일반적인 핵심 내용 질문으로 반복됩니다.")
+            if _short_question_leaks_answer(question_text, correct_answer):
+                issues.append(f"{index}번 단답형 문항의 질문이 정답을 포함합니다.")
         else:
             issues.append(f"{index}번 문항 타입이 지원되지 않습니다: {question_type}")
 
@@ -1705,7 +1799,10 @@ def _type_instruction(question_type: str) -> str:
             "OX 문항만 생성하세요. question은 참/거짓 판단이 가능한 평서문이어야 하고, "
             "options는 [\"O\", \"X\"], correct_answer는 \"O\" 또는 \"X\"입니다."
         )
-    return "SHORT_ANSWER 단답형만 생성하세요. options는 반드시 []이고 correct_answer는 짧은 핵심 답안입니다."
+    return (
+        "SHORT_ANSWER 단답형만 생성하세요. options는 반드시 []이고 correct_answer는 짧은 핵심 답안입니다. "
+        "\"핵심 내용을 쓰세요\"처럼 포괄적으로 묻지 말고 정의, 값, 조건, 관계, 결과 중 하나를 구체적으로 물으세요."
+    )
 
 
 def _build_type_specific_messages(
@@ -1784,7 +1881,10 @@ def _build_single_question_messages(
   "explanation": "짧은 해설"
 }"""
     else:
-        option_rule = "options는 정확히 []이고 correct_answer는 짧은 핵심 답안입니다."
+        option_rule = (
+            "options는 정확히 []이고 correct_answer는 짧은 핵심 답안입니다. "
+            "질문은 정의/값/조건/관계/결과 중 하나를 직접 물어야 하며, 이전 단답형과 다른 개념을 물어야 합니다."
+        )
         response_example = """{
   "question_index": 1,
   "type": "SHORT_ANSWER",
