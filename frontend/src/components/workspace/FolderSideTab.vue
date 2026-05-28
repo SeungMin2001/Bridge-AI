@@ -46,6 +46,17 @@ function findNode(id, nodes) {
   return null
 }
 
+function findParentFolder(id, nodes, parent = null) {
+  for (const n of nodes) {
+    if (n.id === id) return parent
+    if (n.children) {
+      const found = findParentFolder(id, n.children, n)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 function deleteNode(id, nodes) {
   const idx = nodes.findIndex(n => n.id === id)
   if (idx !== -1) { nodes.splice(idx, 1); return true }
@@ -82,7 +93,16 @@ const isUploadingRecording = ref(false)
 // --- Computed ---
 const selectedFileId = computed(() => props.activeFileId || localActiveFileId.value)
 const activeNode = computed(() => findNode(selectedFileId.value, props.fileTree))
-const scopedTree = computed(() => activeNode.value ? [activeNode.value] : props.fileTree)
+const activeParentFolder = computed(() => (
+  selectedFileId.value ? findParentFolder(selectedFileId.value, props.fileTree) : null
+))
+const scopedTree = computed(() => {
+  if (activeParentFolder.value?.type === 'folder') {
+    return [{ ...activeParentFolder.value, expanded: true }]
+  }
+  if (activeNode.value?.type === 'folder') return [{ ...activeNode.value, expanded: true }]
+  return activeNode.value ? [activeNode.value] : props.fileTree
+})
 const allFlat = computed(() => flattenAll(scopedTree.value))
 const searchResults = computed(() => {
   if (!searchQuery.value.trim()) return null

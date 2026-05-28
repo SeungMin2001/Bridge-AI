@@ -549,11 +549,14 @@ const activeSourceNode = computed(() => (
   props.activeFileId ? findNodeById(props.fileTree, props.activeFileId) : null
 ))
 
+const activeFolderNode = computed(() => (
+  props.activeFileId ? findParentFolderByChildId(props.fileTree, props.activeFileId) : null
+))
+
 const activeFolderFiles = computed(() => {
   if (!props.activeFileId) return []
-  const parent = findParentFolderByChildId(props.fileTree, props.activeFileId)
-  const siblings = Array.isArray(parent?.children)
-    ? parent.children
+  const siblings = Array.isArray(activeFolderNode.value?.children)
+    ? activeFolderNode.value.children
     : (activeSourceNode.value ? [activeSourceNode.value] : [])
   return siblings.filter((node) => node?.type === 'file')
 })
@@ -595,36 +598,6 @@ watch(
   { immediate: true, deep: true }
 )
 
-const miniSourceWeeks = computed(() => {
-  const weeks = Array.isArray(activeSourceNode.value?.weeks) ? activeSourceNode.value.weeks : []
-
-  if (weeks.length) {
-    return weeks.map((week, index) => ({
-      id: week?.id || `week-${index + 1}`,
-      label: week?.label || `${index + 1}주차`,
-      materials: Array.isArray(week?.materials) ? week.materials : [],
-      recordings: Array.isArray(week?.recordings) ? week.recordings : []
-    }))
-  }
-
-  const materials = Array.isArray(props.currentAttachments) ? props.currentAttachments : []
-  const recordings = Array.isArray(props.currentRecordings) ? props.currentRecordings : []
-  if (!materials.length && !recordings.length) return []
-
-  return [{
-    id: 'current-week',
-    label: '1주차',
-    materials,
-    recordings
-  }]
-})
-
-const miniSourceTotalCount = computed(() => (
-  miniSourceWeeks.value.reduce((total, week) => (
-    total + week.materials.length + week.recordings.length
-  ), 0)
-))
-
 function getMiniSourceId(item, prefix, index) {
   return item?.id || item?.recordingId || item?.storedName || item?.url || item?.name || `${prefix}-${index}`
 }
@@ -658,36 +631,112 @@ function getMiniRecordingIdentity(source = {}) {
   )
 }
 
+function getMiniFileTitle(file = {}, index = 0) {
+  return file?.name || file?.title || (file?.id === props.activeFileId ? props.activeFileName : '') || `${index + 1}주차`
+}
+
+function buildMiniSourceWeeksForFile(file = {}) {
+  const weeks = Array.isArray(file?.weeks) ? file.weeks : []
+
+  if (weeks.length) {
+    return weeks.map((week, index) => ({
+      id: week?.id || `week-${index + 1}`,
+      label: week?.label || `${index + 1}주차`,
+      materials: Array.isArray(week?.materials) ? week.materials : [],
+      recordings: Array.isArray(week?.recordings) ? week.recordings : []
+    }))
+  }
+
+  const isActiveFile = file?.id === props.activeFileId
+  const materials = Array.isArray(file?.attachments) && file.attachments.length
+    ? file.attachments
+    : (isActiveFile && Array.isArray(props.currentAttachments) ? props.currentAttachments : [])
+  const recordings = Array.isArray(file?.recordings) && file.recordings.length
+    ? file.recordings
+    : (isActiveFile && Array.isArray(props.currentRecordings) ? props.currentRecordings : [])
+
+  if (!materials.length && !recordings.length) return []
+
+  return [{
+    id: `${file?.id || 'current'}-week`,
+    label: '1주차',
+    materials,
+    recordings
+  }]
+}
+
+const miniSourceFolderTitle = computed(() => (
+  activeFolderNode.value?.name
+  || activeFolderNode.value?.title
+  || '현재 과목'
+))
+
+const miniSourceFileGroups = computed(() => {
+  const files = activeFolderFiles.value.length
+    ? activeFolderFiles.value
+    : (activeSourceNode.value ? [activeSourceNode.value] : [])
+
+  return files.map((file, fileIndex) => {
+    const fileId = file?.id || `file-${fileIndex}`
+    const fileTitle = getMiniFileTitle(file, fileIndex)
+    const weeks = buildMiniSourceWeeksForFile(file)
+    const sources = weeks.flatMap((week) => [
+      ...week.materials.map((material, index) => {
+        const id = getMiniSourceId(material, 'material', index)
+        return {
+          uid: `material:${fileId}:${week.id}:${id}`,
+          id,
+          fileId,
+          fileTitle,
+          node: file,
+          type: 'material',
+          weekId: week.id,
+          weekLabel: week.label,
+          materialId: id,
+          title: getMiniMaterialTitle(material, index),
+          icon: getMiniMaterialIcon(material),
+          material,
+          transcriptIds: []
+        }
+      }),
+      ...week.recordings.map((recording, index) => {
+        const id = getMiniSourceId(recording, 'recording', index)
+        return {
+          uid: `recording:${fileId}:${week.id}:${id}`,
+          id,
+          fileId,
+          fileTitle,
+          node: file,
+          type: 'recording',
+          weekId: week.id,
+          weekLabel: week.label,
+          title: getMiniRecordingTitle(recording, index),
+          icon: 'graphic_eq',
+          recordingId: recording?.id || recording?.recordingId || '',
+          recording,
+          transcriptIds: collectTranscriptIds([recording])
+        }
+      })
+    ])
+
+    return {
+      id: fileId,
+      node: file,
+      title: fileTitle,
+      isActive: fileId === props.activeFileId,
+      weeks,
+      sources,
+      sourceCount: sources.length
+    }
+  })
+})
+
+const miniSourceTotalCount = computed(() => (
+  miniSourceFileGroups.value.reduce((total, group) => total + group.sourceCount, 0)
+))
+
 const miniSourceItems = computed(() => (
-  miniSourceWeeks.value.flatMap((week) => [
-    ...week.materials.map((material, index) => {
-      const id = getMiniSourceId(material, 'material', index)
-      return {
-        uid: `material:${id}`,
-        type: 'material',
-        weekId: week.id,
-        materialId: id,
-        title: getMiniMaterialTitle(material, index),
-        icon: getMiniMaterialIcon(material),
-        material,
-        transcriptIds: []
-      }
-    }),
-    ...week.recordings.map((recording, index) => {
-      const id = getMiniSourceId(recording, 'recording', index)
-      return {
-        uid: `recording:${id}`,
-        id,
-        type: 'recording',
-        weekId: week.id,
-        title: getMiniRecordingTitle(recording, index),
-        icon: 'graphic_eq',
-        recordingId: recording?.id || recording?.recordingId || '',
-        recording,
-        transcriptIds: collectTranscriptIds([recording])
-      }
-    })
-  ])
+  miniSourceFileGroups.value.flatMap((group) => group.sources)
 ))
 
 const selectedMiniSourceItems = computed(() => (
@@ -759,8 +808,23 @@ function toggleAllMiniSources() {
     : new Set(miniSourceItems.value.map((source) => source.uid))
 }
 
-function openMiniMaterial(material = {}) {
+function getMiniSourceContext(source = {}) {
+  const fileId = source.fileId || props.activeFileId
+  const node = source.node || findNodeById(props.fileTree, fileId) || activeSourceNode.value
+  return { fileId, node }
+}
+
+function selectMiniSourceFile(source = {}) {
+  const { fileId, node } = getMiniSourceContext(source)
+  if (fileId && node && fileId !== props.activeFileId) {
+    emit('fileSelect', fileId, node)
+  }
+}
+
+function openMiniMaterial(source = {}) {
+  const material = source?.type === 'material' ? source.material : source
   if (!material?.id) return
+  selectMiniSourceFile(source)
   emit('openStoredMaterial', material.id)
   mainContentTabRequest.value = {
     id: `mini-material-${material.id}-${Date.now()}`,
@@ -768,12 +832,15 @@ function openMiniMaterial(material = {}) {
   }
 }
 
-function openMiniRecording(recording = {}) {
+function openMiniRecording(source = {}) {
+  const recording = source?.type === 'recording' ? source.recording : source
   const recordingId = recording?.id || recording?.recordingId || ''
+  const { fileId, node } = getMiniSourceContext(source)
+  selectMiniSourceFile(source)
   recordingSourceRequest.value = {
     id: `mini-recording-${recordingId || Date.now()}-${Date.now()}`,
-    fileId: props.activeFileId,
-    node: activeSourceNode.value,
+    fileId,
+    node,
     recordingId,
     recording
   }
@@ -833,18 +900,19 @@ function syncMiniNodeFlatResources(node = {}) {
   ))
 }
 
-async function persistMiniSourceTree(nextTree, node) {
+async function persistMiniSourceTree(nextTree, node, fileId = props.activeFileId) {
   emit('update:fileTree', nextTree)
-  emit('fileSelect', props.activeFileId, node)
+  emit('fileSelect', fileId, node)
 
-  if (!isWorkspaceUuid(props.activeFileId) || !Array.isArray(node?.weeks)) return
-  await saveSessionResources(props.activeFileId, node.weeks)
+  if (!isWorkspaceUuid(fileId) || !Array.isArray(node?.weeks)) return
+  await saveSessionResources(fileId, node.weeks)
 }
 
 async function handleMiniSourceAction(action) {
   const source = miniSourceMenu.value.source
   closeMiniSourceMenu()
   if (!source || !props.activeFileId) return
+  const targetFileId = source.fileId || props.activeFileId
 
   if (action === 'rename') {
     const nextName = prompt(
@@ -854,7 +922,7 @@ async function handleMiniSourceAction(action) {
     if (!nextName?.trim()) return
 
     const nextTree = JSON.parse(JSON.stringify(props.fileTree))
-    const node = findNodeById(nextTree, props.activeFileId)
+    const node = findNodeById(nextTree, targetFileId)
     const week = Array.isArray(node?.weeks)
       ? node.weeks.find((item) => (item?.id || '') === source.weekId)
       : null
@@ -894,7 +962,7 @@ async function handleMiniSourceAction(action) {
 
     syncMiniNodeFlatResources(node)
     try {
-      await persistMiniSourceTree(nextTree, node)
+      await persistMiniSourceTree(nextTree, node, targetFileId)
     } catch (error) {
       console.error('[workspace] mini source rename failed:', error)
       alert('이름 변경 저장에 실패했습니다.')
@@ -905,16 +973,16 @@ async function handleMiniSourceAction(action) {
   if (action !== 'delete') return
   if (!confirm(`"${source.title}"을(를) 삭제할까요?`)) return
 
-  if (source.type === 'recording' && isWorkspaceUuid(props.activeFileId) && source.recordingId) {
+  if (source.type === 'recording' && isWorkspaceUuid(targetFileId) && source.recordingId) {
     try {
-      const result = await deleteWorkspaceRecordingData(props.activeFileId, source.recordingId)
+      const result = await deleteWorkspaceRecordingData(targetFileId, source.recordingId)
       if (result?.node) {
-        const nextTree = replaceNodeById(props.fileTree, props.activeFileId, result.node)
+        const nextTree = replaceNodeById(props.fileTree, targetFileId, result.node)
         selectedMiniSourceIds.value = new Set(
           Array.from(selectedMiniSourceIds.value).filter((uid) => uid !== source.uid)
         )
         emit('update:fileTree', nextTree)
-        emit('fileSelect', props.activeFileId, result.node)
+        emit('fileSelect', targetFileId, result.node)
         return
       }
     } catch (error) {
@@ -925,7 +993,7 @@ async function handleMiniSourceAction(action) {
   }
 
   const nextTree = JSON.parse(JSON.stringify(props.fileTree))
-  const node = findNodeById(nextTree, props.activeFileId)
+  const node = findNodeById(nextTree, targetFileId)
   const week = Array.isArray(node?.weeks)
     ? node.weeks.find((item) => (item?.id || '') === source.weekId)
     : null
@@ -952,7 +1020,7 @@ async function handleMiniSourceAction(action) {
     Array.from(selectedMiniSourceIds.value).filter((uid) => uid !== source.uid)
   )
   try {
-    await persistMiniSourceTree(nextTree, node)
+    await persistMiniSourceTree(nextTree, node, targetFileId)
   } catch (error) {
     console.error('[workspace] mini source delete failed:', error)
     alert('삭제 저장에 실패했습니다.')
@@ -1109,7 +1177,7 @@ const activeWorkspaceSource = computed(() => {
           <small>{{ miniSourceTotalCount }}개</small>
         </div>
 
-        <div v-if="activeFileId && miniSourceItems.length" class="workspace-mini-source-tree custom-scrollbar">
+        <div v-if="activeFileId && miniSourceFileGroups.length" class="workspace-mini-source-tree custom-scrollbar">
           <label class="mini-source-select-all">
             <span>모두 선택</span>
             <input
@@ -1119,36 +1187,66 @@ const activeWorkspaceSource = computed(() => {
             />
           </label>
 
-          <div
-            v-for="source in miniSourceItems"
-            :key="source.uid"
-            class="mini-source-check-row"
-          >
-            <button
-              type="button"
-              class="mini-source-icon-button"
-              :class="source.type"
-              :aria-label="`${source.title} 메뉴 열기`"
-              :title="`${source.title} 메뉴`"
-              @click="openMiniSourceMenu(source, $event)"
+          <div class="mini-source-folder-shell">
+            <div class="mini-source-folder-heading">
+              <span class="material-symbols-outlined">folder_open</span>
+              <strong>{{ miniSourceFolderTitle }}</strong>
+              <small>{{ miniSourceFileGroups.length }}개 파일</small>
+            </div>
+
+            <section
+              v-for="group in miniSourceFileGroups"
+              :key="group.id"
+              class="mini-source-file-group"
+              :class="{ 'is-active': group.isActive }"
             >
-              <span class="material-symbols-outlined mini-source-item-icon default-icon">{{ source.icon }}</span>
-              <span class="material-symbols-outlined mini-source-item-icon hover-icon">more_vert</span>
-            </button>
-            <button
-              type="button"
-              class="mini-source-open-btn"
-              :title="source.title"
-              @click.prevent="source.type === 'material' ? openMiniMaterial(source.material) : openMiniRecording(source.recording)"
-            >
-              <span>{{ source.title }}</span>
-            </button>
-            <input
-              type="checkbox"
-              :checked="isMiniSourceSelected(source.uid)"
-              @click.stop
-              @change="toggleMiniSource(source.uid)"
-            />
+              <button
+                type="button"
+                class="mini-source-file-row"
+                :title="group.title"
+                @click.stop="emit('fileSelect', group.id, group.node)"
+              >
+                <span class="material-symbols-outlined">description</span>
+                <strong>{{ group.title }}</strong>
+                <small>{{ group.sourceCount }}개</small>
+              </button>
+
+              <div v-if="group.sourceCount" class="mini-source-file-sources">
+                <div
+                  v-for="source in group.sources"
+                  :key="source.uid"
+                  class="mini-source-check-row"
+                >
+                  <button
+                    type="button"
+                    class="mini-source-icon-button"
+                    :class="source.type"
+                    :aria-label="`${source.title} 메뉴 열기`"
+                    :title="`${source.title} 메뉴`"
+                    @click="openMiniSourceMenu(source, $event)"
+                  >
+                    <span class="material-symbols-outlined mini-source-item-icon default-icon">{{ source.icon }}</span>
+                    <span class="material-symbols-outlined mini-source-item-icon hover-icon">more_vert</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="mini-source-open-btn"
+                    :title="source.title"
+                    @click.prevent="source.type === 'material' ? openMiniMaterial(source) : openMiniRecording(source)"
+                  >
+                    <span>{{ source.title }}</span>
+                  </button>
+                  <input
+                    type="checkbox"
+                    :checked="isMiniSourceSelected(source.uid)"
+                    @click.stop
+                    @change="toggleMiniSource(source.uid)"
+                  />
+                </div>
+              </div>
+
+              <div v-else class="mini-source-file-empty">저장된 소스가 없습니다.</div>
+            </section>
           </div>
         </div>
 
@@ -1645,6 +1743,98 @@ const activeWorkspaceSource = computed(() => {
   grid-template-columns: 26px minmax(0, 1fr) 18px;
   min-height: 36px;
   padding: 6px 0;
+}
+
+.mini-source-folder-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.mini-source-folder-heading,
+.mini-source-file-row {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  column-gap: 8px;
+}
+
+.mini-source-folder-heading {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  padding: 8px 9px;
+  border-radius: 13px;
+  color: #1e293b;
+  background: rgba(241, 245, 249, 0.95);
+  border: 1px solid rgba(226, 232, 240, 0.98);
+}
+
+.mini-source-folder-heading .material-symbols-outlined {
+  font-size: 18px;
+  color: #2563eb;
+  font-variation-settings: 'FILL' 1;
+}
+
+.mini-source-folder-heading strong,
+.mini-source-file-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mini-source-folder-heading small,
+.mini-source-file-row small {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.mini-source-file-group {
+  padding: 7px 7px 7px 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+}
+
+.mini-source-file-group.is-active {
+  border-color: rgba(37, 99, 235, 0.32);
+  background: rgba(239, 246, 255, 0.72);
+}
+
+.mini-source-file-row {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  border: 0;
+  padding: 2px 0 7px;
+  color: #1e293b;
+  background: transparent;
+  text-align: left;
+}
+
+.mini-source-file-row .material-symbols-outlined {
+  font-size: 17px;
+  color: #64748b;
+}
+
+.mini-source-file-group.is-active .mini-source-file-row .material-symbols-outlined {
+  color: #2563eb;
+}
+
+.mini-source-file-sources {
+  padding-left: 12px;
+  border-left: 2px solid rgba(148, 163, 184, 0.24);
+}
+
+.mini-source-file-empty {
+  margin-left: 12px;
+  padding: 7px 0 2px;
+  border-left: 2px solid rgba(148, 163, 184, 0.18);
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  text-indent: 10px;
 }
 
 .mini-source-open-btn {
