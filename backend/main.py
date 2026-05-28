@@ -438,16 +438,16 @@ async def websocket_endpoint(ws: WebSocket):
         audio_16k = resample_pcm48_to_16k(audio_float)
 
         if effective_diarize:
-            if len(diarize_buffer) == 0:
-                diarize_buffer_start_time = start_time
+            #if len(diarize_buffer) == 0:
+            #    diarize_buffer_start_time = start_time
             audio_16k_bytes = audio_16k.astype(np.float32).tobytes()
-            diarize_buffer.extend(audio_16k_bytes)
+            #diarize_buffer.extend(audio_16k_bytes)
             # 신창영: 수정 이유 - 녹음 종료 후 전체 오디오 기준으로 speaker_id를 다시 계산하기 위해 RAM에 누적합니다.
             full_diarize_buffer.extend(audio_16k_bytes)
 
-            if len(diarize_buffer) >= DIARIZE_BUFFER_SIZE:
-                schedule_diarize_window(bytes(diarize_buffer), diarize_buffer_start_time)
-                diarize_buffer.clear()
+            #if len(diarize_buffer) >= DIARIZE_BUFFER_SIZE:
+            #    schedule_diarize_window(bytes(diarize_buffer), diarize_buffer_start_time)
+            #    diarize_buffer.clear()
 
         processed_seconds = end_time
         if rms < 0.01:
@@ -488,6 +488,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     async def finalize_recording():
         """녹음 종료 시 RAM에 모아 둔 전체 오디오로 화자분리를 다시 수행합니다."""
+        logger.info(f"========== [DIARIZE:final] 녹음 종료 요청 수신! (recording_id={recording_id}) ==========")
         nonlocal diarize_segments
         if audio_buffer:
             await process_pcm_chunk(bytes(audio_buffer))
