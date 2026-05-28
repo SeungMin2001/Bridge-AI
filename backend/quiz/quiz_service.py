@@ -131,6 +131,7 @@ QUIZ_REPAIR_PROMPT_TEMPLATE = """아래 퀴즈 JSON은 품질 검증에 실패�
 - JSON 외 텍스트는 쓰지 마세요."""
 
 _OX_INTERROGATIVE_RE = re.compile(r"(무엇|어떤|어디|왜|어떻게|입니까|인가요|일까요|까요|[?？])")
+_SENTENCE_END_FINDER_RE = re.compile(r".+?(?:다\.|요\.|[.!?。？！])(?:\s+|$)")
 
 
 def _calculate_type_distribution(num_questions: int) -> tuple[int, int, int]:
@@ -342,14 +343,53 @@ def _trim_text(value: str, limit: int = 90) -> str:
     return text[:limit].rstrip() + "..."
 
 
-def _pick_source_keyword(transcript_text: str) -> str:
-    """LLM 보정 실패 시 기본 문항에 넣을 짧은 자료 핵심 문구를 고릅니다."""
-    for raw_line in transcript_text.splitlines():
-        line = re.sub(r"^\[[^\]]+\]\s*", "", raw_line).strip()
-        line = re.sub(r"^\d{1,2}:\d{2}(?::\d{2})?\s*", "", line).strip()
-        if len(line) >= 8:
-            return _trim_text(line, 48)
-    return "선택한 자료의 핵심 개념"
+def _source_sentences(transcript_text: str, *, limit: int = 20) -> list[str]:
+    """선택 소스에서 퀴즈 fallback에 사용할 핵심 문장 후보를 추출합니다."""
+    cleaned = re.sub(r"\[[^\]]+\]", " ", str(transcript_text or ""))
+    cleaned = re.sub(r"\b\d{1,2}:\d{2}(?::\d{2})?\b", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    sentences = []
+    seen = set()
+    parts = [match.group(0) for match in _SENTENCE_END_FINDER_RE.finditer(cleaned)]
+    if not parts:
+        parts = re.split(r"\n+|[.;!?。？！]", cleaned)
+    for part in parts:
+        sentence = " ".join(part.split()).strip(" -•·")
+        if not 8 <= len(sentence) <= 180:
+            continue
+        if sentence in seen:
+            continue
+        seen.add(sentence)
+        sentences.append(sentence)
+        if len(sentences) >= limit:
+            break
+    if not sentences and cleaned:
+        sentences.append(_trim_text(cleaned, 120))
+    return sentences
+
+
+def _extract_topic(sentence: str, fallback: str) -> str:
+    """문장에서 질문 주제로 쓸 만한 짧은 명사구를 추출합니다."""
+    sentence = " ".join(str(sentence or "").split())
+    patterns = (
+        r"([가-힣A-Za-z0-9_+#./ -]{2,24}?)(?:은|는)\s",
+        r"([가-힣A-Za-z0-9_+#./ -]{2,24}?)(?:이|가)\s",
+        r"([A-Za-z][A-Za-z0-9_+#./-]{1,24}|[가-힣]{2,12})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, sentence)
+        if match:
+            topic = match.group(1).strip(" ,.:;")
+            if len(topic) >= 2:
+                return _trim_text(topic, 24)
+    return fallback
+
+
+def _source_phrase(sentence: str, limit: int = 34) -> str:
+    """보기/단답 정답에 들어갈 짧은 원문 기반 표현을 만듭니다."""
+    sentence = re.sub(r"^(따라서|그리고|또한|반면|하지만)\s*", "", str(sentence or "").strip())
+    sentence = sentence.rstrip(".。")
+    return _trim_text(sentence, limit)
 
 
 def _coerce_correct_answer(question: dict) -> dict:
@@ -428,76 +468,58 @@ def _build_fallback_question(
     type_index: int,
     transcript_text: str,
 ) -> dict:
-    """로컬 소형 LLM이 형식을 끝까지 못 맞출 때 UI 흐름을 막지 않는 최소 문항을 만듭니다."""
-    keyword = _pick_source_keyword(transcript_text)
-    mc_variants = [
-        (
-            "선택한 자료의 핵심 내용을 가장 잘 정리한 것은 무엇인가요?",
-            [keyword, "파일 이름만 외운다.", "자료 범위와 무관한 내용을 고른다.", "관련 없는 예시를 먼저 정리한다."],
-            keyword,
-        ),
-        (
-            "자료를 복습할 때 가장 적절한 학습 방식은 무엇인가요?",
-            ["핵심 개념과 근거를 함께 확인한다.", "문서 제목만 확인한다.", "선택하지 않은 자료를 기준으로 공부한다.", "임의의 외부 지식만 사용한다."],
-            "핵심 개념과 근거를 함께 확인한다.",
-        ),
-        (
-            "퀴즈를 만들 때 기준으로 삼아야 하는 범위는 무엇인가요?",
-            ["사용자가 선택한 소스 범위", "아무 파일이나 전체 범위", "파일명만 있는 범위", "빈 자료 범위"],
-            "사용자가 선택한 소스 범위",
-        ),
-    ]
-    ox_variants = [
-        ("퀴즈는 선택한 소스 범위의 내용을 기준으로 생성된다.", "O"),
-        ("선택한 자료와 무관한 내용만으로 퀴즈를 만들어도 된다.", "X"),
-    ]
-    sa_variants = [
-        ("선택한 자료에서 중심적으로 다루는 핵심 내용을 짧게 쓰세요.", keyword),
-        ("퀴즈 생성 기준이 되는 자료 범위를 짧게 쓰세요.", "선택한 소스 범위"),
-    ]
+    """LLM이 개수/형식을 끝까지 못 맞출 때 선택 소스 문장으로 문항을 보충합니다."""
+    sentences = _source_sentences(transcript_text, limit=16)
+    if not sentences:
+        raise ValueError("퀴즈 생성에 사용할 소스 문장을 찾지 못했습니다.")
+    sentence = sentences[type_index % len(sentences)]
+    topic = _extract_topic(sentence, f"핵심 개념 {type_index + 1}")
+    correct_phrase = _source_phrase(sentence)
 
     if question_type == "MULTIPLE_CHOICE":
-        question, options, correct_answer = mc_variants[type_index % len(mc_variants)]
-        if type_index >= len(mc_variants):
-            question = f"{question} ({type_index + 1})"
+        correct_answer = f"1. {correct_phrase}"
+        option_phrases = [correct_phrase]
+        for candidate in sentences:
+            phrase = _source_phrase(candidate)
+            if phrase and phrase not in option_phrases:
+                option_phrases.append(phrase)
+            if len(option_phrases) >= 4:
+                break
+        while len(option_phrases) < 4:
+            option_phrases.append(f"자료에 없는 설명 {len(option_phrases)}")
+        options = [f"{idx}. {phrase}" for idx, phrase in enumerate(option_phrases[:4], start=1)]
         return {
             "question_index": 0,
             "type": "MULTIPLE_CHOICE",
-            "question": question,
+            "question": f"자료에서 '{topic}'에 대해 설명한 내용은?",
             "options": options,
             "correct_answer": correct_answer,
             "user_answer": None,
             "is_correct": None,
-            "explanation": "선택한 자료의 핵심 내용과 근거를 기준으로 복습해야 합니다.",
+            "explanation": _trim_text(sentence, 50),
         }
 
     if question_type == "OX":
-        question, correct_answer = ox_variants[type_index % len(ox_variants)]
-        if type_index >= len(ox_variants):
-            question = f"{question} ({type_index + 1})"
         return {
             "question_index": 0,
             "type": "OX",
-            "question": question,
+            "question": _trim_text(sentence.rstrip(".。") + ".", 90),
             "options": ["O", "X"],
-            "correct_answer": correct_answer,
+            "correct_answer": "O",
             "user_answer": None,
             "is_correct": None,
-            "explanation": "퀴즈는 사용자가 선택한 소스 범위를 바탕으로 생성됩니다.",
+            "explanation": _trim_text(sentence, 50),
         }
 
-    question, correct_answer = sa_variants[type_index % len(sa_variants)]
-    if type_index >= len(sa_variants):
-        question = f"{question} ({type_index + 1})"
     return {
         "question_index": 0,
         "type": "SHORT_ANSWER",
-        "question": question,
+        "question": f"자료에서 '{topic}'에 대해 설명한 핵심 내용을 쓰세요.",
         "options": [],
-        "correct_answer": correct_answer,
+        "correct_answer": correct_phrase,
         "user_answer": None,
         "is_correct": None,
-        "explanation": "자료의 핵심 내용을 짧게 정리하는 문항입니다.",
+        "explanation": _trim_text(sentence, 50),
     }
 
 
@@ -581,6 +603,172 @@ def _validate_quiz_quality(quiz_data: list[dict], expected_counts: dict[str, int
             issues.append(f"{index}번 문항 타입이 지원되지 않습니다: {question_type}")
 
     return issues
+
+
+def _valid_questions_by_type(quiz_data: list[dict]) -> dict[str, list[dict]]:
+    """유효한 문항만 유형별로 묶고 중복 질문은 제거합니다."""
+    buckets = {key: [] for key in QUIZ_TYPE_KEYS}
+    seen_questions = set()
+    for question in quiz_data:
+        next_question = _coerce_correct_answer(dict(question))
+        question_type = next_question.get("type")
+        question_text = " ".join(str(next_question.get("question") or "").split())
+        if question_type not in buckets or not question_text or question_text in seen_questions:
+            continue
+        if not _is_valid_question_shape(next_question):
+            continue
+        seen_questions.add(question_text)
+        buckets[question_type].append(next_question)
+    return buckets
+
+
+def _flatten_quiz_buckets(
+    buckets: dict[str, list[dict]],
+    expected_counts: dict[str, int],
+) -> list[dict]:
+    fitted = []
+    for question_type in QUIZ_TYPE_KEYS:
+        fitted.extend(buckets.get(question_type, [])[: expected_counts.get(question_type, 0)])
+    for index, question in enumerate(fitted, start=1):
+        question["question_index"] = index
+        question.setdefault("user_answer", None)
+        question.setdefault("is_correct", None)
+        question.setdefault("explanation", "")
+    return fitted
+
+
+def _quiz_generation_payload(messages: list[dict], max_tokens: int, *, temperature: float = 0.0) -> dict:
+    return {
+        "model": LLM_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "bridgeprag_alpha": 0.0,
+        "response_format": {"type": "json_object"},
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+
+def _type_instruction(question_type: str) -> str:
+    if question_type == "MULTIPLE_CHOICE":
+        return (
+            "MULTIPLE_CHOICE 객관식만 생성하세요. "
+            "각 문항은 options 4개를 갖고, correct_answer는 options 중 하나와 완전히 같아야 합니다."
+        )
+    if question_type == "OX":
+        return (
+            "OX 문항만 생성하세요. question은 참/거짓 판단이 가능한 평서문이어야 하고, "
+            "options는 [\"O\", \"X\"], correct_answer는 \"O\" 또는 \"X\"입니다."
+        )
+    return "SHORT_ANSWER 단답형만 생성하세요. options는 반드시 []이고 correct_answer는 짧은 핵심 답안입니다."
+
+
+def _build_type_specific_messages(
+    transcript_text: str,
+    question_type: str,
+    count: int,
+    existing_questions: list[str],
+) -> list[dict]:
+    existing_block = "\n".join(f"- {item}" for item in existing_questions[:12]) or "- 없음"
+    user_prompt = f"""아래 선택 소스 내용을 읽고 {question_type} 유형 퀴즈를 정확히 {count}개 생성하세요.
+
+[선택 소스]
+{transcript_text[:QUIZ_CONTEXT_CHARS]}
+
+[이미 사용한 질문]
+{existing_block}
+
+[생성 규칙]
+- {_type_instruction(question_type)}
+- 다른 유형의 문항은 절대 만들지 마세요.
+- 제공된 선택 소스에 있는 내용만 사용하세요.
+- 이미 사용한 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
+- question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
+- JSON 배열 외 텍스트는 쓰지 마세요.
+
+반드시 아래처럼 JSON 배열만 응답하세요:
+[
+  {{
+    "question_index": 1,
+    "type": "{question_type}",
+    "question": "질문",
+    "options": [],
+    "correct_answer": "정답",
+    "explanation": "짧은 해설"
+  }}
+]"""
+    return [
+        {"role": "system", "content": QUIZ_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+async def _request_quiz_json(
+    client: httpx.AsyncClient,
+    messages: list[dict],
+    max_tokens: int,
+    *,
+    temperature: float = 0.0,
+) -> list[dict]:
+    res = await client.post(
+        f"{LLM_URL}/v1/chat/completions",
+        json=_quiz_generation_payload(messages, max_tokens, temperature=temperature),
+        headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+    )
+    res.raise_for_status()
+    data = res.json()
+    raw_answer = data["choices"][0]["message"]["content"]
+    logger.info(f"[QUIZ] LLM JSON 응답 수신: {len(raw_answer)} chars")
+    return _parse_quiz_json(raw_answer)
+
+
+async def _complete_expected_counts_with_llm(
+    client: httpx.AsyncClient,
+    transcript_text: str,
+    quiz_data: list[dict],
+    expected_counts: dict[str, int],
+    max_tokens: int,
+) -> list[dict]:
+    """초기 LLM 응답에서 부족한 유형을 유형별 LLM 호출로 보강합니다."""
+    buckets = _valid_questions_by_type(quiz_data)
+    for question_type in QUIZ_TYPE_KEYS:
+        expected = expected_counts.get(question_type, 0)
+        if expected <= 0:
+            buckets[question_type] = []
+            continue
+        buckets[question_type] = buckets.get(question_type, [])[:expected]
+        missing = expected - len(buckets[question_type])
+        if missing <= 0:
+            continue
+
+        existing_questions = [
+            str(item.get("question") or "")
+            for items in buckets.values()
+            for item in items
+            if item.get("question")
+        ]
+        logger.info("[QUIZ] %s 부족 문항 LLM 보강: %s개", question_type, missing)
+        try:
+            supplemental = await _request_quiz_json(
+                client,
+                _build_type_specific_messages(transcript_text, question_type, missing, existing_questions),
+                min(LLM_MAX_TOKENS, max(700, 450 + missing * 260)),
+                temperature=0.0,
+            )
+            for item in supplemental:
+                item["type"] = question_type
+            new_bucket = _valid_questions_by_type([*buckets[question_type], *supplemental])[question_type]
+            buckets[question_type] = new_bucket[:expected]
+        except Exception as exc:
+            logger.warning("[QUIZ] %s 부족 문항 LLM 보강 실패: %s", question_type, exc)
+
+    completed = _flatten_quiz_buckets(buckets, expected_counts)
+    issues = _validate_quiz_quality(completed, expected_counts)
+    if not issues:
+        return completed
+
+    logger.warning("[QUIZ] LLM 보강 후에도 부족, 소스 기반 보충 사용: %s", "; ".join(issues[:5]))
+    return _fit_quiz_to_expected_counts(completed, expected_counts, transcript_text)
 
 
 def _parse_quiz_json(raw_text: str) -> list[dict]:
@@ -699,7 +887,11 @@ async def generate_quiz(
                 repair_data = repair_res.json()
                 raw_answer = repair_data["choices"][0]["message"]["content"]
                 logger.info(f"[QUIZ] LLM 복구 응답 수신: {len(raw_answer)} chars")
-                quiz_data = _parse_quiz_json(raw_answer)
+                try:
+                    quiz_data = _parse_quiz_json(raw_answer)
+                except ValueError as repair_error:
+                    logger.warning("[QUIZ] LLM 복구 응답도 파싱 실패, 유형별 보강으로 전환: %s", repair_error)
+                    quiz_data = []
 
             quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
             if quality_issues:
@@ -732,15 +924,27 @@ async def generate_quiz(
                 repair_data = repair_res.json()
                 raw_answer = repair_data["choices"][0]["message"]["content"]
                 logger.info(f"[QUIZ] 퀴즈 품질 재작성 응답 수신: {len(raw_answer)} chars")
-                quiz_data = _parse_quiz_json(raw_answer)
+                try:
+                    quiz_data = _parse_quiz_json(raw_answer)
+                except ValueError as repair_error:
+                    logger.warning("[QUIZ] 품질 재작성 응답 파싱 실패, 기존 유효 문항 기반 보강: %s", repair_error)
 
                 quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
                 if quality_issues:
                     logger.warning(
-                        "[QUIZ] 재작성 후에도 품질 검증 실패, 유효 문항 보정으로 진행: %s",
+                        "[QUIZ] 재작성 후에도 품질 검증 실패, 유형별 LLM 보강으로 진행: %s",
                         "; ".join(quality_issues[:5]),
                     )
-                    raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
+                    quiz_data = await _complete_expected_counts_with_llm(
+                        client,
+                        transcript_text,
+                        quiz_data,
+                        normalized_counts,
+                        max_tokens,
+                    )
+                    quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
+                    if quality_issues:
+                        raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
 
         logger.info(f"[QUIZ] {len(quiz_data)}개 문제 파싱 완료")
         return quiz_data
