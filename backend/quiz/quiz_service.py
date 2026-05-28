@@ -184,6 +184,12 @@ _BAD_OPTION_PHRASES = (
     "결과에 영향을 주지 않는 부가 정보",
     "원인과 결과의 관계를 고려하지 않는다",
     "측정이나 비교의 기준이 되지 않는다",
+    "비례하지",
+    "아닙니다",
+    "하지 않습니다",
+    "수 없습니다",
+    "...",
+    "…",
 )
 _GENERIC_MC_QUESTION_PHRASES = (
     "다음 중 선택한 자료의 설명과 일치",
@@ -456,6 +462,15 @@ def _trim_text(value: str, limit: int = 90) -> str:
     return text[:limit].rstrip() + "..."
 
 
+def _clip_text(value: str, limit: int = 90) -> str:
+    """퀴즈 보기처럼 말줄임표가 위험한 곳에서는 문장을 자르되 ...를 붙이지 않습니다."""
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    text = text[:limit].rstrip(" ,:;./…")
+    return text
+
+
 def _clean_quiz_fragment(value: str) -> str:
     """PDF 표식, 깨진 문자, 장식 불릿을 제거해 퀴즈에 쓸 수 있는 조각으로 정리합니다."""
     text = str(value or "")
@@ -526,6 +541,10 @@ def _is_good_question_text(value: str) -> bool:
         return False
     if len(text) < 8 or len(text) > 100:
         return False
+    if len(text) > 76 and any(phrase in text for phrase in ("옳은 것은", "알맞은 것은")):
+        return False
+    if re.search(r"(입니다|합니다|됩니다|있습니다|없습니다|비례합니다)\.\s*이에 대한 설명", text):
+        return False
     if any(phrase in text for phrase in ("작성하세요", "설명해주세요", "요약하세요", "요약하여")):
         return False
     if _is_generic_mc_question(text):
@@ -556,7 +575,7 @@ def _is_good_option_text(value: str) -> bool:
         return False
     if _looks_like_heading_fragment(text):
         return False
-    if len(text) < 8 or len(text) > 90:
+    if len(text) < 8 or len(text) > 64:
         return False
     return True
 
@@ -686,7 +705,7 @@ def _source_phrase(sentence: str, limit: int = 34) -> str:
     sentence = _clean_quiz_fragment(sentence)
     sentence = re.sub(r"^(따라서|그리고|또한|반면|하지만)\s*", "", sentence)
     sentence = sentence.rstrip(".。")
-    return _trim_text(sentence, limit)
+    return _clip_text(sentence, limit)
 
 
 def _strip_sentence_ending(value: str) -> str:
@@ -730,10 +749,14 @@ def _compact_answer_from_sentence(sentence: str, *, limit: int = 48) -> str:
         return "속력의 제곱에 비례한다"
     if "질량" in sentence and "속력" in sentence and "증가" in sentence:
         return "질량과 속력이 클수록 증가한다"
+    if "역학적 에너지" in sentence and "보존" in sentence and "일정" in sentence:
+        return "운동에너지와 위치에너지의 합이 일정하다"
+    if "위치에너지" in sentence and "높이" in sentence:
+        return "높이에 의해 저장되는 에너지"
     subject, predicate = _split_subject_predicate(sentence)
     if subject and predicate:
         if len(predicate) >= 8 and not predicate.startswith(("하나의", "모든")):
-            return _trim_text(predicate, limit)
+            return _clip_text(predicate, limit)
     return _source_phrase(sentence, limit)
 
 
@@ -753,9 +776,13 @@ def _mc_stem_and_answer_from_sentence(
         return "운동에너지는 속력과 어떤 관계를 가지는가?", "속력의 제곱에 비례한다"
     if "질량" in sentence and "속력" in sentence and "운동에너지" in sentence:
         return "운동에너지를 증가시키는 요인으로 옳은 것은?", "질량과 속력이 클수록 증가한다"
+    if "역학적 에너지" in sentence and "보존" in sentence:
+        return "역학적 에너지 보존에 대한 설명으로 옳은 것은?", "운동에너지와 위치에너지의 합이 일정하다"
+    if "위치에너지" in sentence and "높이" in sentence:
+        return "위치에너지에 대한 설명으로 옳은 것은?", "높이에 의해 저장되는 에너지"
     if subject and predicate:
         if "무엇" not in subject and len(subject) <= 24:
-            return f"{subject}에 대한 설명으로 옳은 것은?", _trim_text(predicate, 54)
+            return f"{subject}에 대한 설명으로 옳은 것은?", _clip_text(predicate, 54)
 
     topic = _extract_topic(sentence or fallback_answer, f"핵심 개념 {type_index + 1}")
     templates = (
@@ -838,6 +865,31 @@ def _question_duplicates_option(question_text: str, options: list[str]) -> bool:
     for option in options:
         option_key = _option_key(option)
         if len(option_key) >= 14 and (question_key in option_key or option_key in question_key):
+            return True
+    return False
+
+
+def _mc_question_leaks_answer(question_text: str, answer_text: str, options: list[str]) -> bool:
+    """질문이 정답 문장을 거의 그대로 포함하면 객관식 문제로 부적절합니다."""
+    question = _clean_quiz_fragment(question_text)
+    answer = _clean_quiz_fragment(_strip_option_prefix(answer_text))
+    if not question or not answer:
+        return False
+    if len(answer) >= 12 and answer in question:
+        return True
+    if re.search(r"(입니다|합니다|됩니다|있습니다|없습니다|비례합니다)\.\s*이에 대한 설명", question):
+        return True
+    if len(question) > 76 and any(phrase in question for phrase in ("옳은 것은", "알맞은 것은")):
+        return True
+
+    question_keywords = _content_keywords(question)
+    answer_keywords = _content_keywords(answer)
+    if len(answer_keywords) >= 3 and len(question_keywords & answer_keywords) >= 3:
+        return True
+    for option in options:
+        option_text = _clean_quiz_fragment(_strip_option_prefix(option))
+        option_keywords = _content_keywords(option_text)
+        if len(option_keywords) >= 3 and len(question_keywords & option_keywords) >= 3:
             return True
     return False
 
@@ -1065,6 +1117,12 @@ def _make_domain_distractors(
     if "운동에너지" in base and "에너지" in base:
         for value in ("위치 때문에 저장되는 에너지", "열로 전달된 에너지", "정지 상태에서만 가지는 에너지", "힘의 크기만 나타내는 물리량"):
             _append_unique_phrase(candidates, value, limit=48)
+    if "위치에너지" in base or ("높이" in base and "에너지" in base):
+        for value in ("물체가 운동하기 때문에 가지는 에너지", "힘이 이동시키며 전달하는 에너지", "속력의 제곱에 비례하는 에너지", "열로 전달되는 에너지"):
+            _append_unique_phrase(candidates, value, limit=48)
+    if "역학적 에너지" in base or "보존" in base:
+        for value in ("운동에너지와 위치에너지의 합이 일정하다", "마찰이 클수록 항상 증가한다", "운동에너지만 일정하게 유지된다", "위치에너지만 일정하게 유지된다"):
+            _append_unique_phrase(candidates, value, limit=48)
     if "일" in base and "에너지" in base and "힘" in base:
         for value in ("운동 때문에 가지는 에너지", "위치 때문에 저장되는 에너지", "힘의 크기만 나타내는 물리량", "이동 거리와 무관한 물리량"):
             _append_unique_phrase(candidates, value, limit=48)
@@ -1200,7 +1258,7 @@ def _numbered_mc_question(
         return None
     for distractor in distractors:
         if _is_same_topic_option(answer, distractor):
-            _append_unique_phrase(option_texts, distractor, limit=44)
+            _append_unique_phrase(option_texts, distractor, limit=52)
 
     if len(option_texts) < 4:
         for distractor in _make_domain_distractors(answer, source_sentence, limit=5):
@@ -1249,11 +1307,15 @@ def _numbered_mc_question(
 
     next_question = dict(question)
     question_text = _clean_quiz_fragment(next_question.get("question") or "")
-    if not _is_good_question_text(question_text) or _question_duplicates_option(question_text, numbered_options):
+    if (
+        not _is_good_question_text(question_text)
+        or _question_duplicates_option(question_text, numbered_options)
+        or _mc_question_leaks_answer(question_text, correct_answer, numbered_options)
+    ):
         question_text = stem_question
 
     next_question["type"] = "MULTIPLE_CHOICE"
-    next_question["question"] = _trim_text(question_text, 70)
+    next_question["question"] = _clip_text(question_text, 70)
     next_question["options"] = numbered_options
     next_question["correct_answer"] = correct_answer
     next_question["explanation"] = _trim_text(next_question.get("explanation") or answer_text, 70)
@@ -1377,6 +1439,7 @@ def _is_valid_question_shape(question: dict) -> bool:
             and all(option_keys)
             and _is_good_question_text(question_text)
             and not _question_duplicates_option(question_text, options)
+            and not _mc_question_leaks_answer(question_text, correct_answer, options)
             and all(_is_good_option_text(option) for option in options)
         )
     if question_type == "OX":
