@@ -98,6 +98,159 @@ SAMPLES: tuple[LectureSample, ...] = (
             "BridgePRAG가 passage만 인코딩하지 않고 질문과 passage를 함께 쓰는 이유는 뭐야?",
         ),
     ),
+    LectureSample(
+        slug="deep-learning-week1-neural-network",
+        course_title="딥러닝",
+        session_title="딥러닝 1주차 - 신경망과 역전파",
+        recording_title="딥러닝 1주차 신경망과 역전파 녹음본",
+        chunks=(
+            "딥러닝 1주차에서는 인공신경망의 기본 구조를 다룹니다. 뉴런은 입력값에 가중치를 곱해 더한 뒤 활성화 함수를 통과시켜 출력을 만듭니다. 여러 뉴런을 층으로 쌓으면 입력층, 은닉층, 출력층으로 구성된 신경망이 되고, 은닉층이 깊어질수록 데이터의 복잡한 패턴을 단계적으로 표현할 수 있습니다.",
+            "손실 함수는 모델의 예측값과 정답 사이의 차이를 수치로 나타내는 기준입니다. 회귀 문제에서는 평균제곱오차를 사용할 수 있고, 분류 문제에서는 교차 엔트로피 손실을 자주 사용합니다. 학습의 목표는 이 손실 값을 줄이는 방향으로 가중치를 조정하는 것입니다.",
+            "역전파는 출력층에서 계산된 손실을 기준으로 각 층의 가중치가 손실에 얼마나 영향을 주었는지 계산하는 과정입니다. 체인 룰을 이용해 출력층에서 입력층 방향으로 기울기를 전달하고, 경사하강법은 이 기울기의 반대 방향으로 가중치를 조금씩 갱신합니다.",
+            "학습률은 한 번의 업데이트에서 가중치를 얼마나 크게 바꿀지 결정합니다. 학습률이 너무 크면 손실이 발산하거나 최적점을 지나칠 수 있고, 너무 작으면 학습 속도가 지나치게 느려질 수 있습니다. 이번 주 과제는 간단한 다층 퍼셉트론을 구현하고 금요일 오후 여섯 시까지 제출하는 것입니다.",
+        ),
+        questions=(
+            "딥러닝 1주차에서 뉴런과 신경망 구조를 어떻게 설명했어?",
+            "역전파와 경사하강법의 관계는 뭐야?",
+            "딥러닝 1주차 과제는 언제까지 제출해야 해?",
+        ),
+    ),
+    LectureSample(
+        slug="deep-learning-week2-cnn",
+        course_title="딥러닝",
+        session_title="딥러닝 2주차 - CNN과 특징 추출",
+        recording_title="딥러닝 2주차 CNN과 특징 추출 녹음본",
+        chunks=(
+            "딥러닝 2주차에서는 합성곱 신경망, 즉 CNN을 다룹니다. CNN은 이미지 전체를 한 번에 완전연결층으로 처리하지 않고, 작은 필터를 이동시키며 지역적인 패턴을 추출합니다. 이 필터는 학습 가능한 가중치이며, 이미지의 모서리, 방향, 질감 같은 특징을 점차적으로 감지합니다.",
+            "합성곱 연산에서 stride는 필터가 한 번에 이동하는 간격을 의미합니다. stride가 커지면 출력 feature map의 크기는 작아지고 계산량도 줄어듭니다. padding은 입력 이미지 가장자리에 값을 추가하는 방식이며, 출력 크기를 유지하거나 가장자리 정보 손실을 줄이기 위해 사용합니다.",
+            "Pooling은 feature map의 공간 크기를 줄이면서 중요한 정보를 남기는 과정입니다. Max pooling은 영역 안에서 가장 큰 값을 선택하므로 강하게 반응한 특징을 보존하는 데 유용합니다. Average pooling은 영역의 평균값을 사용하므로 전체적인 분포를 부드럽게 반영합니다.",
+            "CNN은 이미지 분류뿐만 아니라 객체 검출과 의료 영상 분석에도 활용됩니다. 낮은 층은 선이나 색 변화처럼 단순한 특징을 학습하고, 깊은 층은 눈, 바퀴, 건물 모서리처럼 더 추상적인 패턴을 학습합니다. 실습에서는 손글씨 숫자 데이터를 이용해 CNN 분류기를 훈련합니다.",
+        ),
+        questions=(
+            "CNN에서 필터는 어떤 역할을 해?",
+            "stride와 padding은 출력 크기에 어떤 영향을 줘?",
+            "Max pooling과 Average pooling의 차이는 뭐야?",
+        ),
+    ),
+    LectureSample(
+        slug="deep-learning-week3-transformer",
+        course_title="딥러닝",
+        session_title="딥러닝 3주차 - Transformer와 Attention",
+        recording_title="딥러닝 3주차 Transformer와 Attention 녹음본",
+        chunks=(
+            "딥러닝 3주차에서는 Transformer의 Attention 구조를 설명합니다. Attention은 현재 토큰이 문장 안의 다른 토큰 중 어떤 정보에 집중해야 하는지를 계산하는 방식입니다. Query는 현재 토큰이 찾고자 하는 정보의 기준이고, Key는 각 토큰이 가진 주소 역할을 하며, Value는 실제로 가져올 정보의 내용에 해당합니다.",
+            "Scaled dot-product Attention은 Query와 Key의 내적을 계산해 관련도를 구한 뒤 softmax로 가중치를 만듭니다. 이 가중치를 Value에 곱해 더하면 현재 토큰이 참고해야 할 문맥 정보가 만들어집니다. 내적 값이 너무 커지는 것을 막기 위해 Key 차원의 제곱근으로 나누는 scaling을 적용합니다.",
+            "Multi-head Attention은 하나의 Attention만 사용하는 대신 여러 개의 head를 병렬로 사용합니다. 각 head는 서로 다른 표현 공간에서 관계를 학습하므로 문법적 관계, 의미적 관계, 위치적 단서를 동시에 포착할 수 있습니다. 이후 head들의 출력을 연결하고 선형 변환하여 다음 층으로 전달합니다.",
+            "Transformer는 순환 구조가 없기 때문에 토큰 순서를 별도로 알려주어야 합니다. 이를 위해 positional encoding을 입력 임베딩에 더합니다. 수업에서는 다음 시간까지 Query, Key, Value 행렬의 크기와 Attention 출력 크기를 계산하는 연습 문제를 풀어오라고 안내했습니다.",
+        ),
+        questions=(
+            "Attention에서 Query, Key, Value는 각각 어떤 역할이야?",
+            "Scaled dot-product Attention에서 scaling을 하는 이유는 뭐야?",
+            "Transformer에서 positional encoding이 필요한 이유는 뭐야?",
+        ),
+    ),
+    LectureSample(
+        slug="economics-week1-supply-demand",
+        course_title="경제학",
+        session_title="경제학 1주차 - 수요와 공급",
+        recording_title="경제학 1주차 수요와 공급 녹음본",
+        chunks=(
+            "경제학 1주차에서는 시장에서 가격이 어떻게 결정되는지 설명합니다. 수요는 소비자가 특정 가격에서 구매하려는 재화의 양이고, 공급은 생산자가 특정 가격에서 판매하려는 재화의 양입니다. 일반적으로 가격이 오르면 수요량은 줄고 공급량은 늘어나는 방향으로 움직입니다.",
+            "수요곡선이 오른쪽으로 이동하는 경우는 소비자의 소득 증가, 선호 변화, 대체재 가격 상승처럼 같은 가격에서 더 많이 사고 싶어지는 상황입니다. 공급곡선이 오른쪽으로 이동하는 경우는 생산기술 향상이나 원자재 가격 하락처럼 같은 가격에서 더 많이 생산할 수 있는 상황입니다.",
+            "균형가격은 수요량과 공급량이 일치하는 지점에서 결정됩니다. 가격이 균형보다 높으면 공급량이 수요량보다 많아 초과공급이 발생하고, 가격이 균형보다 낮으면 수요량이 공급량보다 많아 초과수요가 발생합니다. 시장은 이러한 압력을 통해 다시 균형으로 이동하려는 경향을 가집니다.",
+            "정부가 가격상한제를 균형가격보다 낮게 설정하면 소비자는 더 많이 사려고 하지만 생산자는 덜 공급하려 하므로 부족 현상이 발생할 수 있습니다. 반대로 가격하한제가 균형가격보다 높게 설정되면 초과공급이 발생할 수 있습니다. 다음 수업 전까지 임대료 상한제 사례를 읽어오는 과제가 있습니다.",
+        ),
+        questions=(
+            "수요와 공급은 각각 무엇을 의미해?",
+            "균형가격보다 가격이 낮으면 어떤 현상이 생겨?",
+            "가격상한제는 어떤 문제를 만들 수 있어?",
+        ),
+    ),
+    LectureSample(
+        slug="economics-week2-elasticity",
+        course_title="경제학",
+        session_title="경제학 2주차 - 탄력성과 소비자 선택",
+        recording_title="경제학 2주차 탄력성과 소비자 선택 녹음본",
+        chunks=(
+            "경제학 2주차에서는 탄력성을 다룹니다. 가격탄력성은 가격이 1퍼센트 변할 때 수요량이 몇 퍼센트 변하는지를 나타냅니다. 절댓값이 1보다 크면 탄력적이라고 하고, 1보다 작으면 비탄력적이라고 합니다. 필수재는 보통 비탄력적이고, 대체재가 많은 상품은 탄력적인 경우가 많습니다.",
+            "수요가 탄력적일 때 가격을 올리면 수요량이 크게 줄어 총수입이 감소할 수 있습니다. 반대로 수요가 비탄력적일 때 가격을 올리면 수요량 감소가 작기 때문에 총수입이 증가할 수 있습니다. 따라서 기업은 가격 전략을 세울 때 수요의 탄력성을 함께 고려해야 합니다.",
+            "소비자 선택 이론에서는 예산 제약과 효용을 함께 봅니다. 예산선은 소비자가 주어진 소득과 가격에서 구매할 수 있는 상품 조합을 나타냅니다. 무차별곡선은 소비자에게 같은 만족을 주는 조합들의 집합이며, 예산선과 무차별곡선이 접하는 지점에서 최적 소비가 결정됩니다.",
+            "이번 주 계산 과제는 가격탄력성과 총수입 변화를 표로 정리하는 것입니다. 제출 마감은 다음 주 월요일 오전 아홉 시입니다. 과제에서는 가격이 만 원에서 만천 원으로 오를 때 수요량이 백 개에서 팔십 개로 줄어드는 사례를 사용합니다.",
+        ),
+        questions=(
+            "가격탄력성은 무엇을 나타내는 지표야?",
+            "수요가 탄력적일 때 가격을 올리면 총수입은 어떻게 될 수 있어?",
+            "경제학 2주차 과제 제출 마감은 언제야?",
+        ),
+    ),
+    LectureSample(
+        slug="economics-week3-market-failure",
+        course_title="경제학",
+        session_title="경제학 3주차 - 시장실패와 정부 개입",
+        recording_title="경제학 3주차 시장실패와 정부 개입 녹음본",
+        chunks=(
+            "경제학 3주차에서는 시장실패를 설명합니다. 시장실패는 시장이 스스로 효율적인 자원 배분을 달성하지 못하는 상황을 의미합니다. 대표적인 원인에는 외부효과, 공공재, 정보 비대칭, 독점이 있습니다.",
+            "외부효과는 한 경제 주체의 행동이 거래 당사자가 아닌 제삼자에게 영향을 주지만 그 영향이 가격에 충분히 반영되지 않는 경우입니다. 공장 배출가스는 주변 주민에게 피해를 주는 부정적 외부효과의 예입니다. 반대로 예방접종은 주변 사람의 감염 위험도 줄이는 긍정적 외부효과의 예입니다.",
+            "공공재는 비배제성과 비경합성을 가진 재화입니다. 비배제성은 비용을 내지 않은 사람을 소비에서 배제하기 어렵다는 뜻이고, 비경합성은 한 사람이 소비해도 다른 사람의 소비 가능성이 줄어들지 않는다는 뜻입니다. 국방과 등대는 전통적인 공공재 사례로 설명됩니다.",
+            "정부는 세금, 보조금, 규제, 공공재 직접 공급 등을 통해 시장실패를 완화하려고 합니다. 부정적 외부효과에는 피구세를 부과할 수 있고, 긍정적 외부효과에는 보조금을 지급할 수 있습니다. 다만 정부 개입도 정보 부족이나 행정 비용 때문에 항상 완벽한 결과를 보장하지는 않습니다.",
+        ),
+        questions=(
+            "시장실패의 대표적인 원인은 무엇이야?",
+            "부정적 외부효과와 긍정적 외부효과의 예시는 뭐야?",
+            "공공재의 두 가지 성질은 무엇이야?",
+        ),
+    ),
+    LectureSample(
+        slug="physics-week1-motion-force",
+        course_title="물리학",
+        session_title="물리학 1주차 - 운동과 힘",
+        recording_title="물리학 1주차 운동과 힘 녹음본",
+        chunks=(
+            "물리학 1주차에서는 운동을 기술하는 기본 물리량을 정리합니다. 위치는 물체가 기준점에서 어디에 있는지를 나타내고, 변위는 처음 위치에서 나중 위치까지의 방향을 가진 변화량입니다. 속도는 변위를 시간으로 나눈 값이고, 가속도는 속도가 시간에 따라 얼마나 변하는지를 나타냅니다.",
+            "등가속도 직선 운동에서는 가속도가 일정하다고 가정합니다. 이때 속도는 시간에 비례해 변하고, 위치는 시간의 제곱 항을 포함해 변합니다. 자유낙하 운동은 공기저항을 무시하면 중력가속도 약 9.8미터 매초제곱을 갖는 등가속도 운동으로 다룰 수 있습니다.",
+            "뉴턴의 제1법칙은 관성의 법칙입니다. 외부에서 알짜힘이 작용하지 않으면 물체는 정지 상태를 유지하거나 등속 직선 운동을 계속합니다. 제2법칙은 알짜힘이 질량과 가속도의 곱과 같다는 내용이며, 제3법칙은 작용과 반작용이 항상 크기가 같고 방향이 반대라는 내용입니다.",
+            "수업에서는 힘의 단위를 뉴턴으로 정의했습니다. 1뉴턴은 질량 1킬로그램의 물체에 1미터 매초제곱의 가속도를 만들 때 필요한 힘입니다. 실습 문제는 물체에 작용하는 힘을 자유물체도로 나타내고 알짜힘을 계산하는 것입니다.",
+        ),
+        questions=(
+            "속도와 가속도는 각각 무엇을 의미해?",
+            "자유낙하 운동은 어떤 운동으로 설명했어?",
+            "뉴턴의 세 가지 운동 법칙을 정리해줘.",
+        ),
+    ),
+    LectureSample(
+        slug="physics-week2-energy",
+        course_title="물리학",
+        session_title="물리학 2주차 - 일과 에너지",
+        recording_title="물리학 2주차 일과 에너지 녹음본",
+        chunks=(
+            "물리학 2주차에서는 일과 에너지의 관계를 다룹니다. 물리에서 일은 힘이 물체를 이동시키면서 에너지를 전달하는 과정입니다. 힘과 이동 방향이 같을수록 일이 커지고, 힘이 이동 방향과 수직이면 일은 0이 됩니다.",
+            "운동에너지는 물체가 운동하기 때문에 가지는 에너지입니다. 질량이 클수록, 속력이 클수록 운동에너지는 증가하며 특히 속력의 제곱에 비례합니다. 위치에너지는 중력장 안에서 높이에 의해 저장되는 에너지로, 질량과 중력가속도와 높이에 비례합니다.",
+            "역학적 에너지 보존은 마찰이나 공기저항 같은 비보존력이 무시될 때 운동에너지와 위치에너지의 합이 일정하게 유지된다는 원리입니다. 롤러코스터가 높은 곳에서 내려올 때 위치에너지가 줄어드는 대신 운동에너지가 증가하는 사례로 설명할 수 있습니다.",
+            "마찰이 존재하면 역학적 에너지 일부가 열에너지로 전환됩니다. 이 경우 운동에너지와 위치에너지의 합은 보존되지 않지만 전체 에너지는 다른 형태까지 포함하면 보존됩니다. 이번 주 실험 보고서는 경사면에서 구슬이 내려오는 시간을 측정하고 에너지 손실을 추정하는 내용입니다.",
+        ),
+        questions=(
+            "물리에서 일은 무엇을 의미해?",
+            "역학적 에너지 보존은 어떤 조건에서 성립해?",
+            "마찰이 있으면 역학적 에너지는 어떻게 돼?",
+        ),
+    ),
+    LectureSample(
+        slug="physics-week3-electricity",
+        course_title="물리학",
+        session_title="물리학 3주차 - 전기장과 회로",
+        recording_title="물리학 3주차 전기장과 회로 녹음본",
+        chunks=(
+            "물리학 3주차에서는 전기장과 회로의 기초를 다룹니다. 전하 사이에는 전기력이 작용하며, 같은 종류의 전하는 서로 밀어내고 다른 종류의 전하는 서로 끌어당깁니다. 전기장은 어떤 위치에 양의 시험 전하를 놓았을 때 그 전하가 받는 힘을 단위 전하당 힘으로 나타낸 물리량입니다.",
+            "전위는 단위 전하가 가지는 전기적 위치에너지입니다. 전위차가 존재하면 전하가 이동할 수 있는 원인이 생기고, 회로에서는 이 전위차를 전압이라고 부릅니다. 전류는 단위 시간 동안 도선을 지나는 전하량이며, 관습적으로 양전하가 이동하는 방향을 전류의 방향으로 정의합니다.",
+            "옴의 법칙은 전압이 전류와 저항의 곱과 같다는 관계입니다. 같은 저항에서 전압이 커지면 전류도 비례해서 증가합니다. 직렬 회로에서는 전류가 모든 저항에 동일하게 흐르고, 병렬 회로에서는 각 가지의 전압이 동일하게 걸립니다.",
+            "전력은 단위 시간당 소비되는 에너지이며 전압과 전류의 곱으로 계산할 수 있습니다. 전기 기기의 소비 전력이 클수록 같은 시간 동안 더 많은 전기에너지를 사용합니다. 다음 실습에서는 직렬 회로와 병렬 회로를 구성하고 각 저항에 걸리는 전압과 전류를 측정합니다.",
+        ),
+        questions=(
+            "전기장은 무엇을 의미해?",
+            "전압과 전류는 각각 어떻게 설명했어?",
+            "직렬 회로와 병렬 회로의 차이는 뭐야?",
+        ),
+    ),
 )
 
 
@@ -125,6 +278,73 @@ def week_label(value: date) -> str:
 
 
 def ensure_schema(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS courses (
+            course_id UUID PRIMARY KEY,
+            user_id UUID NULL,
+            parent_course_id UUID NULL,
+            title TEXT NOT NULL,
+            type TEXT NULL,
+            description TEXT NULL,
+            color TEXT NULL,
+            icon TEXT NULL,
+            created_at TIMESTAMP NULL DEFAULT NOW()
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sessions (
+            session_id UUID PRIMARY KEY,
+            course_id UUID NULL,
+            session_date DATE NULL,
+            title TEXT NULL,
+            duration_sec INTEGER NULL DEFAULT 0,
+            status TEXT NULL,
+            created_at TIMESTAMP NULL DEFAULT NOW(),
+            file_kind VARCHAR(50) NULL,
+            tag VARCHAR(50) NULL,
+            icon VARCHAR(50) NULL,
+            color VARCHAR(50) NULL,
+            session_pdf JSONB NULL DEFAULT '[]'::jsonb,
+            session_voicefile JSONB NULL DEFAULT '[]'::jsonb,
+            summary_notes JSONB NULL DEFAULT '[]'::jsonb
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS transcripts (
+            transcript_id UUID PRIMARY KEY,
+            session_id UUID NULL,
+            recording_id TEXT NULL,
+            chunk_index INTEGER NULL,
+            start_time DOUBLE PRECISION NULL,
+            end_time DOUBLE PRECISION NULL,
+            original_text TEXT NULL,
+            chunk_text TEXT NULL,
+            corrected_text TEXT NULL,
+            confidence DOUBLE PRECISION NULL,
+            speaker_id TEXT NULL,
+            speaker_name TEXT NULL,
+            created_at TIMESTAMP NULL DEFAULT NOW()
+        )
+        """
+    )
+    cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS user_id UUID NULL")
+    cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS parent_course_id UUID NULL")
+    cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS type TEXT NULL")
+    cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS description TEXT NULL")
+    cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS color VARCHAR(50) NULL")
+    cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS icon VARCHAR(50) NULL")
+    cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NULL")
+    cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS course_id UUID NULL")
+    cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_date DATE NULL")
+    cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS title TEXT NULL")
+    cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS duration_sec INTEGER NULL")
+    cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS status TEXT NULL")
+    cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NULL")
     cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS file_kind VARCHAR(50) NULL")
     cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tag VARCHAR(50) NULL")
     cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS icon VARCHAR(50) NULL")
@@ -134,9 +354,19 @@ def ensure_schema(cur) -> None:
     cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_notes JSONB NULL")
     cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS recording_id TEXT NULL")
     cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS chunk_index INTEGER NULL")
+    cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS start_time DOUBLE PRECISION NULL")
+    cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS end_time DOUBLE PRECISION NULL")
+    cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS original_text TEXT NULL")
     cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS chunk_text TEXT NULL")
+    cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS corrected_text TEXT NULL")
+    cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION NULL")
     cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS speaker_id TEXT NULL")
     cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS speaker_name TEXT NULL")
+    cur.execute("ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NULL")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_course_id ON sessions(course_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_session_id ON transcripts(session_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_recording_id ON transcripts(recording_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_session_chunk ON transcripts(session_id, chunk_index)")
 
 
 def upsert_course(cur, title: str, *, parent_id: uuid.UUID | None = None) -> uuid.UUID:
