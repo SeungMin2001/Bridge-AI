@@ -134,6 +134,14 @@ _OX_INTERROGATIVE_RE = re.compile(r"(무엇|어떤|어디|왜|어떻게|입니�
 _SENTENCE_END_FINDER_RE = re.compile(r".+?(?:다\.|요\.|[.!?。？！])(?:\s+|$)")
 
 
+class QuizParseError(ValueError):
+    """LLM 응답을 JSON으로 파싱하지 못했을 때 원문을 함께 전달합니다."""
+
+    def __init__(self, message: str, raw_text: str):
+        super().__init__(message)
+        self.raw_text = raw_text
+
+
 def _calculate_type_distribution(num_questions: int) -> tuple[int, int, int]:
     """문제 유형 배분 계산 (객관식 > OX > 단답형 비율)"""
     if num_questions <= 2:
@@ -414,12 +422,20 @@ def _option_key(value: str) -> str:
 
 def _append_unique_phrase(phrases: list[str], value: str, *, limit: int = 44) -> None:
     phrase = _strip_option_prefix(value)
-    phrase = phrase.strip(" ,.:;\"'")
+    phrase = phrase.strip(" ,:;\"'")
     if not phrase:
         return
     phrase = _trim_text(phrase, limit)
     key = _option_key(phrase)
-    if not key or any(_option_key(item) == key for item in phrases):
+    if not key:
+        return
+    for item in phrases:
+        item_key = _option_key(item)
+        if item_key == key:
+            return
+        if len(key) >= 12 and len(item_key) >= 12 and (key in item_key or item_key in key):
+            return
+    if not key:
         return
     phrases.append(phrase)
 
@@ -439,6 +455,72 @@ def _source_option_phrases(transcript_text: str, *, limit: int = 12) -> list[str
     return phrases
 
 
+def _keywords_for_match(value: str) -> set[str]:
+    return {
+        token.lower()
+        for token in re.findall(r"[A-Za-z0-9가-힣]{2,}", str(value or ""))
+        if token.lower() not in {"자료에서", "설명한", "내용은", "다음", "중", "것은", "어떤", "형태로"}
+    }
+
+
+def _best_source_sentence_for_question(question: str, transcript_text: str, type_index: int) -> str:
+    sentences = _source_sentences(transcript_text, limit=20)
+    if not sentences:
+        return ""
+    question_keywords = _keywords_for_match(question)
+    best_sentence = sentences[type_index % len(sentences)]
+    best_score = -1
+    for sentence in sentences:
+        sentence_keywords = _keywords_for_match(sentence)
+        score = len(question_keywords & sentence_keywords)
+        if score > best_score:
+            best_score = score
+            best_sentence = sentence
+    return best_sentence
+
+
+def _plain_text_to_candidate(
+    raw_text: str,
+    question_type: str,
+    transcript_text: str,
+    type_index: int,
+) -> dict | None:
+    """JSON을 무시한 LLM 자연어 응답에서 질문 문장을 회수해 문항으로 변환합니다."""
+    text = _strip_json_code_fences(_remove_thinking_blocks(raw_text))
+    lines = []
+    for raw_line in text.splitlines():
+        line = re.sub(r"^\s*[-*•\d]+[.)]?\s*", "", raw_line).strip()
+        if not line or re.match(r"^\[(?:PDF\s+page|page|페이지)\s*\d+\]$", line, flags=re.IGNORECASE):
+            continue
+        if len(line) < 6:
+            continue
+        lines.append(line)
+    if not lines:
+        text = " ".join(text.split())
+        if text:
+            lines.append(text)
+    if not lines:
+        return None
+
+    question_line = next((line for line in lines if "?" in line or "？" in line), lines[0])
+    question_line = _trim_text(question_line, 70)
+    source_sentence = _best_source_sentence_for_question(question_line, transcript_text, type_index)
+    answer = _source_phrase(source_sentence, 60)
+    if not answer:
+        return None
+
+    candidate = {
+        "question_index": 1,
+        "type": question_type,
+        "question": question_line,
+        "answer": answer,
+        "correct_answer": answer,
+        "distractors": [],
+        "explanation": _trim_text(source_sentence, 70),
+    }
+    return _normalize_single_llm_question(candidate, question_type, transcript_text, type_index)
+
+
 def _numbered_mc_question(
     question: dict,
     answer_text: str,
@@ -451,7 +533,7 @@ def _numbered_mc_question(
         return None
 
     option_texts: list[str] = []
-    _append_unique_phrase(option_texts, answer, limit=44)
+    _append_unique_phrase(option_texts, answer, limit=60)
     for distractor in distractors:
         _append_unique_phrase(option_texts, distractor, limit=44)
     for source_phrase in _source_option_phrases(transcript_text, limit=12):
@@ -512,6 +594,9 @@ def _normalize_single_llm_question(
         return _numbered_mc_question(next_question, str(answer_text), distractors, transcript_text, type_index)
 
     if question_type == "OX":
+        if _OX_INTERROGATIVE_RE.search(str(next_question.get("question") or "")):
+            source_sentence = _best_source_sentence_for_question(str(next_question.get("question") or ""), transcript_text, type_index)
+            next_question["question"] = source_sentence or next_question.get("question") or ""
         next_question["options"] = ["O", "X"]
         next_question = _coerce_correct_answer(next_question)
         next_question["question"] = _trim_text(next_question.get("question") or "", 90)
@@ -1026,6 +1111,25 @@ async def _generate_single_question(
                 rejected_reasons or _question_shape_issues(sample if isinstance(sample, dict) else {}),
                 json.dumps(sample, ensure_ascii=False)[:400] if isinstance(sample, dict) else str(sample)[:400],
             )
+        except QuizParseError as exc:
+            recovered = _plain_text_to_candidate(exc.raw_text, question_type, transcript_text, type_index)
+            if (
+                recovered is not None
+                and not _same_question_exists(recovered, existing_questions)
+                and _is_valid_question_shape(recovered)
+            ):
+                logger.info(
+                    "[QUIZ] %s JSON이 아닌 LLM 응답을 문항으로 회수했습니다: %s",
+                    question_type,
+                    recovered.get("question"),
+                )
+                return recovered
+            logger.warning(
+                "[QUIZ] %s 자연어 LLM 응답 회수 실패: attempt=%s raw=%s",
+                question_type,
+                attempt + 1,
+                exc.raw_text[:300],
+            )
         except Exception as exc:
             logger.warning("[QUIZ] %s 단일 문항 LLM 생성 실패: attempt=%s error=%s", question_type, attempt + 1, exc)
 
@@ -1138,7 +1242,7 @@ def _parse_quiz_json(raw_text: str) -> list[dict]:
             last_error = exc
 
     logger.error(f"퀴즈 JSON 파싱 실패: {last_error}\n원본: {raw_text[:500]}")
-    raise ValueError(f"LLM 응답을 JSON으로 파싱할 수 없습니다: {last_error}")
+    raise QuizParseError(f"LLM 응답을 JSON으로 파싱할 수 없습니다: {last_error}", raw_text)
 
 
 #  퀴즈 생성 (LLM 호출)
