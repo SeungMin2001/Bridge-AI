@@ -39,7 +39,8 @@ SYSTEM_PROMPT = (
     "제공된 근거에 없는 내용은 추측하지 말고 근거를 찾지 못했다고 답하라. "
     "사용자 질문, 참고자료 원문, 시스템 지시문을 반복하지 말라. "
     "'질문:', '답변:', 번호 매긴 새 예시, 학습 데이터 목록을 이어서 생성하지 말라. "
-    "근거가 있는 문장 끝에만 [1], [2] citation을 붙이고, 별도 출처 목록은 만들지 말라."
+    "같은 근거 citation은 답변 전체에서 한 번만 사용하고, 필요한 citation 번호는 답변 끝에 모아 붙여라. "
+    "별도 출처 목록은 만들지 말라."
 )
 
 
@@ -400,27 +401,52 @@ def _truncate_before_repeated_sentence(text: str) -> str:
 
 
 def _deduplicate_trailing_citations(text: str) -> str:
-    """같은 citation 번호가 문장마다 반복되면 마지막 한 번만 남깁니다."""
-    citation_re = re.compile(r"(?:\s*(?:\[(\d+)\]|(?<!\d)(\d+)(?!\d)))\s*$")
-    lines = str(text or "").splitlines()
-    if len(lines) <= 1:
-        return text
+    """같은 citation 번호가 여러 문장에 반복되면 마지막 한 번만 남깁니다."""
+    original = str(text or "")
+    if not original.strip():
+        return original
 
-    citation_indexes: dict[str, list[int]] = {}
-    for idx, line in enumerate(lines):
-        match = citation_re.search(line)
-        if not match:
+    citation_re = re.compile(
+        r"(?P<lead>[ \t]*)(?P<token>\[(?P<bracket>\d{1,2})\]|(?<![\w가-힣])(?P<bare>\d{1,2})(?![\w가-힣]))"
+    )
+
+    valid_matches = []
+    for match in citation_re.finditer(original):
+        citation_no = match.group("bracket") or match.group("bare")
+        before = original[: match.start()].rstrip()
+        after = original[match.end():]
+        next_char = after[:1]
+        if not before:
             continue
-        citation_no = match.group(1) or match.group(2)
-        citation_indexes.setdefault(citation_no, []).append(idx)
 
-    for citation_no, indexes in citation_indexes.items():
-        if len(indexes) <= 1:
+        # Bare numbers are citation-like only when they trail a completed Korean/English sentence.
+        previous_looks_complete = (
+            before.endswith((".", "!", "?", "。", "？", "！", "다", "요"))
+            or before.endswith(("다.", "요."))
+        )
+        followed_by_boundary = not next_char or next_char.isspace()
+        if not (previous_looks_complete and followed_by_boundary):
             continue
-        for idx in indexes[:-1]:
-            lines[idx] = citation_re.sub("", lines[idx]).rstrip()
+        valid_matches.append((match, citation_no))
 
-    return "\n".join(lines)
+    if not valid_matches:
+        return original
+
+    last_match_by_no = {citation_no: match for match, citation_no in valid_matches}
+    pieces = []
+    cursor = 0
+    for match, citation_no in valid_matches:
+        pieces.append(original[cursor: match.start()])
+        if last_match_by_no[citation_no] is match:
+            lead = match.group("lead") or " "
+            pieces.append(f"{lead}[{citation_no}]")
+        cursor = match.end()
+    pieces.append(original[cursor:])
+
+    cleaned = "".join(pieces)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    return cleaned.strip()
 
 
 def _truncate_at_stop_pattern(text: str) -> tuple[str, bool]:
