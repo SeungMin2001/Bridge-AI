@@ -179,6 +179,11 @@ _BAD_OPTION_PHRASES = (
     "주차에서는",
     "강의에서는",
     "수업에서는",
+    "하나의 고정값으로만",
+    "모든 상황에서 같은 방식",
+    "결과에 영향을 주지 않는 부가 정보",
+    "원인과 결과의 관계를 고려하지 않는다",
+    "측정이나 비교의 기준이 되지 않는다",
 )
 _GENERIC_MC_QUESTION_PHRASES = (
     "다음 중 선택한 자료의 설명과 일치",
@@ -191,6 +196,7 @@ _GENERIC_MC_QUESTION_PHRASES = (
 )
 _EXPLANATORY_MARKERS = (
     "한다",
+    "하다",
     "합니다",
     "된다",
     "됩니다",
@@ -215,6 +221,14 @@ _EXPLANATORY_MARKERS = (
     "포함",
     "연결",
     "처리",
+    "에너지",
+    "물리량",
+    "비례",
+    "관계",
+    "결과",
+    "정답",
+    "가중치",
+    "속력",
 )
 
 
@@ -494,7 +508,11 @@ def _looks_like_heading_fragment(value: str) -> bool:
         text,
     ):
         return True
-    if len(text) < 32 and not re.search(r"(은|는|이|가|을|를|으로|에서).*(다|한다|된다|이다|있다|없다)", text):
+    if (
+        len(text) < 32
+        and not re.search(r"(은|는|이|가|을|를|으로|에서).*(다|한다|된다|이다|있다|없다)", text)
+        and not any(marker in text for marker in _EXPLANATORY_MARKERS)
+    ):
         return True
     if not any(marker in text for marker in _EXPLANATORY_MARKERS):
         # 짧은 명사구는 정답/오답으로는 빈약하므로 제외한다.
@@ -671,18 +689,88 @@ def _source_phrase(sentence: str, limit: int = 34) -> str:
     return _trim_text(sentence, limit)
 
 
-def _mc_question_from_source(source_sentence: str, answer_text: str, type_index: int) -> str:
-    """객관식 질문을 '강의 내용' 같은 메타 질문이 아니라 특정 개념 질문으로 만듭니다."""
-    topic = _extract_topic(source_sentence or answer_text, f"핵심 개념 {type_index + 1}")
-    if topic.startswith("핵심 개념"):
-        topic = _extract_topic(answer_text, topic)
+def _strip_sentence_ending(value: str) -> str:
+    text = _clean_quiz_fragment(value).rstrip(".。")
+    text = re.sub(r"(입니다|합니다|됩니다|있습니다|없습니다)$", "", text).strip()
+    text = re.sub(r"(이다|한다|된다|있다|없다)$", "", text).strip()
+    return text
+
+
+def _topic_particle(topic: str) -> str:
+    """주제어 뒤에 붙일 은/는 조사를 간단히 고릅니다."""
+    topic = str(topic or "").strip()
+    if not topic:
+        return "은"
+    last = topic[-1]
+    if "가" <= last <= "힣":
+        return "은" if (ord(last) - ord("가")) % 28 else "는"
+    return "는"
+
+
+def _split_subject_predicate(sentence: str) -> tuple[str, str]:
+    """'A는 B입니다' 형태의 강의 문장을 질문 주제와 정답 후보로 분리합니다."""
+    text = _clean_quiz_fragment(sentence).rstrip(".。")
+    match = re.match(r"(.{2,32}?)(은|는|이|가)\s+(.{4,120})$", text)
+    if not match:
+        return "", ""
+    subject = match.group(1).strip(" ,:;")
+    subject = re.sub(r"^.*?에서\s+", "", subject).strip()
+    predicate = _strip_sentence_ending(match.group(3))
+    if len(subject) < 1 or len(predicate) < 4:
+        return "", ""
+    return subject, predicate
+
+
+def _compact_answer_from_sentence(sentence: str, *, limit: int = 48) -> str:
+    """객관식 보기에 들어가기 좋은 정답 표현을 원문 문장에서 추출합니다."""
+    sentence = _clean_quiz_fragment(sentence)
+    if "수직" in sentence and "일" in sentence and re.search(r"\b0\b|0이|영", sentence):
+        return "일은 0이 된다"
+    if "속력의 제곱" in sentence and "비례" in sentence:
+        return "속력의 제곱에 비례한다"
+    if "질량" in sentence and "속력" in sentence and "증가" in sentence:
+        return "질량과 속력이 클수록 증가한다"
+    subject, predicate = _split_subject_predicate(sentence)
+    if subject and predicate:
+        if len(predicate) >= 8 and not predicate.startswith(("하나의", "모든")):
+            return _trim_text(predicate, limit)
+    return _source_phrase(sentence, limit)
+
+
+def _mc_stem_and_answer_from_sentence(
+    source_sentence: str,
+    fallback_answer: str,
+    type_index: int,
+) -> tuple[str, str]:
+    """정답 내용을 질문에 그대로 노출하지 않도록 개념형 질문과 짧은 정답을 구성합니다."""
+    sentence = _clean_quiz_fragment(source_sentence or fallback_answer)
+    answer = _compact_answer_from_sentence(sentence or fallback_answer, limit=54)
+    subject, predicate = _split_subject_predicate(sentence)
+
+    if "수직" in sentence and "일" in sentence and re.search(r"\b0\b|0이|영", sentence):
+        return "힘이 이동 방향과 수직일 때 일은 어떻게 되는가?", "일은 0이 된다"
+    if "속력의 제곱" in sentence and "운동에너지" in sentence:
+        return "운동에너지는 속력과 어떤 관계를 가지는가?", "속력의 제곱에 비례한다"
+    if "질량" in sentence and "속력" in sentence and "운동에너지" in sentence:
+        return "운동에너지를 증가시키는 요인으로 옳은 것은?", "질량과 속력이 클수록 증가한다"
+    if subject and predicate:
+        if "무엇" not in subject and len(subject) <= 24:
+            return f"{subject}에 대한 설명으로 옳은 것은?", _trim_text(predicate, 54)
+
+    topic = _extract_topic(sentence or fallback_answer, f"핵심 개념 {type_index + 1}")
     templates = (
         "{topic}에 대한 설명으로 옳은 것은?",
         "{topic}의 핵심 역할로 알맞은 것은?",
         "{topic}의 특징으로 옳은 것은?",
         "{topic}와 관련된 설명으로 옳은 것은?",
     )
-    return templates[type_index % len(templates)].format(topic=topic)
+    return templates[type_index % len(templates)].format(topic=topic), answer
+
+
+def _mc_question_from_source(source_sentence: str, answer_text: str, type_index: int) -> str:
+    """객관식 질문을 '강의 내용' 같은 메타 질문이 아니라 특정 개념 질문으로 만듭니다."""
+    question, _ = _mc_stem_and_answer_from_sentence(source_sentence, answer_text, type_index)
+    return question
 
 
 def _strip_option_prefix(value: str) -> str:
@@ -754,6 +842,74 @@ def _question_duplicates_option(question_text: str, options: list[str]) -> bool:
     return False
 
 
+def _concept_signature(value: str) -> str:
+    """문항이 같은 핵심 개념만 반복되는지 확인하기 위한 느슨한 서명입니다."""
+    text = _clean_quiz_fragment(value)
+    tokens = []
+    stop_words = {"설명", "특징", "핵심", "역할", "알맞은", "옳은", "것은", "대한", "관련된"}
+    for token in re.findall(r"[A-Za-z0-9가-힣]{2,}", text):
+        root = _keyword_root(token)
+        if root and root not in stop_words and root not in tokens:
+            tokens.append(root)
+        if len(tokens) >= 3:
+            break
+    return "|".join(tokens)
+
+
+def _question_concept_signature(question: dict) -> str:
+    fields = [
+        str(question.get("question") or ""),
+        str(question.get("correct_answer") or ""),
+        str(question.get("explanation") or ""),
+    ]
+    return _concept_signature(" ".join(fields))
+
+
+def _same_concept_exists(question: dict, existing_items: list[str]) -> bool:
+    signature = _question_concept_signature(question)
+    if not signature:
+        return False
+    current = set(signature.split("|"))
+    for item in existing_items:
+        other = set(_concept_signature(item).split("|"))
+        if not other:
+            continue
+        # 같은 핵심어 2개 이상이 겹치면 같은 정보 반복으로 본다.
+        if len(current & other) >= 2:
+            return True
+    return False
+
+
+def _make_false_ox_statement(
+    sentence: str,
+    transcript_text: str = "",
+    type_index: int = 0,
+) -> str:
+    """O/X 문항이 전부 O로만 나오지 않도록 원문 기반의 거짓 진술을 만듭니다."""
+    subject, _ = _split_subject_predicate(sentence)
+    if subject and transcript_text:
+        source_sentences = _source_sentences(transcript_text, limit=20)
+        for offset in range(1, len(source_sentences) + 1):
+            other_sentence = source_sentences[(type_index + offset) % len(source_sentences)]
+            if _option_key(other_sentence) == _option_key(sentence):
+                continue
+            other_answer = _compact_answer_from_sentence(other_sentence, limit=58)
+            if other_answer and _is_good_option_text(other_answer):
+                return _trim_text(f"{subject}{_topic_particle(subject)} {other_answer}.", 90)
+
+    correct = _clean_quiz_fragment(sentence).rstrip(".。")
+    for candidate in [
+        *_make_rule_based_distractors(_clean_quiz_fragment(sentence), limit=4),
+        *_make_domain_distractors(_compact_answer_from_sentence(sentence, limit=70), sentence, limit=4),
+    ]:
+        candidate = _clean_quiz_fragment(candidate).rstrip(".。")
+        if candidate and _is_good_option_text(candidate) and len(candidate) >= 10:
+            return _trim_text(candidate + ".", 90)
+
+    fallback_topic = _extract_topic(sentence, "해당 개념")
+    return _trim_text(f"{fallback_topic}은 입력 조건과 관계없이 항상 일정하다.", 90)
+
+
 def _append_unique_phrase(phrases: list[str], value: str, *, limit: int = 44) -> None:
     phrase = _clean_quiz_fragment(_strip_option_prefix(value))
     phrase = phrase.strip(" ,:;\"'")
@@ -778,12 +934,12 @@ def _source_option_phrases(transcript_text: str, *, limit: int = 12) -> list[str
     """원문 문장과 절을 짧은 보기 후보로 변환합니다."""
     phrases: list[str] = []
     for sentence in _source_sentences(transcript_text, limit=20):
-        _append_unique_phrase(phrases, _source_phrase(sentence, 44), limit=44)
+        _append_unique_phrase(phrases, _compact_answer_from_sentence(sentence, limit=48), limit=48)
         clauses = re.split(r"(?:,|，|;|；|\s+반면\s+|\s+하지만\s+|\s+그리고\s+|\s+또한\s+|\s+때문에\s+)", sentence)
         for clause in clauses:
             clause = _clean_quiz_fragment(clause)
             if 8 <= len(clause) <= 90:
-                _append_unique_phrase(phrases, _source_phrase(clause, 44), limit=44)
+                _append_unique_phrase(phrases, _compact_answer_from_sentence(clause, limit=48), limit=48)
             if len(phrases) >= limit:
                 return phrases
     return phrases
@@ -888,20 +1044,63 @@ def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[st
     return candidates[:limit]
 
 
+def _make_domain_distractors(
+    answer_text: str,
+    source_sentence: str,
+    *,
+    limit: int = 3,
+) -> list[str]:
+    """강의 개념권 안에서 헷갈릴 만한 오답을 우선 생성합니다."""
+    answer = _clean_quiz_fragment(answer_text)
+    source = _clean_quiz_fragment(source_sentence)
+    base = f"{answer} {source}"
+    candidates: list[str] = []
+
+    if "수직" in base and "일" in base:
+        for value in ("일은 최대가 된다", "일은 항상 음수가 된다", "일은 질량에만 비례한다", "일은 속력에만 비례한다"):
+            _append_unique_phrase(candidates, value, limit=48)
+    if "속력의 제곱" in base or ("운동에너지" in base and "비례" in base):
+        for value in ("속력에만 비례한다", "속력에 반비례한다", "속력과 무관하다", "질량과 무관하게 일정하다"):
+            _append_unique_phrase(candidates, value, limit=48)
+    if "운동에너지" in base and "에너지" in base:
+        for value in ("위치 때문에 저장되는 에너지", "열로 전달된 에너지", "정지 상태에서만 가지는 에너지", "힘의 크기만 나타내는 물리량"):
+            _append_unique_phrase(candidates, value, limit=48)
+    if "일" in base and "에너지" in base and "힘" in base:
+        for value in ("운동 때문에 가지는 에너지", "위치 때문에 저장되는 에너지", "힘의 크기만 나타내는 물리량", "이동 거리와 무관한 물리량"):
+            _append_unique_phrase(candidates, value, limit=48)
+
+    if "손실" in base or "loss" in base.lower():
+        for value in ("예측값과 정답의 차이를 나타내는 값", "가중치를 무작위로 고정하는 과정", "입력값을 그대로 출력하는 함수"):
+            _append_unique_phrase(candidates, value, limit=48)
+    if "역전파" in base:
+        for value in ("출력층에서 입력층 방향으로 오차를 전달한다", "입력 데이터를 정렬하는 과정", "학습률을 고정하는 함수"):
+            _append_unique_phrase(candidates, value, limit=48)
+    if "활성화" in base:
+        for value in ("비선형성을 부여하는 함수", "손실을 직접 계산하는 기준", "데이터를 저장하는 배열 구조"):
+            _append_unique_phrase(candidates, value, limit=48)
+
+    if "배열" in base or "인덱스" in base:
+        for value in ("인덱스로 원소에 접근한다", "포인터만으로 순차 접근한다", "트리 형태로 계층을 저장한다"):
+            _append_unique_phrase(candidates, value, limit=48)
+    if "연결 리스트" in base or "리스트" in base:
+        for value in ("노드가 링크로 다음 노드를 가리킨다", "모든 원소가 연속된 메모리에 저장된다", "인덱스로 항상 즉시 접근한다"):
+            _append_unique_phrase(candidates, value, limit=48)
+
+    return candidates[:limit]
+
+
 def _make_contrastive_distractors(answer_text: str, *, limit: int = 3) -> list[str]:
-    """짧은 소스에서도 객관식이 실패하지 않도록 정답 주제 기반의 대비 오답을 만든다."""
+    """짧은 소스에서도 객관식이 실패하지 않도록 최후의 대비 오답을 만든다."""
     answer = _clean_quiz_fragment(answer_text)
     topic = _extract_topic(answer, "해당 개념")
     topic = re.sub(r"(은|는|이|가|을|를|의|에)$", "", topic).strip() or "해당 개념"
     candidates: list[str] = []
 
     templates = (
-        "{topic}은 하나의 고정값으로만 표현된다",
-        "{topic}은 원인과 결과의 관계를 고려하지 않는다",
-        "{topic}은 모든 상황에서 같은 방식으로만 적용된다",
-        "{topic}은 측정이나 비교의 기준이 되지 않는다",
-        "{topic}은 여러 요소 사이의 관계를 고려하지 않는다",
-        "{topic}은 결과에 영향을 주지 않는 부가 정보이다",
+        "{topic}은 입력 조건과 관계없이 일정하다",
+        "{topic}은 결과 변화와 직접 관련되지 않는다",
+        "{topic}은 비교 기준 없이 단독으로 결정된다",
+        "{topic}은 다른 요소의 영향을 받지 않는다",
     )
     for template in templates:
         _append_unique_phrase(candidates, template.format(topic=topic), limit=60)
@@ -985,9 +1184,15 @@ def _numbered_mc_question(
     transcript_text: str,
     answer_slot: int,
 ) -> dict | None:
-    answer = _strip_option_prefix(answer_text)
-    if not answer:
+    raw_answer = _strip_option_prefix(answer_text)
+    if not raw_answer:
         return None
+    source_sentence = _best_source_sentence_for_question(
+        f"{question.get('question') or ''} {raw_answer}",
+        transcript_text,
+        answer_slot,
+    )
+    stem_question, answer = _mc_stem_and_answer_from_sentence(source_sentence, raw_answer, answer_slot)
 
     option_texts: list[str] = []
     _append_unique_phrase(option_texts, answer, limit=60)
@@ -998,8 +1203,20 @@ def _numbered_mc_question(
             _append_unique_phrase(option_texts, distractor, limit=44)
 
     if len(option_texts) < 4:
+        for distractor in _make_domain_distractors(answer, source_sentence, limit=5):
+            _append_unique_phrase(option_texts, distractor, limit=52)
+            if len(option_texts) >= 4:
+                break
+
+    if len(option_texts) < 4:
         for distractor in _make_rule_based_distractors(answer, limit=4):
             _append_unique_phrase(option_texts, distractor, limit=60)
+            if len(option_texts) >= 4:
+                break
+
+    if len(option_texts) < 4:
+        for source_phrase in _source_option_phrases(transcript_text, limit=16):
+            _append_unique_phrase(option_texts, source_phrase, limit=48)
             if len(option_texts) >= 4:
                 break
 
@@ -1010,16 +1227,8 @@ def _numbered_mc_question(
                 break
 
     if len(option_texts) < 4:
-        for source_phrase in _source_option_phrases(transcript_text, limit=12):
-            if not _is_same_topic_option(answer, source_phrase):
-                continue
-            _append_unique_phrase(option_texts, source_phrase, limit=44)
-            if len(option_texts) >= 4:
-                break
-
-    if len(option_texts) < 4:
-        for source_phrase in _source_option_phrases(transcript_text, limit=12):
-            _append_unique_phrase(option_texts, source_phrase, limit=44)
+        for source_phrase in _source_option_phrases(transcript_text, limit=20):
+            _append_unique_phrase(option_texts, source_phrase, limit=48)
             if len(option_texts) >= 4:
                 break
 
@@ -1040,9 +1249,8 @@ def _numbered_mc_question(
 
     next_question = dict(question)
     question_text = _clean_quiz_fragment(next_question.get("question") or "")
-    source_sentence = _best_source_sentence_for_question(question_text or answer, transcript_text, answer_slot)
-    if not _is_good_question_text(question_text):
-        question_text = _mc_question_from_source(source_sentence, answer, answer_slot)
+    if not _is_good_question_text(question_text) or _question_duplicates_option(question_text, numbered_options):
+        question_text = stem_question
 
     next_question["type"] = "MULTIPLE_CHOICE"
     next_question["question"] = _trim_text(question_text, 70)
@@ -1206,6 +1414,18 @@ def _build_fallback_question(
         raise ValueError("객관식 보기를 만들 수 있을 만큼 선택 소스 문장이 충분하지 않습니다.")
 
     if question_type == "OX":
+        if type_index % 2 == 1:
+            false_statement = _make_false_ox_statement(sentence, transcript_text, type_index)
+            return {
+                "question_index": 0,
+                "type": "OX",
+                "question": false_statement,
+                "options": ["O", "X"],
+                "correct_answer": "X",
+                "user_answer": None,
+                "is_correct": None,
+                "explanation": _trim_text(sentence, 50),
+            }
         return {
             "question_index": 0,
             "type": "OX",
@@ -1237,6 +1457,7 @@ def _fit_quiz_to_expected_counts(
     """재작성 후에도 문항 수/형식이 틀리면 유효 문항만 살리고 부족분을 보충합니다."""
     buckets = {key: [] for key in QUIZ_TYPE_KEYS}
     seen_questions = set()
+    seen_concepts: list[str] = []
 
     for question in quiz_data:
         next_question = _coerce_correct_answer(dict(question))
@@ -1246,7 +1467,19 @@ def _fit_quiz_to_expected_counts(
             continue
         if not _is_valid_question_shape(next_question):
             continue
+        if _same_concept_exists(next_question, seen_concepts):
+            continue
         seen_questions.add(question_text)
+        seen_concepts.append(
+            " ".join(
+                str(value or "")
+                for value in (
+                    next_question.get("question"),
+                    next_question.get("correct_answer"),
+                    next_question.get("explanation"),
+                )
+            )
+        )
         buckets[question_type].append(next_question)
 
     fitted = []
@@ -1256,6 +1489,12 @@ def _fit_quiz_to_expected_counts(
         while len(selected) < expected:
             fallback_index = len(fitted) + len(selected)
             fallback = _build_fallback_question(question_type, fallback_index, transcript_text)
+            if _same_concept_exists(fallback, seen_concepts):
+                for offset in range(1, 12):
+                    candidate = _build_fallback_question(question_type, fallback_index + offset, transcript_text)
+                    if not _same_concept_exists(candidate, seen_concepts):
+                        fallback = candidate
+                        break
             fallback_text = " ".join(str(fallback.get("question") or "").split())
             if fallback_text in seen_questions:
                 if question_type == "MULTIPLE_CHOICE":
@@ -1269,6 +1508,16 @@ def _fit_quiz_to_expected_counts(
                 if " ".join(str(fallback.get("question") or "").split()) in seen_questions:
                     fallback["question"] = f"{fallback_text} - 추가 확인"
             seen_questions.add(" ".join(str(fallback.get("question") or "").split()))
+            seen_concepts.append(
+                " ".join(
+                    str(value or "")
+                    for value in (
+                        fallback.get("question"),
+                        fallback.get("correct_answer"),
+                        fallback.get("explanation"),
+                    )
+                )
+            )
             selected.append(fallback)
         fitted.extend(selected)
 
@@ -1604,6 +1853,10 @@ async def _generate_single_question(
                     rejected_reasons.append("duplicate_question")
                     rejected_sample = rejected_sample or normalized_candidate
                     continue
+                if _same_concept_exists(normalized_candidate, existing_questions):
+                    rejected_reasons.append("duplicate_concept")
+                    rejected_sample = rejected_sample or normalized_candidate
+                    continue
                 if _is_valid_question_shape(normalized_candidate):
                     return normalized_candidate
                 rejected_reasons.extend(_question_shape_issues(normalized_candidate))
@@ -1621,6 +1874,7 @@ async def _generate_single_question(
             if (
                 recovered is not None
                 and not _same_question_exists(recovered, existing_questions)
+                and not _same_concept_exists(recovered, existing_questions)
                 and _is_valid_question_shape(recovered)
             ):
                 logger.info(
@@ -1639,6 +1893,12 @@ async def _generate_single_question(
             logger.warning("[QUIZ] %s 단일 문항 LLM 생성 실패: attempt=%s error=%s", question_type, attempt + 1, exc)
 
     fallback = _build_fallback_question(question_type, type_index, transcript_text)
+    if _same_concept_exists(fallback, existing_questions):
+        for offset in range(1, 8):
+            candidate = _build_fallback_question(question_type, type_index + offset, transcript_text)
+            if not _same_concept_exists(candidate, existing_questions):
+                fallback = candidate
+                break
     logger.info("[QUIZ] %s 문항을 선택 소스 기반으로 보충했습니다: %s", question_type, fallback.get("question"))
     return fallback
 
@@ -1662,7 +1922,16 @@ async def _generate_quiz_one_by_one(
                 existing_questions,
             )
             quiz_data.append(question)
-            existing_questions.append(str(question.get("question") or ""))
+            existing_questions.append(
+                " ".join(
+                    str(value or "")
+                    for value in (
+                        question.get("question"),
+                        question.get("correct_answer"),
+                        question.get("explanation"),
+                    )
+                )
+            )
 
     for index, question in enumerate(quiz_data, start=1):
         question["question_index"] = index
