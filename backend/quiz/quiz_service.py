@@ -130,8 +130,63 @@ QUIZ_REPAIR_PROMPT_TEMPLATE = """아래 퀴즈 JSON은 품질 검증에 실패�
 - question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
 - JSON 외 텍스트는 쓰지 마세요."""
 
+QUIZ_SOURCE_SUMMARY_SYSTEM_PROMPT = """당신은 강의자료와 전사문을 퀴즈 생성에 적합한 학습 요약본으로 정리하는 AI입니다.
+반드시 JSON 객체만 응답하세요. JSON 외 텍스트는 포함하지 마세요.
+목차, 페이지 번호, 깨진 문자, 장식 불릿은 제거하고 실제 학습 내용만 남기세요."""
+
+QUIZ_SOURCE_SUMMARY_PROMPT_TEMPLATE = """아래는 사용자가 퀴즈 생성을 위해 선택한 원본 소스입니다.
+
+[선택 소스 원문]
+{source_text}
+
+위 원문을 바탕으로 퀴즈 생성에 사용할 한국어 요약본을 작성하세요.
+- 원문에 실제로 포함된 핵심 개념, 정의, 특징, 차이, 조건, 예시만 정리하세요.
+- 단순 목차, 페이지 번호, 슬라이드 제목만으로 된 항목은 제외하세요.
+- 같은 내용을 반복하지 마세요.
+- 객관식 보기로 사용할 수 있도록 각 항목은 명확한 한 문장으로 작성하세요.
+- 새로운 사실을 추가하지 마세요.
+
+반드시 아래 JSON 객체 형식으로만 응답하세요:
+{{
+  "summary_text": "퀴즈 생성에 사용할 핵심 요약본"
+}}"""
+
 _OX_INTERROGATIVE_RE = re.compile(r"(무엇|어떤|어디|왜|어떻게|입니까|인가요|일까요|까요|[?？])")
 _SENTENCE_END_FINDER_RE = re.compile(r".+?(?:다\.|요\.|[.!?。？！])(?:\s+|$)")
+_SOURCE_BULLET_RE = re.compile(r"[❖▪•●○◆◇■□▶▷▸▹]")
+_BAD_QUIZ_PHRASES = (
+    "작성하세요",
+    "설명해주세요",
+    "요약하여",
+    "문구가 나왔을 때",
+    "자료에서 '",
+    "JSON",
+    "options",
+    "correct_answer",
+    "PDF page",
+)
+_EXPLANATORY_MARKERS = (
+    "한다",
+    "된다",
+    "이다",
+    "있다",
+    "없다",
+    "의미",
+    "정의",
+    "특징",
+    "차이",
+    "역할",
+    "방식",
+    "조건",
+    "과정",
+    "저장",
+    "구현",
+    "사용",
+    "공유",
+    "포함",
+    "연결",
+    "처리",
+)
 
 
 class QuizParseError(ValueError):
@@ -358,19 +413,174 @@ def _trim_text(value: str, limit: int = 90) -> str:
     return text[:limit].rstrip() + "..."
 
 
+def _clean_quiz_fragment(value: str) -> str:
+    """PDF 표식, 깨진 문자, 장식 불릿을 제거해 퀴즈에 쓸 수 있는 조각으로 정리합니다."""
+    text = str(value or "")
+    text = re.sub(r"\[[^\]]*(?:PDF\s*page|page|페이지)[^\]]*\]", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\[[^\]]+\]", " ", text)
+    text = text.replace("�", " ")
+    text = _SOURCE_BULLET_RE.sub(" ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip(" \t\r\n-–—•·,;:/|")
+
+
+def _has_bad_quiz_artifact(value: str) -> bool:
+    text = str(value or "")
+    if not text or "�" in text:
+        return True
+    return any(phrase in text for phrase in _BAD_QUIZ_PHRASES)
+
+
+def _looks_like_heading_fragment(value: str) -> bool:
+    """목차/슬라이드 제목처럼 보이는 조각은 보기와 질문 후보에서 제외합니다."""
+    text = _clean_quiz_fragment(value)
+    if not text or _has_bad_quiz_artifact(text):
+        return True
+    if len(text) < 6:
+        return True
+    if re.fullmatch(r"\d+", text):
+        return True
+    if re.search(r"(학습목표|목차|contents|index)$", text, flags=re.IGNORECASE):
+        return True
+    if text.count(" - ") >= 2 or text.count("/") >= 3:
+        return True
+    if re.search(r"\s\d{1,2}$", text) and len(text) < 60:
+        return True
+    if "의 이해" in text and not re.search(r"(다|한다|된다|이다|있다|없다)[\.\s]*$", text):
+        return True
+    if re.search(r"(개념|이해|목표|목차|표현|형식|종류|구성)$", text) and not re.search(
+        r"(다|한다|된다|이다|있다|없다|필요하다|가능하다)[\.\s]*$",
+        text,
+    ):
+        return True
+    if len(text) < 32 and not re.search(r"(은|는|이|가|을|를|으로|에서).*(다|한다|된다|이다|있다|없다)", text):
+        return True
+    if not any(marker in text for marker in _EXPLANATORY_MARKERS):
+        # 짧은 명사구는 정답/오답으로는 빈약하므로 제외한다.
+        return True
+    return False
+
+
+def _is_good_question_text(value: str) -> bool:
+    text = _clean_quiz_fragment(value)
+    if _looks_like_heading_fragment(text):
+        return False
+    if len(text) < 8 or len(text) > 100:
+        return False
+    if any(phrase in text for phrase in ("작성하세요", "설명해주세요", "요약하세요", "요약하여")):
+        return False
+    return True
+
+
+def _is_recoverable_plain_question(value: str) -> bool:
+    text = _clean_quiz_fragment(value)
+    if not _is_good_question_text(text):
+        return False
+    if "?" not in text and "？" not in text and not text.endswith(("인가", "인가요", "무엇인가")):
+        return False
+    return True
+
+
+def _is_good_option_text(value: str) -> bool:
+    text = _clean_quiz_fragment(_strip_option_prefix(value))
+    if _looks_like_heading_fragment(text):
+        return False
+    if len(text) < 8 or len(text) > 90:
+        return False
+    return True
+
+
+def _parse_summary_text_json(raw_text: str) -> str:
+    text = _strip_json_code_fences(_remove_thinking_blocks(raw_text))
+    candidates = [text, *_extract_balanced_json_candidates(text)]
+    for candidate in candidates:
+        candidate = _normalize_json_candidate(candidate)
+        if not candidate:
+            continue
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            summary_text = str(payload.get("summary_text") or "").strip()
+            if summary_text:
+                return summary_text
+    raise QuizParseError("요약 JSON에 summary_text가 없습니다.", raw_text)
+
+
+def _local_quiz_source_summary(source_text: str, *, max_sentences: int = 14) -> str:
+    """LLM 요약 실패 시에도 퀴즈 생성에 쓸 수 있는 정제 요약본을 만듭니다."""
+    sentences = _source_sentences(source_text, limit=max_sentences)
+    if not sentences:
+        cleaned = _clean_quiz_fragment(source_text)
+        return _trim_text(cleaned, 1400)
+    return "\n".join(f"- {sentence.rstrip('.。')}" for sentence in sentences)
+
+
+async def _build_quiz_source_summary(
+    client: httpx.AsyncClient,
+    source_text: str,
+) -> str:
+    """원문을 바로 퀴즈에 넣지 않고 요약본으로 압축해 문제 품질을 안정화합니다."""
+    fallback_summary = _local_quiz_source_summary(source_text)
+    prompt_source = fallback_summary if len(fallback_summary) >= 80 else _clean_quiz_fragment(source_text)
+    prompt_source = _trim_text(prompt_source, QUIZ_CONTEXT_CHARS)
+
+    if not prompt_source.strip():
+        raise ValueError("퀴즈 생성에 사용할 소스 내용이 없습니다.")
+
+    try:
+        res = await client.post(
+            f"{LLM_URL}/v1/chat/completions",
+            json={
+                "model": LLM_MODEL,
+                "messages": [
+                    {"role": "system", "content": QUIZ_SOURCE_SUMMARY_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": QUIZ_SOURCE_SUMMARY_PROMPT_TEMPLATE.format(source_text=prompt_source),
+                    },
+                ],
+                "max_tokens": 900,
+                "temperature": 0.0,
+                "bridgeprag_alpha": 0.0,
+                "response_format": {"type": "json_object"},
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
+            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+        )
+        res.raise_for_status()
+        raw_answer = res.json()["choices"][0]["message"]["content"]
+        summary_text = _parse_summary_text_json(raw_answer)
+        summary_text = _local_quiz_source_summary(summary_text, max_sentences=16)
+        if len(summary_text) >= 40:
+            logger.info("[QUIZ] 퀴즈용 요약본 생성 완료: %d chars", len(summary_text))
+            return summary_text
+    except Exception as exc:
+        logger.warning("[QUIZ] 퀴즈용 LLM 요약 실패, 로컬 정제 요약본 사용: %s", exc)
+
+    logger.info("[QUIZ] 로컬 정제 요약본 사용: %d chars", len(fallback_summary))
+    return fallback_summary
+
+
 def _source_sentences(transcript_text: str, *, limit: int = 20) -> list[str]:
     """선택 소스에서 퀴즈 fallback에 사용할 핵심 문장 후보를 추출합니다."""
-    cleaned = re.sub(r"\[[^\]]+\]", " ", str(transcript_text or ""))
-    cleaned = re.sub(r"\b\d{1,2}:\d{2}(?::\d{2})?\b", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    raw_text = str(transcript_text or "")
+    raw_text = re.sub(r"\[[^\]]*(?:PDF\s*page|page|페이지)[^\]]*\]", "\n", raw_text, flags=re.IGNORECASE)
+    raw_text = re.sub(r"\b\d{1,2}:\d{2}(?::\d{2})?\b", " ", raw_text)
+    raw_text = raw_text.replace("�", " ")
+    raw_text = _SOURCE_BULLET_RE.sub(". ", raw_text)
+    cleaned = re.sub(r"\s+", " ", raw_text).strip()
     sentences = []
     seen = set()
     parts = [match.group(0) for match in _SENTENCE_END_FINDER_RE.finditer(cleaned)]
     if not parts:
-        parts = re.split(r"\n+|[.;!?。？！]", cleaned)
+        parts = re.split(r"\n+|[.;!?。？！]", raw_text)
     for part in parts:
-        sentence = " ".join(part.split()).strip(" -•·")
+        sentence = _clean_quiz_fragment(part)
         if not 8 <= len(sentence) <= 180:
+            continue
+        if _looks_like_heading_fragment(sentence):
             continue
         if sentence in seen:
             continue
@@ -385,7 +595,7 @@ def _source_sentences(transcript_text: str, *, limit: int = 20) -> list[str]:
 
 def _extract_topic(sentence: str, fallback: str) -> str:
     """문장에서 질문 주제로 쓸 만한 짧은 명사구를 추출합니다."""
-    sentence = " ".join(str(sentence or "").split())
+    sentence = _clean_quiz_fragment(sentence)
     patterns = (
         r"([가-힣A-Za-z0-9_+#./ -]{2,24}?)(?:은|는)\s",
         r"([가-힣A-Za-z0-9_+#./ -]{2,24}?)(?:이|가)\s",
@@ -402,7 +612,8 @@ def _extract_topic(sentence: str, fallback: str) -> str:
 
 def _source_phrase(sentence: str, limit: int = 34) -> str:
     """보기/단답 정답에 들어갈 짧은 원문 기반 표현을 만듭니다."""
-    sentence = re.sub(r"^(따라서|그리고|또한|반면|하지만)\s*", "", str(sentence or "").strip())
+    sentence = _clean_quiz_fragment(sentence)
+    sentence = re.sub(r"^(따라서|그리고|또한|반면|하지만)\s*", "", sentence)
     sentence = sentence.rstrip(".。")
     return _trim_text(sentence, limit)
 
@@ -421,9 +632,9 @@ def _option_key(value: str) -> str:
 
 
 def _append_unique_phrase(phrases: list[str], value: str, *, limit: int = 44) -> None:
-    phrase = _strip_option_prefix(value)
+    phrase = _clean_quiz_fragment(_strip_option_prefix(value))
     phrase = phrase.strip(" ,:;\"'")
-    if not phrase:
+    if not phrase or not _is_good_option_text(phrase):
         return
     phrase = _trim_text(phrase, limit)
     key = _option_key(phrase)
@@ -447,12 +658,67 @@ def _source_option_phrases(transcript_text: str, *, limit: int = 12) -> list[str
         _append_unique_phrase(phrases, _source_phrase(sentence, 44), limit=44)
         clauses = re.split(r"(?:,|，|;|；|\s+반면\s+|\s+하지만\s+|\s+그리고\s+|\s+또한\s+|\s+때문에\s+)", sentence)
         for clause in clauses:
-            clause = clause.strip()
+            clause = _clean_quiz_fragment(clause)
             if 8 <= len(clause) <= 90:
                 _append_unique_phrase(phrases, _source_phrase(clause, 44), limit=44)
             if len(phrases) >= limit:
                 return phrases
     return phrases
+
+
+def _make_rule_based_distractors(answer_text: str, *, limit: int = 3) -> list[str]:
+    """정답 문장을 바탕으로 의미가 달라지는 짧은 오답 후보를 생성합니다."""
+    answer = _clean_quiz_fragment(answer_text)
+    candidates: list[str] = []
+    replacements = (
+        ("논리적 순서", "임의 순서"),
+        ("연속", "분산"),
+        ("인접한", "서로 무관한"),
+        ("순서대로", "무작위로"),
+        ("같은", "서로 다른"),
+        ("공유", "분리"),
+        ("독립적인", "공유된"),
+        ("증가", "감소"),
+        ("감소", "증가"),
+        ("가능", "불가능"),
+        ("필요", "불필요"),
+        ("메모리", "외부 저장소"),
+        ("이동해야", "이동할 필요가 없어"),
+    )
+    for old, new in replacements:
+        if old in answer:
+            _append_unique_phrase(candidates, answer.replace(old, new, 1), limit=60)
+        if len(candidates) >= limit:
+            return candidates
+
+    negated = ""
+    if answer.endswith("수 있다"):
+        negated = answer[:-4].rstrip() + " 수 없다"
+    elif answer.endswith("이다"):
+        negated = answer[:-2].rstrip() + "이 아니다"
+    elif answer.endswith("한다"):
+        negated = answer[:-2].rstrip() + "하지 않는다"
+    elif answer.endswith("된다"):
+        negated = answer[:-2].rstrip() + "되지 않는다"
+    elif answer.endswith("있다"):
+        negated = answer[:-2].rstrip() + "없다"
+    elif answer.endswith("없다"):
+        negated = answer[:-2].rstrip() + "있다"
+    elif answer.endswith("다"):
+        negated = answer[:-1].rstrip() + "지 않는다"
+    if negated:
+        _append_unique_phrase(candidates, negated, limit=60)
+
+    generic_distractors = (
+        "자료의 설명과 반대되는 방식으로 처리한다",
+        "자료에서 확인할 수 없는 별도의 개념이다",
+        "선택한 소스의 핵심 설명과 일치하지 않는다",
+    )
+    for distractor in generic_distractors:
+        _append_unique_phrase(candidates, distractor, limit=60)
+        if len(candidates) >= limit:
+            break
+    return candidates[:limit]
 
 
 def _keywords_for_match(value: str) -> set[str]:
@@ -489,7 +755,7 @@ def _plain_text_to_candidate(
     text = _strip_json_code_fences(_remove_thinking_blocks(raw_text))
     lines = []
     for raw_line in text.splitlines():
-        line = re.sub(r"^\s*[-*•\d]+[.)]?\s*", "", raw_line).strip()
+        line = _clean_quiz_fragment(re.sub(r"^\s*[-*•\d]+[.)]?\s*", "", raw_line))
         if not line or re.match(r"^\[(?:PDF\s+page|page|페이지)\s*\d+\]$", line, flags=re.IGNORECASE):
             continue
         if len(line) < 6:
@@ -502,7 +768,9 @@ def _plain_text_to_candidate(
     if not lines:
         return None
 
-    question_line = next((line for line in lines if "?" in line or "？" in line), lines[0])
+    question_line = next((line for line in lines if _is_recoverable_plain_question(line)), "")
+    if not question_line:
+        return None
     question_line = _trim_text(question_line, 70)
     source_sentence = _best_source_sentence_for_question(question_line, transcript_text, type_index)
     answer = _source_phrase(source_sentence, 60)
@@ -536,10 +804,16 @@ def _numbered_mc_question(
     _append_unique_phrase(option_texts, answer, limit=60)
     for distractor in distractors:
         _append_unique_phrase(option_texts, distractor, limit=44)
-    for source_phrase in _source_option_phrases(transcript_text, limit=12):
-        _append_unique_phrase(option_texts, source_phrase, limit=44)
+    for distractor in _make_rule_based_distractors(answer, limit=4):
+        _append_unique_phrase(option_texts, distractor, limit=60)
         if len(option_texts) >= 4:
             break
+
+    if len(option_texts) < 4:
+        for source_phrase in _source_option_phrases(transcript_text, limit=12):
+            _append_unique_phrase(option_texts, source_phrase, limit=44)
+            if len(option_texts) >= 4:
+                break
 
     if len(option_texts) < 4:
         return None
@@ -699,26 +973,25 @@ def _build_fallback_question(
         raise ValueError("퀴즈 생성에 사용할 소스 문장을 찾지 못했습니다.")
     sentence = sentences[type_index % len(sentences)]
     topic = _extract_topic(sentence, f"핵심 개념 {type_index + 1}")
-    correct_phrase = _source_phrase(sentence)
+    correct_phrase = _source_phrase(sentence, 60)
 
     if question_type == "MULTIPLE_CHOICE":
         stems = (
-            "자료에서 '{topic}'에 대해 설명한 내용은?",
-            "자료의 내용으로 볼 때 '{topic}'와 가장 관련 있는 설명은?",
-            "'{topic}'에 대한 설명으로 알맞은 것은?",
-            "강의에서 '{topic}'와 연결해 설명한 핵심 내용은?",
-            "다음 중 자료의 '{topic}' 설명과 일치하는 것은?",
+            "다음 중 선택한 자료의 설명과 일치하는 것은?",
+            "자료에서 설명한 핵심 내용으로 알맞은 것은?",
+            "강의 내용과 가장 일치하는 설명은?",
+            "다음 중 자료의 핵심 개념을 바르게 설명한 것은?",
+            "선택한 소스의 내용으로 옳은 것은?",
         )
         question = {
             "question_index": 0,
             "type": "MULTIPLE_CHOICE",
-            "question": stems[type_index % len(stems)].format(topic=topic),
+            "question": stems[type_index % len(stems)],
             "user_answer": None,
             "is_correct": None,
             "explanation": _trim_text(sentence, 50),
         }
-        source_phrases = [phrase for phrase in _source_option_phrases(transcript_text, limit=12) if _option_key(phrase) != _option_key(correct_phrase)]
-        normalized = _numbered_mc_question(question, correct_phrase, source_phrases, transcript_text, type_index)
+        normalized = _numbered_mc_question(question, correct_phrase, [], transcript_text, type_index)
         if normalized is not None:
             return normalized
         raise ValueError("객관식 보기를 만들 수 있을 만큼 선택 소스 문장이 충분하지 않습니다.")
@@ -738,7 +1011,7 @@ def _build_fallback_question(
     return {
         "question_index": 0,
         "type": "SHORT_ANSWER",
-        "question": f"자료에서 '{topic}'에 대해 설명한 핵심 내용을 쓰세요.",
+        "question": f"자료에서 설명한 '{topic}'의 핵심 내용을 쓰세요.",
         "options": [],
         "correct_answer": correct_phrase,
         "user_answer": None,
@@ -980,9 +1253,9 @@ def _build_single_question_messages(
   "explanation": "짧은 해설"
 }"""
 
-    user_prompt = f"""아래 선택 소스에서 {question_type} 퀴즈 1개만 생성하세요.
+    user_prompt = f"""아래 선택 소스 요약본에서 {question_type} 퀴즈 1개만 생성하세요.
 
-[선택 소스]
+[선택 소스 요약본]
 {transcript_text[:QUIZ_CONTEXT_CHARS]}
 
 [이번 문항에서 우선 참고할 문장]
@@ -995,8 +1268,9 @@ def _build_single_question_messages(
 - 반드시 {question_type} 유형 1개만 생성하세요.
 - {_type_instruction(question_type)}
 - {option_rule}
-- 선택 소스에 실제로 나온 내용만 사용하세요.
-- 이번 문항에서 우선 참고할 문장을 중심으로 만들되, 필요하면 선택 소스의 다른 문장도 참고하세요.
+- 선택 소스 요약본에 실제로 나온 내용만 사용하세요.
+- 이번 문항에서 우선 참고할 문장을 중심으로 만들되, 필요하면 요약본의 다른 문장도 참고하세요.
+- 슬라이드 제목이나 목차 조각을 그대로 질문/보기로 쓰지 말고, 개념을 묻는 퀴즈 문장으로 바꾸세요.
 - 이미 만든 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
 - question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
 - JSON 객체 1개만 응답하세요. JSON 외 텍스트는 쓰지 마세요.
@@ -1276,7 +1550,8 @@ async def generate_quiz(
             normalized_counts,
         )
         async with httpx.AsyncClient(timeout=httpx.Timeout(6.0, read=60.0)) as client:
-            quiz_data = await _generate_quiz_one_by_one(client, transcript_text, normalized_counts)
+            quiz_source_summary = await _build_quiz_source_summary(client, transcript_text)
+            quiz_data = await _generate_quiz_one_by_one(client, quiz_source_summary, normalized_counts)
 
         quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
         if quality_issues:
@@ -1291,7 +1566,8 @@ async def generate_quiz(
 
     except httpx.HTTPError as e:
         logger.warning("[QUIZ] LLM 서버 연결 실패, 선택 소스 기반 문항으로 생성합니다: %s", e)
-        quiz_data = _fit_quiz_to_expected_counts([], normalized_counts, transcript_text)
+        quiz_source_summary = _local_quiz_source_summary(transcript_text)
+        quiz_data = _fit_quiz_to_expected_counts([], normalized_counts, quiz_source_summary)
         logger.info(f"[QUIZ] 소스 기반 {len(quiz_data)}개 문제 생성 완료")
         return quiz_data
     except ValueError:
