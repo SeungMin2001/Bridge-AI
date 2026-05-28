@@ -80,6 +80,21 @@ class ServiceStopCriteria(StoppingCriteria):
         return bool(stopped)
 
 
+class JsonCompletionStopCriteria(StoppingCriteria):
+    """Top-level JSON array/object가 완성되면 generation을 즉시 중단합니다."""
+
+    def __init__(self, tokenizer, prompt_len: int):
+        self.tokenizer = tokenizer
+        self.prompt_len = prompt_len
+
+    def __call__(self, input_ids, scores, **kwargs) -> bool:
+        generated_ids = input_ids[0, self.prompt_len:]
+        if generated_ids.numel() == 0:
+            return False
+        text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+        return _has_complete_top_level_json(text)
+
+
 def _torch_dtype():
     if DTYPE in {"bf16", "bfloat16"}:
         return torch.bfloat16
@@ -289,8 +304,18 @@ def _build_request(messages: list[dict[str, Any]], *, max_tokens: int, payload: 
         "stop": _payload_stop_sequences(payload),
         "repetition_penalty": _payload_float(payload, "repetition_penalty", SERVICE_REPETITION_PENALTY),
         "no_repeat_ngram_size": _payload_int(payload, "no_repeat_ngram_size", SERVICE_NO_REPEAT_NGRAM_SIZE),
+        "json_mode": _payload_wants_json(payload, messages),
         "reference_prompt": "[검색된 참고자료]" in user_prompt,
     }
+
+
+def _payload_wants_json(payload: dict[str, Any], messages: list[dict[str, Any]]) -> bool:
+    """퀴즈/요약 저장용 JSON 생성은 채팅용 길이 제한 후처리에서 제외합니다."""
+    response_format = payload.get("response_format")
+    if isinstance(response_format, dict) and "json" in str(response_format.get("type", "")).lower():
+        return True
+    joined = "\n".join(str(item.get("content") or "") for item in messages)
+    return "json" in joined.lower() and ("JSON" in joined or "json" in joined.lower())
 
 
 def _payload_stop_sequences(payload: dict[str, Any]) -> list[str]:
@@ -418,10 +443,15 @@ def _generation_kwargs(request: dict[str, Any], streamer: TextIteratorStreamer |
     kwargs = {
         **inputs,
         "generation_config": generation_config,
-        "stopping_criteria": StoppingCriteriaList([
-            ServiceStopCriteria(tokenizer, prompt_len, request.get("stop") or [])
-        ]),
     }
+    if request.get("json_mode"):
+        kwargs["stopping_criteria"] = StoppingCriteriaList([
+            JsonCompletionStopCriteria(tokenizer, prompt_len)
+        ])
+    else:
+        kwargs["stopping_criteria"] = StoppingCriteriaList([
+            ServiceStopCriteria(tokenizer, prompt_len, request.get("stop") or [])
+        ])
     if streamer is not None:
         kwargs["streamer"] = streamer
     return kwargs
@@ -440,7 +470,7 @@ def _generate_text(request: dict[str, Any]) -> str:
                 hook.remove()
         prompt_len = kwargs["input_ids"].shape[1]
         text = tokenizer.decode(generated[0, prompt_len:], skip_special_tokens=True)
-        return _clean_output(text, request.get("stop") or [])
+        return _clean_output(text, request.get("stop") or [], json_mode=bool(request.get("json_mode")))
 
 
 def _stream_openai_chunks(request: dict[str, Any]):
@@ -463,6 +493,16 @@ def _stream_openai_chunks(request: dict[str, Any]):
             for token in streamer:
                 cleaned = _clean_stream_token(token)
                 if not cleaned:
+                    continue
+                if request.get("json_mode"):
+                    chunk = {
+                        "id": f"chatcmpl-bridgeprag-{int(time.time() * 1000)}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": MODEL_ID,
+                        "choices": [{"index": 0, "delta": {"content": cleaned}, "finish_reason": None}],
+                    }
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     continue
                 generated_text += cleaned
                 visible_text, should_stop = _clean_generated_prefix(generated_text, request.get("stop") or [])
@@ -552,17 +592,78 @@ def _log_request_trace(request: dict[str, Any], memory: dict[str, Any] | None) -
     )
 
 
-def _clean_output(text: str, stop_sequences: list[str] | None = None) -> str:
+def _clean_output(text: str, stop_sequences: list[str] | None = None, *, json_mode: bool = False) -> str:
     text = re.sub(r"<think>.*?</think>", "", str(text or ""), flags=re.DOTALL)
     text = re.sub(r"<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>", "", text)
     if "assistant\n" in text:
         text = text.split("assistant\n")[-1]
+    if json_mode:
+        return _clean_json_output(text)
     text, _ = _clean_generated_prefix(text, stop_sequences or [])
     return text.strip()
 
 
 def _clean_stream_token(text: str) -> str:
     return re.sub(r"<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>", "", str(text or ""))
+
+
+def _clean_json_output(text: str) -> str:
+    """JSON 생성 요청은 내용 보존을 우선하고 chat template 잔여물만 제거합니다."""
+    text = re.sub(r"^\s*(assistant|답변|Answer)\s*[:：]?\s*", "", str(text or ""), flags=re.IGNORECASE).strip()
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        return fenced.group(1).strip()
+    first_array = text.find("[")
+    first_object = text.find("{")
+    starts = [idx for idx in (first_array, first_object) if idx >= 0]
+    if starts:
+        return text[min(starts):].strip()
+    return text
+
+
+def _has_complete_top_level_json(text: str) -> bool:
+    """문자열 내부 괄호를 제외하고 최상위 JSON 닫힘 여부를 확인합니다."""
+    text = str(text or "")
+    start = None
+    expected_closer = None
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    pairs = {"[": "]", "{": "}"}
+
+    for index, char in enumerate(text):
+        if start is None:
+            if char in pairs:
+                start = index
+                expected_closer = pairs[char]
+                stack.append(expected_closer)
+            elif char.strip():
+                # JSON 앞에 chat label 등이 붙는 경우는 조금 더 기다립니다.
+                continue
+            continue
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char in pairs:
+            stack.append(pairs[char])
+            continue
+        if stack and char == stack[-1]:
+            stack.pop()
+            if not stack and char == expected_closer:
+                trailing = text[index + 1:].strip()
+                return not trailing
+
+    return False
 
 
 def _clean_generated_prefix(text: str, stop_sequences: list[str]) -> tuple[str, bool]:

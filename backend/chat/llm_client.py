@@ -24,7 +24,7 @@ CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "220"))
 CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "650"))
 CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "4"))
 CHAT_STREAM_HOLD_CHARS = max(12, int(os.getenv("CHAT_STREAM_HOLD_CHARS", "72")))
-CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "token").strip().lower()
+CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "buffered").strip().lower()
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
@@ -88,6 +88,7 @@ def _clean_visible_answer(text: str) -> str:
     text = _trim_sentences(text, CHAT_ANSWER_MAX_SENTENCES)
     if len(text) > CHAT_ANSWER_MAX_CHARS:
         text = _trim_to_char_budget(text, CHAT_ANSWER_MAX_CHARS)
+    text = _deduplicate_trailing_citations(text)
     return text.strip()
 
 
@@ -396,6 +397,30 @@ def _truncate_before_repeated_sentence(text: str) -> str:
             return text[:sentence_start].rstrip()
         seen.add(signature)
     return text
+
+
+def _deduplicate_trailing_citations(text: str) -> str:
+    """같은 citation 번호가 문장마다 반복되면 마지막 한 번만 남깁니다."""
+    citation_re = re.compile(r"(?:\s*(?:\[(\d+)\]|(?<!\d)(\d+)(?!\d)))\s*$")
+    lines = str(text or "").splitlines()
+    if len(lines) <= 1:
+        return text
+
+    citation_indexes: dict[str, list[int]] = {}
+    for idx, line in enumerate(lines):
+        match = citation_re.search(line)
+        if not match:
+            continue
+        citation_no = match.group(1) or match.group(2)
+        citation_indexes.setdefault(citation_no, []).append(idx)
+
+    for citation_no, indexes in citation_indexes.items():
+        if len(indexes) <= 1:
+            continue
+        for idx in indexes[:-1]:
+            lines[idx] = citation_re.sub("", lines[idx]).rstrip()
+
+    return "\n".join(lines)
 
 
 def _truncate_at_stop_pattern(text: str) -> tuple[str, bool]:

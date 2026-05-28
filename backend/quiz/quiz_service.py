@@ -43,15 +43,16 @@ DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
 LLM_URL = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
-LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "8192"))
-QUIZ_CONTEXT_CHARS = int(os.getenv("QUIZ_CONTEXT_CHARS", "4500"))
-QUIZ_MIN_OUTPUT_TOKENS = int(os.getenv("QUIZ_MIN_OUTPUT_TOKENS", "1800"))
-QUIZ_TOKENS_PER_QUESTION = int(os.getenv("QUIZ_TOKENS_PER_QUESTION", "550"))
+LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "4096"))
+QUIZ_CONTEXT_CHARS = int(os.getenv("QUIZ_CONTEXT_CHARS", "2800"))
+QUIZ_MIN_OUTPUT_TOKENS = int(os.getenv("QUIZ_MIN_OUTPUT_TOKENS", "900"))
+QUIZ_TOKENS_PER_QUESTION = int(os.getenv("QUIZ_TOKENS_PER_QUESTION", "320"))
 
 #  LLM 프롬프트 템플릿
 QUIZ_SYSTEM_PROMPT = """당신은 대학 강의 내용을 기반으로 학습 퀴즈를 만드는 AI 교수입니다.
 반드시 아래 JSON 형식으로만 응답하세요. JSON 외의 텍스트는 절대 포함하지 마세요.
-문제는 학습자가 실제로 복습할 수 있는 핵심 사실, 개념, 관계, 조건을 물어야 합니다."""
+문제는 학습자가 실제로 복습할 수 있는 핵심 사실, 개념, 관계, 조건만 물어야 합니다.
+모든 문항과 보기는 짧게 작성하고, JSON 문자열을 반드시 완성하세요."""
 
 QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 
@@ -69,7 +70,8 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 - 제공된 강의 내용에 명시된 사실만 사용하고, 외부 지식을 추가하지 마세요.
 - 같은 질문이나 거의 같은 질문을 반복하지 마세요.
 - 자료의 단순 제목/라벨/단어만 보고 "'제목'의 의미는 무엇입니까?" 같은 빈약한 문제를 만들지 마세요.
-- 각 question, option, explanation은 짧게 작성하세요. explanation은 80자 이내 한 문장으로 작성하세요.
+- 각 question은 60자 이내, 각 option은 35자 이내, explanation은 50자 이내 한 문장으로 작성하세요.
+- 객관식 보기는 긴 문장을 쓰지 말고 핵심어/짧은 구로 작성하세요.
 - JSON 문자열 안에 실제 줄바꿈을 넣지 말고, 모든 따옴표와 대괄호를 반드시 닫으세요.
 - MULTIPLE_CHOICE는 options를 반드시 3~4개 작성하고 correct_answer는 options 중 정확히 하나와 완전히 같아야 합니다.
 - OX는 반드시 참/거짓을 판단할 수 있는 평서문으로 작성하세요. "무엇입니까?", "어디입니까?", "왜입니까?" 같은 의문문은 OX로 만들면 안 됩니다.
@@ -84,7 +86,7 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
     "question": "질문 텍스트",
     "options": ["1. 보기1", "2. 보기2", "3. 보기3", "4. 보기4"],
     "correct_answer": "1. 보기1",
-    "explanation": "해설 텍스트"
+    "explanation": "짧은 해설"
   }},
   {{
     "question_index": 2,
@@ -125,6 +127,7 @@ QUIZ_REPAIR_PROMPT_TEMPLATE = """아래 퀴즈 JSON은 품질 검증에 실패�
 - OX는 반드시 참/거짓 평서문이어야 하며 options는 ["O", "X"]입니다.
 - 객관식은 options 3~4개와 그중 하나와 완전히 같은 correct_answer가 필요합니다.
 - 단답형은 options를 []로 두세요.
+- question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
 - JSON 외 텍스트는 쓰지 마세요."""
 
 _OX_INTERROGATIVE_RE = re.compile(r"(무엇|어떤|어디|왜|어떻게|입니까|인가요|일까요|까요|[?？])")
@@ -631,8 +634,8 @@ async def generate_quiz(
     messages = _build_quiz_prompt(transcript_text, total_questions, normalized_counts)
 
     try:
-        # 로컬 소형 LLM은 JSON을 장황하게 쓰다가 응답이 잘리기 쉬워 출력 여유를 넉넉히 둡니다.
-        max_tokens = min(LLM_MAX_TOKENS, max(QUIZ_MIN_OUTPUT_TOKENS, 900 + (total_questions * QUIZ_TOKENS_PER_QUESTION)))
+        # 퀴즈는 JSON 완결성이 중요하므로 문항 수에 비례한 예산만 주고, 프롬프트에서 짧은 문항을 강제합니다.
+        max_tokens = min(LLM_MAX_TOKENS, max(QUIZ_MIN_OUTPUT_TOKENS, 600 + (total_questions * QUIZ_TOKENS_PER_QUESTION)))
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
             res = await client.post(
                 f"{LLM_URL}/v1/chat/completions",
@@ -642,6 +645,7 @@ async def generate_quiz(
                     "max_tokens": max_tokens,
                     "temperature": 0.1,  # 정확한 JSON 생성을 위해 낮은 temperature
                     "bridgeprag_alpha": 0.0,
+                    "response_format": {"type": "json_object"},
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
                 headers={"Authorization": f"Bearer {LLM_API_KEY}"},
@@ -686,6 +690,7 @@ async def generate_quiz(
                         "max_tokens": max_tokens,
                         "temperature": 0.0,
                         "bridgeprag_alpha": 0.0,
+                        "response_format": {"type": "json_object"},
                         "chat_template_kwargs": {"enable_thinking": False},
                     },
                     headers={"Authorization": f"Bearer {LLM_API_KEY}"},
@@ -718,6 +723,7 @@ async def generate_quiz(
                         "max_tokens": max_tokens,
                         "temperature": 0.0,
                         "bridgeprag_alpha": 0.0,
+                        "response_format": {"type": "json_object"},
                         "chat_template_kwargs": {"enable_thinking": False},
                     },
                     headers={"Authorization": f"Bearer {LLM_API_KEY}"},
@@ -734,10 +740,7 @@ async def generate_quiz(
                         "[QUIZ] 재작성 후에도 품질 검증 실패, 유효 문항 보정으로 진행: %s",
                         "; ".join(quality_issues[:5]),
                     )
-                    quiz_data = _fit_quiz_to_expected_counts(quiz_data, normalized_counts, transcript_text)
-                    quality_issues = _validate_quiz_quality(quiz_data, normalized_counts)
-                    if quality_issues:
-                        raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
+                    raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
 
         logger.info(f"[QUIZ] {len(quiz_data)}개 문제 파싱 완료")
         return quiz_data
