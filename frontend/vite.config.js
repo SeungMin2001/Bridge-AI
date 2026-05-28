@@ -64,8 +64,6 @@ export default defineConfig(() => {
         'chart.js',
         'jszip',
         'lottie-web/build/player/lottie_light',
-        'pdfjs-dist',
-        'pptxviewjs',
       ],
     },
     server: {
