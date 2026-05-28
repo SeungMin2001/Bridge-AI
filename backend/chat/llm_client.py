@@ -19,16 +19,18 @@ DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
 llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
-CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "160"))
-CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "320"))
-CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "900"))
-CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "5"))
-CHAT_STREAM_HOLD_CHARS = max(12, int(os.getenv("CHAT_STREAM_HOLD_CHARS", "28")))
+CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "120"))
+CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "220"))
+CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "650"))
+CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "4"))
+CHAT_STREAM_HOLD_CHARS = max(12, int(os.getenv("CHAT_STREAM_HOLD_CHARS", "72")))
 CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "token").strip().lower()
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
 CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
+CHAT_REPETITION_PENALTY = float(os.getenv("CHAT_REPETITION_PENALTY", "1.15"))
+CHAT_NO_REPEAT_NGRAM_SIZE = int(os.getenv("CHAT_NO_REPEAT_NGRAM_SIZE", "4"))
 
 SYSTEM_PROMPT = (
     "너는 강의 녹취록과 PDF 자료를 근거로 답하는 AI 학습 조교다. "
@@ -82,6 +84,7 @@ def _clean_visible_answer(text: str) -> str:
             text = text[:match.start()].strip()
 
     text = _strip_boilerplate(text)
+    text = _truncate_before_repeated_sentence(text)
     text = _trim_sentences(text, CHAT_ANSWER_MAX_SENTENCES)
     if len(text) > CHAT_ANSWER_MAX_CHARS:
         text = _trim_to_char_budget(text, CHAT_ANSWER_MAX_CHARS)
@@ -325,6 +328,13 @@ async def _clean_token_stream_chunks(raw_chunks):
             piece = pending[:safe_length]
             pending = pending[safe_length:]
 
+        candidate = visible_text + piece
+        candidate = _truncate_before_repeated_sentence(candidate)
+        candidate = _trim_sentences(candidate, CHAT_ANSWER_MAX_SENTENCES)
+        if len(candidate) <= len(visible_text):
+            return
+        piece = candidate[len(visible_text):]
+
         remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
         if remaining <= 0:
             return
@@ -342,6 +352,7 @@ async def _clean_token_stream_chunks(raw_chunks):
     if pending:
         pending, _ = _truncate_at_stop_pattern(pending)
         pending = _clean_visible_answer(pending)
+        pending = _truncate_before_repeated_sentence(visible_text + pending)[len(visible_text):]
         remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
         if pending and remaining > 0:
             yield pending[:remaining]
@@ -363,6 +374,28 @@ def _looks_like_partial_answer_label(text: str) -> bool:
 
 def _stream_sentence_count(text: str) -> int:
     return len(re.findall(r"[.!?。？！](?:\s+|$)|다\.(?:\s+|$)|요\.(?:\s+|$)", text))
+
+
+def _truncate_before_repeated_sentence(text: str) -> str:
+    """동일한 완성 문장이 반복되기 시작하면 두 번째 반복 직전에서 자릅니다."""
+    seen: set[str] = set()
+    start = 0
+    sentence_end_re = re.compile(r"(?:[.!?。？！]|다\.|요\.)(?:\s*(?:\[\d+\]|\d+))?(?:\s+|$)")
+    for match in sentence_end_re.finditer(text):
+        end = match.end()
+        sentence_start = start
+        sentence = text[start:end].strip()
+        start = end
+        if not sentence:
+            continue
+        signature = re.sub(r"(?:\[\d+\]|\b\d+\b)", "", sentence)
+        signature = re.sub(r"[\s.!?。？！,，;:：]+", "", signature).lower()
+        if len(signature) < 12:
+            continue
+        if signature in seen:
+            return text[:sentence_start].rstrip()
+        seen.add(signature)
+    return text
 
 
 def _truncate_at_stop_pattern(text: str) -> tuple[str, bool]:
@@ -460,7 +493,17 @@ def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, st
         "max_tokens": _chat_max_tokens(source_filter),
         "temperature": CHAT_TEMPERATURE,
         "stream": stream,
-        "stop": ["\n질문:", "\nQuestion:", "\n사용자:", "\nUser:", "\n[검색된 참고자료]"],
+        "stop": [
+            "\n질문:",
+            "\nQuestion:",
+            "\n사용자:",
+            "\nUser:",
+            "\n학생:",
+            "\n답변:",
+            "\n[검색된 참고자료]",
+        ],
+        "repetition_penalty": CHAT_REPETITION_PENALTY,
+        "no_repeat_ngram_size": CHAT_NO_REPEAT_NGRAM_SIZE,
         "chat_template_kwargs": {"enable_thinking": bool(thinking)},
     }
     bridgeprag_alpha = _bridgeprag_alpha_for_prompt(messages)

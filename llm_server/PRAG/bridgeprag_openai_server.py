@@ -20,7 +20,7 @@ from typing import Any
 import torch
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList, TextIteratorStreamer
 
 from .memory import (
     HyperKVGenerator,
@@ -45,6 +45,10 @@ MAX_INPUT_TOKENS = int(os.getenv("BRIDGEPRAG_MAX_INPUT_TOKENS", "2048"))
 DEFAULT_MAX_NEW_TOKENS = int(os.getenv("BRIDGEPRAG_MAX_NEW_TOKENS", "512"))
 GENERATION_PROMPT_MODE = os.getenv("BRIDGEPRAG_GENERATION_PROMPT", "full").strip().lower()
 SERVICE_DEFAULT_ALPHA = 0.35
+SERVICE_REPETITION_PENALTY = float(os.getenv("BRIDGEPRAG_REPETITION_PENALTY", "1.15"))
+SERVICE_NO_REPEAT_NGRAM_SIZE = int(os.getenv("BRIDGEPRAG_NO_REPEAT_NGRAM_SIZE", "4"))
+SERVICE_MAX_ANSWER_CHARS = int(os.getenv("BRIDGEPRAG_MAX_ANSWER_CHARS", "700"))
+SERVICE_MAX_ANSWER_SENTENCES = int(os.getenv("BRIDGEPRAG_MAX_ANSWER_SENTENCES", "4"))
 DTYPE = os.getenv("BRIDGEPRAG_DTYPE", "float16").strip().lower()
 STRICT_MODEL_ID = os.getenv("BRIDGEPRAG_STRICT_MODEL_ID", "0").strip().lower() in {"1", "true", "yes", "on"}
 LOG_REQUESTS = os.getenv("BRIDGEPRAG_LOG_REQUESTS", "1").strip().lower() in {"1", "true", "yes", "on"}
@@ -57,6 +61,23 @@ device = None
 target_layer = None
 runtime_config: dict[str, Any] = {}
 generation_lock = Lock()
+
+
+class ServiceStopCriteria(StoppingCriteria):
+    """서비스 답변이 반복/라벨/길이 제한에 도달하면 실제 generation을 중단합니다."""
+
+    def __init__(self, tokenizer, prompt_len: int, stop_sequences: list[str]):
+        self.tokenizer = tokenizer
+        self.prompt_len = prompt_len
+        self.stop_sequences = stop_sequences
+
+    def __call__(self, input_ids, scores, **kwargs) -> bool:
+        generated_ids = input_ids[0, self.prompt_len:]
+        if generated_ids.numel() == 0:
+            return False
+        text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+        _visible_text, stopped = _clean_generated_prefix(text, self.stop_sequences)
+        return bool(stopped)
 
 
 def _torch_dtype():
@@ -200,7 +221,7 @@ async def chat_completions(payload: dict[str, Any]):
 
     max_tokens = int(payload.get("max_tokens") or payload.get("max_new_tokens") or DEFAULT_MAX_NEW_TOKENS)
     stream = bool(payload.get("stream", False))
-    request = _build_request(messages, max_tokens=max_tokens)
+    request = _build_request(messages, max_tokens=max_tokens, payload=payload)
     request["alpha"] = _payload_alpha(payload)
 
     if stream:
@@ -253,7 +274,7 @@ def _payload_alpha(payload: dict[str, Any]) -> float | None:
         raise HTTPException(status_code=400, detail="bridgeprag_alpha must be a float")
 
 
-def _build_request(messages: list[dict[str, Any]], *, max_tokens: int) -> dict[str, Any]:
+def _build_request(messages: list[dict[str, Any]], *, max_tokens: int, payload: dict[str, Any]) -> dict[str, Any]:
     system_texts = [str(item.get("content") or "") for item in messages if item.get("role") == "system"]
     user_texts = [str(item.get("content") or "") for item in messages if item.get("role") == "user"]
     user_prompt = user_texts[-1] if user_texts else str(messages[-1].get("content") or "")
@@ -265,8 +286,57 @@ def _build_request(messages: list[dict[str, Any]], *, max_tokens: int) -> dict[s
         "passages": passages,
         "generation_text": generation_text,
         "max_tokens": max_tokens,
+        "stop": _payload_stop_sequences(payload),
+        "repetition_penalty": _payload_float(payload, "repetition_penalty", SERVICE_REPETITION_PENALTY),
+        "no_repeat_ngram_size": _payload_int(payload, "no_repeat_ngram_size", SERVICE_NO_REPEAT_NGRAM_SIZE),
         "reference_prompt": "[검색된 참고자료]" in user_prompt,
     }
+
+
+def _payload_stop_sequences(payload: dict[str, Any]) -> list[str]:
+    """OpenAI 호환 stop 값을 서비스 기본 stop 문자열과 합칩니다."""
+    defaults = [
+        "\n질문:",
+        "\nQuestion:",
+        "\n사용자:",
+        "\nUser:",
+        "\n학생:",
+        "\n답변:",
+        "\n[검색된 참고자료]",
+    ]
+    value = payload.get("stop")
+    if isinstance(value, str):
+        candidates = [value]
+    elif isinstance(value, list):
+        candidates = [str(item) for item in value if item]
+    else:
+        candidates = []
+
+    merged: list[str] = []
+    for item in [*defaults, *candidates]:
+        if item and item not in merged:
+            merged.append(item)
+    return merged
+
+
+def _payload_float(payload: dict[str, Any], key: str, default: float) -> float:
+    value = payload.get(key)
+    if value in (None, ""):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{key} must be a float")
+
+
+def _payload_int(payload: dict[str, Any], key: str, default: int) -> int:
+    value = payload.get(key)
+    if value in (None, ""):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{key} must be an integer")
 
 
 def _extract_question(text: str) -> str:
@@ -340,9 +410,17 @@ def _generation_kwargs(request: dict[str, Any], streamer: TextIteratorStreamer |
         truncation=True,
         max_length=MAX_INPUT_TOKENS,
     ).to(device)
+    generation_config = deterministic_generation_config(tokenizer, request["max_tokens"])
+    generation_config.repetition_penalty = float(request.get("repetition_penalty") or SERVICE_REPETITION_PENALTY)
+    generation_config.no_repeat_ngram_size = int(request.get("no_repeat_ngram_size") or SERVICE_NO_REPEAT_NGRAM_SIZE)
+    prompt_len = int(inputs["input_ids"].shape[1])
+
     kwargs = {
         **inputs,
-        "generation_config": deterministic_generation_config(tokenizer, request["max_tokens"]),
+        "generation_config": generation_config,
+        "stopping_criteria": StoppingCriteriaList([
+            ServiceStopCriteria(tokenizer, prompt_len, request.get("stop") or [])
+        ]),
     }
     if streamer is not None:
         kwargs["streamer"] = streamer
@@ -362,7 +440,7 @@ def _generate_text(request: dict[str, Any]) -> str:
                 hook.remove()
         prompt_len = kwargs["input_ids"].shape[1]
         text = tokenizer.decode(generated[0, prompt_len:], skip_special_tokens=True)
-        return _clean_output(text)
+        return _clean_output(text, request.get("stop") or [])
 
 
 def _stream_openai_chunks(request: dict[str, Any]):
@@ -380,18 +458,30 @@ def _stream_openai_chunks(request: dict[str, Any]):
         thread = Thread(target=_worker)
         thread.start()
         try:
+            generated_text = ""
+            emitted_text = ""
             for token in streamer:
                 cleaned = _clean_stream_token(token)
                 if not cleaned:
                     continue
+                generated_text += cleaned
+                visible_text, should_stop = _clean_generated_prefix(generated_text, request.get("stop") or [])
+                if len(visible_text) <= len(emitted_text):
+                    if should_stop:
+                        break
+                    continue
+                delta = visible_text[len(emitted_text):]
+                emitted_text = visible_text
                 chunk = {
                     "id": f"chatcmpl-bridgeprag-{int(time.time() * 1000)}",
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
                     "model": MODEL_ID,
-                    "choices": [{"index": 0, "delta": {"content": cleaned}, "finish_reason": None}],
+                    "choices": [{"index": 0, "delta": {"content": delta}, "finish_reason": None}],
                 }
                 yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                if should_stop:
+                    break
             thread.join()
         finally:
             if hook is not None:
@@ -462,13 +552,84 @@ def _log_request_trace(request: dict[str, Any], memory: dict[str, Any] | None) -
     )
 
 
-def _clean_output(text: str) -> str:
+def _clean_output(text: str, stop_sequences: list[str] | None = None) -> str:
     text = re.sub(r"<think>.*?</think>", "", str(text or ""), flags=re.DOTALL)
     text = re.sub(r"<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>", "", text)
     if "assistant\n" in text:
         text = text.split("assistant\n")[-1]
+    text, _ = _clean_generated_prefix(text, stop_sequences or [])
     return text.strip()
 
 
 def _clean_stream_token(text: str) -> str:
     return re.sub(r"<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>", "", str(text or ""))
+
+
+def _clean_generated_prefix(text: str, stop_sequences: list[str]) -> tuple[str, bool]:
+    """생성 중 stop/반복/길이 조건을 적용한 화면용 prefix를 반환합니다."""
+    text = re.sub(r"<think>.*?</think>", "", str(text or ""), flags=re.DOTALL)
+    text = re.sub(r"<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>", "", text)
+    if "assistant\n" in text:
+        text = text.split("assistant\n")[-1]
+    text = re.sub(r"^\s*(assistant|답변|Answer)\s*[:：]?\s*", "", text, flags=re.IGNORECASE)
+
+    stopped = False
+    for stop in stop_sequences or []:
+        index = text.find(stop)
+        if index >= 0:
+            text = text[:index]
+            stopped = True
+
+    text, repeated = _truncate_before_repeated_sentence(text)
+    stopped = stopped or repeated
+
+    text, sentence_limited = _truncate_to_sentence_limit(text, SERVICE_MAX_ANSWER_SENTENCES)
+    stopped = stopped or sentence_limited
+
+    if len(text) > SERVICE_MAX_ANSWER_CHARS:
+        text = text[:SERVICE_MAX_ANSWER_CHARS].rstrip(" ,;:：-")
+        stopped = True
+
+    return text, stopped
+
+
+_SENTENCE_END_RE = re.compile(r"(?:[.!?。？！]|다\.|요\.)(?:\s*(?:\[\d+\]|\d+))?(?:\s+|$)")
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
+    start = 0
+    for match in _SENTENCE_END_RE.finditer(text):
+        end = match.end()
+        sentence = text[start:end].strip()
+        if sentence:
+            spans.append((start, end, sentence))
+        start = end
+    return spans
+
+
+def _sentence_signature(sentence: str) -> str:
+    signature = re.sub(r"(?:\[\d+\]|\b\d+\b)", "", sentence)
+    signature = re.sub(r"[\s.!?。？！,，;:：]+", "", signature).lower()
+    return signature
+
+
+def _truncate_before_repeated_sentence(text: str) -> tuple[str, bool]:
+    seen: set[str] = set()
+    for start, _end, sentence in _sentence_spans(text):
+        signature = _sentence_signature(sentence)
+        if len(signature) < 12:
+            continue
+        if signature in seen:
+            return text[:start].rstrip(), True
+        seen.add(signature)
+    return text, False
+
+
+def _truncate_to_sentence_limit(text: str, max_sentences: int) -> tuple[str, bool]:
+    if max_sentences <= 0:
+        return text, False
+    spans = _sentence_spans(text)
+    if len(spans) <= max_sentences:
+        return text, False
+    return text[: spans[max_sentences - 1][1]].rstrip(), True
