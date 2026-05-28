@@ -201,7 +201,8 @@ export function useAppState() {
     sessionId = activeFileId.value,
     recordingId = '',
     recording = null,
-    recordings = []
+    recordings = [],
+    summarySentences = 8
   } = {}) => {
     const targetSessionId = sessionId || activeFileId.value
     if (!isWorkspaceUuid(targetSessionId)) return
@@ -222,7 +223,8 @@ export function useAppState() {
 
     await generateSummariesForSession(targetSessionId, recordingSnapshot, mode, targetRecordingId, {
       live: false,
-      diarizationEnabled: shouldDiarize
+      diarizationEnabled: shouldDiarize,
+      summarySentences
     })
   }
 

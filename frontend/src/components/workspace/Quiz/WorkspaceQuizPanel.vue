@@ -1014,8 +1014,8 @@ watch(
 </script>
 
 <template>
-  <section :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-hidden p-10 pt-4', tabAnim]">
-    <div class="quiz-panel max-w-5xl mx-auto w-full h-full min-h-0">
+  <section :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-y-auto overflow-x-hidden custom-scrollbar p-10 pt-4', tabAnim]">
+    <div class="quiz-panel max-w-5xl mx-auto w-full min-h-full">
       <div class="quiz-mode-tabs" aria-label="퀴즈 화면 선택">
         <button
           v-for="mode in quizModes"
@@ -1321,7 +1321,9 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow: hidden;
+  min-height: 100%;
+  overflow: visible;
+  padding-bottom: 48px;
 }
 
 .quiz-header {
@@ -1396,13 +1398,15 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 14px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
 }
 
 .quiz-solve-view {
   position: relative;
   justify-content: flex-start;
-  padding: 33px 0 92px;
+  padding: 33px 0 24px;
 }
 
 .quiz-simple-builder {
@@ -2453,12 +2457,12 @@ watch(
   z-index: 1;
   min-height: 280px;
   height: auto;
-  max-height: calc(100% - 112px);
+  max-height: none;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   gap: 30px;
-  overflow: hidden;
+  overflow: visible;
   padding: 4px 0 0;
   border: 0;
   border-radius: 0;
@@ -2614,11 +2618,14 @@ watch(
 }
 
 .quiz-play-footer {
-  position: absolute;
+  position: sticky;
   left: 0;
   right: 0;
-  bottom: 70px;
+  bottom: 0;
   z-index: 3;
+  margin-top: auto;
+  padding: 14px 0 2px;
+  background: linear-gradient(180deg, rgba(250, 252, 255, 0), rgba(250, 252, 255, 0.98) 34%, rgba(250, 252, 255, 1));
 }
 
 .quiz-play-footer > span {

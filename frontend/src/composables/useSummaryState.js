@@ -95,9 +95,9 @@ const getMaterialSummaryTopK = (summaryLevel = 'standard', summarySentences = 8)
   const sentences = Math.max(1, Number(summarySentences) || 8)
   const level = String(summaryLevel || 'standard').toLowerCase()
   if (level === 'detailed' || level === 'page') {
-    return Math.min(14, Math.max(12, sentences * 2))
+    return Math.min(48, Math.max(30, sentences * 3))
   }
-  return Math.min(12, Math.max(10, sentences * 2))
+  return Math.min(32, Math.max(18, sentences * 3))
 }
 
 const getTranscriptText = (transcription = {}) => {
@@ -144,7 +144,13 @@ const getTranscriptionTimeBounds = (transcription = {}) => {
 }
 
 // 현재까지 쌓인 전사문을 speaker_id별로 묶어 화자별 요약 API payload로 변환합니다.
-const buildSpeakerPayloads = (sessionId, recordingSnapshot = [], recordingMode = 'lecture', recordingId = '') => {
+const buildSpeakerPayloads = (
+  sessionId,
+  recordingSnapshot = [],
+  recordingMode = 'lecture',
+  recordingId = '',
+  summarySentences = 8
+) => {
   const speakerMap = new Map()
 
   recordingSnapshot.forEach((transcription) => {
@@ -204,7 +210,7 @@ const buildSpeakerPayloads = (sessionId, recordingSnapshot = [], recordingMode =
       recording_id: item.recording_id || null,
       speaker_id: item.speaker_id,
       speaker_text: item.speaker_texts.join('\n'),
-      summary_sentences: 3,
+      summary_sentences: summarySentences,
       source_start_time: item.source_start_time,
       source_end_time: item.source_end_time
     }))
@@ -418,6 +424,7 @@ export function useSummaryState() {
 
     const isLiveUpdate = options.live === true
     const shouldDiarize = options.diarizationEnabled !== false
+    const summarySentences = Math.max(3, Math.min(10, Number(options.summarySentences) || 8))
     const sessionText = buildSessionText(recordingSnapshot)
 
     if (!shouldDiarize) {
@@ -444,7 +451,7 @@ export function useSummaryState() {
           session_id: sessionId,
           recording_id: recordingId || null,
           session_text: sessionText,
-          summary_sentences: 3
+          summary_sentences: summarySentences
         })
       } catch (error) {
         console.warn('[summary] session text generation failed:', error)
@@ -482,14 +489,20 @@ export function useSummaryState() {
           session_id: sessionId,
           recording_id: recordingId || null,
           session_text: sessionText,
-          summary_sentences: 3
+          summary_sentences: summarySentences
         })
       } catch (error) {
         console.warn('[summary] diarized session summary generation failed:', error)
       }
     }
 
-    const speakerPayloads = buildSpeakerPayloads(sessionId, recordingSnapshot, recordingMode, recordingId)
+    const speakerPayloads = buildSpeakerPayloads(
+      sessionId,
+      recordingSnapshot,
+      recordingMode,
+      recordingId,
+      summarySentences
+    )
     logSpeakerFlow('frontend -> backend speaker summary payloads', {
       sessionId,
       recordingId,

@@ -33,21 +33,25 @@ MAX_SPEAKER_SUMMARIES = int(os.getenv("SUMMARY_MAX_SPEAKER_SUMMARIES", 10))
 MAX_SESSION_SUMMARIES = int(os.getenv("SUMMARY_MAX_SESSION_SUMMARIES", 10))
 
 SUMMARY_SYSTEM_PROMPT = (
-    "당신은 강의 내용을 간결하게 요약하는 AI입니다. "
-    "반드시 아래 JSON 형식으로만 응답하세요. JSON 외 텍스트는 포함하지 마세요."
+    "당신은 강의 내용을 보고서형 학습 자료로 정리하는 AI입니다. "
+    "원문에 없는 사실은 추가하지 말고, 중요한 개념과 흐름을 구조화해 충분히 설명하세요. "
+    "가능하면 아래 JSON 형식으로만 응답하세요."
 )
 
 SUMMARY_SPEAKER_PROMPT_TEMPLATE = """아래는 화자 {speaker_id}의 전사문입니다:
 
 {transcript_text}
 
-위 내용을 바탕으로 {summary_sentences}문장 이내의 한국어 요약을 작성하세요.
-- 중복을 제거하고 핵심만 요약
+위 내용을 바탕으로 한국어 Markdown 보고서형 요약을 작성하세요.
+- 최소 {summary_sentences}개 이상의 핵심 항목을 포함
+- 전체 흐름, 주요 개념, 세부 설명, 학습 포인트를 나누어 정리
+- 짧은 메모가 아니라 발표/복습에 바로 사용할 수 있는 보고서처럼 작성
+- 중복 표현은 줄이되 중요한 내용은 충분히 설명
 - 새로운 사실을 추가하지 말 것
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
-  "summary_text": "요약 텍스트"
+  "summary_text": "## 핵심 요약\\n...\\n## 주요 내용\\n...\\n## 학습 포인트\\n..."
 }}
 """
 
@@ -59,13 +63,16 @@ SUMMARY_SESSION_PROMPT_TEMPLATE = """아래는 세션 요약을 위한 정보입
 [화자별 요약]
 {speaker_summaries}
 
-위 내용을 바탕으로 {summary_sentences}문장 이내의 한국어 요약을 작성하세요.
-- 중복을 제거하고 핵심만 요약
+위 내용을 바탕으로 한국어 Markdown 보고서형 요약을 작성하세요.
+- 최소 {summary_sentences}개 이상의 핵심 항목을 포함
+- 전체 흐름, 주요 개념, 세부 설명, 학습 포인트를 나누어 정리
+- 짧은 메모가 아니라 발표/복습에 바로 사용할 수 있는 보고서처럼 작성
+- 중복 표현은 줄이되 중요한 내용은 충분히 설명
 - 새로운 사실을 추가하지 말 것
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
-  "summary_text": "요약 텍스트"
+  "summary_text": "## 핵심 요약\\n...\\n## 주요 내용\\n...\\n## 학습 포인트\\n..."
 }}
 """
 
@@ -77,13 +84,16 @@ SUMMARY_SESSION_TEXT_PROMPT_TEMPLATE = """아래는 하나의 녹음 세션 전�
 [전체 전사문]
 {transcript_text}
 
-위 내용을 바탕으로 {summary_sentences}문장 이내의 한국어 요약을 작성하세요.
-- 중복을 제거하고 핵심만 요약
+위 내용을 바탕으로 한국어 Markdown 보고서형 요약을 작성하세요.
+- 최소 {summary_sentences}개 이상의 핵심 항목을 포함
+- 전체 흐름, 주요 개념, 세부 설명, 학습 포인트를 나누어 정리
+- 짧은 메모가 아니라 발표/복습에 바로 사용할 수 있는 보고서처럼 작성
+- 중복 표현은 줄이되 중요한 내용은 충분히 설명
 - 새로운 사실을 추가하지 말 것
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
-  "summary_text": "요약 텍스트"
+  "summary_text": "## 핵심 요약\\n...\\n## 주요 내용\\n...\\n## 학습 포인트\\n..."
 }}
 """
 
@@ -98,13 +108,16 @@ SUMMARY_COURSE_PROMPT_TEMPLATE = """아래는 과목 요약을 위한 정보입�
 [화자별 요약]
 {speaker_summaries}
 
-위 내용을 바탕으로 {summary_sentences}문장 이내의 한국어 요약을 작성하세요.
-- 중복을 제거하고 핵심만 요약
+위 내용을 바탕으로 한국어 Markdown 보고서형 요약을 작성하세요.
+- 최소 {summary_sentences}개 이상의 핵심 항목을 포함
+- 전체 흐름, 주요 개념, 세부 설명, 학습 포인트를 나누어 정리
+- 여러 세션을 연결해 과목 단위의 학습 보고서처럼 작성
+- 중복 표현은 줄이되 중요한 내용은 충분히 설명
 - 새로운 사실을 추가하지 말 것
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
-  "summary_text": "요약 텍스트"
+  "summary_text": "## 핵심 요약\\n...\\n## 주요 내용\\n...\\n## 학습 포인트\\n..."
 }}
 """
 
@@ -215,7 +228,13 @@ def _parse_summary_json(raw_text: str) -> str:
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        logger.error("요약 JSON 파싱 실패: %s", exc)
+        logger.warning("[SUMMARY] JSON 파싱 실패, 원문 요약 텍스트로 복구: %s", exc)
+        if text:
+            match = re.search(r'"summary_text"\s*:\s*"(.*)"\s*\}?\s*$', text, re.DOTALL)
+            recovered = match.group(1) if match else text
+            recovered = recovered.replace("\\n", "\n").replace('\\"', '"').strip()
+            recovered = re.sub(r'"\s*\}\s*$', "", recovered).strip()
+            return recovered
         raise ValueError(f"LLM 응답을 JSON으로 파싱할 수 없습니다: {exc}")
 
     summary_text = payload.get("summary_text")
@@ -241,7 +260,7 @@ def _build_messages(user_prompt: str) -> list[dict]:
     ]
 
 
-async def _call_llm(messages: list[dict], max_tokens: int = 256) -> str:
+async def _call_llm(messages: list[dict], max_tokens: int = 1200) -> str:
     """LLM 호출 후 요약 문자열을 반환합니다."""
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
         res = await client.post(

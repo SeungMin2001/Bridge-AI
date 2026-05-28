@@ -41,33 +41,33 @@ MATERIAL_SUMMARY_LEVEL_ALIASES = {
 MATERIAL_SUMMARY_LEVELS = {
     "brief": {
         "label": "간단 요약",
-        "topic_count": 4,
+        "topic_count": 6,
         "format": """1. 큰 주제 제목
    - **핵심 개념**: 설명
    - **중요 내용**: 설명
    - **관련 페이지**: p.1-3""",
-        "guidance": "- 큰 주제는 3~5개로 압축\n- 빠른 복습용으로 핵심만 남김",
+        "guidance": "- 큰 주제는 5~7개로 압축\n- 빠른 복습용이지만 개념 정의와 흐름은 생략하지 않음",
     },
     "standard": {
         "label": "표준 요약",
-        "topic_count": 8,
+        "topic_count": 10,
         "format": """1. 큰 주제 제목
    - **핵심 개념**: 설명
    - **중요 내용**: 설명
    - **예시/비교**: 설명
    - **관련 페이지**: p.1-3""",
-        "guidance": "- 큰 주제는 6~10개 안팎으로 정리\n- 시험 대비에 필요한 개념, 예시, 비교를 균형 있게 포함",
+        "guidance": "- 큰 주제는 8~12개 안팎으로 정리\n- 시험 대비에 필요한 개념, 예시, 비교를 균형 있게 포함",
     },
     "detailed": {
         "label": "상세 요약",
-        "topic_count": 14,
+        "topic_count": 16,
         "format": """1. 큰 주제 제목
    - **핵심 개념**: 설명
    - **세부 내용**: 설명
    - **예시/비교**: 설명
    - **주의점/시험 포인트**: 설명
    - **관련 페이지**: p.1-3""",
-        "guidance": "- 큰 주제는 10~15개 안팎으로 자세히 정리\n- 구현 방식, 예시, 비교, 시험 포인트를 구체적으로 작성",
+        "guidance": "- 큰 주제는 12~16개 안팎으로 자세히 정리\n- 구현 방식, 예시, 비교, 시험 포인트를 구체적으로 작성",
     },
     "page": {
         "label": "페이지별 요약",
@@ -84,7 +84,7 @@ MATERIAL_SUMMARY_LEVELS = {
 }
 
 MATERIAL_SUMMARY_PROMPT_TEMPLATE = """아래는 PDF 강의자료에서 TextRank로 먼저 고른 핵심 원문 문장입니다.
-이 문장들을 근거로 {level_label} 수준의 한국어 Markdown 요약을 작성하세요.
+이 문장들을 근거로 {level_label} 수준의 한국어 Markdown 보고서형 요약을 작성하세요.
 
 요약 형식:
 {format_instructions}
@@ -92,6 +92,9 @@ MATERIAL_SUMMARY_PROMPT_TEMPLATE = """아래는 PDF 강의자료에서 TextRank�
 조건:
 - 반드시 한국어로 작성
 - 핵심 용어는 **굵게** 표시
+- 서론처럼 2~3문장의 전체 개요를 먼저 작성
+- 큰 주제별로 개념, 세부 내용, 예시/비교, 시험 포인트를 구조화
+- 단순 문장 나열이 아니라 강의 보고서처럼 읽히도록 연결 문장을 포함
 - 원문에 없는 사실은 추가하지 말 것
 - 깨진 수식/표/코드 조각은 중요한 내용이 아니면 무시
 - 관련 페이지는 "p.10"처럼 표시
@@ -102,7 +105,7 @@ MATERIAL_SUMMARY_PROMPT_TEMPLATE = """아래는 PDF 강의자료에서 TextRank�
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
-  "summary_text": "Markdown 요약"
+  "summary_text": "## 전체 개요\\n...\\n## 주요 내용\\n...\\n## 학습 포인트\\n..."
 }}
 """
 

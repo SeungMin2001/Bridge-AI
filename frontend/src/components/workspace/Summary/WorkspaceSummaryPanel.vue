@@ -250,8 +250,8 @@ const handleGenerateBasicSummary = (item) => {
     emit('generateMaterialSummary', {
       sessionId: props.activeFileId,
       materials: [item.source],
-      summaryLevel: 'standard',
-      summarySentences: 8
+      summaryLevel: 'detailed',
+      summarySentences: 12
     })
     return
   }
@@ -261,7 +261,8 @@ const handleGenerateBasicSummary = (item) => {
   emit('generateRecordingSummary', {
     sessionId: props.activeFileId,
     recordingId: item.recordingId,
-    recording: item.source
+    recording: item.source,
+    summarySentences: 10
   })
 }
 
@@ -391,8 +392,8 @@ const handleGenerateCombinedSummary = () => {
     emit('generateMaterialSummary', {
       sessionId: props.activeFileId,
       materials: selectedCombinedMaterials.value,
-      summaryLevel: 'standard',
-      summarySentences: 8
+      summaryLevel: 'detailed',
+      summarySentences: 12
     })
   }
 
@@ -401,7 +402,8 @@ const handleGenerateCombinedSummary = () => {
     emit('generateRecordingSummary', {
       sessionId: props.activeFileId,
       recordingId: combinedRecordingId.value,
-      recordings: selectedCombinedRecordings.value
+      recordings: selectedCombinedRecordings.value,
+      summarySentences: 10
     })
   }
 }
@@ -1118,7 +1120,7 @@ watch(
               </button>
             </div>
           </div>
-          <p class="summary-text">{{ combinedRecordingSummary.summary }}</p>
+          <div class="summary-text material-summary-markdown" v-html="renderMarkdown(combinedRecordingSummary.summary)"></div>
         </div>
       </section>
 
@@ -1190,7 +1192,7 @@ watch(
               <LoadingHourglass :size="42" />
               <span>최종 요약을 생성하고 있습니다.</span>
             </div>
-            <p v-else class="summary-text">{{ sessionSummary.summary }}</p>
+            <div v-else class="summary-text material-summary-markdown" v-html="renderMarkdown(sessionSummary.summary)"></div>
           </article>
 
           <article
@@ -1230,7 +1232,7 @@ watch(
                 </button>
               </div>
             </div>
-            <p class="summary-text">{{ speaker.summary }}</p>
+            <div class="summary-text material-summary-markdown" v-html="renderMarkdown(speaker.summary)"></div>
             <div v-if="speaker.latestText" class="speaker-summary-latest">
               <span class="material-symbols-outlined">graphic_eq</span>
               <span>{{ speaker.latestText }}</span>
@@ -1248,6 +1250,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 100%;
+  padding-bottom: 48px;
 }
 
 .summary-mode-tabs {
@@ -1789,6 +1793,22 @@ watch(
 
 .material-summary-markdown :deep(p) {
   margin: 0 0 10px;
+}
+
+.material-summary-markdown :deep(h2),
+.material-summary-markdown :deep(h3) {
+  margin: 16px 0 8px;
+  color: #111827;
+  font-weight: 950;
+  line-height: 1.35;
+}
+
+.material-summary-markdown :deep(h2) {
+  font-size: 16px;
+}
+
+.material-summary-markdown :deep(h3) {
+  font-size: 14px;
 }
 
 .material-summary-markdown :deep(ol),
