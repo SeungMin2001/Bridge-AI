@@ -105,7 +105,18 @@ def main() -> None:
         "0",
         "--quiet-eval",
     ]
-    train_cmd.append("--resume" if args.resume else "--no-resume")
+    if args.resume:
+        train_cmd.append("--resume")
+    else:
+        train_cmd.extend(
+            [
+                "--no-resume-train",
+                "--no-resume-eval",
+                "--no-resume-epoch-eval",
+                "--no-resume-step-eval",
+                "--no-resume-scan",
+            ]
+        )
     run_command(train_cmd)
 
     train_valid_cmd = [
