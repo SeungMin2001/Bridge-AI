@@ -1,7 +1,9 @@
 import os
+import unicodedata
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -17,8 +19,19 @@ RECORDING_UPLOAD_DIR = Path(os.getenv("WORKSPACE_RECORDING_UPLOAD_DIR", BACKEND_
 ALLOWED_RECORDING_SUFFIXES = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".webm"}
 
 
+def _normalize_upload_filename(filename: str | None = None, fallback: str = "upload") -> str:
+    raw_filename = str(filename or "").strip()
+    if not raw_filename:
+        return fallback
+
+    decoded_filename = unquote(raw_filename)
+    normalized_filename = unicodedata.normalize("NFC", decoded_filename).strip()
+    safe_filename = Path(normalized_filename.replace("\\", "/")).name
+    return safe_filename or fallback
+
+
 def _safe_suffix(filename: str = "") -> str:
-    suffix = Path(filename or "").suffix
+    suffix = Path(_normalize_upload_filename(filename, "")).suffix
     if len(suffix) > 16:
         return ""
     return suffix
@@ -85,7 +98,8 @@ async def save_workspace_material(session_id: str, upload: UploadFile) -> dict:
     MATERIAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     material_id = f"material-{uuid4()}"
-    stored_name = f"{material_id}{_safe_suffix(upload.filename)}"
+    original_name = _normalize_upload_filename(upload.filename, "강의자료")
+    stored_name = f"{material_id}{_safe_suffix(original_name)}"
     target_path = MATERIAL_UPLOAD_DIR / stored_name
     size = 0
 
@@ -100,7 +114,8 @@ async def save_workspace_material(session_id: str, upload: UploadFile) -> dict:
         "ok": True,
         "material": {
             "id": material_id,
-            "name": upload.filename or stored_name,
+            "name": original_name or stored_name,
+            "originalName": original_name or stored_name,
             "size": size,
             "type": upload.content_type or "application/octet-stream",
             "uploadedAt": datetime.now(timezone.utc).isoformat(),
@@ -199,7 +214,8 @@ async def save_workspace_recording_file(
     if session_uuid is None:
         raise WorkspaceApiError("session_id is required.")
 
-    safe_suffix = _safe_audio_suffix(upload.filename or "")
+    original_name = _normalize_upload_filename(upload.filename, "업로드한 녹음본")
+    safe_suffix = _safe_audio_suffix(original_name)
     content_type = upload.content_type or ""
     if content_type and not (content_type.startswith("audio/") or content_type == "application/octet-stream"):
         raise WorkspaceApiError("음성파일만 업로드할 수 있습니다.", status_code=400)
@@ -240,7 +256,7 @@ async def save_workspace_recording_file(
         "recording": {
             "id": recording_id,
             "recordingId": recording_id,
-            "title": _normalize_upload_title(upload.filename or stored_name, title),
+            "title": _normalize_upload_title(original_name or stored_name, title),
             "startedAt": uploaded_at,
             "endedAt": uploaded_at,
             "durationText": _format_duration_text(duration_seconds),
@@ -251,7 +267,7 @@ async def save_workspace_recording_file(
             "materialNames": [],
             "audioUrl": f"/workspace/uploads/recordings/{stored_name}",
             "storedName": stored_name,
-            "originalName": upload.filename or stored_name,
+            "originalName": original_name or stored_name,
             "size": size,
             "type": upload.content_type or "audio/*",
             "uploadedAt": uploaded_at,

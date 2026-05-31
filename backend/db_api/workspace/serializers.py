@@ -1,5 +1,8 @@
 import json
+import unicodedata
 from datetime import datetime
+from pathlib import Path
+from urllib.parse import unquote
 
 from db_api.workspace.common import DEFAULT_FOLDER_DESCRIPTION
 
@@ -45,6 +48,26 @@ def week_resource_key(week: dict) -> str:
     )
 
 
+def normalize_file_name(value) -> str:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return ""
+
+    decoded_value = unquote(raw_value)
+    normalized_value = unicodedata.normalize("NFC", decoded_value).strip()
+    return Path(normalized_value.replace("\\", "/")).name
+
+
+def normalize_material_resource(item: dict) -> dict:
+    next_item = dict(item)
+    for key in ("name", "title", "fileName", "originalName"):
+        if isinstance(next_item.get(key), str):
+            normalized_name = normalize_file_name(next_item.get(key))
+            if normalized_name:
+                next_item[key] = normalized_name
+    return next_item
+
+
 def split_week_resources(weeks: list, resource_key: str) -> list:
     resources = []
     for week in weeks:
@@ -54,6 +77,8 @@ def split_week_resources(weeks: list, resource_key: str) -> list:
         items = week.get(resource_key)
         if not isinstance(items, list) or not items:
             continue
+        if resource_key == "materials":
+            items = [normalize_material_resource(item) if isinstance(item, dict) else item for item in items]
 
         resources.append({
             "weekId": week.get("id"),

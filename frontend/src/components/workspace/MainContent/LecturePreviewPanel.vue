@@ -37,6 +37,7 @@ let activePdfDocument = null
 let pdfRenderToken = 0
 let activePdfTextLayers = []
 let activePdfPageShells = []
+let activePdfAnnotationCanvases = []
 let activePdfSearchMatches = []
 let activePdfSearchActiveIndex = 0
 
@@ -55,6 +56,58 @@ const isCurrentMaterial = (material = {}) => {
   const currentId = getMaterialId(props.material)
   const targetId = getMaterialId(material)
   return currentId && targetId && currentId === targetId
+}
+const clampAnnotationNumber = (value, min, max) => Math.min(max, Math.max(min, Number(value) || 0))
+const getMaterialAnnotationStrokes = (material = props.material) => {
+  const payload = material?.annotations || material?.pdfAnnotations || material?.inkAnnotations
+  const strokes = Array.isArray(payload) ? payload : Array.isArray(payload?.strokes) ? payload.strokes : []
+  return strokes.filter((stroke) => Array.isArray(stroke?.points) && stroke.points.length > 0)
+}
+const getAnnotationStrokeWidth = (stroke = {}) => {
+  if (stroke.mode === 'eraser') return Number(stroke.width) || 18
+  if (stroke.type === 'highlighter') return Number(stroke.width) || 12
+  return Number(stroke.width) || 3.2
+}
+const configureAnnotationContext = (context, stroke = {}) => {
+  context.globalCompositeOperation = stroke.mode === 'eraser' ? 'destination-out' : 'source-over'
+  context.globalAlpha = stroke.mode !== 'eraser' && stroke.type === 'highlighter' ? 0.5 : 1
+  context.strokeStyle = stroke.color || '#1f78ff'
+  context.lineWidth = getAnnotationStrokeWidth(stroke)
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+}
+const drawAnnotationStroke = (context, stroke, width, height) => {
+  if (!stroke?.points?.length) return
+
+  context.save()
+  configureAnnotationContext(context, stroke)
+  context.beginPath()
+  stroke.points.forEach((point, index) => {
+    const x = clampAnnotationNumber(point?.x, 0, 1) * width
+    const y = clampAnnotationNumber(point?.y, 0, 1) * height
+    if (index === 0) {
+      context.moveTo(x, y)
+    } else {
+      context.lineTo(x, y)
+    }
+  })
+  context.stroke()
+  context.closePath()
+  context.restore()
+}
+const drawPdfAnnotationsForPage = (pageNumber, canvas) => {
+  const context = canvas?.getContext?.('2d')
+  if (!context) return
+
+  context.clearRect(0, 0, canvas.width, canvas.height)
+  getMaterialAnnotationStrokes()
+    .filter((stroke) => Number(stroke.page) === pageNumber)
+    .forEach((stroke) => drawAnnotationStroke(context, stroke, canvas.width, canvas.height))
+}
+const refreshPdfAnnotations = () => {
+  activePdfAnnotationCanvases.forEach((canvas, pageNumber) => {
+    if (canvas) drawPdfAnnotationsForPage(pageNumber, canvas)
+  })
 }
 
 const emitPdfSearchResults = () => {
@@ -213,6 +266,7 @@ const clearPdfPreview = () => {
   pdfLoading.value = false
   pdfError.value = ''
   activePdfPageShells = []
+  activePdfAnnotationCanvases = []
   if (pdfContainerRef.value) {
     pdfContainerRef.value.innerHTML = ''
   }
@@ -346,6 +400,11 @@ const renderPdfPreview = async (file) => {
       canvas.height = viewport.height
       canvas.className = 'pdf-preview-canvas'
 
+      const annotationCanvas = document.createElement('canvas')
+      annotationCanvas.width = viewport.width
+      annotationCanvas.height = viewport.height
+      annotationCanvas.className = 'pdf-annotation-canvas'
+
       const pageShell = document.createElement('div')
       pageShell.className = 'pdf-page-shell'
       pageShell.dataset.pageNumber = String(pageNumber)
@@ -391,10 +450,12 @@ const renderPdfPreview = async (file) => {
       activePdfTextLayers.push(textLayer)
 
       pageStage.appendChild(canvas)
+      pageStage.appendChild(annotationCanvas)
       pageStage.appendChild(textLayerDiv)
       pageShell.appendChild(pageMeta)
       pageShell.appendChild(pageStage)
       pdfContainerRef.value.appendChild(pageShell)
+      activePdfAnnotationCanvases[pageNumber] = annotationCanvas
 
       await Promise.all([
         page.render({
@@ -403,6 +464,7 @@ const renderPdfPreview = async (file) => {
         }).promise,
         textLayer.render()
       ])
+      drawPdfAnnotationsForPage(pageNumber, annotationCanvas)
 
       const endOfContent = document.createElement('div')
       endOfContent.className = 'endOfContent'
@@ -518,6 +580,12 @@ watch(
     if (!request) return
     await scrollToEvidencePage(request)
   },
+  { deep: true }
+)
+
+watch(
+  () => props.material?.annotations || props.material?.pdfAnnotations || props.material?.inkAnnotations,
+  () => refreshPdfAnnotations(),
   { deep: true }
 )
 
@@ -921,6 +989,16 @@ onBeforeUnmount(() => {
   background: #ffffff;
   border: 1px solid rgba(226, 232, 240, 0.7);
   box-shadow: none;
+}
+
+:deep(.pdf-annotation-canvas) {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: 30px;
+  pointer-events: none;
 }
 
 :deep(.pdf-page-stage) {
