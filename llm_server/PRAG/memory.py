@@ -74,22 +74,6 @@ class HyperKVGenerator(nn.Module):
         if legacy:
             self.att_pool = nn.Linear(d_model, 1)
         else:
-            if self.question_fusion == "feature_concat":
-                self.question_feature_fusion = nn.Sequential(
-                    nn.LayerNorm(self.feature_dim * 2),
-                    nn.Linear(self.feature_dim * 2, self.feature_dim),
-                    nn.GELU(),
-                    nn.LayerNorm(self.feature_dim),
-                )
-            if self.question_fusion == "kv_adapter":
-                self.k_adapter = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model))
-                self.v_adapter = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model))
-                # Start as the previous text-concat HyperKV path, then learn a
-                # small memory-space correction before orthogonal merge.
-                nn.init.zeros_(self.k_adapter[1].weight)
-                nn.init.zeros_(self.k_adapter[1].bias)
-                nn.init.zeros_(self.v_adapter[1].weight)
-                nn.init.zeros_(self.v_adapter[1].bias)
             self.input_norm = nn.LayerNorm(self.feature_dim)
             self.input_proj = nn.Sequential(
                 nn.Linear(self.feature_dim, d_model),
@@ -111,6 +95,22 @@ class HyperKVGenerator(nn.Module):
         else:
             self.linear_K = nn.Linear(hidden_dim, d_model)
             self.linear_V = nn.Linear(hidden_dim, d_model)
+        if not legacy and self.question_fusion == "feature_concat":
+            self.question_feature_fusion = nn.Sequential(
+                nn.LayerNorm(self.feature_dim * 2),
+                nn.Linear(self.feature_dim * 2, self.feature_dim),
+                nn.GELU(),
+                nn.LayerNorm(self.feature_dim),
+            )
+        if not legacy and self.question_fusion == "kv_adapter":
+            self.k_adapter = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model))
+            self.v_adapter = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model))
+            # Keep the shared HyperKV initialization identical to passage-only
+            # under the same seed; adapter parameters start as a zero residual.
+            nn.init.zeros_(self.k_adapter[1].weight)
+            nn.init.zeros_(self.k_adapter[1].bias)
+            nn.init.zeros_(self.v_adapter[1].weight)
+            nn.init.zeros_(self.v_adapter[1].bias)
 
     def forward(
         self,

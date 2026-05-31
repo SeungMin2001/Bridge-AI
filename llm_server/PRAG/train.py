@@ -126,6 +126,13 @@ def make_hypernet(model, device, *, num_kv: int = NUM_KV, question_fusion: str =
     ).to(device).float()
 
 
+def set_global_seed(seed: int) -> None:
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def example_has_hangul(example: MemoryExample) -> bool:
     fields = [
         example.passage,
@@ -1900,6 +1907,7 @@ def main() -> None:
     parser.add_argument("--max-val-samples", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--rank-weight", type=float, default=RANK_WEIGHT)
     parser.add_argument(
         "--final-weight",
@@ -2172,6 +2180,7 @@ def main() -> None:
         if args.num_kv is not None
         else effective_source_config.get("num_kv", NUM_KV)
     )
+    set_global_seed(args.seed)
     model, tokenizer = load_model(effective_model_name)
     device = next(model.parameters()).device
     layer_idx = int(
@@ -2290,6 +2299,7 @@ def main() -> None:
     if valid_generation_examples:
         print_eval_subset_summary("generation", valid_generation_examples, len(valid_examples))
 
+    set_global_seed(args.seed)
     hypernet = make_hypernet(model, device, num_kv=effective_num_kv, question_fusion=effective_question_fusion)
     optimizer = torch.optim.AdamW(hypernet.parameters(), lr=args.lr, weight_decay=0.0)
     train_units = [("example", item) for item in train_examples] if args.example_weight > 0 else []
@@ -2335,6 +2345,7 @@ def main() -> None:
         "merge_max_passages": args.merge_max_passages,
         "eval_max_samples": args.eval_max_samples,
         "eval_seed": args.eval_seed,
+        "seed": args.seed,
         "train_path": str(args.train),
         "valid_path": str(args.valid),
         "overfit_samples": args.overfit_samples,
@@ -2426,6 +2437,7 @@ def main() -> None:
     start = time.time()
     hypernet.train()
     steps_per_epoch = max(len(train_units), 1)
+    shuffle_rng = random.Random(args.seed)
     saved_epoch_checkpoints: set[int] = set()
     step_checkpoint_targets = parse_checkpoint_steps(args.step_checkpoint_steps, total_steps=total_steps)
     saved_step_checkpoints: set[int] = set()
@@ -2445,7 +2457,7 @@ def main() -> None:
     for _epoch in range(args.epochs):
         epoch_start_step = step
         indices = list(range(len(train_units)))
-        random.shuffle(indices)
+        shuffle_rng.shuffle(indices)
         running = []
         running_kind = {"example": 0, "group": 0, "merge": 0}
         for idx in indices:

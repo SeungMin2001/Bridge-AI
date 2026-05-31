@@ -166,6 +166,8 @@ def train_command(
         str(args.epochs),
         "--lr",
         str(args.lr),
+        "--seed",
+        str(args.seed),
         "--positive-only",
         "--answer-target",
         args.answer_target,
@@ -382,6 +384,7 @@ def main() -> None:
     parser.add_argument("--ponly-question-fusion", choices=("auto", "none", "text_concat", "feature_concat", "kv_adapter"), default="none")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--scan-lr", type=float, default=1e-4)
     parser.add_argument("--scan-steps", type=int, default=60)
     parser.add_argument("--scan-layers", default="all")
