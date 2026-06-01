@@ -969,7 +969,7 @@ watch(
 </script>
 
 <template>
-  <section :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-y-auto overflow-x-hidden custom-scrollbar p-10 pt-4', tabAnim]">
+  <section :class="['tab-content note-canvas flex-1 min-h-0 flex flex-col relative overflow-y-auto overflow-x-hidden custom-scrollbar p-10 pt-4', tabAnim]">
     <div class="summary-panel max-w-5xl mx-auto w-full min-h-full">
       <div class="summary-mode-tabs" aria-label="요약 화면 선택">
         <button
@@ -1143,7 +1143,7 @@ watch(
               </button>
             </div>
           </div>
-          <div class="material-summary-markdown" v-html="renderMarkdown(combinedMaterialSummary.summary)"></div>
+          <div class="material-summary-markdown summary-scroll-body custom-scrollbar" v-html="renderMarkdown(combinedMaterialSummary.summary)"></div>
         </div>
 
         <div v-if="combinedRecordingSummary" class="speaker-summary-card">
@@ -1181,7 +1181,7 @@ watch(
               </button>
             </div>
           </div>
-          <div class="summary-text material-summary-markdown" v-html="renderMarkdown(combinedRecordingSummary.summary)"></div>
+          <div class="summary-text material-summary-markdown summary-scroll-body custom-scrollbar" v-html="renderMarkdown(combinedRecordingSummary.summary)"></div>
         </div>
       </section>
 
@@ -1253,7 +1253,7 @@ watch(
               <LoadingHourglass :size="42" />
               <span>최종 요약을 생성하고 있습니다.</span>
             </div>
-            <div v-else class="summary-text material-summary-markdown" v-html="renderMarkdown(sessionSummary.summary)"></div>
+            <div v-else class="summary-text material-summary-markdown summary-scroll-body custom-scrollbar" v-html="renderMarkdown(sessionSummary.summary)"></div>
           </article>
 
           <article
@@ -1293,7 +1293,7 @@ watch(
                 </button>
               </div>
             </div>
-            <div class="summary-text material-summary-markdown" v-html="renderMarkdown(speaker.summary)"></div>
+            <div class="summary-text material-summary-markdown summary-scroll-body custom-scrollbar" v-html="renderMarkdown(speaker.summary)"></div>
             <div v-if="speaker.latestText" class="speaker-summary-latest">
               <span class="material-symbols-outlined">graphic_eq</span>
               <span>{{ speaker.latestText }}</span>
@@ -1311,7 +1311,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 100%;
+  min-height: 0;
+  height: 100%;
   padding-bottom: 48px;
 }
 
@@ -1870,6 +1871,14 @@ watch(
   line-height: 1.7;
   word-break: keep-all;
   overflow-wrap: anywhere;
+}
+
+.summary-scroll-body {
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+  overscroll-behavior: contain;
 }
 
 .material-summary-markdown :deep(p) {

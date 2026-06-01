@@ -1071,7 +1071,7 @@ watch(
 </script>
 
 <template>
-  <section :class="['tab-content note-canvas flex-1 flex flex-col relative overflow-y-auto overflow-x-hidden custom-scrollbar p-10 pt-4', tabAnim]">
+  <section :class="['tab-content note-canvas flex-1 min-h-0 flex flex-col relative overflow-y-auto overflow-x-hidden custom-scrollbar p-10 pt-4', tabAnim]">
     <div class="quiz-panel max-w-5xl mx-auto w-full min-h-full">
       <div class="quiz-mode-tabs" aria-label="퀴즈 화면 선택">
         <button
@@ -1291,7 +1291,7 @@ watch(
         </div>
       </div>
 
-      <div v-else-if="quizMode === 'create' && hasActiveQuiz" class="quiz-solve-view">
+      <div v-else-if="quizMode === 'create' && hasActiveQuiz" class="quiz-solve-view custom-scrollbar">
         <div v-if="!hasActiveQuiz" class="quiz-empty compact">
           <span class="material-symbols-outlined">edit_note</span>
           <p>퀴즈 목록에서 풀 퀴즈를 선택하거나 새 퀴즈를 생성하세요.</p>
@@ -1336,7 +1336,7 @@ watch(
               />
             </div>
 
-            <div v-else class="quiz-play-options">
+            <div v-else class="quiz-play-options custom-scrollbar">
               <button
                 v-for="option in currentQuestion.options"
                 :key="option"
@@ -1349,7 +1349,7 @@ watch(
               </button>
             </div>
 
-            <div v-if="currentQuestionIsGraded" class="quiz-play-feedback">
+            <div v-if="currentQuestionIsGraded" class="quiz-play-feedback custom-scrollbar">
               <div :class="['quiz-play-grade', currentQuestion.is_correct ? 'correct' : 'wrong']">
                 <span class="material-symbols-outlined">
                   {{ currentQuestion.is_correct ? 'check_circle' : 'cancel' }}
@@ -1384,8 +1384,9 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 100%;
-  overflow: visible;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
   padding-bottom: 48px;
 }
 
@@ -1469,7 +1470,8 @@ watch(
 .quiz-solve-view {
   position: relative;
   justify-content: flex-start;
-  padding: 33px 0 24px;
+  padding: 33px 2px 96px 0;
+  overscroll-behavior: contain;
 }
 
 .quiz-simple-builder {
@@ -2546,7 +2548,7 @@ watch(
   justify-content: flex-start;
   gap: 30px;
   overflow: visible;
-  padding: 4px 0 0;
+  padding: 4px 0 18px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -2595,6 +2597,11 @@ watch(
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
+  max-height: min(42vh, 430px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  overscroll-behavior: contain;
 }
 
 .quiz-play-card.type-OX .quiz-play-options {
@@ -2665,6 +2672,10 @@ watch(
 .quiz-play-feedback {
   display: grid;
   gap: 7px;
+  max-height: min(24vh, 220px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
   padding-top: 12px;
   border-top: 1px solid #e5e7eb;
   color: #1d1d1f;
