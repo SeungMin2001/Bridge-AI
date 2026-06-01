@@ -14,8 +14,8 @@ LLM 추출 JSON 구조:
     "title": "중간고사",
     "description": "데이터베이스 중간고사 시험",
     "event_type": "시험",
-    "due_date": "2026-05-15",
-    "source_text": "중간고사는 5월 15일에 치릅니다"
+    "due_date": "YYYY-MM-DDTHH:MM:SS",
+    "source_text": "전사문에서 일정이 언급된 원문"
   }
 ]
 """
@@ -97,7 +97,7 @@ SCHEDULE_USER_PROMPT_TEMPLATE = """오늘 날짜는 {today}입니다.
     "title": "일정 제목 (전사문 원문 기반, 간결하게)",
     "description": "일정에 대한 상세 설명",
     "event_type": "시험|과제|프로젝트|발표|기타",
-    "due_date": "2026-05-15" 또는 null,
+    "due_date": "YYYY-MM-DDTHH:MM:SS" 또는 null,
     "source_text": "전사문에서 해당 일정이 언급된 원문 문장"
   }}
 ]"""
@@ -246,8 +246,12 @@ ASSIGNMENT_CONTEXT_HINT_PATTERN = re.compile(
     r"(이\s*내용|오늘\s*내용|이번\s*내용|배운\s*내용|수업\s*내용|강의\s*내용|해당\s*내용|앞에서\s*배운\s*내용)"
 )
 
+SCHEDULE_DETAIL_CONTEXT_PATTERN = re.compile(
+    r"(범위|단원|챕터|chapter|장|주제|내용|자료|준비|복습|공부|예습|읽어\s*오|읽어오|정리)"
+)
+
 LECTURE_TOPIC_END_PATTERN = re.compile(
-    r"(?:에\s*대해\s*)?(?:배웠습니다|배웠어요|학습했습니다|학습했어요|다뤘습니다|다루었습니다|설명했습니다|설명했어요|정리했습니다|살펴봤습니다|공부했습니다)$"
+    r"(?:에\s*대해\s*)?(?:배웠습니다|배웠어요|학습했습니다|학습했어요|다뤘습니다|다루었습니다|설명했습니다|설명했어요|정리했습니다|살펴봤습니다|공부했습니다|준비해\s*주세요|준비해주세요|복습해\s*주세요|복습해주세요|공부해\s*오세요|읽어\s*오세요|읽어오세요)$"
 )
 
 SCHEDULE_DATE_HINT_PATTERN = re.compile(
@@ -625,14 +629,29 @@ def _make_rule_based_title(event_type: str, source_text: str) -> str:
             return f"{assignment_topic} 과제"
         return "과제 제출"
     if "기말고사" in source_text:
+        scope = _extract_exam_scope(source_text)
+        if scope:
+            return f"{scope} 기말고사"
         return "기말고사"
     if "중간고사" in source_text:
+        scope = _extract_exam_scope(source_text)
+        if scope:
+            return f"{scope} 중간고사"
         return "중간고사"
     if "쪽지시험" in source_text:
+        scope = _extract_exam_scope(source_text)
+        if scope:
+            return f"{scope} 쪽지시험"
         return "쪽지시험"
     if "퀴즈" in source_text:
+        scope = _extract_exam_scope(source_text)
+        if scope:
+            return f"{scope} 퀴즈"
         return "퀴즈"
     if event_type == "시험":
+        scope = _extract_exam_scope(source_text)
+        if scope:
+            return f"{scope} 시험"
         return "시험 일정"
     if "프로젝트" in source_text and event_type == "발표":
         return "프로젝트 발표"
@@ -667,6 +686,8 @@ def _clean_context_topic(text: str) -> str:
     cleaned = re.sub(r"^(은|는|에서|에서는)\s*", "", cleaned)
     cleaned = re.sub(r"^(먼저|다음으로|그리고|또한|마지막으로)\s*", "", cleaned)
     cleaned = LECTURE_TOPIC_END_PATTERN.sub("", cleaned)
+    cleaned = re.sub(r"(시험\s*)?범위\s*(은|는|:)?", " ", cleaned)
+    cleaned = re.sub(r"(준비|복습|공부|예습)\s*(해\s*주세요|해주세요|해\s*오세요|해오세요)?", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,，")
     cleaned = re.sub(r"(입니다|합니다|이에요|예요)$", "", cleaned).strip(" .,，")
     cleaned = re.sub(r"(을|를)$", "", cleaned).strip(" .,，")
@@ -687,11 +708,36 @@ def _is_weak_assignment_topic(topic: str) -> bool:
 def _extract_context_topic(source_text: str) -> str:
     """마감 문장 주변의 강의 내용에서 '어떤 과제인지'를 보완한다."""
     for sentence in reversed(_split_schedule_sentences(source_text)):
-        if re.search(r"과제|숙제|보고서|레포트|리포트|제출|마감|기한|데드라인", sentence):
+        if re.search(r"과제|숙제|보고서|레포트|리포트|제출|마감|기한|데드라인|시험|고사|퀴즈|발표|프로젝트", sentence):
             continue
         topic = _clean_context_topic(sentence)
         if topic and not _is_weak_assignment_topic(topic):
             return topic
+    return ""
+
+
+def _extract_exam_scope(source_text: str) -> str:
+    """시험 날짜 문장 주변에서 시험 범위나 준비 단원을 추출한다."""
+    sentences = _split_schedule_sentences(source_text)
+    for sentence in reversed(sentences):
+        if not SCHEDULE_DETAIL_CONTEXT_PATTERN.search(sentence):
+            continue
+
+        scope_match = re.search(r"(?:범위|단원|주제|내용|자료)\s*(?:은|는|:)?\s*(.{2,80})", sentence)
+        candidate = scope_match.group(1) if scope_match else sentence
+        topic = _clean_context_topic(candidate)
+        if not topic or _is_weak_assignment_topic(topic):
+            topic = _clean_context_topic(sentence)
+        if not topic:
+            continue
+
+        compact = re.sub(r"\s+", "", topic)
+        if re.search(r"시험|고사|퀴즈", compact):
+            continue
+        if compact in {"범위", "단원", "내용", "자료", "준비"}:
+            continue
+        return topic[:28].rstrip()
+
     return ""
 
 
@@ -751,24 +797,31 @@ def _needs_assignment_context(sentence: str) -> bool:
 
 
 def _build_rule_source_text(sentences: list[str], index: int, event_type: str) -> str:
-    """날짜 문장에 과제 내용이 부족하면 앞뒤 문맥을 붙인다."""
+    """날짜 문장에 세부 범위/내용이 부족하면 앞뒤 문맥을 붙인다."""
     sentence = sentences[index]
-    if event_type != "과제":
-        return sentence
-
     context = []
-    should_expand = _needs_assignment_context(sentence) or ASSIGNMENT_CONTEXT_HINT_PATTERN.search(sentence) or re.search(r"제출|마감|기한|데드라인", sentence)
+    should_expand = (
+        event_type == "과제"
+        and (_needs_assignment_context(sentence) or ASSIGNMENT_CONTEXT_HINT_PATTERN.search(sentence) or re.search(r"제출|마감|기한|데드라인", sentence))
+    )
+    if event_type in {"시험", "발표", "프로젝트"}:
+        should_expand = True
     if not should_expand:
         return sentence
 
     for prev_index in range(max(0, index - 2), index):
         prev = sentences[prev_index]
-        if len(prev) <= 180 and not _is_non_academic(prev, "", ""):
+        if len(prev) <= 180 and not _is_non_academic(prev, "", "") and (
+            event_type == "과제" or SCHEDULE_DETAIL_CONTEXT_PATTERN.search(prev)
+        ):
             context.append(prev)
     context.append(sentence)
     if index + 1 < len(sentences):
         next_sentence = sentences[index + 1]
-        if re.search(r"과제|제출|마감|보고서|레포트|리포트", next_sentence) and len(next_sentence) <= 180:
+        if len(next_sentence) <= 180 and not _is_non_academic(next_sentence, "", "") and (
+            re.search(r"과제|제출|마감|보고서|레포트|리포트", next_sentence)
+            or (event_type in {"시험", "발표", "프로젝트"} and SCHEDULE_DETAIL_CONTEXT_PATTERN.search(next_sentence))
+        ):
             context.append(next_sentence)
     return " ".join(context)
 
@@ -1269,26 +1322,29 @@ async def filter_already_ignored_semantic(
 #  목업 데이터 (LLM 미연결 시)
 def _generate_mock_schedules() -> list[dict]:
     """프론트엔드 개발/테스트용 목업 일정 데이터를 반환한다."""
+    exam_date = (datetime.now() + timedelta(days=7)).replace(hour=9, minute=0, second=0, microsecond=0)
+    assignment_date = (datetime.now() + timedelta(days=3)).replace(hour=23, minute=59, second=0, microsecond=0)
+    presentation_date = (datetime.now() + timedelta(days=14)).replace(hour=14, minute=0, second=0, microsecond=0)
     return [
         {
-            "title": "데이터베이스 중간고사",
-            "description": "Chapter 1~5 범위, 정규화와 SQL 중심",
+            "title": "목업 시험 일정",
+            "description": "SCHEDULE_MOCK_MODE=true일 때만 표시되는 개발용 시험 일정",
             "event_type": "시험",
-            "due_date": "2026-05-15",
-            "source_text": "중간고사는 5월 15일에 치르겠습니다. 범위는 1장부터 5장까지입니다.",
+            "due_date": exam_date.isoformat(),
+            "source_text": "개발용 목업 시험 일정입니다.",
         },
         {
-            "title": "ERD 설계 과제 제출",
-            "description": "팀별 ERD 설계 결과물 제출",
+            "title": "목업 과제 제출",
+            "description": "SCHEDULE_MOCK_MODE=true일 때만 표시되는 개발용 과제 일정",
             "event_type": "과제",
-            "due_date": "2026-05-08",
-            "source_text": "ERD 설계 과제는 다음주 목요일까지 제출해주세요.",
+            "due_date": assignment_date.isoformat(),
+            "source_text": "개발용 목업 과제 일정입니다.",
         },
         {
-            "title": "프로젝트 중간 발표",
-            "description": "팀 프로젝트 진행 상황 발표",
+            "title": "목업 발표 일정",
+            "description": "SCHEDULE_MOCK_MODE=true일 때만 표시되는 개발용 발표 일정",
             "event_type": "발표",
-            "due_date": "2026-05-20",
-            "source_text": "프로젝트 중간 발표는 5월 20일로 예정되어 있습니다.",
+            "due_date": presentation_date.isoformat(),
+            "source_text": "개발용 목업 발표 일정입니다.",
         },
     ]
