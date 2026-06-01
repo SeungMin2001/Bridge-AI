@@ -25,20 +25,7 @@ const emit = defineEmits([
 <template>
   <section class="schedule-calendar-panel">
     <div class="schedule-calendar-title-row">
-      <div class="schedule-view-switch" role="tablist" aria-label="일정 보기">
-        <button
-          v-for="option in calendarViewOptions"
-          :key="option.value"
-          type="button"
-          class="schedule-view-tab"
-          :class="{ active: calendarView === option.value }"
-          role="tab"
-          :aria-selected="calendarView === option.value"
-          @click="emit('set-calendar-view', option.value)"
-        >
-          {{ option.label }}
-        </button>
-      </div>
+
       <h2>{{ currentPeriodLabel }}</h2>
       <div class="schedule-legend">
         <span><i class="confirmed"></i>확정</span>

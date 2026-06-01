@@ -139,24 +139,7 @@ async function handleNotionImport() {
             </button>
           </div>
           <div class="schedule-header-actions">
-            <div class="schedule-notion-group">
-              <button
-                class="schedule-soft-btn notion-btn"
-                :disabled="notionSyncing"
-                @click="handleNotionImport"
-              >
-                <span class="material-symbols-outlined">cloud_download</span>
-                노션 불러오기
-              </button>
-              <button
-                class="schedule-soft-btn notion-btn"
-                :disabled="notionSyncing"
-                @click="handleNotionExport"
-              >
-                <span class="material-symbols-outlined">cloud_upload</span>
-                노션 내보내기
-              </button>
-            </div>
+
 
             <button class="schedule-soft-btn" @click="moveToday">오늘</button>
             <button class="schedule-icon-btn" @click="movePeriod(-1)">
