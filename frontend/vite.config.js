@@ -4,7 +4,7 @@ import { fileURLToPath, URL } from 'node:url'
 
 const BACKEND_URL = 'http://100.104.164.84:8000'
 const FRONTEND_ROOT = fileURLToPath(new URL('.', import.meta.url))
-const FRONTEND_HOST = '127.0.0.1'
+const FRONTEND_HOST = '0.0.0.0'
 const FRONTEND_PORT = 5173
 
 function proxyConfig(backendUrl, backendWsUrl) {
