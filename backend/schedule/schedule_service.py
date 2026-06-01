@@ -39,6 +39,7 @@ LLM_URL = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 SCHEDULE_SEMANTIC_DUP_FILTER = os.getenv("SCHEDULE_SEMANTIC_DUP_FILTER", "0").strip().lower() in {"1", "true", "yes", "on"}
+SCHEDULE_RULE_FIRST = os.getenv("SCHEDULE_RULE_FIRST", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 #  LLM 프롬프트 템플릿
@@ -260,6 +261,7 @@ TIME_HINT_PATTERN = re.compile(
     r"(오전|오후)?\s*(\d{1,2}|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s*시"
     r"(?:\s*(\d{1,2})\s*분)?"
 )
+DEADLINE_HINT_PATTERN = re.compile(r"(까지|마감|제출|전까지)")
 
 KOREAN_HOUR_WORDS = {
     "한": 1,
@@ -572,6 +574,176 @@ def _parse_time_number(value: str | None) -> int | None:
     return KOREAN_HOUR_WORDS.get(text)
 
 
+def _split_schedule_sentences(text: str) -> list[str]:
+    """STT 문장을 일정 추출에 적합한 짧은 후보 문장으로 나눈다."""
+    normalized = re.sub(r"\s+", " ", text or "").strip()
+    if not normalized:
+        return []
+
+    pieces = re.split(r"\n+|(?<=[.!?。])\s+|(?<=다)\s+|(?<=요)\s+", normalized)
+    sentences = []
+    for piece in pieces:
+        clean = piece.strip(" \t\r\n,")
+        if not clean:
+            continue
+        if len(clean) > 220:
+            clauses = re.split(r"\s*(?:그리고|또한|다음으로|마지막으로)\s*", clean)
+            sentences.extend(clause.strip(" ,") for clause in clauses if clause.strip(" ,"))
+        else:
+            sentences.append(clean)
+    return sentences
+
+
+def _classify_schedule_from_text(source_text: str) -> str:
+    """원문 키워드 기준으로 일정 유형을 안정적으로 분류한다."""
+    if re.search(r"시험|고사|퀴즈|쪽지시험", source_text):
+        return "시험"
+    if re.search(r"과제|제출|마감|보고서|레포트|리포트", source_text):
+        return "과제"
+    if re.search(r"발표|세미나|프레젠테이션", source_text):
+        return "발표"
+    if re.search(r"프로젝트|팀플|설계", source_text):
+        return "프로젝트"
+    if re.search(r"수업|보강|휴강|실습|특강", source_text):
+        return "기타"
+    return "기타"
+
+
+def _make_rule_based_title(event_type: str, source_text: str) -> str:
+    """LLM 환각 없이 원문 기반의 짧은 일정 제목을 만든다."""
+    if event_type == "과제":
+        assignment_topic = _extract_assignment_topic(source_text)
+        if assignment_topic:
+            return f"{assignment_topic} 과제"
+        return "과제 제출"
+    if "기말고사" in source_text:
+        return "기말고사"
+    if "중간고사" in source_text:
+        return "중간고사"
+    if "쪽지시험" in source_text:
+        return "쪽지시험"
+    if "퀴즈" in source_text:
+        return "퀴즈"
+    if event_type == "시험":
+        return "시험 일정"
+    if "프로젝트" in source_text and event_type == "발표":
+        return "프로젝트 발표"
+    if event_type == "프로젝트":
+        return "프로젝트 일정"
+    if event_type == "발표":
+        return "발표 일정"
+    if "보강" in source_text:
+        return "보강 일정"
+    if "휴강" in source_text:
+        return "휴강 일정"
+    if "실습" in source_text:
+        return "실습 일정"
+    return "수업 일정"
+
+
+def _strip_schedule_date_phrases(text: str) -> str:
+    """일정 제목 후보에서 날짜/마감 표현을 제거한다."""
+    cleaned = re.sub(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", " ", text)
+    cleaned = re.sub(r"\d{1,2}\s*월\s*\d{1,2}\s*일", " ", cleaned)
+    cleaned = re.sub(r"(오늘|내일|모레|이번\s*주|다음\s*주|다다음\s*주)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일|월|화|수|목|금|토|일)?", " ", cleaned)
+    cleaned = re.sub(r"(오전|오후)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?", " ", cleaned)
+    cleaned = re.sub(r"(까지|마감|제출\s*기한|기한|제출해야\s*합니다|제출해야합니다|제출하세요|내세요|입니다|합니다)", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip(" .,，")
+
+
+def _compact_assignment_topic(text: str) -> str:
+    """과제 내용을 알림 제목에 넣기 좋은 길이로 정리한다."""
+    cleaned = _strip_schedule_date_phrases(text)
+    cleaned = re.sub(r"^(저희|이번|다음|오늘|여러분|교수님이|교수님께서)\s*", "", cleaned)
+    cleaned = re.sub(r"(과제|숙제|보고서|레포트|리포트)\s*(은|는|입니다|이에요|으로|로|을|를|:)?", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,，")
+    cleaned = re.sub(r"(하는\s*)?것$", "", cleaned).strip(" .,，")
+    if not cleaned:
+        return ""
+    return cleaned[:32].rstrip()
+
+
+def _extract_assignment_topic(source_text: str) -> str:
+    """source_text에서 '무슨 과제인지'를 뽑아 알림 제목에 반영한다."""
+    sentences = _split_schedule_sentences(source_text)
+    topic_candidates = []
+
+    for sentence in sentences or [source_text]:
+        if "과제" not in sentence and not re.search(r"보고서|레포트|리포트", sentence):
+            continue
+
+        before_match = re.search(r"(.{3,80}?)(?:과제|숙제|보고서|레포트|리포트)\s*(?:은|는|입니다|이에요|으로|로)?", sentence)
+        if before_match:
+            topic_candidates.append(before_match.group(1))
+
+        after_match = re.search(r"(?:과제|숙제|보고서|레포트|리포트)\s*(?:은|는|입니다|이에요|:)?\s*(.{3,100})", sentence)
+        if after_match:
+            topic_candidates.append(after_match.group(1))
+
+    for candidate in topic_candidates:
+        topic = _compact_assignment_topic(candidate)
+        if topic and not re.fullmatch(r"(저희|이번|다음|오늘)?\s*", topic):
+            return topic
+
+    return ""
+
+
+def _needs_assignment_context(sentence: str) -> bool:
+    """마감 문장만 있고 과제 내용이 부족한 경우 주변 문장을 같이 사용한다."""
+    if not re.search(r"과제|제출|마감|보고서|레포트|리포트", sentence):
+        return False
+    return not _extract_assignment_topic(sentence)
+
+
+def _build_rule_source_text(sentences: list[str], index: int, event_type: str) -> str:
+    """날짜 문장에 과제 내용이 부족하면 앞뒤 문맥을 붙인다."""
+    sentence = sentences[index]
+    if event_type != "과제" or not _needs_assignment_context(sentence):
+        return sentence
+
+    context = []
+    if index > 0 and len(sentences[index - 1]) <= 180:
+        context.append(sentences[index - 1])
+    context.append(sentence)
+    if index + 1 < len(sentences) and "과제" in sentences[index + 1] and len(sentences[index + 1]) <= 180:
+        context.append(sentences[index + 1])
+    return " ".join(context)
+
+
+def _extract_rule_based_schedules(transcript_text: str) -> list[dict]:
+    """
+    시연 안정성을 위해 명확한 날짜+학사 키워드 문장은 LLM 전에 deterministic하게 추출한다.
+    예: "저희 과제는 6월 4일까지 제출해야합니다"
+    """
+    candidates = []
+    sentences = _split_schedule_sentences(transcript_text)
+    for index, sentence in enumerate(sentences):
+        if not SCHEDULE_DATE_HINT_PATTERN.search(sentence):
+            continue
+        if not any(keyword in sentence for keyword in SCHEDULE_EVENT_KEYWORDS):
+            continue
+        if _is_non_academic(sentence, "", ""):
+            continue
+
+        due_date = parse_due_date(sentence)
+        if due_date is None:
+            continue
+
+        event_type = _classify_schedule_from_text(sentence)
+        source_text = _build_rule_source_text(sentences, index, event_type)
+        title = _make_rule_based_title(event_type, source_text)
+        candidates.append({
+            "title": title,
+            "description": source_text,
+            "event_type": event_type,
+            "due_date": due_date.isoformat(),
+            "source_text": source_text,
+        })
+
+    return _filter_valid_schedules(candidates)
+
+
 def _parse_time_from_text(text: str) -> tuple[int, int]:
     """문장 안의 한국어 시간 표현을 찾고, 없으면 오전 9시로 둔다."""
     hour = 9
@@ -594,12 +766,54 @@ def _parse_time_from_text(text: str) -> tuple[int, int]:
     return hour, minute
 
 
+def _default_time_for_text(text: str) -> tuple[int, int]:
+    """시간이 없는 마감/제출 문장은 하루 끝으로, 그 외 일정은 오전 9시로 보정한다."""
+    if DEADLINE_HINT_PATTERN.search(text) and not _has_time_hint(text):
+        return 23, 59
+    return 9, 0
+
+
 def _build_date_with_time(year: int, month: int, day: int, source_text: str) -> datetime | None:
-    hour, minute = _parse_time_from_text(source_text)
+    hour, minute = _parse_time_from_text(source_text) if _has_time_hint(source_text) else _default_time_for_text(source_text)
     try:
         return datetime(year, month, day, hour, minute, 0)
     except ValueError:
         return None
+
+
+def _parse_explicit_date_in_text(text: str) -> datetime | None:
+    """문장 중간에 포함된 명시적 날짜 표현을 찾아 datetime으로 변환한다."""
+    if not text:
+        return None
+
+    clean = str(text).strip()
+    hour, minute = _parse_time_from_text(clean) if _has_time_hint(clean) else _default_time_for_text(clean)
+
+    ymd_match = re.search(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})", clean)
+    if ymd_match:
+        year, month, day = map(int, ymd_match.groups())
+        try:
+            return datetime(year, month, day, hour, minute, 0)
+        except ValueError:
+            return None
+
+    korean_match = re.search(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일", clean)
+    if korean_match:
+        month, day = map(int, korean_match.groups())
+        try:
+            return datetime.now().replace(month=month, day=day, hour=hour, minute=minute, second=0, microsecond=0)
+        except ValueError:
+            return None
+
+    slash_match = re.search(r"(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)", clean)
+    if slash_match:
+        month, day = map(int, slash_match.groups())
+        try:
+            return datetime.now().replace(month=month, day=day, hour=hour, minute=minute, second=0, microsecond=0)
+        except ValueError:
+            return None
+
+    return None
 
 
 def _parse_weekday_relative_date(text: str) -> datetime | None:
@@ -837,10 +1051,11 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
         logger.info("[SCHEDULE] MOCK_MODE: 목업 일정 데이터 반환")
         return _generate_mock_schedules()
 
-    rule_based_schedules = _extract_rule_based_schedules(transcript_text)
-    if rule_based_schedules:
-        logger.info(f"[SCHEDULE] 명시적 키워드/날짜 기반 {len(rule_based_schedules)}개 일정 추출")
-        return rule_based_schedules
+    rule_schedules = _extract_rule_based_schedules(transcript_text)
+    if rule_schedules:
+        logger.info(f"[SCHEDULE] 규칙 기반 일정 {len(rule_schedules)}개 감지")
+        if SCHEDULE_RULE_FIRST:
+            return rule_schedules
 
     if _is_non_academic(transcript_text, "", ""):
         logger.info("[SCHEDULE] 비학사 일정 문맥으로 판단되어 추출 생략")
@@ -850,7 +1065,7 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
     chunks = _split_transcript_chunks(transcript_text)
     logger.info(f"[SCHEDULE] 전사문 {len(transcript_text)}자 → {len(chunks)}개 청크로 분할")
 
-    all_schedules = []
+    all_schedules = list(rule_schedules)
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:

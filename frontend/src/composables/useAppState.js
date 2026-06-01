@@ -453,8 +453,10 @@ export function useAppState() {
     }
 
     const result = await response.json()
-    await hydrateSchedules({ force: true })
     showScheduleExtractionNotice(sessionId, result?.notifications || [])
+    hydrateSchedules({ force: true }).catch((error) => {
+      console.warn('[schedule] hydrate after extraction failed:', error)
+    })
   }
 
   const scheduleLiveScheduleExtraction = () => {
