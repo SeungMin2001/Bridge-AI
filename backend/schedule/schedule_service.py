@@ -250,6 +250,26 @@ SCHEDULE_DETAIL_CONTEXT_PATTERN = re.compile(
     r"(범위|단원|챕터|chapter|장|주제|내용|자료|준비|복습|공부|예습|읽어\s*오|읽어오|정리)"
 )
 
+SCHEDULE_COMMITMENT_PATTERN = re.compile(
+    r"(봅니다|보겠습니다|치릅니다|치르겠습니다|진행|진행합니다|예정|있습니다|있어요|"
+    r"제출|마감|까지|전까지|발표|시작|끝납니다|열립니다)"
+)
+
+SCHEDULE_CONTEXT_ONLY_PATTERN = re.compile(
+    r"(설명|배웠|학습|정리|살펴|공부|다뤘|범위|단원|내용|자료|준비)"
+)
+
+EXPLICIT_CALENDAR_DATE_PATTERN = re.compile(
+    r"(\d{4}[./-]\d{1,2}[./-]\d{1,2}|"
+    r"\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일|"
+    r"\d{1,2}\s*월\s*\d{1,2}\s*일|"
+    r"\d{1,2}[./]\d{1,2}|"
+    r"내일|모레|다음\s*달\s*\d{1,2}\s*일|"
+    r"다다음\s*주|다음\s*주|다다음주|다음주|"
+    r"월요일|화요일|수요일|목요일|금요일|토요일|일요일|"
+    r"까지|전까지|마감)"
+)
+
 LECTURE_TOPIC_END_PATTERN = re.compile(
     r"(?:에\s*대해\s*)?(?:배웠습니다|배웠어요|학습했습니다|학습했어요|다뤘습니다|다루었습니다|설명했습니다|설명했어요|정리했습니다|살펴봤습니다|공부했습니다|준비해\s*주세요|준비해주세요|복습해\s*주세요|복습해주세요|공부해\s*오세요|읽어\s*오세요|읽어오세요)$"
 )
@@ -683,7 +703,7 @@ def _clean_context_topic(text: str) -> str:
     """이전 수업 문장에서 과제 제목으로 쓸 수 있는 핵심 주제를 정리한다."""
     cleaned = _strip_schedule_date_phrases(text)
     cleaned = re.sub(r"^(오늘|이번\s*시간|이번\s*주|이번\s*강의|수업|강의)\s*(은|는|에서|에서는)?\s*", "", cleaned)
-    cleaned = re.sub(r"^(은|는|에서|에서는)\s*", "", cleaned)
+    cleaned = re.sub(r"^(은|는|이|가|인|에서|에서는)\s*", "", cleaned)
     cleaned = re.sub(r"^(먼저|다음으로|그리고|또한|마지막으로)\s*", "", cleaned)
     cleaned = LECTURE_TOPIC_END_PATTERN.sub("", cleaned)
     cleaned = re.sub(r"(시험\s*)?범위\s*(은|는|:)?", " ", cleaned)
@@ -700,7 +720,8 @@ def _is_weak_assignment_topic(topic: str) -> bool:
         return True
     weak_prefixes = (
         "이내용", "오늘내용", "이번내용", "배운내용", "수업내용", "강의내용",
-        "해당내용", "앞에서배운내용", "내용은", "내용을", "내용으로", "정리", "작성"
+        "해당내용", "앞에서배운내용", "내용은", "내용을", "내용으로",
+        "설명", "을설명", "를설명", "정리", "작성"
     )
     return compact.startswith(weak_prefixes) or compact in {"내용정리", "자료정리", "문제풀이"}
 
@@ -741,6 +762,18 @@ def _extract_exam_scope(source_text: str) -> str:
     return ""
 
 
+def _is_context_only_schedule_sentence(sentence: str) -> bool:
+    """
+    '오늘은 기말고사 범위를 설명했습니다' 같은 강의 내용 문장을 일정으로 오인하지 않는다.
+    실제 일정은 명시 날짜/마감 표현 또는 '봅니다/진행합니다' 같은 실행 동사를 함께 가져야 한다.
+    """
+    if EXPLICIT_CALENDAR_DATE_PATTERN.search(sentence):
+        return False
+    if SCHEDULE_COMMITMENT_PATTERN.search(sentence):
+        return False
+    return bool(SCHEDULE_CONTEXT_ONLY_PATTERN.search(sentence))
+
+
 def _compact_assignment_topic(text: str) -> str:
     """과제 내용을 알림 제목에 넣기 좋은 길이로 정리한다."""
     cleaned = _strip_schedule_date_phrases(text)
@@ -748,6 +781,7 @@ def _compact_assignment_topic(text: str) -> str:
     cleaned = re.sub(r"^(은|는|이|가|의)\s*", "", cleaned)
     cleaned = re.sub(r"(과제|숙제|보고서|레포트|리포트)\s*(내용|주제)?\s*(은|는|입니다|이에요|으로|로|을|를|:)?", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,，")
+    cleaned = re.sub(r"^(은|는|이|가|을|를|의)\s*", "", cleaned)
     cleaned = re.sub(r"(하는\s*)?것$", "", cleaned).strip(" .,，")
     cleaned = re.sub(r"(을|를)$", "", cleaned).strip(" .,，")
     if not cleaned:
@@ -783,7 +817,7 @@ def _extract_assignment_topic(source_text: str) -> str:
 
     for candidate in topic_candidates:
         topic = _compact_assignment_topic(candidate)
-        if topic and not re.fullmatch(r"(저희|이번|다음|오늘)?\s*", topic):
+        if topic and not _is_weak_assignment_topic(topic) and not re.fullmatch(r"(저희|이번|다음|오늘)?\s*", topic):
             return topic
 
     return ""
@@ -839,6 +873,9 @@ def _extract_rule_based_schedules(transcript_text: str) -> list[dict]:
         if not any(keyword in sentence for keyword in SCHEDULE_EVENT_KEYWORDS):
             continue
         if _is_non_academic(sentence, "", ""):
+            continue
+        if _is_context_only_schedule_sentence(sentence):
+            logger.info(f"[SCHEDULE] 문맥 설명 문장 제외: {sentence[:80]}")
             continue
 
         due_date = parse_due_date(sentence)
