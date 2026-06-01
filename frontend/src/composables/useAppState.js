@@ -1,4 +1,4 @@
-import { onUnmounted, ref } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import { isWorkspaceUuid, saveSessionResources, uploadWorkspaceRecording } from '../api/workspaceApi.js'
 import { useAiState } from './appState/aiState'
 import {
@@ -21,8 +21,14 @@ export function useAppState() {
   const { clearHistory, closeCitePopover } = useChat()
   // 녹음 중에는 현재 전사 스냅샷을 8초마다 요약 API로 넘깁니다.
   const LIVE_SUMMARY_REFRESH_MS = Number(import.meta.env.VITE_LIVE_SUMMARY_REFRESH_MS || 20000)
+  const LIVE_SCHEDULE_EXTRACT_DELAY_MS = Number(import.meta.env.VITE_LIVE_SCHEDULE_EXTRACT_DELAY_MS || 2500)
+  const SCHEDULE_EVENT_PATTERN = /(중간고사|기말고사|쪽지시험|시험|고사|퀴즈|과제|제출|마감|보고서|레포트|리포트|발표|프로젝트|팀플|보강|휴강|실습|특강|수업|일정|기한|데드라인)/
+  const SCHEDULE_DATE_PATTERN = /(\d{4}[./-]\d{1,2}[./-]\d{1,2}|\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}[./]\d{1,2}|오늘|내일|모레|다음\s*달\s*\d{1,2}\s*일|다다음\s*주|다음\s*주|이번\s*주|다다음주|다음주|이번주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|오전\s*(\d{1,2}|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s*시|오후\s*(\d{1,2}|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s*시|\d{1,2}\s*시|\d{1,2}\s*분|까지|전까지|마감)/
   let liveSummaryTimer = null
   let liveSummaryInFlight = false
+  let liveScheduleTimer = null
+  let liveScheduleInFlight = false
+  const liveScheduleRequestKeys = new Set()
 
   // 파일 트리, 즐겨찾기, 현재 선택 파일 상태입니다.
   const {
@@ -297,11 +303,50 @@ export function useAppState() {
     return JSON.parse(JSON.stringify(transcriptions.value || []))
   }
 
+  const getScheduleCandidateSignature = (items = []) => {
+    const text = items
+      .flatMap((item) => {
+        const segments = Array.isArray(item?.segments) ? item.segments : []
+        return segments.length
+          ? segments.map((segment) => segment?.text || '')
+          : [item?.text || '']
+      })
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!text) return ''
+    const sentences = text
+      .split(/[.!?。！？\n]+/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean)
+
+    return sentences
+      .filter((sentence) => SCHEDULE_EVENT_PATTERN.test(sentence) && SCHEDULE_DATE_PATTERN.test(sentence))
+      .slice(-5)
+      .join(' | ')
+      .slice(-1200)
+  }
+
+  const hasSavedTranscriptSegment = (items = []) => (
+    items.some((item) => (
+      Array.isArray(item?.segments) &&
+      item.segments.some((segment) => segment?.transcript_id || segment?.transcriptId)
+    ))
+  )
+
   // 파일 전환, 녹음 종료, 컴포넌트 해제 시 실시간 요약 타이머를 정리합니다.
   const stopLiveSummaryRefresh = () => {
     if (liveSummaryTimer) {
       clearInterval(liveSummaryTimer)
       liveSummaryTimer = null
+    }
+  }
+
+  const stopLiveScheduleExtraction = () => {
+    if (liveScheduleTimer) {
+      clearTimeout(liveScheduleTimer)
+      liveScheduleTimer = null
     }
   }
 
@@ -376,7 +421,6 @@ export function useAppState() {
       }))
 
     if (items.length === 0) {
-      scheduleExtractionNotice.value = null
       return
     }
 
@@ -413,6 +457,46 @@ export function useAppState() {
     showScheduleExtractionNotice(sessionId, result?.notifications || [])
   }
 
+  const scheduleLiveScheduleExtraction = () => {
+    if (!isRecording.value || !isWorkspaceUuid(activeFileId.value) || !activeRecordingId.value) return
+    const snapshot = cloneTranscriptions()
+    if (!hasSavedTranscriptSegment(snapshot)) return
+
+    const signature = getScheduleCandidateSignature(snapshot)
+    if (!signature) return
+
+    const requestKey = `${activeFileId.value}:${activeRecordingId.value}:${signature}`
+    if (liveScheduleRequestKeys.has(requestKey) || liveScheduleInFlight) return
+
+    stopLiveScheduleExtraction()
+    liveScheduleTimer = setTimeout(async () => {
+      if (liveScheduleRequestKeys.has(requestKey) || liveScheduleInFlight) return
+      liveScheduleInFlight = true
+      try {
+        await extractSchedulesForSession(activeFileId.value, activeRecordingId.value)
+        liveScheduleRequestKeys.add(requestKey)
+      } catch (error) {
+        console.warn('[schedule] live extract failed:', error)
+      } finally {
+        liveScheduleInFlight = false
+      }
+    }, LIVE_SCHEDULE_EXTRACT_DELAY_MS)
+  }
+
+  watch(
+    [
+      isRecording,
+      activeFileId,
+      activeRecordingId,
+      () => transcriptions.value.map((item) => (
+        `${item?.text || ''} ${Array.isArray(item?.segments)
+          ? item.segments.map((segment) => `${segment?.text || ''}:${segment?.transcript_id || segment?.transcriptId || ''}`).join(' ')
+          : ''}`
+      )).join('\n')
+    ],
+    scheduleLiveScheduleExtraction,
+  )
+
   const handleStopRecording = async () => {
     const shouldSaveRecording = isRecording.value
     const initialRecordingSnapshot = cloneTranscriptions()
@@ -425,6 +509,7 @@ export function useAppState() {
     const linkedMaterialName = currentPreviewMaterial.value?.name || ''
 
     stopLiveSummaryRefresh()
+    stopLiveScheduleExtraction()
     if (shouldSaveRecording && isWorkspaceUuid(activeFileId.value)) {
       startFinalRecordingSummary(activeFileId.value, recordingId, { diarizationEnabled: shouldDiarize })
     }
@@ -524,6 +609,7 @@ export function useAppState() {
   // 앱이 내려갈 때 마이크/WebSocket 등 녹음 리소스를 정리합니다.
   onUnmounted(() => {
     stopLiveSummaryRefresh()
+    stopLiveScheduleExtraction()
     stopActiveRecording()
   })
 

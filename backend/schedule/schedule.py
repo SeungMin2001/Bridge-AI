@@ -80,6 +80,40 @@ class ScheduleManualRequest(BaseModel):
 VALID_SCHEDULE_STATUSES = {"pending", "confirmed", "ignored"}
 
 
+def _compact_schedule_text(value: str | None) -> str:
+    return "".join(str(value or "").split()).lower()
+
+
+def _same_schedule_day(left: str | None, right: str | None) -> bool:
+    left_date = parse_due_date(left) if left else None
+    right_date = parse_due_date(right) if right else None
+    if not left_date or not right_date:
+        return False
+    return left_date.date() == right_date.date()
+
+
+def _is_duplicate_schedule_candidate(candidate: dict, existing_schedules: list[dict], recording_id: str | None) -> bool:
+    candidate_source = _compact_schedule_text(candidate.get("source_text"))
+    candidate_title = _compact_schedule_text(candidate.get("title"))
+    candidate_due = candidate.get("due_date")
+
+    for existing in existing_schedules:
+        if recording_id and existing.get("recording_id") not in (None, recording_id):
+            continue
+
+        existing_source = _compact_schedule_text(existing.get("source_text"))
+        if candidate_source and existing_source:
+            if candidate_source == existing_source or candidate_source in existing_source or existing_source in candidate_source:
+                return True
+
+        existing_title = _compact_schedule_text(existing.get("title"))
+        if candidate_title and existing_title and candidate_title == existing_title:
+            if _same_schedule_day(candidate_due, existing.get("due_date")):
+                return True
+
+    return False
+
+
 
 #  녹음 종료 → 전사문에서 일정 자동 추출
 @router.post("/extract")
@@ -131,10 +165,15 @@ async def schedule_extract(req: ScheduleExtractRequest):
         ignored_metadata, 
         threshold=0.85 # 일단 0.85로 설정, 더 높여도도미
     )
+    existing_schedules = await get_schedules_by_session(req.session_id)
 
     # 5. 전사문 출처 매칭 + DB 저장 (알림 대상만)
     notifications = []
     for s in to_notify:
+        if _is_duplicate_schedule_candidate(s, existing_schedules, req.recording_id):
+            logger.info(f"[SCHEDULE] 이미 저장된 일정 후보 제외: {s.get('title')}")
+            continue
+
         schedule_id = str(uuid.uuid4())
 
         source_match = find_source_in_transcripts(s.get("source_text", ""), transcripts)
@@ -166,9 +205,22 @@ async def schedule_extract(req: ScheduleExtractRequest):
             "source_text": s.get("source_text"),
             "status": "pending",
         })
+        existing_schedules.append({
+            "schedule_id": schedule_id,
+            "session_id": req.session_id,
+            "recording_id": req.recording_id,
+            "title": s["title"],
+            "due_date": s.get("due_date"),
+            "source_text": s.get("source_text"),
+            "status": "pending",
+        })
 
     # 6. 자동 무시 일정도 DB에 ignored 상태로 저장 (이력 보존)
     for s in auto_ignored:
+        if _is_duplicate_schedule_candidate(s, existing_schedules, req.recording_id):
+            logger.info(f"[SCHEDULE] 이미 저장된 자동무시 후보 제외: {s.get('title')}")
+            continue
+
         schedule_id = str(uuid.uuid4())
         source_match = find_source_in_transcripts(s.get("source_text", ""), transcripts)
 
