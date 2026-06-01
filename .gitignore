@@ -75,3 +75,14 @@ vector.control
 postgres/
 pgvector/
 backend/data/transcripts/
+
+# PRAG experiment outputs generated on Windows/local runs
+llm_server/PRAG/reports/
+llm_server/PRAG/paper_figures*/
+llm_server/PRAG/canva_assets/
+llm_server/PRAG/epoch_checkpoints/
+llm_server/PRAG/step_checkpoints/
+llm_server/PRAG/prag_train_log_*.json
+llm_server/PRAG/*.partial.jsonl
+outputs/
+test_plot.png
