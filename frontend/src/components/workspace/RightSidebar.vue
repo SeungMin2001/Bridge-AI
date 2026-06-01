@@ -189,7 +189,7 @@ function isErrorAnswer(text = '') {
     || value.includes('All connection attempts failed')
 }
 
-const width = ref(310)
+const width = ref(360)
 const isResizing = ref(false)
 
 const stopWorkspaceChatbotTimer = () => {
@@ -415,9 +415,9 @@ watch(
 
 <style scoped>
 .workspace-right-sidebar {
-  width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
-  min-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
-  max-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
+  width: min(var(--right-sidebar-width, 360px), calc(100vw - 24px));
+  min-width: min(var(--right-sidebar-width, 360px), calc(100vw - 24px));
+  max-width: min(var(--right-sidebar-width, 360px), calc(100vw - 24px));
 }
 
 .workspace-right-sidebar-card {
@@ -459,9 +459,9 @@ watch(
 
 @media (max-width: 1280px) {
   .workspace-right-sidebar {
-    width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
-    min-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
-    max-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
+    width: min(var(--right-sidebar-width, 360px), calc(100vw - 24px));
+    min-width: min(var(--right-sidebar-width, 360px), calc(100vw - 24px));
+    max-width: min(var(--right-sidebar-width, 360px), calc(100vw - 24px));
   }
 }
 

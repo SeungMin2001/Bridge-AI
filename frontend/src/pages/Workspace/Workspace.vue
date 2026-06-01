@@ -70,7 +70,7 @@ const workspaceActiveMainTab = ref('materials')
 const workspaceUnifiedCardRef = ref(null)
 const sourceUploadFileInput = ref(null)
 const miniSourceMenu = ref({ visible: false, x: 0, y: 0, source: null })
-const scriptPaneWidth = ref(50)
+const scriptPaneWidth = ref(40)
 const isScriptPaneResizing = ref(false)
 const selectedMiniSourceIds = ref(new Set())
 const isSourceUploadDialogOpen = ref(false)
@@ -79,7 +79,7 @@ const pendingSourceUploadRecording = ref(null)
 const pendingStoppedRecordingPlayer = ref(null)
 const hydratingFolderFileIds = new Set()
 
-const DEFAULT_SCRIPT_PANE_PERCENT = 50
+const DEFAULT_SCRIPT_PANE_PERCENT = 40
 const MAX_SCRIPT_PANE_PERCENT = 72
 const MIN_SCRIPT_PANE_WIDTH = 280
 const MIN_MAIN_PANE_WIDTH = 340
@@ -1144,7 +1144,7 @@ const activeWorkspaceSource = computed(() => {
           title="홈으로 이동"
           @click="emit('navigateHome')"
         >
-          <img class="workspace-mini-toggle-logo" src="/images/logo.png" alt="" draggable="false" />
+          <img class="workspace-mini-toggle-logo" src="/images/title.png" alt="" draggable="false" />
         </button>
 
         <div class="workspace-mini-actions">
@@ -1466,8 +1466,8 @@ const activeWorkspaceSource = computed(() => {
 }
 
 .workspace-mini-card {
-  --workspace-mini-collapsed-width: 76px;
-  --workspace-mini-expanded-width: 220px;
+  --workspace-mini-collapsed-width: 220px;
+  --workspace-mini-expanded-width: 260px;
   --workspace-mini-bg: var(--copy-bg, #050506);
   --workspace-mini-fg: #f8fafc;
   --workspace-mini-muted: #9ca3af;
@@ -1504,14 +1504,14 @@ const activeWorkspaceSource = computed(() => {
 }
 
 .workspace-mini-toggle {
-  width: 48px;
+  width: 192px;
   height: 48px;
   flex: 0 0 48px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   color: var(--workspace-mini-fg);
   background: transparent;
   box-shadow: none;
@@ -1525,11 +1525,13 @@ const activeWorkspaceSource = computed(() => {
 }
 
 .workspace-mini-toggle-logo {
-  width: 43px;
-  height: 43px;
+  width: 100%;
+  height: auto;
+  max-height: 44px;
   display: block;
-  object-fit: cover;
-  border-radius: 999px;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 0;
   user-select: none;
   pointer-events: none;
 }

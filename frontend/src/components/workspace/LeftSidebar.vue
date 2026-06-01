@@ -73,7 +73,9 @@ let playbackTimer = null
 
 const playbackSpeeds = [1, 1.25, 1.5, 2]
 
-const visibleTranscriptions = computed(() => selectedTranscriptSource.value?.transcriptions || props.transcriptions)
+const visibleTranscriptions = computed(() => (
+  props.isRecording ? props.transcriptions : (selectedTranscriptSource.value?.transcriptions || props.transcriptions)
+))
 const visibleTranscriptionStatus = computed(() => (
   selectedTranscriptSource.value?.transcriptionStatus
   || activePlaybackRecording.value?.transcriptionStatus
@@ -591,6 +593,15 @@ watch(() => props.activeFileName, (nextTitle) => {
   if (!isEditingFileTitle.value) fileTitleDraft.value = nextTitle || ''
 })
 
+watch(() => props.isRecording, (isRecording) => {
+  if (!isRecording) return
+
+  closePlaybackBar()
+  selectedTranscriptSource.value = null
+  activeTab.value = 'voice'
+  transcriptViewResetKey.value += 1
+})
+
 const handleResizerMouseDown = () => {
   isResizing.value = true
   document.body.style.cursor = 'col-resize'
@@ -792,8 +803,8 @@ watch(() => props.recordingSourceRequest, (request) => {
     class="transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden rounded-[24px]"
     :style="embedded
       ? {
-          flex: '0 0 var(--workspace-script-pane-width, 50%)',
-          width: 'var(--workspace-script-pane-width, 50%)',
+          flex: '0 0 var(--workspace-script-pane-width, 40%)',
+          width: 'var(--workspace-script-pane-width, 40%)',
           flexShrink: 0
         }
       : { width: isCollapsed ? '0px' : width + 'px', flexShrink: 0 }"
@@ -825,7 +836,7 @@ watch(() => props.recordingSourceRequest, (request) => {
             title="홈으로 이동"
             @click="emit('navigateHome')"
           >
-            <img class="workspace-file-back-logo" src="/images/logo.png" alt="" draggable="false" />
+            <img class="workspace-file-back-logo" src="/images/Bicorn.png" alt="" draggable="false" />
           </button>
           <input
             v-if="isEditingFileTitle"
@@ -959,6 +970,9 @@ watch(() => props.recordingSourceRequest, (request) => {
             :transcript-source-key="visibleTranscriptSourceKey"
             :playback-current-seconds="activePlaybackRecording ? playbackCurrentSeconds : null"
             :recording-mode="recordingMode"
+            :is-recording="isRecording"
+            :is-recording-paused="isRecordingPaused"
+            :recording-time-text="recordingTimeText"
             :diarization-enabled="diarizationEnabled"
             :diarization-status="diarizationStatus"
             :transcription-status="visibleTranscriptionStatus"
@@ -1092,8 +1106,8 @@ watch(() => props.recordingSourceRequest, (request) => {
 
 .workspace-left-embedded {
   position: relative;
-  flex: 0 0 var(--workspace-script-pane-width, 50%) !important;
-  width: var(--workspace-script-pane-width, 50%) !important;
+  flex: 0 0 var(--workspace-script-pane-width, 40%) !important;
+  width: var(--workspace-script-pane-width, 40%) !important;
   min-width: 0;
   overflow: visible !important;
   border-radius: 0 !important;
@@ -1166,8 +1180,8 @@ watch(() => props.recordingSourceRequest, (request) => {
 }
 
 .workspace-file-back-btn {
-  width: 32px;
-  height: 32px;
+  width: 22px;
+  height: 22px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;

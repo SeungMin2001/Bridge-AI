@@ -4,7 +4,7 @@ import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useChat } from '../../composables/useChat'
 import LoadingHourglass from '../ui/LoadingHourglass.vue'
 
-const { selectWord } = useChat()
+const { selectedWordData, selectWord } = useChat()
 
 const props = defineProps({
   transcriptions: { type: Array, default: () => [] },
@@ -15,6 +15,9 @@ const props = defineProps({
   diarizationStatus: { type: String, default: 'idle' },
   transcriptionStatus: { type: String, default: '' },
   transcriptionError: { type: String, default: '' },
+  isRecording: { type: Boolean, default: false },
+  isRecordingPaused: { type: Boolean, default: false },
+  recordingTimeText: { type: String, default: '00:00:00' },
   canStartTranscription: { type: Boolean, default: false },
   isTranscriptionSubmitting: { type: Boolean, default: false },
   variant: { type: String, default: 'sidebar' },
@@ -56,6 +59,17 @@ const filteredTranscriptions = computed(() => (
     String(item.text || '').toLowerCase().includes(transSearch.value.toLowerCase())
   ))
 ))
+const normalizeClickableWord = (word = '') => (
+  String(word)
+    .replace(/^[\s"'“”‘’()[\]{}.,!?;:，。！？、]+|[\s"'“”‘’()[\]{}.,!?;:，。！？、]+$/g, '')
+    .trim()
+    .toLowerCase()
+)
+const isLiveRecordingWaiting = computed(() => (
+  props.isRecording && props.transcriptions.length === 0
+))
+const selectedTranscriptWord = computed(() => normalizeClickableWord(selectedWordData.value?.word || ''))
+const activeTranscriptWordKey = ref('')
 
 const playEmptyTranscriptAnimation = () => {
   emptyTranscriptAnimationRef.value?.playFromStart?.()
@@ -260,10 +274,39 @@ const getTranscriptionTime = (transcription = {}) => {
   return transcription.time || ''
 }
 
-// 단어 클릭 → 전역 상태로 전달하여 메인 컨텐츠 영역에 카드로 표시
-const handleWordClick = (e, word, context = '') => {
-  e.stopPropagation()
+const getWordSelectKey = (word = '', context = '') => `${normalizeClickableWord(word)}::${context}`
+let lastTouchWordSelectKey = ''
+let lastTouchWordSelectAt = 0
+
+const isSelectedTranscriptWord = (word = '', context = '') => {
+  const key = getWordSelectKey(word, context)
+  if (activeTranscriptWordKey.value) return activeTranscriptWordKey.value === key
+  return selectedTranscriptWord.value && normalizeClickableWord(word) === selectedTranscriptWord.value
+}
+
+const selectTranscriptWord = (event, word, context = '') => {
+  event?.stopPropagation?.()
+  activeTranscriptWordKey.value = getWordSelectKey(word, context)
   selectWord(word, context)
+}
+
+// 단어 클릭/터치 → 전역 상태로 전달하여 메인 컨텐츠 영역에 카드로 표시
+const handleWordClick = (event, word, context = '') => {
+  const key = getWordSelectKey(word, context)
+  if (key === lastTouchWordSelectKey && Date.now() - lastTouchWordSelectAt < 450) {
+    event?.stopPropagation?.()
+    return
+  }
+
+  selectTranscriptWord(event, word, context)
+}
+
+const handleWordPointerUp = (event, word, context = '') => {
+  if (event.pointerType === 'mouse') return
+
+  lastTouchWordSelectKey = getWordSelectKey(word, context)
+  lastTouchWordSelectAt = Date.now()
+  selectTranscriptWord(event, word, context)
 }
 
 const speakerProfiles = [
@@ -431,9 +474,17 @@ const handleToolbarTitleCompositionEnd = () => {
     <div 
       ref="scrollContainer"
       class="transcript-list flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-4"
-    >
+      >
       <template v-if="filteredTranscriptions.length === 0">
-        <div v-if="isUploadedTranscriptionProcessing" class="transcription-preparing-state" role="status" aria-live="polite">
+        <div v-if="isLiveRecordingWaiting" class="recording-in-progress-state" role="status" aria-live="polite">
+          <div class="recording-in-progress-icon" :class="{ 'is-paused': isRecordingPaused }">
+            <span class="material-symbols-outlined">graphic_eq</span>
+          </div>
+          <strong>{{ isRecordingPaused ? '녹음 일시정지 중입니다' : '녹음중입니다' }}</strong>
+          <p>녹음 종료를 누르면 전사 시작 화면으로 돌아갑니다.</p>
+          <span class="recording-in-progress-time tabular-nums">{{ recordingTimeText }}</span>
+        </div>
+        <div v-else-if="isUploadedTranscriptionProcessing" class="transcription-preparing-state" role="status" aria-live="polite">
           <LoadingHourglass
             class="transcription-preparing-animation"
             src="/animations/Loading%20Yeti.json"
@@ -537,7 +588,8 @@ const handleToolbarTitleCompositionEnd = () => {
                   v-for="(word, wIdx) in seg.text.split(' ')"
                   :key="wIdx"
                   class="clickable-word"
-                  :class="{ 'search-highlighted-word': isSearchHighlightedWord(word) }"
+                  :class="{ 'search-highlighted-word': isSearchHighlightedWord(word), 'is-selected-word': isSelectedTranscriptWord(word, seg.text) }"
+                  @pointerup="(e) => handleWordPointerUp(e, word, seg.text)"
                   @click="(e) => handleWordClick(e, word, seg.text)"
                 >{{ word }}&nbsp;</span>
               </span>
@@ -547,7 +599,8 @@ const handleToolbarTitleCompositionEnd = () => {
                 v-for="(word, wIdx) in t.text.split(' ')"
                 :key="wIdx"
                 class="clickable-word"
-                :class="{ 'search-highlighted-word': isSearchHighlightedWord(word) }"
+                :class="{ 'search-highlighted-word': isSearchHighlightedWord(word), 'is-selected-word': isSelectedTranscriptWord(word, t.text) }"
+                @pointerup="(e) => handleWordPointerUp(e, word, t.text)"
                 @click="(e) => handleWordClick(e, word, t.text)"
               >{{ word }}&nbsp;</span>
             </template>
@@ -664,10 +717,27 @@ const handleToolbarTitleCompositionEnd = () => {
   background: rgba(254, 240, 138, 0.9);
 }
 
+.voice-message-bubble .clickable-word.is-selected-word {
+  color: #ffffff;
+  background: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+}
+
+.voice-message-bubble .clickable-word.is-selected-word:hover {
+  color: #ffffff;
+  background: #1d4ed8;
+}
+
+.segment-confirmed .clickable-word.is-selected-word {
+  color: #ffffff;
+  animation: none;
+}
+
 .voice-message-bubble .clickable-word:active {
   background-color: rgba(226, 224, 232, 0.86);
 }
 
+.recording-in-progress-state,
 .diarization-preparing-state,
 .transcription-preparing-state,
 .transcription-failed-state {
@@ -680,6 +750,37 @@ const handleToolbarTitleCompositionEnd = () => {
   padding: 28px 18px;
   color: #475569;
   text-align: center;
+}
+
+.recording-in-progress-icon {
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  color: #ffffff;
+  background: #111318;
+  animation: recordingStatusPulse 1.35s ease-in-out infinite;
+}
+
+.recording-in-progress-icon.is-paused {
+  color: #ef4444;
+  background: #fff1f2;
+  border: 1px solid #ffe4e6;
+  animation-play-state: paused;
+}
+
+.recording-in-progress-icon .material-symbols-outlined {
+  font-size: 27px;
+}
+
+.recording-in-progress-time {
+  margin-top: 2px;
+  color: #111827;
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0.01em;
 }
 
 .transcription-preparing-animation {
@@ -720,6 +821,7 @@ const handleToolbarTitleCompositionEnd = () => {
 }
 
 .diarization-preparing-state strong,
+.recording-in-progress-state strong,
 .transcription-preparing-state strong,
 .transcription-failed-state strong {
   color: #1f2937;
@@ -728,6 +830,7 @@ const handleToolbarTitleCompositionEnd = () => {
 }
 
 .diarization-preparing-state p,
+.recording-in-progress-state p,
 .transcription-preparing-state p,
 .transcription-failed-state p {
   margin: 0;
@@ -770,6 +873,11 @@ const handleToolbarTitleCompositionEnd = () => {
 @keyframes diarizationPulse {
   0%, 100% { transform: scale(1); opacity: 0.82; }
   50% { transform: scale(1.05); opacity: 1; }
+}
+
+@keyframes recordingStatusPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(17, 19, 24, 0.18); }
+  50% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(17, 19, 24, 0); }
 }
 
 @keyframes confirmSegment {
@@ -977,6 +1085,12 @@ const handleToolbarTitleCompositionEnd = () => {
 .transcript-panel-content .voice-message-bubble.is-content .clickable-word.search-highlighted-word {
   color: #2f3742;
   background: #d7e2ec;
+  box-shadow: none;
+}
+
+.transcript-panel-content .voice-message-bubble.is-content .clickable-word.is-selected-word {
+  color: #ffffff;
+  background: #2563eb;
   box-shadow: none;
 }
 

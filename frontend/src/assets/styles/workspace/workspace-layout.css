@@ -71,6 +71,8 @@ aside:last-of-type {
   padding: 0 2px;
   transition: all 0.1s;
   display: inline-block;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .clickable-word:hover {

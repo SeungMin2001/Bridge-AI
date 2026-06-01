@@ -26,9 +26,9 @@
 }
 
 .home-sidebar .sidebar-logo-box {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   overflow: hidden;
   background: transparent;
   display: flex;

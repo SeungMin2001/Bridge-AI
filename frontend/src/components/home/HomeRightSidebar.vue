@@ -83,6 +83,55 @@ const findSearchMatches = (text = '', query = '') => {
   return matches
 }
 
+const buildFlexibleTextIndex = (text = '') => {
+  const normalizedParts = []
+  const sourceMap = []
+  let previousWasSpace = true
+
+  const sourceText = String(text || '')
+  for (let index = 0; index < sourceText.length; index += 1) {
+    const char = sourceText[index]
+    if (/\s/.test(char)) {
+      if (!previousWasSpace && normalizedParts.length > 0) {
+        normalizedParts.push(' ')
+        sourceMap.push(index)
+        previousWasSpace = true
+      }
+      continue
+    }
+
+    normalizedParts.push(char.toLowerCase())
+    sourceMap.push(index)
+    previousWasSpace = false
+  }
+
+  if (normalizedParts.at(-1) === ' ') {
+    normalizedParts.pop()
+    sourceMap.pop()
+  }
+
+  return {
+    text: normalizedParts.join(''),
+    sourceMap
+  }
+}
+
+const findFlexibleTextRange = (source = '', target = '') => {
+  const normalizedSource = buildFlexibleTextIndex(source)
+  const normalizedTarget = buildFlexibleTextIndex(target).text
+  if (!normalizedTarget) return null
+
+  const startIndex = normalizedSource.text.indexOf(normalizedTarget)
+  if (startIndex < 0) return null
+
+  const endIndex = startIndex + normalizedTarget.length - 1
+  const start = normalizedSource.sourceMap[startIndex]
+  const last = normalizedSource.sourceMap[endIndex]
+  if (start == null || last == null) return null
+
+  return { start, end: last + 1 }
+}
+
 const searchMatches = computed(() => findSearchMatches(script.value, referenceSearch.value))
 const hasReferenceSearchTerm = computed(() => referenceSearch.value.trim().length > 0)
 const hasReferenceSearchResults = computed(() => hasReferenceSearchTerm.value && searchMatches.value.length > 0)
@@ -112,9 +161,19 @@ const highlightedScript = computed(() => {
 
   const target = String(props.referenceData?.raw?.text || '').trim()
 
-  if (target && fullText.includes(target)) {
-    const highlightedTarget = `<mark class="home-reference-highlight">${escapeHtml(target)}</mark>`
-    return fullText.split(target).map((part) => escapeHtml(part)).join(highlightedTarget)
+  if (target) {
+    const exactStart = fullText.indexOf(target)
+    const range = exactStart >= 0
+      ? { start: exactStart, end: exactStart + target.length }
+      : findFlexibleTextRange(fullText, target)
+
+    if (range) {
+      return [
+        escapeHtml(fullText.slice(0, range.start)),
+        `<mark class="home-reference-highlight">${escapeHtml(fullText.slice(range.start, range.end))}</mark>`,
+        escapeHtml(fullText.slice(range.end))
+      ].join('')
+    }
   }
 
   return escapeHtml(fullText)
