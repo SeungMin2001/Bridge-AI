@@ -299,21 +299,7 @@ watch(
               fallback-icon="smart_toy"
             />
           </div>
-          <h3 class="text-[18px] font-bold text-[#1d1d1f] mb-8">무엇을 도와드릴까요?</h3>
-          <div class="w-full flex flex-col gap-3 mb-10">
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left">
-              <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">description</span>
-              <span class="text-[13px] font-medium text-[#1d1d1f]">강의 노트 요약하기</span>
-            </button>
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left" @click="emit('update:aiInput', '핵심 개념 퀴즈 생성해줘')">
-              <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">quiz</span>
-              <span class="text-[13px] font-medium text-[#1d1d1f]">핵심 개념 퀴즈 생성</span>
-            </button>
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left">
-              <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">translate</span>
-              <span class="text-[13px] font-medium text-[#1d1d1f]">외국어 자료 번역</span>
-            </button>
-          </div>
+          <h3 class="text-[18px] font-bold text-[#1d1d1f] mb-2">무엇을 도와드릴까요?</h3>
         </div>
 
         <div v-else key="chat-history" class="flex-1 flex flex-col gap-6 mb-4 overflow-y-auto custom-scrollbar px-1" ref="scrollContainer">
