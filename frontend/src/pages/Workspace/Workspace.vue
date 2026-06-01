@@ -1093,6 +1093,9 @@ const activeWorkspaceSource = computed(() => {
           >
             <div class="workspace-schedule-notice-item-info">
               <strong>{{ item.title }}</strong>
+              <p v-if="item.description || item.sourceText">
+                {{ item.description || item.sourceText }}
+              </p>
               <span>{{ formatScheduleNoticeDate(item.dueDate) }}</span>
             </div>
             <div class="workspace-schedule-notice-item-actions">
@@ -2348,6 +2351,7 @@ const activeWorkspaceSource = computed(() => {
 }
 
 .workspace-schedule-notice-item-info strong,
+.workspace-schedule-notice-item-info p,
 .workspace-schedule-notice-item-info span {
   display: block;
   overflow-wrap: anywhere;
@@ -2365,6 +2369,18 @@ const activeWorkspaceSource = computed(() => {
   color: #64748b;
   font-size: 12px;
   font-weight: 800;
+}
+
+.workspace-schedule-notice-item-info p {
+  display: -webkit-box;
+  margin: 5px 0 0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .workspace-schedule-notice-item-actions {
