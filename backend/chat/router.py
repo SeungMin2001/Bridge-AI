@@ -5,6 +5,7 @@
 """
 
 import json
+import os
 import time
 
 from fastapi import APIRouter
@@ -20,6 +21,13 @@ from chat.llm_client import EmptyLLMResponse, complete_answer, set_llm_url, stre
 
 
 router = APIRouter(tags=["chat"])
+WORD_EXPLANATION_MAX_TOKENS = int(os.getenv("CHAT_WORD_EXPLANATION_MAX_TOKENS", "64"))
+WORD_EXPLANATION_SYSTEM_PROMPT = (
+    "너는 전사 단어를 빠르게 설명하는 한국어 학습 조교다. "
+    "답변은 한 문장으로, 가능한 80자 안팎으로 작성한다. "
+    "전사 문맥이 있으면 문맥상 의미를 우선하고, 없으면 일반적인 뜻을 쉽게 설명한다. "
+    "citation, 출처 목록, 참고자료 문구는 쓰지 않는다."
+)
 
 
 class ChatRequest(BaseModel):
@@ -34,6 +42,8 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     # 왼쪽 사이드바에서 고른 PDF/녹음본만 AI 채팅 근거로 쓰기 위한 필터.
     source_filter: dict | None = None
+    # 키워드 팝오버처럼 RAG 검색보다 즉답이 중요한 경량 요청을 구분한다.
+    purpose: str | None = None
 
 
 class RegisterRequest(BaseModel):
@@ -45,6 +55,15 @@ class RegisterRequest(BaseModel):
 def _global_chat_scope() -> tuple[None, None]:
     """AI 질문은 파일 선택과 무관하게 모든 전사문/PDF 자료를 검색합니다."""
     return None, None
+
+
+def _is_word_explanation_request(req: ChatRequest) -> bool:
+    """전사 키워드 설명 팝오버는 RAG 검색 없이 짧게 즉답합니다."""
+    purpose = str(req.purpose or "").strip().lower().replace("-", "_")
+    if purpose in {"word_explanation", "word_insight", "keyword_explanation", "keyword_insight"}:
+        return True
+    question = str(req.question or "")
+    return "단어:" in question and ("뜻" in question or "의미" in question) and "1문장" in question
 
 
 @router.post("/register-llm")
@@ -61,7 +80,10 @@ async def chat(req: ChatRequest):
     """
     print(f"[CHAT] 요청 수신: {req.question}")
     try:
-        if is_smalltalk_question(req.question):
+        is_word_explanation = _is_word_explanation_request(req)
+        if is_word_explanation:
+            prompt, citations = req.question, []
+        elif is_smalltalk_question(req.question):
             prompt, citations = req.question, []
         else:
             search_session_id, search_source_filter = _global_chat_scope()
@@ -69,7 +91,12 @@ async def chat(req: ChatRequest):
             # 해당 파일 PDF는 누락된 인덱스가 있으면 증분 보강만 수행합니다.
             await ensure_material_rag_for_chat(req.session_id, req.source_filter)
             prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
-        answer = await complete_answer(prompt, None)
+        answer = await complete_answer(
+            prompt,
+            None,
+            max_tokens=WORD_EXPLANATION_MAX_TOKENS if is_word_explanation else None,
+            system_prompt=WORD_EXPLANATION_SYSTEM_PROMPT if is_word_explanation else None,
+        )
         if not answer:
             answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
         return {"thinking": "", "answer": answer, "citations": citations}
@@ -84,7 +111,10 @@ async def chat_stream(req: ChatRequest):
     request_started_at = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
 
-    if is_smalltalk_question(req.question):
+    is_word_explanation = _is_word_explanation_request(req)
+    if is_word_explanation:
+        prompt, citations = req.question, []
+    elif is_smalltalk_question(req.question):
         prompt, citations = req.question, []
     else:
         search_session_id, search_source_filter = _global_chat_scope()
@@ -108,6 +138,8 @@ async def chat_stream(req: ChatRequest):
                 prompt,
                 None,
                 thinking=req.is_thinking,
+                max_tokens=WORD_EXPLANATION_MAX_TOKENS if is_word_explanation else None,
+                system_prompt=WORD_EXPLANATION_SYSTEM_PROMPT if is_word_explanation else None,
             ):
                 emitted_content = True
                 if not first_token_logged:

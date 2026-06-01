@@ -74,13 +74,24 @@ DIARIZE_URL = os.getenv("DIARIZE_URL", "http://localhost:8003/diart/raw")
 DIARIZE_ENABLED = os.getenv("DIARIZE_ENABLED", "true").lower() == "true"
 
 
-CHUNK_SIZE = 240000  # ~2.5초 (체감 응답 빠르게)
 CLIENT_AUDIO_SAMPLE_RATE = 48000
 CLIENT_AUDIO_SAMPLE_WIDTH = 2
 CLIENT_AUDIO_CHANNELS = 1
 DIARIZE_SAMPLE_RATE = 16000
 DIARIZE_BOOTSTRAP_SECONDS = 8
-# 신창영: 수정 이유 - 전사는 2.5초 단위로 즉시 보내고, 화자분리는 별도 창 길이로 모아 분석하기 위해 분리 가능한 설정으로 둡니다.
+
+
+def _env_float(name: str, default: float) -> float:
+    """환경변수 숫자 파싱 실패 시 안전한 기본값을 사용합니다."""
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+STT_CHUNK_SECONDS = max(0.8, _env_float("STT_CHUNK_SECONDS", 2.0))
+CHUNK_SIZE = int(CLIENT_AUDIO_SAMPLE_RATE * CLIENT_AUDIO_SAMPLE_WIDTH * CLIENT_AUDIO_CHANNELS * STT_CHUNK_SECONDS)
+# 신창영: 수정 이유 - 전사는 짧은 창 단위로 즉시 보내고, 화자분리는 별도 창 길이로 모아 분석하기 위해 분리 가능한 설정으로 둡니다.
 DIARIZE_WINDOW_SECONDS = float(os.getenv("DIARIZE_WINDOW_SECONDS", DIARIZE_BOOTSTRAP_SECONDS))
 DIARIZE_BUFFER_SIZE = int(DIARIZE_SAMPLE_RATE * 4 * DIARIZE_WINDOW_SECONDS)  # float32 16kHz 기준 N초
 DIARIZE_TIMEOUT_SECONDS = float(os.getenv("DIARIZE_TIMEOUT_SECONDS", "60"))

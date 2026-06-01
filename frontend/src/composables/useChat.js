@@ -12,6 +12,10 @@ const citePopoverPos = ref({ x: 0, y: 0 })
 const selectedWordData = ref(null)
 const isWordCardVisible = ref(false)
 let wordInsightRequestId = 0
+let wordInsightAbortController = null
+const wordInsightCache = new Map()
+const WORD_INSIGHT_CACHE_LIMIT = 80
+const WORD_INSIGHT_CONTEXT_CHARS = 220
 
 // 전사 단어를 클릭했을 때 보여줄 임시 설명 사전입니다.
 const WORD_EXPLANATIONS = {
@@ -34,40 +38,58 @@ const cleanSelectedWord = (word = '') => (
 
 const buildWordExplanationQuestion = (word, context = '') => {
   const contextText = context
-    ? `\n이 단어가 나온 전사 문맥: "${context}"`
+    ? `\n전사 문맥: "${context}"`
     : ''
 
-  return `"${word}"라는 단어의 뜻을 한국어로 쉽게 설명해줘.${contextText}\n답변은 1~2문장으로 짧게 하고, 문맥에서의 의미가 있으면 그 의미를 우선 설명해줘.`
+  return `단어: "${word}"${contextText}\n이 단어의 뜻을 한국어로 쉽게 설명해줘. 답변은 문맥상 의미를 우선해서 1문장으로 짧게 작성해줘.`
 }
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const normalizeWordInsightContext = (context = '') => (
+  String(context || '').replace(/\s+/g, ' ').trim().slice(0, WORD_INSIGHT_CONTEXT_CHARS)
+)
 
-const appendWordInsightText = async (word, text, requestId) => {
-  for (const char of text) {
-    if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return false
+const getWordInsightCacheKey = (word, context = '') => (
+  `${cleanSelectedWord(word).toLowerCase()}::${normalizeWordInsightContext(context).toLowerCase()}`
+)
 
-    selectedWordData.value = {
-      ...selectedWordData.value,
-      desc: `${selectedWordData.value?.desc || ''}${char}`,
-      source: 'AI 분석 결과',
-      isLoading: true,
-      error: ''
-    }
+const rememberWordInsight = (cacheKey, text, source = 'AI 분석 결과') => {
+  const trimmedText = String(text || '').trim()
+  if (!cacheKey || !trimmedText) return
+  if (wordInsightCache.has(cacheKey)) wordInsightCache.delete(cacheKey)
+  wordInsightCache.set(cacheKey, {
+    desc: trimmedText,
+    source: source || 'AI 분석 결과'
+  })
+  while (wordInsightCache.size > WORD_INSIGHT_CACHE_LIMIT) {
+    wordInsightCache.delete(wordInsightCache.keys().next().value)
+  }
+}
 
-    await wait(14)
+const appendWordInsightText = (word, text, requestId) => {
+  if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return false
+  if (!text) return true
+
+  selectedWordData.value = {
+    ...selectedWordData.value,
+    desc: `${selectedWordData.value?.desc || ''}${text}`,
+    source: 'AI 분석 결과',
+    isLoading: true,
+    error: ''
   }
 
   return true
 }
 
-const streamWordExplanation = async (word, context, requestId) => {
+const streamWordExplanation = async (word, context, requestId, cacheKey, signal) => {
   try {
     const response = await fetch('/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({
         question: buildWordExplanationQuestion(word, context),
-        is_thinking: false
+        is_thinking: false,
+        purpose: 'word_explanation'
       })
     })
 
@@ -97,7 +119,7 @@ const streamWordExplanation = async (word, context, requestId) => {
         const data = JSON.parse(payload)
         if (data.type === 'token' && data.token) {
           receivedText += data.token
-          const shouldContinue = await appendWordInsightText(word, data.token, requestId)
+          const shouldContinue = appendWordInsightText(word, data.token, requestId)
           if (!shouldContinue) return
         } else if (data.type === 'error') {
           throw new Error(data.error || 'AI 응답 중 오류가 발생했습니다.')
@@ -110,6 +132,7 @@ const streamWordExplanation = async (word, context, requestId) => {
     }
 
     if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return
+    rememberWordInsight(cacheKey, receivedText)
 
     selectedWordData.value = {
       ...selectedWordData.value,
@@ -119,6 +142,7 @@ const streamWordExplanation = async (word, context, requestId) => {
       error: ''
     }
   } catch (error) {
+    if (error?.name === 'AbortError') return
     if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return
 
     selectedWordData.value = {
@@ -173,21 +197,39 @@ export function useChat() {
     if (!cleanWord) return
 
     const requestId = ++wordInsightRequestId
-    const data = WORD_EXPLANATIONS[cleanWord] || {
-      desc: "",
-      source: "AI 분석 결과"
-    }
+    const cacheKey = getWordInsightCacheKey(cleanWord, context)
+    const cachedInsight = wordInsightCache.get(cacheKey)
+    const data = WORD_EXPLANATIONS[cleanWord]
+
+    wordInsightAbortController?.abort()
+    wordInsightAbortController = null
 
     selectedWordData.value = {
       word: cleanWord,
-      desc: data.desc,
-      source: data.source,
-      isLoading: true,
+      desc: cachedInsight?.desc || data?.desc || "",
+      source: cachedInsight?.source || data?.source || "AI 분석 결과",
+      isLoading: !cachedInsight && !data?.desc,
       error: ''
     }
     isWordCardVisible.value = true
 
-    streamWordExplanation(cleanWord, context, requestId)
+    if (cachedInsight || data?.desc) {
+      if (data?.desc) rememberWordInsight(cacheKey, data.desc, data.source)
+      return
+    }
+
+    wordInsightAbortController = new AbortController()
+    streamWordExplanation(
+      cleanWord,
+      context,
+      requestId,
+      cacheKey,
+      wordInsightAbortController.signal
+    ).finally(() => {
+      if (requestId === wordInsightRequestId) {
+        wordInsightAbortController = null
+      }
+    })
   }
 
   // 선택된 단어 카드를 잠시 감춥니다.
