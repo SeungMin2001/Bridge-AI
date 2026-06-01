@@ -1144,7 +1144,7 @@ const activeWorkspaceSource = computed(() => {
           title="홈으로 이동"
           @click="emit('navigateHome')"
         >
-          <img class="workspace-mini-toggle-logo" src="/images/title.png" alt="" draggable="false" />
+          <img class="workspace-mini-toggle-logo" src="/images/Bicorn.png" alt="" draggable="false" />
         </button>
 
         <div class="workspace-mini-actions">

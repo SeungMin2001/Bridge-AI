@@ -357,7 +357,7 @@ onUnmounted(() => {
   >
     <div class="copy-rail-inner" aria-label="주 메뉴">
       <button v-if="showRailLogo" class="copy-rail-logo" type="button" aria-label="홈" @click="emit('navigate', 'home')">
-        <img class="copy-rail-logo-img" src="/images/title.png" alt="" draggable="false" />
+        <img class="copy-rail-logo-img" src="/images/Bicorn.png" alt="" draggable="false" />
       </button>
 
       <nav v-if="showRailNav" class="copy-rail-nav">
@@ -704,7 +704,7 @@ onUnmounted(() => {
 .copy-rail-logo-img {
   width: 100%;
   height: auto;
-  max-height: 24px;
+  max-height: 65px;
   display: block;
   object-fit: contain;
   object-position: center;
