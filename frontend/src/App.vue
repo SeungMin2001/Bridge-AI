@@ -34,6 +34,7 @@ const {
   summaryNotes,
   aiInput,
   dismissScheduleExtractionNotice,
+  extractSchedulesForSession,
   confirmAndSyncToNotion,
   ignoreSchedule,
   handleFileTreeUpdate,
@@ -90,6 +91,14 @@ function handleScheduleWorkspaceOpen(item = {}) {
   }
 
   navigateTo('workspace')
+}
+
+async function handleExtractSchedulesRequest({ sessionId = '', recordingId = '' } = {}) {
+  try {
+    await extractSchedulesForSession(sessionId, recordingId)
+  } catch (error) {
+    console.error('[schedule] extract after uploaded transcription failed:', error)
+  }
 }
 </script>
 
@@ -165,6 +174,7 @@ function handleScheduleWorkspaceOpen(item = {}) {
     @pauseRecording="pauseRecording"
     @resumeRecording="resumeRecording"
     @stopRecording="stopRecording"
+    @extractSchedules="handleExtractSchedulesRequest"
     @generateMaterialSummary="generateMaterialSummaryForSource"
     @generateRecordingSummary="generateRecordingSummaryForSource"
     @deleteSummary="deleteSummary"

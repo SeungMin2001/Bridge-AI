@@ -218,27 +218,63 @@ def _escape_control_chars_in_json_strings(text: str) -> str:
     return "".join(result)
 
 
-SCHEDULE_EVENT_KEYWORDS = (
+ACADEMIC_EVENT_KEYWORDS = (
     "과제", "제출", "마감", "보고서", "레포트", "리포트",
-    "시험", "고사", "퀴즈", "발표", "프로젝트", "회의",
-    "수업", "보강", "실습"
+    "시험", "고사", "중간고사", "기말고사", "퀴즈", "쪽지시험",
+    "발표", "프로젝트", "팀플", "회의",
+    "수업", "보강", "휴강", "실습", "특강"
+)
+
+GENERIC_SCHEDULE_KEYWORDS = (
+    "일정", "기한", "데드라인"
+)
+
+SCHEDULE_EVENT_KEYWORDS = (
+    *ACADEMIC_EVENT_KEYWORDS,
+    *GENERIC_SCHEDULE_KEYWORDS,
 )
 
 TITLE_GENERIC_WORDS = (
     "일정", "과제", "제출", "마감", "보고서", "레포트", "리포트",
     "시험", "고사", "퀴즈", "발표", "프로젝트", "회의",
-    "수업", "보강", "실습", "중간", "기말", "중간고사", "기말고사"
+    "수업", "보강", "휴강", "실습", "특강", "중간", "기말",
+    "중간고사", "기말고사", "기한", "데드라인", "날짜"
 )
 
 SCHEDULE_DATE_HINT_PATTERN = re.compile(
     r"(\d{4}[./-]\d{1,2}[./-]\d{1,2}|"
+    r"\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일|"
     r"\d{1,2}\s*월\s*\d{1,2}\s*일|"
-    r"오늘|내일|모레|다음\s*주|이번\s*주|"
+    r"\d{1,2}[./]\d{1,2}|"
+    r"오늘|내일|모레|다음\s*달\s*\d{1,2}\s*일|"
+    r"다다음\s*주|다음\s*주|이번\s*주|다다음주|다음주|이번주|"
+    r"월요일|화요일|수요일|목요일|금요일|토요일|일요일|"
     r"오전\s*\d{1,2}\s*시|오후\s*\d{1,2}\s*시|"
-    r"\d{1,2}\s*시|\d{1,2}\s*분|까지|마감)"
+    r"\d{1,2}\s*시|"
+    r"오전\s*(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s*시|"
+    r"오후\s*(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s*시|"
+    r"\d{1,2}\s*분|까지|전까지|마감)"
 )
 
-TIME_HINT_PATTERN = re.compile(r"(오전|오후)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?")
+TIME_HINT_PATTERN = re.compile(
+    r"(오전|오후)?\s*(\d{1,2}|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s*시"
+    r"(?:\s*(\d{1,2})\s*분)?"
+)
+
+KOREAN_HOUR_WORDS = {
+    "한": 1,
+    "두": 2,
+    "세": 3,
+    "네": 4,
+    "다섯": 5,
+    "여섯": 6,
+    "일곱": 7,
+    "여덟": 8,
+    "아홉": 9,
+    "열": 10,
+    "열한": 11,
+    "열두": 12,
+}
 
 
 WEEKDAY_INDEX = {
@@ -297,9 +333,88 @@ def _is_non_academic(source_text: str, title: str, description: str = "") -> boo
     """
     source_lower = source_text.lower()
     has_non_academic = any(kw in source_lower for kw in NON_ACADEMIC_KEYWORDS)
-    has_academic = any(kw in source_lower for kw in SCHEDULE_EVENT_KEYWORDS)
+    has_academic = any(kw in source_lower for kw in ACADEMIC_EVENT_KEYWORDS)
     # 비학사 키워드가 있고 학사 키워드가 없으면 비학사 일정
     return has_non_academic and not has_academic
+
+
+def _split_schedule_sentences(text: str) -> list[str]:
+    """전사문을 일정 후보를 찾기 좋은 짧은 문장 단위로 나눈다."""
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not normalized:
+        return []
+
+    sentences = re.findall(r"[^.!?。！？\n]+(?:[.!?。！？]+|$)", normalized)
+    return [sentence.strip() for sentence in sentences if sentence.strip()]
+
+
+def _infer_event_type_from_text(text: str) -> str:
+    """원문 키워드로 일정 유형을 보수적으로 분류한다."""
+    if any(keyword in text for keyword in ("중간고사", "기말고사", "시험", "고사", "퀴즈", "쪽지시험")):
+        return "시험"
+    if any(keyword in text for keyword in ("과제", "제출", "마감", "보고서", "레포트", "리포트", "기한", "데드라인")):
+        return "과제"
+    if any(keyword in text for keyword in ("프로젝트", "팀플", "설계")):
+        return "프로젝트"
+    if any(keyword in text for keyword in ("발표", "세미나", "프레젠테이션")):
+        return "발표"
+    return "기타"
+
+
+def _clean_rule_title(title: str) -> str:
+    cleaned = re.sub(r"\s+", " ", title).strip(" .,!?;:，。！？、")
+    cleaned = re.sub(r"(은|는|이|가|을|를|의|에|으로|로|도|만|까지|전까지)$", "", cleaned).strip()
+    return cleaned[:48].strip() or "일정"
+
+
+def _infer_rule_title(sentence: str, event_type: str) -> str:
+    """명시적 일정 문장에서 화면에 표시할 간결한 제목을 뽑는다."""
+    title_patterns = (
+        r"([A-Za-z0-9+#.\s가-힣]{0,24}?(?:중간고사|기말고사|쪽지시험|퀴즈|시험|고사))",
+        r"([A-Za-z0-9+#.\s가-힣]{0,24}?(?:과제|보고서|레포트|리포트|제출|마감))",
+        r"([A-Za-z0-9+#.\s가-힣]{0,24}?(?:프로젝트|팀플|설계))",
+        r"([A-Za-z0-9+#.\s가-힣]{0,24}?(?:중간발표|최종발표|발표|세미나|프레젠테이션))",
+        r"([A-Za-z0-9+#.\s가-힣]{0,24}?(?:보강|휴강|실습|특강|수업|일정))",
+    )
+    for pattern in title_patterns:
+        match = re.search(pattern, sentence)
+        if match:
+            return _clean_rule_title(match.group(1))
+
+    return {
+        "시험": "시험 일정",
+        "과제": "과제 제출",
+        "프로젝트": "프로젝트 일정",
+        "발표": "발표 일정",
+    }.get(event_type, "일정")
+
+
+def _extract_rule_based_schedules(transcript_text: str) -> list[dict]:
+    """명시적 키워드와 날짜가 있는 일정은 LLM 없이도 놓치지 않도록 추출한다."""
+    candidates = []
+    for sentence in _split_schedule_sentences(transcript_text):
+        if not any(keyword in sentence for keyword in SCHEDULE_EVENT_KEYWORDS):
+            continue
+        if not SCHEDULE_DATE_HINT_PATTERN.search(sentence):
+            continue
+
+        due_date = parse_due_date(sentence)
+        if due_date is None:
+            continue
+
+        event_type = _infer_event_type_from_text(sentence)
+        if _is_non_academic(sentence, sentence):
+            continue
+
+        candidates.append({
+            "title": _infer_rule_title(sentence, event_type),
+            "description": sentence,
+            "event_type": event_type,
+            "due_date": due_date.isoformat(),
+            "source_text": sentence,
+        })
+
+    return _filter_valid_schedules(candidates)
 
 
 
@@ -446,16 +561,31 @@ def _normalize_schedule_title(title: str, event_type: str, source_text: str) -> 
     return safe_title
 
 
+def _parse_time_number(value: str | None) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    return KOREAN_HOUR_WORDS.get(text)
+
+
 def _parse_time_from_text(text: str) -> tuple[int, int]:
     """문장 안의 한국어 시간 표현을 찾고, 없으면 오전 9시로 둔다."""
     hour = 9
     minute = 0
-    time_match = re.search(r"(오전|오후)?\s*(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분)?", text)
+    time_match = TIME_HINT_PATTERN.search(text)
     if not time_match:
         return hour, minute
 
     meridiem, raw_hour, raw_minute = time_match.groups()
-    hour = int(raw_hour)
+    parsed_hour = _parse_time_number(raw_hour)
+    if parsed_hour is None:
+        return hour, minute
+
+    hour = parsed_hour
     minute = int(raw_minute or 0)
     if meridiem == "오후" and hour != 12:
         hour += 12
@@ -464,9 +594,21 @@ def _parse_time_from_text(text: str) -> tuple[int, int]:
     return hour, minute
 
 
+def _build_date_with_time(year: int, month: int, day: int, source_text: str) -> datetime | None:
+    hour, minute = _parse_time_from_text(source_text)
+    try:
+        return datetime(year, month, day, hour, minute, 0)
+    except ValueError:
+        return None
+
+
 def _parse_weekday_relative_date(text: str) -> datetime | None:
     """'이번주 일요일', '다음 주 목요일', '다다음주 월요일' 같은 표현을 날짜로 변환한다."""
-    match = re.search(r"(이번|다다음|다음)\s*주\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일|월|화|수|목|금|토|일)", text)
+    match = re.search(
+        r"(이번|다다음|다음)\s*주.{0,30}?"
+        r"(월요일|화요일|수요일|목요일|금요일|토요일|일요일|월|화|수|목|금|토|일)",
+        text,
+    )
     if not match:
         return None
 
@@ -480,6 +622,20 @@ def _parse_weekday_relative_date(text: str) -> datetime | None:
         week_start += timedelta(days=14)
 
     target_date = week_start + timedelta(days=target_weekday)
+    hour, minute = _parse_time_from_text(text)
+    return target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
+def _parse_standalone_weekday_date(text: str) -> datetime | None:
+    """'금요일 오후 6시까지'처럼 주차 표현 없이 나온 요일을 가장 가까운 해당 요일로 변환한다."""
+    match = re.search(r"(월요일|화요일|수요일|목요일|금요일|토요일|일요일)", text)
+    if not match:
+        return None
+
+    target_weekday = WEEKDAY_INDEX[match.group(1)]
+    today = datetime.now()
+    days_ahead = (target_weekday - today.weekday()) % 7
+    target_date = today + timedelta(days=days_ahead)
     hour, minute = _parse_time_from_text(text)
     return target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
@@ -500,29 +656,72 @@ def parse_due_date(date_str: str | None) -> datetime | None:
     if week_relative_date is not None:
         return week_relative_date
 
+    today = datetime.now()
+
+    next_month_match = re.search(r"다음\s*달\s*(\d{1,2})\s*일", normalized)
+    if next_month_match:
+        month = today.month + 1
+        year = today.year
+        if month > 12:
+            month = 1
+            year += 1
+        parsed = _build_date_with_time(year, month, int(next_month_match.group(1)), normalized)
+        if parsed is not None:
+            return parsed
+
     relative_base = None
     if "오늘" in normalized:
-        relative_base = datetime.now()
+        relative_base = today
     elif "내일" in normalized:
-        relative_base = datetime.now() + timedelta(days=1)
+        relative_base = today + timedelta(days=1)
     elif "모레" in normalized:
-        relative_base = datetime.now() + timedelta(days=2)
+        relative_base = today + timedelta(days=2)
 
     if relative_base is not None:
         hour, minute = _parse_time_from_text(normalized)
         return relative_base.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
-    formats = [
+    exact_formats = [
         "%Y-%m-%dT%H:%M:%S",
         "%Y-%m-%dT%H:%M",
         "%Y-%m-%d",
         "%Y/%m/%d",
     ]
-    for fmt in formats:
+    for fmt in exact_formats:
         try:
-            return datetime.strptime(date_str, fmt)
+            return datetime.strptime(normalized, fmt)
         except ValueError:
             continue
+
+    full_korean_match = re.search(r"(?:(\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일", normalized)
+    if full_korean_match:
+        raw_year, raw_month, raw_day = full_korean_match.groups()
+        parsed = _build_date_with_time(
+            int(raw_year) if raw_year else today.year,
+            int(raw_month),
+            int(raw_day),
+            normalized,
+        )
+        if parsed is not None:
+            return parsed
+
+    full_numeric_match = re.search(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})", normalized)
+    if full_numeric_match:
+        year, month, day = map(int, full_numeric_match.groups())
+        parsed = _build_date_with_time(year, month, day, normalized)
+        if parsed is not None:
+            return parsed
+
+    month_day_numeric_match = re.search(r"(?<!\d)(\d{1,2})[./](\d{1,2})(?!\d)", normalized)
+    if month_day_numeric_match:
+        month, day = map(int, month_day_numeric_match.groups())
+        parsed = _build_date_with_time(today.year, month, day, normalized)
+        if parsed is not None:
+            return parsed
+
+    weekday_date = _parse_standalone_weekday_date(normalized)
+    if weekday_date is not None:
+        return weekday_date
 
     # 연도 없는 형식 (M/D, M월 D일) → 현재 연도 보정
     year_less_formats = [
@@ -533,12 +732,13 @@ def parse_due_date(date_str: str | None) -> datetime | None:
     korean_no_space = re.match(r"(\d{1,2})월(\d{1,2})일", date_str.replace(" ", ""))
     if korean_no_space:
         month, day = int(korean_no_space.group(1)), int(korean_no_space.group(2))
-        return datetime.now().replace(month=month, day=day, hour=9, minute=0, second=0, microsecond=0)
+        return _build_date_with_time(today.year, month, day, normalized)
 
     for fmt, _ in year_less_formats:
         try:
             parsed = datetime.strptime(date_str, fmt)
-            return parsed.replace(year=datetime.now().year)
+            hour, minute = _parse_time_from_text(normalized)
+            return parsed.replace(year=today.year, hour=hour, minute=minute, second=0, microsecond=0)
         except ValueError:
             continue
 
@@ -637,6 +837,15 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
         logger.info("[SCHEDULE] MOCK_MODE: 목업 일정 데이터 반환")
         return _generate_mock_schedules()
 
+    rule_based_schedules = _extract_rule_based_schedules(transcript_text)
+    if rule_based_schedules:
+        logger.info(f"[SCHEDULE] 명시적 키워드/날짜 기반 {len(rule_based_schedules)}개 일정 추출")
+        return rule_based_schedules
+
+    if _is_non_academic(transcript_text, "", ""):
+        logger.info("[SCHEDULE] 비학사 일정 문맥으로 판단되어 추출 생략")
+        return []
+
     # 긴 텍스트를 청크로 분할
     chunks = _split_transcript_chunks(transcript_text)
     logger.info(f"[SCHEDULE] 전사문 {len(transcript_text)}자 → {len(chunks)}개 청크로 분할")
@@ -667,7 +876,11 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
                 raw_answer = data["choices"][0]["message"]["content"]
                 logger.info(f"[SCHEDULE] 청크 {i+1} LLM 응답: {len(raw_answer)} chars")
 
-                chunk_schedules = _parse_schedule_json(raw_answer)
+                try:
+                    chunk_schedules = _parse_schedule_json(raw_answer)
+                except ValueError as e:
+                    logger.warning(f"[SCHEDULE] 청크 {i+1} LLM JSON 파싱 실패, 해당 청크 건너뜀: {e}")
+                    continue
                 all_schedules.extend(chunk_schedules)
 
         # 모든 청크 결과를 합친 후 전체 중복 제거 (_filter_valid_schedules에서 처리됨)
@@ -676,7 +889,7 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
 
     except httpx.HTTPError as e:
         logger.error(f"[SCHEDULE] LLM 호출 실패: {e}")
-        raise RuntimeError(f"LLM 서버 연결 실패: {e}")
+        return []
     except ValueError:
         raise
     except Exception as e:

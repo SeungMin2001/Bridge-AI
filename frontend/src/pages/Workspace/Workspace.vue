@@ -46,6 +46,7 @@ const emit = defineEmits([
   'pauseRecording',
   'resumeRecording',
   'stopRecording',
+  'extractSchedules',
   'generateMaterialSummary',
   'generateRecordingSummary',
   'deleteSummary',
@@ -1323,6 +1324,7 @@ const activeWorkspaceSource = computed(() => {
         @pauseRecording="emit('pauseRecording')"
         @resumeRecording="emit('resumeRecording')"
         @stopRecording="handleStopRecordingRequest"
+        @extractSchedules="emit('extractSchedules', $event)"
       />
 
       <div

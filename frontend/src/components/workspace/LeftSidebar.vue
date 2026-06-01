@@ -46,6 +46,7 @@ const emit = defineEmits([
   'pauseRecording',
   'resumeRecording',
   'stopRecording',
+  'extractSchedules',
   'toggle-source-panel'
 ])
 
@@ -688,6 +689,7 @@ const handleStartUploadedTranscription = async () => {
       recordingId,
       recording: updatedRecording
     })
+    emit('extractSchedules', { sessionId, recordingId })
     showToast('음성파일 전사가 완료되었습니다.')
   } catch (error) {
     console.error('[workspace] uploaded recording transcription failed:', error)
