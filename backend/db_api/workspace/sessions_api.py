@@ -360,6 +360,52 @@ async def upload_session_recording(
     }
 
 
+async def append_session_recording_resource(session_id: str, recording: dict) -> dict:
+    session_uuid = uuid_or_none(session_id, "session_id")
+    if session_uuid is None:
+        raise WorkspaceApiError("session_id is required.")
+    if not isinstance(recording, dict) or not recording:
+        raise WorkspaceApiError("recording is required.")
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            current_row = await conn.fetchrow(
+                """
+                SELECT session_pdf, session_voicefile
+                FROM sessions
+                WHERE session_id = $1
+                """,
+                session_uuid,
+            )
+            if current_row is None:
+                raise WorkspaceApiError("Session file not found.", status_code=404)
+
+            session_voicefile = _append_recording_resource(
+                current_row["session_pdf"],
+                current_row["session_voicefile"],
+                recording,
+            )
+            row = await conn.fetchrow(
+                """
+                UPDATE sessions
+                SET session_voicefile = $2::jsonb
+                WHERE session_id = $1
+                RETURNING session_id, course_id, session_date, title, status, created_at,
+                          file_kind, tag, icon, color, session_pdf, session_voicefile, summary_notes
+                """,
+                session_uuid,
+                json.dumps(session_voicefile),
+            )
+
+    return {
+        "ok": True,
+        "sessionId": str(row["session_id"]),
+        "recording": recording,
+        "node": session_node(row),
+    }
+
+
 def _remove_recording_from_resources(resources, recording_id: str):
     if not isinstance(resources, list):
         return []

@@ -18,6 +18,7 @@ from data.save_transcript import save_transcript
 # 신창영 : 워크스페이스 DB API 라우터를 main 서버에 연결
 from db_api.workspace.router import router as workspace_router
 from db_api.workspace.files_api import save_workspace_realtime_recording_file
+from db_api.workspace.sessions_api import append_session_recording_resource
 from db import create_session, ensure_runtime_schema, update_transcript_speakers
 from rag_search import init as rag_init, add_document as rag_add_document
 import uuid
@@ -154,6 +155,7 @@ async def websocket_endpoint(ws: WebSocket):
     full_diarize_buffer = bytearray()  # 녹음 종료 후 전체 오디오 기준으로 화자를 다시 보정하기 위한 RAM 버퍼
     requested_session_id = ws.query_params.get("session_id")
     requested_recording_id = (ws.query_params.get("recording_id") or "").strip()
+    requested_recording_title = (ws.query_params.get("title") or "").strip()
     requested_diarize = (ws.query_params.get("diarize") or "true").strip().lower()
     effective_diarize = DIARIZE_ENABLED and requested_diarize not in {"0", "false", "no", "off"}
     send_lock = asyncio.Lock()
@@ -469,10 +471,14 @@ async def websocket_endpoint(ws: WebSocket):
                 sample_rate=CLIENT_AUDIO_SAMPLE_RATE,
                 sample_width=CLIENT_AUDIO_SAMPLE_WIDTH,
                 channels=CLIENT_AUDIO_CHANNELS,
+                title=requested_recording_title or f"{session_title} 녹음",
                 duration_seconds=processed_seconds,
             )
             recording = saved.get("recording") or {}
+            session_result = await append_session_recording_resource(session_id, recording)
             return {
+                "recording": recording,
+                "node": session_result.get("node"),
                 "audioUrl": recording.get("audioUrl"),
                 "storedName": recording.get("storedName"),
                 "audioSize": recording.get("size"),
