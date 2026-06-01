@@ -173,6 +173,10 @@ _BAD_OPTION_PHRASES = (
     "자료의 설명과 반대",
     "선택한 소스의 핵심 설명",
     "핵심 설명과 일치하지 않는다",
+    "관련이 없습니다",
+    "관련이 있습니다",
+    "관련이 없다",
+    "관련이 있다",
     "별도의 개념이다",
     "외부 자료에만",
     "위 내용과 무관",
@@ -924,6 +928,136 @@ def _question_duplicates_option(question_text: str, options: list[str]) -> bool:
     return False
 
 
+def _answer_matches_question_context(question_text: str, answer_text: str, source_sentence: str) -> bool:
+    """LLM이 질문과 다른 개념을 정답으로 붙이는 경우를 걸러냅니다."""
+    question_keywords = _content_keywords(question_text)
+    answer_keywords = _content_keywords(answer_text)
+    source_keywords = _content_keywords(source_sentence)
+    if not question_keywords or not answer_keywords:
+        return True
+    if question_keywords & answer_keywords:
+        return True
+    if source_keywords and question_keywords & source_keywords and len(answer_keywords & source_keywords) >= 2:
+        return True
+    return False
+
+
+def _append_direct_mc_option(options: list[str], value: str, *, limit: int = 64) -> None:
+    """LLM이 직접 만든 객관식 보기를 보존하기 위한 완화된 정제 함수입니다."""
+    option = _clean_quiz_fragment(_strip_option_prefix(value))
+    option = option.strip(" ,:;\"'")
+    if not option or _has_bad_quiz_artifact(option) or _has_bad_option_phrase(option):
+        return
+    if len(option) < 3:
+        return
+    option = _clip_text(option, limit)
+    key = _option_key(option)
+    if not key:
+        return
+    for existing in options:
+        existing_key = _option_key(existing)
+        if key == existing_key:
+            return
+        if len(key) >= 14 and len(existing_key) >= 14 and (key in existing_key or existing_key in key):
+            return
+    options.append(option)
+
+
+def _normalize_llm_mc_direct(
+    candidate: dict,
+    transcript_text: str,
+    type_index: int,
+) -> dict | None:
+    """소스 문장 후보가 부족해도 LLM이 만든 answer/distractors 기반 객관식을 우선 살립니다."""
+    raw_options = candidate.get("options") if isinstance(candidate.get("options"), list) else []
+    raw_distractors = candidate.get("distractors") if isinstance(candidate.get("distractors"), list) else []
+    answer_text = (
+        candidate.get("answer")
+        or candidate.get("correct_answer")
+        or candidate.get("정답")
+        or ""
+    )
+    if not answer_text and raw_options:
+        answer_text = raw_options[0]
+    answer_text = _clean_quiz_fragment(_strip_option_prefix(str(answer_text)))
+    if not answer_text or _has_bad_quiz_artifact(answer_text):
+        return None
+
+    question_text = _clean_quiz_fragment(candidate.get("question") or "")
+    answer_was_replaced = False
+    source_sentence = _best_source_sentence_for_question(
+        question_text or answer_text,
+        transcript_text,
+        type_index,
+    )
+    if source_sentence and not _answer_matches_question_context(question_text, answer_text, source_sentence):
+        source_answer = _compact_answer_from_sentence(source_sentence, limit=64)
+        if source_answer:
+            answer_text = source_answer
+            answer_was_replaced = True
+
+    option_texts: list[str] = []
+    _append_direct_mc_option(option_texts, answer_text, limit=64)
+    if not option_texts:
+        return None
+
+    # LLM이 준 보기와 distractor를 먼저 신뢰한다. 소스 문장이 적은 PDF/짧은 전사에서도 실패하지 않게 하기 위함이다.
+    for value in [*raw_distractors, *raw_options]:
+        if _option_key(value) == _option_key(answer_text):
+            continue
+        if answer_was_replaced and not _answer_matches_question_context(question_text, str(value), source_sentence):
+            continue
+        _append_direct_mc_option(option_texts, str(value), limit=64)
+        if len(option_texts) >= 4:
+            break
+
+    # 부족한 경우에만 원문/규칙 기반 후보로 보충한다. LLM 생성값을 버리지는 않는다.
+    if len(option_texts) < 4:
+        for value in _make_domain_distractors(answer_text, source_sentence, limit=6):
+            _append_direct_mc_option(option_texts, value, limit=64)
+            if len(option_texts) >= 4:
+                break
+    if len(option_texts) < 4:
+        for value in _make_rule_based_distractors(answer_text, limit=6):
+            _append_direct_mc_option(option_texts, value, limit=64)
+            if len(option_texts) >= 4:
+                break
+    if len(option_texts) < 4:
+        for value in _make_contrastive_distractors(answer_text, limit=6):
+            _append_direct_mc_option(option_texts, value, limit=64)
+            if len(option_texts) >= 4:
+                break
+    if len(option_texts) < 4:
+        return None
+
+    option_texts = option_texts[:4]
+    answer_index = max(0, min(3, type_index % 4))
+    if answer_index != 0:
+        option_texts[0], option_texts[answer_index] = option_texts[answer_index], option_texts[0]
+    numbered_options = [f"{index}. {text}" for index, text in enumerate(option_texts, start=1)]
+    correct_answer = numbered_options[answer_index]
+
+    stem_question, _ = _mc_stem_and_answer_from_sentence(source_sentence, answer_text, type_index)
+    if (
+        not _is_good_question_text(question_text)
+        or _question_duplicates_option(question_text, numbered_options)
+        or _mc_question_leaks_answer(question_text, correct_answer, numbered_options)
+    ):
+        topic = _extract_topic(source_sentence or answer_text, f"핵심 개념 {type_index + 1}")
+        question_text = stem_question or f"{topic}에 대한 설명으로 옳은 것은?"
+
+    return {
+        "question_index": candidate.get("question_index") or 1,
+        "type": "MULTIPLE_CHOICE",
+        "question": _clip_text(question_text, 70),
+        "options": numbered_options,
+        "correct_answer": correct_answer,
+        "user_answer": None,
+        "is_correct": None,
+        "explanation": _trim_text(candidate.get("explanation") or answer_text, 70),
+    }
+
+
 def _mc_question_leaks_answer(question_text: str, answer_text: str, options: list[str]) -> bool:
     """질문이 정답 문장을 거의 그대로 포함하면 객관식 문제로 부적절합니다."""
     question = _clean_quiz_fragment(question_text)
@@ -1239,9 +1373,9 @@ def _make_contrastive_distractors(answer_text: str, *, limit: int = 3) -> list[s
 
 def _keywords_for_match(value: str) -> set[str]:
     return {
-        token.lower()
+        _keyword_root(token.lower())
         for token in re.findall(r"[A-Za-z0-9가-힣]{2,}", str(value or ""))
-        if token.lower() not in {"자료에서", "설명한", "내용은", "다음", "중", "것은", "어떤", "형태로"}
+        if _keyword_root(token.lower()) not in {"자료", "설명한", "내용", "다음", "것", "어떤", "형태"}
     }
 
 
@@ -1403,6 +1537,10 @@ def _normalize_single_llm_question(
     next_question["type"] = question_type
 
     if question_type == "MULTIPLE_CHOICE":
+        direct_question = _normalize_llm_mc_direct(next_question, transcript_text, type_index)
+        if direct_question is not None:
+            return direct_question
+
         raw_options = next_question.get("options") if isinstance(next_question.get("options"), list) else []
         raw_distractors = next_question.get("distractors") if isinstance(next_question.get("distractors"), list) else []
         answer_text = (
@@ -1561,7 +1699,25 @@ def _build_fallback_question(
         normalized = _numbered_mc_question(question, correct_phrase, [], transcript_text, type_index)
         if normalized is not None:
             return normalized
-        raise ValueError("객관식 보기를 만들 수 있을 만큼 선택 소스 문장이 충분하지 않습니다.")
+        direct = _normalize_llm_mc_direct(
+            {
+                "question_index": 0,
+                "type": "MULTIPLE_CHOICE",
+                "question": question["question"],
+                "answer": correct_phrase,
+                "distractors": [
+                    *_make_domain_distractors(correct_phrase, sentence, limit=4),
+                    *_make_rule_based_distractors(correct_phrase, limit=4),
+                    *_make_contrastive_distractors(correct_phrase, limit=4),
+                ],
+                "explanation": sentence,
+            },
+            transcript_text,
+            type_index,
+        )
+        if direct is not None:
+            return direct
+        raise ValueError("LLM이 객관식 보기 4개를 완성하지 못했습니다. 선택 소스 내용을 조금 더 포함해 주세요.")
 
     if question_type == "OX":
         if type_index % 2 == 1:
@@ -1792,7 +1948,7 @@ def _type_instruction(question_type: str) -> str:
         return (
             "MULTIPLE_CHOICE 객관식만 생성하세요. "
             "question은 특정 개념/정의/특징을 직접 묻고, answer와 distractors 3개는 모두 선택 소스의 학습 내용에서 만든 지식 문장으로 작성하세요. "
-            "\"자료에서 확인할 수 없는\", \"반대되는 방식\", \"일치하지 않는다\" 같은 메타 보기는 금지합니다."
+            "\"자료에서 확인할 수 없는\", \"반대되는 방식\", \"관련이 있다/없다\" 같은 메타 보기는 금지합니다."
         )
     if question_type == "OX":
         return (
@@ -1860,7 +2016,8 @@ def _build_single_question_messages(
     if question_type == "MULTIPLE_CHOICE":
         option_rule = (
             "answer에는 정답이 되는 짧은 핵심 설명을 쓰고, distractors에는 같은 주제권에서 헷갈릴 수 있지만 정답과 다른 오답 후보 3개를 쓰세요. "
-            "모든 distractor는 선택 소스의 개념을 바탕으로 한 지식 문장이어야 하며, 보기 번호와 options/correct_answer는 쓰지 마세요."
+    "모든 distractor는 선택 소스의 개념을 바탕으로 한 지식 문장이어야 하며, 보기 번호와 options/correct_answer는 쓰지 마세요. "
+    "\"관련이 있다/없다\"처럼 관계 여부만 말하는 보기는 금지합니다."
         )
         response_example = """{
   "question_index": 1,
@@ -1913,7 +2070,7 @@ def _build_single_question_messages(
 - 이번 문항에서 우선 참고할 문장을 중심으로 만들되, 필요하면 요약본의 다른 문장도 참고하세요.
 - 슬라이드 제목이나 목차 조각을 그대로 질문/보기로 쓰지 말고, 개념을 묻는 퀴즈 문장으로 바꾸세요.
 - 객관식 질문은 특정 개념명을 포함하세요. "강의 내용과 가장 일치하는 설명은?" 같은 포괄 질문은 금지합니다.
-- 객관식 보기에는 "자료에서 확인할 수 없는", "자료의 설명과 반대", "일치하지 않는다" 같은 메타 문장을 넣지 마세요.
+    - 객관식 보기에는 "자료에서 확인할 수 없는", "자료의 설명과 반대", "관련이 있다/없다" 같은 메타 문장을 넣지 마세요.
 - 이미 만든 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
 - question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
 - JSON 객체 1개만 응답하세요. JSON 외 텍스트는 쓰지 마세요.
