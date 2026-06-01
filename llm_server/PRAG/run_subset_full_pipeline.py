@@ -62,7 +62,7 @@ def main() -> None:
 
     lr_tag = normalize_lr_tag(args.lr)
     run_name = (
-        f"entity_simple{args.train_subset_size}_{lr_tag}_seed{args.seed}"
+        f"entity_simple{args.train_subset_size}_lr{lr_tag}_seed{args.seed}"
         f"_layer{args.critical_layer}_kv{args.num_kv}_ep{args.epochs}"
     )
     qp_suffix = f"{run_name}_qp_kvadapt"
