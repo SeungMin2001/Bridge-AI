@@ -242,6 +242,14 @@ TITLE_GENERIC_WORDS = (
     "중간고사", "기말고사", "기한", "데드라인", "날짜"
 )
 
+ASSIGNMENT_CONTEXT_HINT_PATTERN = re.compile(
+    r"(이\s*내용|오늘\s*내용|이번\s*내용|배운\s*내용|수업\s*내용|강의\s*내용|해당\s*내용|앞에서\s*배운\s*내용)"
+)
+
+LECTURE_TOPIC_END_PATTERN = re.compile(
+    r"(?:에\s*대해\s*)?(?:배웠습니다|배웠어요|학습했습니다|학습했어요|다뤘습니다|다루었습니다|설명했습니다|설명했어요|정리했습니다|살펴봤습니다|공부했습니다)$"
+)
+
 SCHEDULE_DATE_HINT_PATTERN = re.compile(
     r"(\d{4}[./-]\d{1,2}[./-]\d{1,2}|"
     r"\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일|"
@@ -652,13 +660,50 @@ def _strip_schedule_date_phrases(text: str) -> str:
     return cleaned.strip(" .,，")
 
 
+def _clean_context_topic(text: str) -> str:
+    """이전 수업 문장에서 과제 제목으로 쓸 수 있는 핵심 주제를 정리한다."""
+    cleaned = _strip_schedule_date_phrases(text)
+    cleaned = re.sub(r"^(오늘|이번\s*시간|이번\s*주|이번\s*강의|수업|강의)\s*(은|는|에서|에서는)?\s*", "", cleaned)
+    cleaned = re.sub(r"^(은|는|에서|에서는)\s*", "", cleaned)
+    cleaned = re.sub(r"^(먼저|다음으로|그리고|또한|마지막으로)\s*", "", cleaned)
+    cleaned = LECTURE_TOPIC_END_PATTERN.sub("", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,，")
+    cleaned = re.sub(r"(입니다|합니다|이에요|예요)$", "", cleaned).strip(" .,，")
+    cleaned = re.sub(r"(을|를)$", "", cleaned).strip(" .,，")
+    return cleaned[:36].rstrip()
+
+
+def _is_weak_assignment_topic(topic: str) -> bool:
+    compact = re.sub(r"\s+", "", topic or "")
+    if len(compact) < 4:
+        return True
+    weak_prefixes = (
+        "이내용", "오늘내용", "이번내용", "배운내용", "수업내용", "강의내용",
+        "해당내용", "앞에서배운내용", "내용은", "내용을", "내용으로", "정리", "작성"
+    )
+    return compact.startswith(weak_prefixes) or compact in {"내용정리", "자료정리", "문제풀이"}
+
+
+def _extract_context_topic(source_text: str) -> str:
+    """마감 문장 주변의 강의 내용에서 '어떤 과제인지'를 보완한다."""
+    for sentence in reversed(_split_schedule_sentences(source_text)):
+        if re.search(r"과제|숙제|보고서|레포트|리포트|제출|마감|기한|데드라인", sentence):
+            continue
+        topic = _clean_context_topic(sentence)
+        if topic and not _is_weak_assignment_topic(topic):
+            return topic
+    return ""
+
+
 def _compact_assignment_topic(text: str) -> str:
     """과제 내용을 알림 제목에 넣기 좋은 길이로 정리한다."""
     cleaned = _strip_schedule_date_phrases(text)
-    cleaned = re.sub(r"^(저희|이번|다음|오늘|여러분|교수님이|교수님께서)\s*", "", cleaned)
-    cleaned = re.sub(r"(과제|숙제|보고서|레포트|리포트)\s*(은|는|입니다|이에요|으로|로|을|를|:)?", " ", cleaned)
+    cleaned = re.sub(r"^(저희|이번|다음|오늘|여러분|교수님이|교수님께서)\s*(은|는|이|가|의)?\s*", "", cleaned)
+    cleaned = re.sub(r"^(은|는|이|가|의)\s*", "", cleaned)
+    cleaned = re.sub(r"(과제|숙제|보고서|레포트|리포트)\s*(내용|주제)?\s*(은|는|입니다|이에요|으로|로|을|를|:)?", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,，")
     cleaned = re.sub(r"(하는\s*)?것$", "", cleaned).strip(" .,，")
+    cleaned = re.sub(r"(을|를)$", "", cleaned).strip(" .,，")
     if not cleaned:
         return ""
     return cleaned[:32].rstrip()
@@ -667,6 +712,7 @@ def _compact_assignment_topic(text: str) -> str:
 def _extract_assignment_topic(source_text: str) -> str:
     """source_text에서 '무슨 과제인지'를 뽑아 알림 제목에 반영한다."""
     sentences = _split_schedule_sentences(source_text)
+    context_topic = _extract_context_topic(source_text)
     topic_candidates = []
 
     for sentence in sentences or [source_text]:
@@ -677,9 +723,17 @@ def _extract_assignment_topic(source_text: str) -> str:
         if before_match:
             topic_candidates.append(before_match.group(1))
 
-        after_match = re.search(r"(?:과제|숙제|보고서|레포트|리포트)\s*(?:은|는|입니다|이에요|:)?\s*(.{3,100})", sentence)
+        after_match = re.search(r"(?:과제|숙제|보고서|레포트|리포트)\s*(?:내용|주제)?\s*(?:은|는|입니다|이에요|:)?\s*(.{3,100})", sentence)
         if after_match:
             topic_candidates.append(after_match.group(1))
+
+    for candidate in topic_candidates:
+        topic = _compact_assignment_topic(candidate)
+        if topic and not _is_weak_assignment_topic(topic) and not re.fullmatch(r"(저희|이번|다음|오늘)?\s*", topic):
+            return topic
+
+    if context_topic:
+        return context_topic
 
     for candidate in topic_candidates:
         topic = _compact_assignment_topic(candidate)
@@ -699,15 +753,23 @@ def _needs_assignment_context(sentence: str) -> bool:
 def _build_rule_source_text(sentences: list[str], index: int, event_type: str) -> str:
     """날짜 문장에 과제 내용이 부족하면 앞뒤 문맥을 붙인다."""
     sentence = sentences[index]
-    if event_type != "과제" or not _needs_assignment_context(sentence):
+    if event_type != "과제":
         return sentence
 
     context = []
-    if index > 0 and len(sentences[index - 1]) <= 180:
-        context.append(sentences[index - 1])
+    should_expand = _needs_assignment_context(sentence) or ASSIGNMENT_CONTEXT_HINT_PATTERN.search(sentence) or re.search(r"제출|마감|기한|데드라인", sentence)
+    if not should_expand:
+        return sentence
+
+    for prev_index in range(max(0, index - 2), index):
+        prev = sentences[prev_index]
+        if len(prev) <= 180 and not _is_non_academic(prev, "", ""):
+            context.append(prev)
     context.append(sentence)
-    if index + 1 < len(sentences) and "과제" in sentences[index + 1] and len(sentences[index + 1]) <= 180:
-        context.append(sentences[index + 1])
+    if index + 1 < len(sentences):
+        next_sentence = sentences[index + 1]
+        if re.search(r"과제|제출|마감|보고서|레포트|리포트", next_sentence) and len(next_sentence) <= 180:
+            context.append(next_sentence)
     return " ".join(context)
 
 
