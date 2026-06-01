@@ -157,10 +157,7 @@ async function handleNotionImport() {
                 노션 내보내기
               </button>
             </div>
-            <button class="schedule-soft-btn export" @click="downloadGoogleCalendarIcs">
-              <span class="material-symbols-outlined">ios_share</span>
-              Google 캘린더
-            </button>
+
             <button class="schedule-soft-btn" @click="moveToday">오늘</button>
             <button class="schedule-icon-btn" @click="movePeriod(-1)">
               <span class="material-symbols-outlined">chevron_left</span>
