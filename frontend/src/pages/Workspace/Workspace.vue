@@ -77,6 +77,7 @@ const isSourceUploadDialogOpen = ref(false)
 const isSourceUploadDragging = ref(false)
 const pendingSourceUploadRecording = ref(null)
 const pendingStoppedRecordingPlayer = ref(null)
+const preserveChatOnNextFileChange = ref(false)
 const hydratingFolderFileIds = new Set()
 
 const DEFAULT_SCRIPT_PANE_PERCENT = 50
@@ -308,15 +309,21 @@ onUnmounted(() => {
 })
 
 watch(() => props.activeFileId, () => {
-  citationSourceRequest.value = null
-  recordingSourceRequest.value = null
-  materialEvidenceRequest.value = null
-  pendingStoppedRecordingPlayer.value = null
+  const shouldPreserveChat = preserveChatOnNextFileChange.value
+  preserveChatOnNextFileChange.value = false
+
+  if (!shouldPreserveChat) {
+    citationSourceRequest.value = null
+    recordingSourceRequest.value = null
+    materialEvidenceRequest.value = null
+    pendingStoppedRecordingPlayer.value = null
+    clearHistory()
+    emit('update:aiInput', '')
+  }
+
   closeMiniSourceMenu()
   selectedMiniSourceIds.value = new Set()
-  clearHistory()
   closeCitePopover()
-  emit('update:aiInput', '')
 })
 
 const scheduleNoticeItems = computed(() => props.scheduleExtractionNotice?.items || [])
@@ -455,6 +462,12 @@ function findMaterialInNode(node, cite = {}) {
   return null
 }
 
+function preserveChatForSourceNavigation(sessionId) {
+  if (sessionId && sessionId !== props.activeFileId) {
+    preserveChatOnNextFileChange.value = true
+  }
+}
+
 function openCitationSource(cite) {
   const sessionId = cite?.session_id
   if (!sessionId) return
@@ -462,6 +475,7 @@ function openCitationSource(cite) {
   const node = findNodeById(props.fileTree, sessionId)
   if (!node) return
 
+  preserveChatForSourceNavigation(sessionId)
   emit('fileSelect', sessionId, node)
   isLeftSidebarCollapsed.value = false
   if (cite?.source_type === 'material') {
@@ -479,8 +493,6 @@ function openCitationSource(cite) {
     cite,
     node
   }
-  clearHistory()
-  emit('update:aiInput', '')
   closeCitePopover()
 }
 
@@ -498,6 +510,7 @@ async function openEvidenceSource(cite) {
   const node = findNodeById(props.fileTree, sessionId)
   if (!node) return
 
+  preserveChatForSourceNavigation(sessionId)
   emit('fileSelect', sessionId, node)
   isLeftSidebarCollapsed.value = false
 
@@ -846,6 +859,39 @@ function openMiniRecording(source = {}) {
   }
 }
 
+function getMiniRecordingSourceForMaterial(source = {}) {
+  const group = miniSourceFileGroups.value.find((item) => item.id === source.fileId)
+  const weeks = Array.isArray(group?.weeks) ? group.weeks : []
+  const sameWeek = weeks.find((week) => week?.id === source.weekId)
+  const recording = (Array.isArray(sameWeek?.recordings) ? sameWeek.recordings : [])[0]
+    || weeks.flatMap((week) => Array.isArray(week?.recordings) ? week.recordings : [])[0]
+
+  if (!recording) return null
+
+  return {
+    ...source,
+    type: 'recording',
+    title: getMiniRecordingTitle(recording, 0),
+    icon: 'graphic_eq',
+    recordingId: recording?.id || recording?.recordingId || '',
+    recording,
+    transcriptIds: collectTranscriptIds([recording])
+  }
+}
+
+function openMiniSource(source = {}) {
+  if (source.type === 'material') {
+    const recordingSource = getMiniRecordingSourceForMaterial(source)
+    if (recordingSource) {
+      openMiniRecording(recordingSource)
+      return
+    }
+    selectMiniSourceFile(source)
+    return
+  }
+  openMiniRecording(source)
+}
+
 function handleStopRecordingRequest() {
   pendingStoppedRecordingPlayer.value = {
     fileId: props.activeFileId,
@@ -1030,25 +1076,14 @@ async function handleMiniSourceAction(action) {
 const activeWorkspaceSource = computed(() => {
   if (!props.activeFileId) return null
 
-  // 좌측 소스 사이드바에서 체크된 항목만 퀴즈 생성 범위로 넘긴다.
-  const sources = selectedMiniSourceItems.value.map(({ uid, icon, ...source }) => ({
-    id: source.material?.id || source.recordingId || uid,
-    ...source
-  }))
-  const recordings = sources
-    .filter((source) => source.type === 'recording' && source.recording)
-    .map((source) => source.recording)
-  const transcriptIds = Array.from(new Set(sources.flatMap((source) => source.transcriptIds || [])))
-  const sourceCount = sources.length
-
   return {
-    type: sourceCount ? 'workspace' : 'empty',
-    title: props.activeFileName ? `${props.activeFileName} 선택 자료` : '현재 파일 선택 자료',
+    type: 'empty',
+    title: props.activeFileName ? `${props.activeFileName} 소스` : '현재 파일 소스',
     sessionId: props.activeFileId,
-    sourceCount,
-    sources,
-    recordings,
-    transcriptIds
+    sourceCount: 0,
+    sources: [],
+    recordings: [],
+    transcriptIds: []
   }
 })
 </script>
@@ -1182,15 +1217,6 @@ const activeWorkspaceSource = computed(() => {
         </div>
 
         <div v-if="activeFileId && miniSourceFileGroups.length" class="workspace-mini-source-tree custom-scrollbar">
-          <label class="mini-source-select-all">
-            <span>모두 선택</span>
-            <input
-              type="checkbox"
-              :checked="areAllMiniSourcesSelected"
-              @change="toggleAllMiniSources"
-            />
-          </label>
-
           <div class="mini-source-folder-shell">
             <div class="mini-source-folder-heading">
               <span class="material-symbols-outlined">folder_open</span>
@@ -1220,6 +1246,13 @@ const activeWorkspaceSource = computed(() => {
                   v-for="source in group.sources"
                   :key="source.uid"
                   class="mini-source-check-row"
+                  role="button"
+                  tabindex="0"
+                  :title="source.title"
+                  :data-title="source.title"
+                  @click="openMiniSource(source)"
+                  @keydown.enter.prevent="openMiniSource(source)"
+                  @keydown.space.prevent="openMiniSource(source)"
                 >
                   <button
                     type="button"
@@ -1232,20 +1265,9 @@ const activeWorkspaceSource = computed(() => {
                     <span class="material-symbols-outlined mini-source-item-icon default-icon">{{ source.icon }}</span>
                     <span class="material-symbols-outlined mini-source-item-icon hover-icon">more_vert</span>
                   </button>
-                  <button
-                    type="button"
-                    class="mini-source-open-btn"
-                    :title="source.title"
-                    @click.prevent="source.type === 'material' ? openMiniMaterial(source) : openMiniRecording(source)"
-                  >
+                  <div class="mini-source-open-btn">
                     <span>{{ source.title }}</span>
-                  </button>
-                  <input
-                    type="checkbox"
-                    :checked="isMiniSourceSelected(source.uid)"
-                    @click.stop
-                    @change="toggleMiniSource(source.uid)"
-                  />
+                  </div>
                 </div>
               </div>
 
@@ -1774,7 +1796,6 @@ const activeWorkspaceSource = computed(() => {
   padding-right: 2px;
 }
 
-.mini-source-select-all,
 .mini-source-check-row {
   width: 100%;
   min-width: 0;
@@ -1784,17 +1805,49 @@ const activeWorkspaceSource = computed(() => {
   color: var(--workspace-mini-fg);
 }
 
-.mini-source-select-all {
-  grid-template-columns: minmax(0, 1fr) 18px;
-  padding: 2px 0 7px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .mini-source-check-row {
-  grid-template-columns: 26px minmax(0, 1fr) 18px;
+  position: relative;
+  grid-template-columns: 26px minmax(0, 1fr);
   min-height: 36px;
   padding: 6px 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+}
+
+.mini-source-check-row:hover,
+.mini-source-check-row:focus-visible {
+  background: rgba(255, 255, 255, 0.04);
+  outline: none;
+}
+
+.mini-source-check-row::after {
+  content: attr(data-title);
+  position: absolute;
+  left: 34px;
+  right: 0;
+  top: calc(100% - 2px);
+  z-index: 60;
+  padding: 7px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.mini-source-check-row:hover::after,
+.mini-source-check-row:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .mini-source-folder-shell {
@@ -1901,6 +1954,7 @@ const activeWorkspaceSource = computed(() => {
   color: #cbd5e1;
   background: transparent;
   text-align: left;
+  pointer-events: none;
 }
 
 .mini-source-open-btn:hover {
@@ -1968,38 +2022,6 @@ const activeWorkspaceSource = computed(() => {
 .mini-source-icon-button:focus-visible .hover-icon,
 .mini-source-menu-open .hover-icon {
   opacity: 1;
-}
-
-.mini-source-select-all input,
-.mini-source-check-row input {
-  position: relative;
-  flex: 0 0 auto;
-  width: 17px;
-  height: 17px;
-  appearance: none;
-  border: 1px solid #cbd5e1;
-  border-radius: 3px;
-  background: #f1f5f9;
-  cursor: pointer;
-}
-
-.mini-source-select-all input:checked,
-.mini-source-check-row input:checked {
-  border-color: #cbd5e1;
-  background: #d5dbe4;
-}
-
-.mini-source-select-all input:checked::after,
-.mini-source-check-row input:checked::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 1px;
-  width: 5px;
-  height: 10px;
-  border: solid #64748b;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
 }
 
 .mini-source-menu-backdrop {

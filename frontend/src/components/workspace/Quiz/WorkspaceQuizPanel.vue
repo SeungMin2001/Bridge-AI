@@ -1103,7 +1103,7 @@ watch(
           <div v-if="quizStatus === 'generating'" class="quiz-generating-state">
             <LoadingHourglass
               class="quiz-generating-animation"
-              src="/animations/motion_quizflip_loop.json"
+              src="/animations/quizflip_loop.json"
               :size="118"
               fallback-icon="quiz"
             />

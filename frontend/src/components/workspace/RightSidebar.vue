@@ -189,7 +189,7 @@ function isErrorAnswer(text = '') {
     || value.includes('All connection attempts failed')
 }
 
-const width = ref(310)
+const width = ref(380)
 const isResizing = ref(false)
 
 const stopWorkspaceChatbotTimer = () => {
@@ -300,20 +300,6 @@ watch(
             />
           </div>
           <h3 class="text-[18px] font-bold text-[#1d1d1f] mb-8">무엇을 도와드릴까요?</h3>
-          <div class="w-full flex flex-col gap-3 mb-10">
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left">
-              <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">description</span>
-              <span class="text-[13px] font-medium text-[#1d1d1f]">강의 노트 요약하기</span>
-            </button>
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left" @click="emit('update:aiInput', '핵심 개념 퀴즈 생성해줘')">
-              <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">quiz</span>
-              <span class="text-[13px] font-medium text-[#1d1d1f]">핵심 개념 퀴즈 생성</span>
-            </button>
-            <button class="action-card w-full flex items-center gap-3 p-3.5 rounded-[22px] text-left">
-              <span class="material-symbols-outlined text-[18px] text-[#8e8e93]">translate</span>
-              <span class="text-[13px] font-medium text-[#1d1d1f]">외국어 자료 번역</span>
-            </button>
-          </div>
         </div>
 
         <div v-else key="chat-history" class="flex-1 flex flex-col gap-6 mb-4 overflow-y-auto custom-scrollbar px-1" ref="scrollContainer">
@@ -378,34 +364,15 @@ watch(
               @keydown.enter.prevent="handleEnter"
             ></textarea>
             
-            <div class="flex items-center justify-between mt-2 pt-1 border-t border-[#f2f2f7]/50">
-              <!-- 왼쪽 도구: 첨부 아이콘 -->
-              <button class="w-8 h-8 flex items-center justify-center text-[#8e8e93] hover:text-[#1d1d1f] hover:bg-[#f2f2f7] rounded-full transition-all">
-                <span class="material-symbols-outlined text-[20px]">attach_file</span>
+            <div class="flex items-center justify-end mt-2 pt-1 border-t border-[#f2f2f7]/50">
+              <button
+                class="w-8 h-8 rounded-full flex items-center justify-center transition-all border-none"
+                :class="aiInput.trim() ? 'bg-[#3b82f6] text-white shadow-sm' : 'bg-[#d1d1d6] text-white cursor-not-allowed'"
+                @click="sendMessage"
+                :disabled="!aiInput.trim()"
+              >
+                <span class="material-symbols-outlined text-[18px]">arrow_upward</span>
               </button>
-
-              <div class="flex items-center gap-2">
-                <!-- Thinking 모드 버튼 (동작 위주 아이콘) -->
-                <button 
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all border-none cursor-pointer"
-                  :class="isThinkingMode ? 'bg-[#3b82f6]/10 text-[#3b82f6]' : 'bg-[#f2f2f7] text-[#8e8e93] hover:bg-[#e5e5ea]'"
-                  @click="isThinkingMode = !isThinkingMode"
-                  title="Thinking Mode"
-                >
-                  <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-pulse': isThinkingMode }">psychology</span>
-                  <span class="text-[11px] font-bold tracking-tight">Thinking</span>
-                </button>
-
-                <!-- 전송 버튼 -->
-                <button 
-                  class="w-8 h-8 rounded-full flex items-center justify-center transition-all border-none"
-                  :class="aiInput.trim() ? 'bg-[#3b82f6] text-white shadow-sm' : 'bg-[#d1d1d6] text-white cursor-not-allowed'"
-                  @click="sendMessage"
-                  :disabled="!aiInput.trim()"
-                >
-                  <span class="material-symbols-outlined text-[18px]">arrow_upward</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -415,9 +382,9 @@ watch(
 
 <style scoped>
 .workspace-right-sidebar {
-  width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
-  min-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
-  max-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
+  width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+  min-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+  max-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
 }
 
 .workspace-right-sidebar-card {
@@ -459,9 +426,9 @@ watch(
 
 @media (max-width: 1280px) {
   .workspace-right-sidebar {
-    width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
-    min-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
-    max-width: min(var(--right-sidebar-width, 310px), calc(100vw - 24px));
+    width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+    min-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
+    max-width: min(var(--right-sidebar-width, 380px), calc(100vw - 24px));
   }
 }
 

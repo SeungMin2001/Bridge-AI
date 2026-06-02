@@ -165,6 +165,12 @@ async def generate_material_summary_with_textrank(
         top_k=target_top_k,
         min_chars=MATERIAL_MIN_SENTENCE_CHARS,
     )
+    _demo_log(f"4-1) TextRank 핵심문장 로그 확인: selected={len(ranked_sentences)}")
+    for index, item in enumerate(ranked_sentences[:5], start=1):
+        _demo_log(
+            f"   핵심문장#{index}: score={item.get('score', 0):.4f}, "
+            f"page={item.get('page')}, text='{_preview(item.get('text'), 110)}'"
+        )
     if not ranked_sentences:
         raise ValueError("TextRank로 요약에 사용할 문장을 찾지 못했습니다")
 

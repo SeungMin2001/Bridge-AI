@@ -20,7 +20,8 @@ const props = defineProps({
   variant: { type: String, default: 'sidebar' },
   showToolbar: { type: Boolean, default: false },
   toolbarTitle: { type: String, default: '스크립트' },
-  toolbarTitleEditable: { type: Boolean, default: false }
+  toolbarTitleEditable: { type: Boolean, default: false },
+  citationHighlight: { type: Object, default: null }
 })
 
 const emit = defineEmits(['addToNote', 'askAi', 'startTranscription', 'seekPlayback', 'rename-toolbar-title'])
@@ -33,6 +34,7 @@ const searchInput = ref(null)
 const toolbarTitleInput = ref(null)
 const searchPopoverStyle = ref({})
 const searchResultRefs = ref([])
+const citationHighlightRefs = ref([])
 const activeSearchIndex = ref(0)
 const emptyTranscriptAnimationRef = ref(null)
 const isEditingToolbarTitle = ref(false)
@@ -92,6 +94,10 @@ const scrollToTop = async (behavior = 'auto') => {
 
 // 전사 데이터가 변경될 때마다 스크롤 이동
 watch(() => props.transcriptions, () => {
+  if (props.citationHighlight) {
+    scrollToCitationHighlight('auto')
+    return
+  }
   if (hasSearchTerm.value) {
     scrollToSearchResult(activeSearchIndex.value, 'auto')
     return
@@ -104,6 +110,10 @@ watch(() => props.transcriptions, () => {
 }, { deep: true })
 
 watch(() => props.transcriptSourceKey, () => {
+  if (props.citationHighlight) {
+    scrollToCitationHighlight('auto')
+    return
+  }
   if (props.transcriptSourceKey) scrollToTop()
 })
 
@@ -112,6 +122,11 @@ watch([normalizedSearchTerm, () => filteredTranscriptions.value.length], () => {
   searchResultRefs.value = []
   if (hasSearchResults.value) scrollToSearchResult(0, 'auto')
 })
+
+watch([() => props.citationHighlight, () => filteredTranscriptions.value.length], () => {
+  citationHighlightRefs.value = []
+  if (props.citationHighlight) scrollToCitationHighlight('auto')
+}, { deep: true })
 
 onMounted(() => {
   if (props.transcriptSourceKey) {
@@ -166,6 +181,16 @@ const setSearchResultRef = (element, index) => {
   if (element) searchResultRefs.value[index] = element
 }
 
+const setCitationHighlightRef = (element, transcription) => {
+  if (
+    element
+    && isCitationHighlightedTranscription(transcription)
+    && !citationHighlightRefs.value.includes(element)
+  ) {
+    citationHighlightRefs.value.push(element)
+  }
+}
+
 const scrollToSearchResult = async (index = activeSearchIndex.value, behavior = 'smooth') => {
   if (!hasSearchResults.value) return
   await nextTick()
@@ -186,6 +211,119 @@ const isSearchHighlightedWord = (word = '') => (
   normalizedSearchTerm.value &&
   String(word || '').toLowerCase().includes(normalizedSearchTerm.value)
 )
+
+const normalizeCitationText = (value = '') => (
+  String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .trim()
+)
+
+const cleanWordForCitation = (value = '') => (
+  String(value || '')
+    .replace(/[^\p{L}\p{N}가-힣]/gu, '')
+    .trim()
+)
+
+const citationText = computed(() => {
+  const cite = props.citationHighlight || {}
+  return normalizeCitationText(
+    cite.text
+    || cite.excerpt
+    || cite.citation_text
+    || cite.citationText
+    || cite.citation
+    || cite.full_text
+    || cite.fullText
+    || ''
+  )
+})
+
+const citationTranscriptId = computed(() => (
+  String(
+    props.citationHighlight?.transcript_id
+    || props.citationHighlight?.transcriptId
+    || props.citationHighlight?.id
+    || ''
+  ).trim()
+))
+
+const getItemIdentityValues = (item = {}) => ([
+  item.id,
+  item.transcript_id,
+  item.transcriptId,
+  item.segment_id,
+  item.segmentId
+].map((value) => String(value || '').trim()).filter(Boolean))
+
+const getTranscriptionText = (item = {}) => {
+  const segmentText = Array.isArray(item.segments)
+    ? item.segments.map((segment) => segment?.text || '').join(' ')
+    : ''
+  return [item.text, item.content, segmentText].filter(Boolean).join(' ')
+}
+
+const hasCitationTextMatch = (candidate = '') => {
+  const normalizedCandidate = normalizeCitationText(candidate)
+  const normalizedCitation = citationText.value
+  if (!normalizedCandidate || !normalizedCitation) return false
+  if (normalizedCandidate.includes(normalizedCitation) || normalizedCitation.includes(normalizedCandidate)) {
+    return true
+  }
+
+  const shorter = normalizedCandidate.length < normalizedCitation.length ? normalizedCandidate : normalizedCitation
+  const longer = shorter === normalizedCandidate ? normalizedCitation : normalizedCandidate
+  if (shorter.length < 12) return false
+  for (let index = 0; index <= shorter.length - 12; index += 6) {
+    if (longer.includes(shorter.slice(index, index + 12))) return true
+  }
+  return false
+}
+
+const hasCitationTimeMatch = (item = {}) => {
+  const cite = props.citationHighlight || {}
+  const citeStart = getFiniteNumber(cite.start_time ?? cite.startTime ?? cite.start)
+  const citeEnd = getFiniteNumber(cite.end_time ?? cite.endTime ?? cite.end)
+  const itemRange = getTimeRange(item)
+  if (citeStart === null || citeEnd === null || !itemRange) return false
+  return itemRange.start <= citeEnd && itemRange.end >= citeStart
+}
+
+const hasCitationIdentityMatch = (item = {}) => (
+  citationTranscriptId.value && getItemIdentityValues(item).includes(citationTranscriptId.value)
+)
+
+const isCitationHighlightedSegment = (segment = {}, fallbackTranscription = {}) => (
+  !!props.citationHighlight && (
+    hasCitationIdentityMatch(segment)
+    || hasCitationTimeMatch(segment)
+    || hasCitationTextMatch(segment.text || '')
+    || (!Array.isArray(fallbackTranscription.segments) && hasCitationTextMatch(getTranscriptionText(fallbackTranscription)))
+  )
+)
+
+const isCitationHighlightedTranscription = (transcription = {}) => (
+  !!props.citationHighlight && (
+    hasCitationIdentityMatch(transcription)
+    || hasCitationTimeMatch(transcription)
+    || hasCitationTextMatch(getTranscriptionText(transcription))
+    || (Array.isArray(transcription.segments)
+      && transcription.segments.some((segment) => isCitationHighlightedSegment(segment, transcription)))
+  )
+)
+
+const isCitationHighlightedWord = (word = '', context = '') => {
+  if (!props.citationHighlight || !citationText.value) return false
+  const cleanedWord = cleanWordForCitation(word)
+  if (cleanedWord.length < 2) return false
+  return hasCitationTextMatch(context) && citationText.value.includes(cleanedWord)
+}
+
+const scrollToCitationHighlight = async (behavior = 'smooth') => {
+  await nextTick()
+  const target = citationHighlightRefs.value[0]
+  target?.scrollIntoView?.({ behavior, block: 'center' })
+}
 
 const formatElapsedTime = (seconds = 0) => {
   const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0))
@@ -504,11 +642,12 @@ const handleToolbarTitleCompositionEnd = () => {
         <div 
           v-for="(t, idx) in filteredTranscriptions" 
           :key="idx" 
-          :ref="(el) => setSearchResultRef(el, idx)"
+          :ref="(el) => { setSearchResultRef(el, idx); setCitationHighlightRef(el, t) }"
           class="transcription-row flex flex-col gap-1.5 mt-2 transcription-item-enter"
           :class="{
             'is-active-search-result': hasSearchTerm && idx === activeSearchIndex,
-            'is-current-playback': isCurrentPlaybackTranscription(t)
+            'is-current-playback': isCurrentPlaybackTranscription(t),
+            'is-citation-highlight-result': isCitationHighlightedTranscription(t)
           }"
           :style="{ animationDelay: `${idx * 0.06}s` }"
         >
@@ -530,14 +669,18 @@ const handleToolbarTitleCompositionEnd = () => {
                 :class="{
                   'segment-pending': seg.status === 'pending',
                   'segment-confirmed': seg.status === 'confirmed',
-                  'is-current-playback-segment': isCurrentPlaybackSegment(seg, t)
+                  'is-current-playback-segment': isCurrentPlaybackSegment(seg, t),
+                  'is-citation-highlighted-segment': isCitationHighlightedSegment(seg, t)
                 }"
               >
                 <span
                   v-for="(word, wIdx) in seg.text.split(' ')"
                   :key="wIdx"
                   class="clickable-word"
-                  :class="{ 'search-highlighted-word': isSearchHighlightedWord(word) }"
+                  :class="{
+                    'search-highlighted-word': isSearchHighlightedWord(word),
+                    'citation-highlighted-word': isCitationHighlightedWord(word, seg.text)
+                  }"
                   @click="(e) => handleWordClick(e, word, seg.text)"
                 >{{ word }}&nbsp;</span>
               </span>
@@ -547,7 +690,10 @@ const handleToolbarTitleCompositionEnd = () => {
                 v-for="(word, wIdx) in t.text.split(' ')"
                 :key="wIdx"
                 class="clickable-word"
-                :class="{ 'search-highlighted-word': isSearchHighlightedWord(word) }"
+                :class="{
+                  'search-highlighted-word': isSearchHighlightedWord(word),
+                  'citation-highlighted-word': isCitationHighlightedWord(word, t.text)
+                }"
                 @click="(e) => handleWordClick(e, word, t.text)"
               >{{ word }}&nbsp;</span>
             </template>
@@ -662,6 +808,16 @@ const handleToolbarTitleCompositionEnd = () => {
 .voice-message-bubble .clickable-word.search-highlighted-word:hover {
   color: #111827;
   background: rgba(254, 240, 138, 0.9);
+}
+
+.voice-message-bubble .clickable-word.citation-highlighted-word {
+  color: #111827;
+  background: rgba(253, 224, 71, 0.7);
+  box-shadow: inset 0 -0.36em 0 rgba(234, 179, 8, 0.34);
+}
+
+.segment-wrap.is-citation-highlighted-segment .clickable-word {
+  border-radius: 5px;
 }
 
 .voice-message-bubble .clickable-word:active {
@@ -885,6 +1041,11 @@ const handleToolbarTitleCompositionEnd = () => {
   box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.12), 0 14px 30px rgba(47, 128, 237, 0.08);
 }
 
+.is-citation-highlight-result .voice-message-bubble {
+  border-color: rgba(234, 179, 8, 0.7);
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.18), 0 14px 30px rgba(202, 138, 4, 0.08);
+}
+
 .transcription-time {
   width: fit-content;
   text-align: left;
@@ -980,6 +1141,12 @@ const handleToolbarTitleCompositionEnd = () => {
   box-shadow: none;
 }
 
+.transcript-panel-content .voice-message-bubble.is-content .clickable-word.citation-highlighted-word {
+  color: #15161a;
+  background: rgba(253, 224, 71, 0.66);
+  box-shadow: inset 0 -0.34em 0 rgba(234, 179, 8, 0.28);
+}
+
 .transcript-panel-content .transcription-row.is-current-playback .voice-message-bubble.is-content {
   color: #15161a;
 }
@@ -996,6 +1163,11 @@ const handleToolbarTitleCompositionEnd = () => {
 }
 
 .transcript-panel-content .is-active-search-result .voice-message-bubble {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.transcript-panel-content .is-citation-highlight-result .voice-message-bubble {
   border-color: transparent;
   box-shadow: none;
 }

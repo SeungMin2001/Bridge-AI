@@ -2441,6 +2441,10 @@ async def generate_quiz(
             f"퀴즈 생성 시작: requested={total_questions}, counts={normalized_counts}, "
             f"input_chars={len(transcript_text or '')}"
         )
+        _log_sentence_morphemes(
+            _source_sentences(transcript_text, limit=14),
+            label="퀴즈 원문",
+        )
         logger.info(
             "[QUIZ] 단일 문항 반복 생성 시작: total=%s counts=%s",
             total_questions,

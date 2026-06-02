@@ -450,6 +450,13 @@ async def generate_session_summary(
 
     payload_text = f"{keywords_text}\n\n{speaker_text}"
     payload_text = _truncate_text(payload_text, MAX_SESSION_CHARS)
+    sentences = _split_sentences(payload_text)
+    _demo_log(
+        f"세션 요약 입력 분석: input_chars={len(payload_text)}, "
+        f"sentences={len(sentences)}, keywords={len(keywords)}"
+    )
+    _log_sentence_morphemes(sentences, label="세션 요약")
+    _log_key_sentences(sentences, label="세션 요약")
 
     if MOCK_MODE:
         logger.info("[SUMMARY] MOCK_MODE: 세션 요약 반환")
@@ -519,6 +526,13 @@ async def generate_course_summary(
 
     payload_text = f"{keywords_text}\n\n{session_text}\n\n{speaker_text}"
     payload_text = _truncate_text(payload_text, MAX_COURSE_CHARS)
+    sentences = _split_sentences(payload_text)
+    _demo_log(
+        f"코스 요약 입력 분석: input_chars={len(payload_text)}, "
+        f"sentences={len(sentences)}, keywords={len(keywords)}"
+    )
+    _log_sentence_morphemes(sentences, label="코스 요약")
+    _log_key_sentences(sentences, label="코스 요약")
 
     if MOCK_MODE:
         logger.info("[SUMMARY] MOCK_MODE: 코스 요약 반환")

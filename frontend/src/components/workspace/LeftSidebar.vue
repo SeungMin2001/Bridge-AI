@@ -54,6 +54,7 @@ const width = ref(450)
 const toastMsg = ref('')
 const isResizing = ref(false)
 const selectedTranscriptSource = ref(null)
+const activeCitationHighlight = ref(null)
 const activePlaybackRecording = ref(null)
 const playbackAudioRef = ref(null)
 const playbackMediaDuration = ref(0)
@@ -583,6 +584,7 @@ watch(playbackSpeed, (speed) => {
 watch(() => props.activeFileId, () => {
   cancelFileTitleEdit()
   selectedTranscriptSource.value = null
+  activeCitationHighlight.value = null
   closePlaybackBar()
   transcriptViewResetKey.value += 1
 })
@@ -604,17 +606,20 @@ const showToast = (msg) => {
 }
 
 const handleSwitchVoiceTab = () => {
+  activeCitationHighlight.value = null
   activeTab.value = 'voice'
 }
 
 const handleCloseTranscriptSource = () => {
   closePlaybackBar()
   selectedTranscriptSource.value = null
+  activeCitationHighlight.value = null
   activeTab.value = 'voice'
 }
 
 const handleOpenMaterial = ({ fileId, node, materialId, material, recording, recordings = [] }) => {
   closePlaybackBar()
+  activeCitationHighlight.value = null
   if (fileId && node) {
     emit('fileSelect', fileId, node)
   }
@@ -632,6 +637,7 @@ const handleOpenMaterial = ({ fileId, node, materialId, material, recording, rec
 }
 
 const handleOpenRecording = ({ fileId, node, recording }) => {
+  activeCitationHighlight.value = null
   if (fileId && node) {
     emit('fileSelect', fileId, node)
   }
@@ -747,6 +753,7 @@ const findCitationRecording = (node, cite = {}) => {
 watch(() => props.citationSourceRequest, (request) => {
   if (!request?.cite || !request?.node) return
 
+  activeCitationHighlight.value = request.cite
   const recording = findCitationRecording(request.node, request.cite)
   if (recording) {
     selectedTranscriptSource.value = {
@@ -768,6 +775,7 @@ watch(() => props.citationSourceRequest, (request) => {
   }
 
   activeTab.value = 'voice'
+  transcriptViewResetKey.value += 1
 })
 
 watch(() => props.recordingSourceRequest, (request) => {
@@ -813,9 +821,16 @@ watch(() => props.recordingSourceRequest, (request) => {
             :title="sourcePanelOpen ? '좌측 소스 카드 닫기' : '좌측 소스 카드 열기'"
             @click="emit('toggle-source-panel')"
           >
-            <span class="material-symbols-outlined" aria-hidden="true">
-              {{ sourcePanelOpen ? 'keyboard_double_arrow_left' : 'keyboard_double_arrow_right' }}
-            </span>
+            <svg
+              class="workspace-file-source-toggle-icon"
+              :class="{ 'is-open': sourcePanelOpen }"
+              viewBox="0 0 32 32"
+              aria-hidden="true"
+            >
+              <rect x="4" y="5" width="24" height="22" rx="7" fill="#ffffff" stroke="currentColor" stroke-width="2.4" />
+              <path d="M13 11.5V20.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" />
+              <path d="M18 11.5L23 16L18 20.5" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
           </button>
           <button
             v-else
@@ -957,6 +972,7 @@ watch(() => props.recordingSourceRequest, (request) => {
           <VoiceTransferSideTab
             :transcriptions="visibleTranscriptions"
             :transcript-source-key="visibleTranscriptSourceKey"
+            :citation-highlight="activeCitationHighlight"
             :playback-current-seconds="activePlaybackRecording ? playbackCurrentSeconds : null"
             :recording-mode="recordingMode"
             :diarization-enabled="diarizationEnabled"
@@ -1193,23 +1209,30 @@ watch(() => props.recordingSourceRequest, (request) => {
   border: 0;
   border-radius: 9px;
   color: #15161a;
-  background: rgba(15, 23, 42, 0.06);
+  background: #ffffff;
   cursor: pointer;
-  transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
 }
 
 .workspace-file-source-toggle:hover {
   color: #111827;
-  background: rgba(15, 23, 42, 0.1);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
 .workspace-file-source-toggle:active {
   transform: scale(0.96);
 }
 
-.workspace-file-source-toggle .material-symbols-outlined {
-  font-size: 20px;
-  font-variation-settings: 'FILL' 0;
+.workspace-file-source-toggle-icon {
+  width: 29px;
+  height: 29px;
+  display: block;
+  color: currentColor;
+  transition: transform 0.18s ease;
+}
+
+.workspace-file-source-toggle-icon.is-open {
+  transform: rotate(180deg);
 }
 
 .workspace-file-back-btn:active {
