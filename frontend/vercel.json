@@ -1,0 +1,32 @@
+{
+    "rewrites": [
+        {
+            "source": "/workspace/:match*",
+            "destination": "http://100.104.164.84:8000/workspace/:match*"
+        },
+        {
+            "source": "/chat/:match*",
+            "destination": "http://100.104.164.84:8000/chat/:match*"
+        },
+        {
+            "source": "/schedule/:match*",
+            "destination": "http://100.104.164.84:8000/schedule/:match*"
+        },
+        {
+            "source": "/summary/:match*",
+            "destination": "http://100.104.164.84:8000/summary/:match*"
+        },
+        {
+            "source": "/quiz/:match*",
+            "destination": "http://100.104.164.84:8000/quiz/:match*"
+        },
+        {
+            "source": "/ws/:match*",
+            "destination": "ws://100.104.164.84:8000/ws/:match*"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}
