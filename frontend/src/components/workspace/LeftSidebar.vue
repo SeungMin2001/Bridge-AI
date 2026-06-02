@@ -814,7 +814,7 @@ watch(() => props.recordingSourceRequest, (request) => {
             @click="emit('toggle-source-panel')"
           >
             <span class="material-symbols-outlined" aria-hidden="true">
-              {{ sourcePanelOpen ? 'keyboard_double_arrow_left' : 'keyboard_double_arrow_right' }}
+              {{ sourcePanelOpen ? 'left_panel_close' : 'left_panel_open' }}
             </span>
           </button>
           <button
@@ -1184,8 +1184,8 @@ watch(() => props.recordingSourceRequest, (request) => {
 }
 
 .workspace-file-source-toggle {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -1193,22 +1193,22 @@ watch(() => props.recordingSourceRequest, (request) => {
   border: 0;
   border-radius: 9px;
   color: #15161a;
-  background: rgba(15, 23, 42, 0.06);
+  background: transparent;
   cursor: pointer;
   transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease;
 }
 
 .workspace-file-source-toggle:hover {
   color: #111827;
-  background: rgba(15, 23, 42, 0.1);
+  background: rgba(15, 23, 42, 0.05);
 }
 
 .workspace-file-source-toggle:active {
-  transform: scale(0.96);
+  transform: scale(0.92);
 }
 
 .workspace-file-source-toggle .material-symbols-outlined {
-  font-size: 20px;
+  font-size: 26px;
   font-variation-settings: 'FILL' 0;
 }
 
