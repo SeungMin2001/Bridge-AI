@@ -740,10 +740,13 @@ const splitFullTranscript = (text = '', cite = {}) => {
 
 const findCitationRecording = (node, cite = {}) => {
   const recordings = getNodeRecordings(node)
+  const recordingId = String(cite?.recording_id || cite?.recordingId || '').trim()
   const recordingTitle = String(cite?.recording_title || '').trim()
   const citationText = String(cite?.citation || '')
 
   return recordings.find((recording) => (
+    recordingId && [recording?.id, recording?.recordingId].map((value) => String(value || '')).includes(recordingId)
+  )) || recordings.find((recording) => (
     recordingTitle && recording?.title === recordingTitle
   )) || recordings.find((recording) => (
     recording?.title && citationText.includes(recording.title)

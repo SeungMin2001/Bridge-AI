@@ -1,9 +1,6 @@
 import { computed, ref } from 'vue'
 
-const CALENDAR_VIEW_OPTIONS = [
-  { value: 'week', label: 'Week' },
-  { value: 'day', label: 'Day' }
-]
+const CALENDAR_VIEW_OPTIONS = []
 
 const WEEK_START_HOUR = 8
 const WEEK_END_HOUR = 22
@@ -41,7 +38,7 @@ export function useScheduleCalendarView({
   const today = new Date()
   const activeMonthDate = ref(new Date(today.getFullYear(), today.getMonth(), 1))
   const selectedDateKey = ref(formatDateKey(today))
-  const calendarView = ref('week')
+  const calendarView = ref('month')
   const hoveredSchedule = ref(null)
 
   const currentMonthLabel = computed(() => {

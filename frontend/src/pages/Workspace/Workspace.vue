@@ -27,6 +27,7 @@ const props = defineProps({
   currentPreviewMaterial: { type: Object, default: null },
   isRightSidebarVisible: { type: Boolean, default: true },
   scheduleExtractionNotice: { type: Object, default: null },
+  scheduleWorkspaceRequest: { type: Object, default: null },
   summaryState: { type: Object, default: () => ({}) },
   summaryNotes: { type: Array, default: () => [] },
   aiInput: { type: String, default: '' }
@@ -77,7 +78,6 @@ const isSourceUploadDialogOpen = ref(false)
 const isSourceUploadDragging = ref(false)
 const pendingSourceUploadRecording = ref(null)
 const pendingStoppedRecordingPlayer = ref(null)
-const preserveChatOnNextFileChange = ref(false)
 const hydratingFolderFileIds = new Set()
 
 const DEFAULT_SCRIPT_PANE_PERCENT = 50
@@ -309,21 +309,15 @@ onUnmounted(() => {
 })
 
 watch(() => props.activeFileId, () => {
-  const shouldPreserveChat = preserveChatOnNextFileChange.value
-  preserveChatOnNextFileChange.value = false
-
-  if (!shouldPreserveChat) {
-    citationSourceRequest.value = null
-    recordingSourceRequest.value = null
-    materialEvidenceRequest.value = null
-    pendingStoppedRecordingPlayer.value = null
-    clearHistory()
-    emit('update:aiInput', '')
-  }
-
+  citationSourceRequest.value = null
+  recordingSourceRequest.value = null
+  materialEvidenceRequest.value = null
+  pendingStoppedRecordingPlayer.value = null
   closeMiniSourceMenu()
   selectedMiniSourceIds.value = new Set()
+  clearHistory()
   closeCitePopover()
+  emit('update:aiInput', '')
 })
 
 const scheduleNoticeItems = computed(() => props.scheduleExtractionNotice?.items || [])
@@ -462,24 +456,48 @@ function findMaterialInNode(node, cite = {}) {
   return null
 }
 
-function preserveChatForSourceNavigation(sessionId) {
-  if (sessionId && sessionId !== props.activeFileId) {
-    preserveChatOnNextFileChange.value = true
+function getRecordingsFromNode(node = {}) {
+  const weekRecordings = Array.isArray(node?.weeks)
+    ? node.weeks.flatMap((week) => Array.isArray(week?.recordings) ? week.recordings : [])
+    : []
+  const directRecordings = Array.isArray(node?.recordings) ? node.recordings : []
+  return [...weekRecordings, ...directRecordings]
+}
+
+function hasLoadedTranscriptRecordings(node = {}) {
+  return getRecordingsFromNode(node).some((recording) => (
+    Array.isArray(recording?.transcriptions) && recording.transcriptions.length > 0
+  ))
+}
+
+async function resolveSourceNode(sessionId, node) {
+  if (!isWorkspaceUuid(sessionId) || node?.type !== 'file' || hasLoadedTranscriptRecordings(node)) {
+    return node
+  }
+
+  try {
+    const fullNode = await getWorkspaceSession(sessionId)
+    emit('update:fileTree', replaceNodeById(props.fileTree, sessionId, fullNode))
+    return fullNode
+  } catch (error) {
+    console.warn('[workspace] citation source hydration failed:', sessionId, error)
+    return node
   }
 }
 
-function openCitationSource(cite) {
+async function openCitationSource(cite) {
   const sessionId = cite?.session_id
   if (!sessionId) return
 
   const node = findNodeById(props.fileTree, sessionId)
   if (!node) return
+  const sourceNode = await resolveSourceNode(sessionId, node)
 
-  preserveChatForSourceNavigation(sessionId)
-  emit('fileSelect', sessionId, node)
+  emit('fileSelect', sessionId, sourceNode)
   isLeftSidebarCollapsed.value = false
+  await nextTick()
   if (cite?.source_type === 'material') {
-    const material = findMaterialInNode(node, cite)
+    const material = findMaterialInNode(sourceNode, cite)
     const materialId = material?.id || cite?.material_id
     if (materialId) {
       emit('openStoredMaterial', materialId)
@@ -491,8 +509,10 @@ function openCitationSource(cite) {
   citationSourceRequest.value = {
     id: `${sessionId}-${cite?.transcript_id || cite?.citation || Date.now()}`,
     cite,
-    node
+    node: sourceNode
   }
+  clearHistory()
+  emit('update:aiInput', '')
   closeCitePopover()
 }
 
@@ -500,7 +520,7 @@ async function openEvidenceSource(cite) {
   if (!cite) return
 
   if (cite.source_type !== 'material') {
-    openCitationSource(cite)
+    await openCitationSource(cite)
     return
   }
 
@@ -509,12 +529,12 @@ async function openEvidenceSource(cite) {
 
   const node = findNodeById(props.fileTree, sessionId)
   if (!node) return
+  const sourceNode = await resolveSourceNode(sessionId, node)
 
-  preserveChatForSourceNavigation(sessionId)
-  emit('fileSelect', sessionId, node)
+  emit('fileSelect', sessionId, sourceNode)
   isLeftSidebarCollapsed.value = false
 
-  const material = findMaterialInNode(node, cite)
+  const material = findMaterialInNode(sourceNode, cite)
   const materialId = material?.id || cite.material_id
   if (materialId) {
     emit('openStoredMaterial', materialId)
@@ -531,6 +551,41 @@ async function openEvidenceSource(cite) {
   }
   closeCitePopover()
 }
+
+watch(() => props.scheduleWorkspaceRequest, async (request) => {
+  if (!request?.id) return
+
+  const sessionId = request.sessionId || request.session_id || request.workspaceFileId || ''
+  if (!sessionId) return
+
+  const node = findNodeById(props.fileTree, sessionId)
+  if (!node) return
+  const sourceNode = await resolveSourceNode(sessionId, node)
+
+  if (sessionId !== props.activeFileId) {
+    emit('fileSelect', sessionId, sourceNode)
+    await nextTick()
+  }
+
+  const sourceText = request.sourceText || request.source_text || ''
+  citationSourceRequest.value = {
+    id: `schedule-${request.id}-${Date.now()}`,
+    cite: {
+      source_type: 'transcript',
+      session_id: sessionId,
+      recording_id: request.recordingId || request.recording_id || '',
+      transcript_id: request.transcriptId || request.transcript_id || '',
+      citation: sourceText,
+      text: sourceText,
+      full_transcript: sourceText,
+      start_time: request.sourceStartTime ?? request.source_start_time ?? null,
+      end_time: request.sourceEndTime ?? request.source_end_time ?? null
+    },
+    node: sourceNode
+  }
+  isLeftSidebarCollapsed.value = false
+  closeCitePopover()
+}, { immediate: true })
 
 async function handleOpenRecording(payload) {
   emit('openRecording', payload)

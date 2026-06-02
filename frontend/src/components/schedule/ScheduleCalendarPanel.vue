@@ -25,7 +25,7 @@ const emit = defineEmits([
 <template>
   <section class="schedule-calendar-panel">
     <div class="schedule-calendar-title-row">
-      <div class="schedule-view-switch" role="tablist" aria-label="일정 보기">
+      <div v-if="calendarViewOptions.length" class="schedule-view-switch" role="tablist" aria-label="일정 보기">
         <button
           v-for="option in calendarViewOptions"
           :key="option.value"
