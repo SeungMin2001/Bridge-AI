@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 
 import httpx
 from kiwipiepy import Kiwi
@@ -168,6 +169,47 @@ def _log_sentence_morphemes(sentences: list[str], *, label: str) -> None:
             f"   형태소분리#{index}: tokens={tokens}"
         )
     _demo_log(f"{label} 형태소 분석 종료")
+
+
+def _rank_key_sentences_for_demo(sentences: list[str], *, limit: int = 5) -> list[dict]:
+    """시연 로그용 핵심 문장 후보를 산출합니다. 실제 요약 입력/출력에는 사용하지 않습니다."""
+    candidates = []
+    token_counts: Counter[str] = Counter()
+    for order, sentence in enumerate(sentences, start=1):
+        cleaned = re.sub(r"\s+", " ", sentence).strip()
+        if len(cleaned) < 8:
+            continue
+        tokens = list(dict.fromkeys(_tokenize_for_demo(cleaned)))
+        if not tokens:
+            continue
+        token_counts.update(tokens)
+        candidates.append({"order": order, "text": cleaned, "tokens": tokens})
+
+    if not candidates:
+        return []
+
+    ranked = []
+    for item in candidates:
+        tokens = item["tokens"]
+        score = sum(token_counts[token] for token in tokens) / max(len(tokens), 1)
+        ranked.append({**item, "score": float(score)})
+
+    ranked.sort(key=lambda item: (-item["score"], item["order"]))
+    return ranked[:limit]
+
+
+def _log_key_sentences(sentences: list[str], *, label: str) -> None:
+    """문장 분리 결과에서 핵심 문장 후보를 로그로 남깁니다."""
+    ranked = _rank_key_sentences_for_demo(sentences)
+    if not ranked:
+        _demo_log(f"{label} 핵심문장 선택 생략: 후보 없음")
+        return
+    _demo_log(f"{label} 핵심문장 선택 완료: selected={len(ranked)}")
+    for index, item in enumerate(ranked, start=1):
+        _demo_log(
+            f"   핵심문장#{index}: score={item.get('score', 0):.4f}, "
+            f"text='{_preview(item.get('text'), 110)}'"
+        )
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
@@ -377,6 +419,7 @@ async def generate_speaker_summary(
     for index, sentence in enumerate(sentences[:5], start=1):
         _demo_log(f"   문장분리#{index}: {_preview(sentence, 100)}")
     _log_sentence_morphemes(sentences, label="화자 요약")
+    _log_key_sentences(sentences, label="화자 요약")
 
     if MOCK_MODE:
         logger.info("[SUMMARY] MOCK_MODE: 화자 요약 반환")
@@ -441,6 +484,7 @@ async def generate_session_summary_from_text(
     for index, sentence in enumerate(sentences[:5], start=1):
         _demo_log(f"   문장분리#{index}: {_preview(sentence, 100)}")
     _log_sentence_morphemes(sentences, label="전사 요약")
+    _log_key_sentences(sentences, label="전사 요약")
     if keywords:
         _demo_log(f"   핵심 키워드: {[kw.get('keyword_text') for kw in keywords[:10]]}")
 

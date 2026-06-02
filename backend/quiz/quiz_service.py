@@ -31,8 +31,14 @@ import logging
 import httpx
 import os
 
+try:
+    from kiwipiepy import Kiwi
+except ImportError:
+    Kiwi = None
+
 logger = logging.getLogger(__name__)
 DEMO_PIPELINE_LOG = True
+_kiwi = Kiwi() if Kiwi is not None else None
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "false").lower() == "true"
@@ -48,6 +54,7 @@ LLM_MAX_TOKENS = int(os.getenv("QUIZ_MAX_TOKENS", "4096"))
 QUIZ_CONTEXT_CHARS = int(os.getenv("QUIZ_CONTEXT_CHARS", "2800"))
 QUIZ_MIN_OUTPUT_TOKENS = int(os.getenv("QUIZ_MIN_OUTPUT_TOKENS", "900"))
 QUIZ_TOKENS_PER_QUESTION = int(os.getenv("QUIZ_TOKENS_PER_QUESTION", "320"))
+_MORPHEME_LOG_TAGS = {"NNG", "NNP", "VV", "VA", "SL"}
 
 
 def _demo_log(message: str) -> None:
@@ -58,6 +65,31 @@ def _demo_log(message: str) -> None:
 def _preview(text: str, limit: int = 120) -> str:
     compact = re.sub(r"\s+", " ", str(text or "")).strip()
     return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
+
+
+def _tokenize_for_demo(sentence: str) -> list[str]:
+    """시연 로그용 형태소 토큰을 추출합니다."""
+    if _kiwi is None:
+        return re.findall(r"[가-힣A-Za-z0-9_+#./-]{2,}", sentence)[:12]
+    return [
+        token.form
+        for token in _kiwi.tokenize(sentence)
+        if token.tag in _MORPHEME_LOG_TAGS and len(token.form) >= 2
+    ][:12]
+
+
+def _log_sentence_morphemes(sentences: list[str], *, label: str) -> None:
+    """문장 분리 후 형태소 분석 산출물을 로그로 남깁니다."""
+    if not sentences:
+        _demo_log(f"{label} 형태소 분석 생략: 문장 없음")
+        return
+    _demo_log(f"{label} 형태소 분석 시작: sentences={len(sentences)}, sample_sentences={min(len(sentences), 5)}")
+    for index, sentence in enumerate(sentences[:5], start=1):
+        preprocessed = re.sub(r"\s+", " ", sentence).strip()
+        tokens = _tokenize_for_demo(preprocessed)
+        _demo_log(f"   전처리문장#{index}: '{_preview(preprocessed, 100)}'")
+        _demo_log(f"   형태소분리#{index}: tokens={tokens}")
+    _demo_log(f"{label} 형태소 분석 종료")
 
 #  LLM 프롬프트 템플릿
 QUIZ_SYSTEM_PROMPT = """당신은 대학 강의 내용을 기반으로 학습 퀴즈를 만드는 AI 교수입니다.
@@ -644,6 +676,10 @@ async def _build_quiz_source_summary(
     )
     for index, line in enumerate(fallback_summary.splitlines()[:5], start=1):
         _demo_log(f"   핵심문장#{index}: {_preview(line, 110)}")
+    _log_sentence_morphemes(
+        [line.lstrip("- ").strip() for line in fallback_summary.splitlines() if line.strip()],
+        label="퀴즈 소스",
+    )
 
     if not prompt_source.strip():
         raise ValueError("퀴즈 생성에 사용할 소스 내용이 없습니다.")
