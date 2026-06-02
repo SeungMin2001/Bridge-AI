@@ -664,6 +664,8 @@ async def _build_quiz_source_summary(
                 "max_tokens": 900,
                 "temperature": 0.0,
                 "bridgeprag_alpha": 0.0,
+                "bridgeprag_disable_memory": True,
+                "demo_feature": "quiz",
                 "response_format": {"type": "json_object"},
                 "chat_template_kwargs": {"enable_thinking": False},
             },
@@ -676,12 +678,16 @@ async def _build_quiz_source_summary(
         if len(summary_text) >= 40:
             logger.info("[QUIZ] 퀴즈용 요약본 생성 완료: %d chars", len(summary_text))
             _demo_log(f"3) 퀴즈용 요약본 생성 완료: chars={len(summary_text)}")
+            for index, line in enumerate(summary_text.splitlines()[:5], start=1):
+                _demo_log(f"   요약문장#{index}: {_preview(line, 110)}")
             return summary_text
     except Exception as exc:
         logger.warning("[QUIZ] 퀴즈용 LLM 요약 실패, 로컬 정제 요약본 사용: %s", exc)
 
     logger.info("[QUIZ] 로컬 정제 요약본 사용: %d chars", len(fallback_summary))
     _demo_log(f"3) 로컬 정제 요약본 사용: chars={len(fallback_summary)}")
+    for index, line in enumerate(fallback_summary.splitlines()[:5], start=1):
+        _demo_log(f"   로컬요약#{index}: {_preview(line, 110)}")
     return fallback_summary
 
 
@@ -1958,6 +1964,8 @@ def _quiz_generation_payload(messages: list[dict], max_tokens: int, *, temperatu
         "max_tokens": max_tokens,
         "temperature": temperature,
         "bridgeprag_alpha": 0.0,
+        "bridgeprag_disable_memory": True,
+        "demo_feature": "quiz",
         "response_format": {"type": "json_object"},
         "chat_template_kwargs": {"enable_thinking": False},
     }
@@ -2210,8 +2218,8 @@ async def _generate_single_question(
                 rejected_reasons.extend(_question_shape_issues(normalized_candidate))
                 rejected_sample = rejected_sample or normalized_candidate
             sample = rejected_sample or (candidates[0] if candidates else {})
-            logger.warning(
-                "[QUIZ] %s 단일 문항 검증 실패: attempt=%s reasons=%s sample=%s",
+            logger.debug(
+                "[QUIZ] %s 문항 후보 재생성: attempt=%s reasons=%s sample=%s",
                 question_type,
                 attempt + 1,
                 rejected_reasons or _question_shape_issues(sample if isinstance(sample, dict) else {}),
@@ -2419,8 +2427,13 @@ async def generate_quiz(
         for item in quiz_data[:8]:
             _demo_log(
                 f"   Q{item.get('question_index')}: type={item.get('type')} "
-                f"question='{_preview(item.get('question'), 100)}'"
+                f"question='{_preview(item.get('question'), 100)}' "
+                f"answer='{_preview(item.get('correct_answer'), 80)}'"
             )
+            if item.get("type") == "MULTIPLE_CHOICE":
+                _demo_log(f"      options={[ _preview(option, 60) for option in item.get('options', []) ]}")
+            elif item.get("type") == "OX":
+                _demo_log(f"      options={item.get('options', [])}")
         return quiz_data
 
     except httpx.HTTPError as e:

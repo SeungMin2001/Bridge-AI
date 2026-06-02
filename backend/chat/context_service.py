@@ -15,7 +15,7 @@ from rag_search import search as rag_search
 
 logger = logging.getLogger(__name__)
 
-CHAT_EVIDENCE_TOP_K = int(os.getenv("CHAT_EVIDENCE_TOP_K", "2"))
+CHAT_EVIDENCE_TOP_K = max(2, int(os.getenv("CHAT_EVIDENCE_TOP_K", "2")))
 CHAT_SELECTED_MATERIAL_CONTEXT_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_CHARS", "6000"))
 CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS", "2000"))
 CHAT_WORKSPACE_INVENTORY_MAX_ITEMS = int(os.getenv("CHAT_WORKSPACE_INVENTORY_MAX_ITEMS", "40"))
@@ -143,11 +143,8 @@ async def build_prompt_and_citations(
         if _should_include_inventory_context(question)
         else ""
     )
+    # 시연에서는 근거가 한 개만 보이면 RAG가 약하게 보이므로, 근거형 질문도 최대 2개까지 유지합니다.
     evidence_top_k = CHAT_EVIDENCE_TOP_K
-    if _is_elliptic_grounded_question(question) or factual_grounded_question:
-        evidence_top_k = 1
-    elif grounded_content_question:
-        evidence_top_k = min(CHAT_EVIDENCE_TOP_K, 3)
     rag_result = rag_search(
         question,
         top_k=evidence_top_k,

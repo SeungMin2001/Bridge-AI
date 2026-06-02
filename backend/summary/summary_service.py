@@ -12,9 +12,11 @@ import os
 import re
 
 import httpx
+from kiwipiepy import Kiwi
 
 logger = logging.getLogger(__name__)
 DEMO_PIPELINE_LOG = True
+_kiwi = Kiwi()
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("SUMMARY_MOCK_MODE", "false").lower() == "true"
@@ -123,6 +125,8 @@ SUMMARY_COURSE_PROMPT_TEMPLATE = """아래는 과목 요약을 위한 정보입�
 """
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[\.\?\!。？！])\s+|\n+")
+_MORPHEME_LOG_TAGS = {"NNG", "NNP", "VV", "VA", "SL"}
+SUMMARY_REQUIRED_SECTIONS = ("## 핵심 요약", "## 주요 내용", "## 학습 포인트")
 
 
 def _demo_log(message: str) -> None:
@@ -139,6 +143,31 @@ def _split_sentences(text: str) -> list[str]:
     """문장 단위 분리를 통해 간단한 요약/미리보기 용도를 지원합니다."""
     text = re.sub(r"\r\n?", "\n", text)
     return [part.strip() for part in _SENTENCE_SPLIT_RE.split(text) if part and part.strip()]
+
+
+def _tokenize_for_demo(sentence: str) -> list[str]:
+    """시연 로그용 형태소 토큰을 추출합니다."""
+    return [
+        token.form
+        for token in _kiwi.tokenize(sentence)
+        if token.tag in _MORPHEME_LOG_TAGS and len(token.form) >= 2
+    ][:12]
+
+
+def _log_sentence_morphemes(sentences: list[str], *, label: str) -> None:
+    """문장 분리 후 형태소 분석 산출물을 로그로 남깁니다."""
+    if not sentences:
+        _demo_log(f"{label} 형태소 분석 생략: 문장 없음")
+        return
+    _demo_log(f"{label} 형태소 분석 시작: sentences={len(sentences)}, sample_sentences={min(len(sentences), 5)}")
+    for index, sentence in enumerate(sentences[:5], start=1):
+        preprocessed = re.sub(r"\s+", " ", sentence).strip()
+        tokens = _tokenize_for_demo(preprocessed)
+        _demo_log(f"   전처리문장#{index}: '{_preview(preprocessed, 100)}'")
+        _demo_log(
+            f"   형태소분리#{index}: tokens={tokens}"
+        )
+    _demo_log(f"{label} 형태소 분석 종료")
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
@@ -255,12 +284,43 @@ def _parse_summary_json(raw_text: str) -> str:
     return summary_text.strip()
 
 
+def _ensure_structured_summary(summary_text: str, source_text: str = "") -> str:
+    """LLM/복구/mock 결과가 한 문단으로만 나오지 않도록 보고서형 Markdown으로 보정합니다."""
+    text = str(summary_text or "").strip()
+    if text and sum(section in text for section in SUMMARY_REQUIRED_SECTIONS) >= 2:
+        return text
+
+    sentences = _split_sentences(text) or _split_sentences(source_text)
+    if not sentences:
+        return text
+
+    overview = sentences[:2]
+    details = sentences[2:8] or sentences[: min(len(sentences), 5)]
+    points = sentences[8:12] or details[:3]
+
+    lines = ["## 핵심 요약"]
+    for sentence in overview:
+        lines.append(f"- {sentence}")
+
+    lines.extend(["", "## 주요 내용"])
+    for sentence in details:
+        lines.append(f"- {sentence}")
+
+    lines.extend(["", "## 학습 포인트"])
+    for sentence in points:
+        lines.append(f"- {sentence}")
+
+    lines.extend(["", "## 복습 체크"])
+    lines.append("- 위 핵심 개념과 세부 내용을 연결해 설명할 수 있는지 확인하세요.")
+    return "\n".join(lines).strip()
+
+
 def _mock_summary(text: str, summary_sentences: int) -> str:
     """Mock 모드에서 문장 앞부분만 사용해 요약을 흉내냅니다."""
     sentences = _split_sentences(text)
     if not sentences:
         return text.strip()
-    return " ".join(sentences[:summary_sentences]).strip()
+    return _ensure_structured_summary(" ".join(sentences[:summary_sentences]).strip(), text)
 
 
 def _build_messages(user_prompt: str) -> list[dict]:
@@ -271,7 +331,7 @@ def _build_messages(user_prompt: str) -> list[dict]:
     ]
 
 
-async def _call_llm(messages: list[dict], max_tokens: int = 1200) -> str:
+async def _call_llm(messages: list[dict], max_tokens: int = 1200, source_text: str = "") -> str:
     """LLM 호출 후 요약 문자열을 반환합니다."""
     prompt_chars = sum(len(str(item.get("content") or "")) for item in messages)
     _demo_log(f"모델 전달: messages={len(messages)}, prompt_chars={prompt_chars}, max_tokens={max_tokens}")
@@ -284,6 +344,8 @@ async def _call_llm(messages: list[dict], max_tokens: int = 1200) -> str:
                 "max_tokens": max_tokens,
                 "temperature": 0.1,
                 "bridgeprag_alpha": 0.0,
+                "bridgeprag_disable_memory": True,
+                "demo_feature": "summary",
                 "chat_template_kwargs": {"enable_thinking": False},
             },
             headers={"Authorization": f"Bearer {LLM_API_KEY}"},
@@ -294,6 +356,7 @@ async def _call_llm(messages: list[dict], max_tokens: int = 1200) -> str:
     raw_answer = data["choices"][0]["message"]["content"]
     logger.info("[SUMMARY] LLM 응답 수신: %d chars", len(raw_answer))
     summary_text = _parse_summary_json(raw_answer)
+    summary_text = _ensure_structured_summary(summary_text, source_text)
     _demo_log(f"요약 생성 완료: output_chars={len(summary_text)}")
     return summary_text
 
@@ -313,6 +376,7 @@ async def generate_speaker_summary(
     _demo_log(f"화자 요약 시작: speaker={speaker_id}, input_chars={len(speaker_text)}, sentences={len(sentences)}")
     for index, sentence in enumerate(sentences[:5], start=1):
         _demo_log(f"   문장분리#{index}: {_preview(sentence, 100)}")
+    _log_sentence_morphemes(sentences, label="화자 요약")
 
     if MOCK_MODE:
         logger.info("[SUMMARY] MOCK_MODE: 화자 요약 반환")
@@ -324,7 +388,7 @@ async def generate_speaker_summary(
         summary_sentences=summary_sentences,
     )
 
-    return await _call_llm(_build_messages(user_prompt))
+    return await _call_llm(_build_messages(user_prompt), source_text=transcript_text)
 
 
 async def generate_session_summary(
@@ -354,7 +418,7 @@ async def generate_session_summary(
         summary_sentences=summary_sentences,
     )
 
-    return await _call_llm(_build_messages(user_prompt))
+    return await _call_llm(_build_messages(user_prompt), source_text=payload_text)
 
 
 async def generate_session_summary_from_text(
@@ -376,6 +440,7 @@ async def generate_session_summary_from_text(
     )
     for index, sentence in enumerate(sentences[:5], start=1):
         _demo_log(f"   문장분리#{index}: {_preview(sentence, 100)}")
+    _log_sentence_morphemes(sentences, label="전사 요약")
     if keywords:
         _demo_log(f"   핵심 키워드: {[kw.get('keyword_text') for kw in keywords[:10]]}")
 
@@ -389,7 +454,7 @@ async def generate_session_summary_from_text(
         summary_sentences=summary_sentences,
     )
 
-    return await _call_llm(_build_messages(user_prompt))
+    return await _call_llm(_build_messages(user_prompt), source_text=transcript_text)
 
 
 async def generate_course_summary(
@@ -422,4 +487,4 @@ async def generate_course_summary(
         summary_sentences=summary_sentences,
     )
 
-    return await _call_llm(_build_messages(user_prompt))
+    return await _call_llm(_build_messages(user_prompt), source_text=payload_text)

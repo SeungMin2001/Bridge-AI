@@ -187,9 +187,13 @@ def extract_ranked_sentences(
     _demo_log(f"1) 문장 후보 추출 시작: input_chars={len(material_text or '')}, top_k={top_k}")
     candidates = extract_sentence_candidates(material_text, min_chars=min_chars)
     _demo_log(f"2) 문장 후보 추출 완료: candidates={len(candidates)}")
+    _demo_log(f"2-1) 형태소 분석 시작: candidate_sentences={len(candidates)}")
     for index, item in enumerate(candidates[:5], start=1):
+        cleaned_sentence = clean_material_sentence(item["text"])
         tokens = sorted(_tokenize_for_rank(item["text"]))[:10]
-        _demo_log(f"   형태소 후보#{index}: sentence='{_preview(item['text'], 90)}' tokens={tokens}")
+        _demo_log(f"   전처리문장#{index}: '{_preview(cleaned_sentence, 90)}'")
+        _demo_log(f"   형태소분리#{index}: tokens={tokens}")
+    _demo_log("2-2) 형태소 분석 종료")
     _demo_log("3) TextRank PageRank 계산 시작")
     ranked = rank_sentences(candidates, top_k=top_k)
     _demo_log(f"4) TextRank 핵심문장 선택 완료: selected={len(ranked)}")

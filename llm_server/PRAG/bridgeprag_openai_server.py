@@ -335,6 +335,8 @@ def _build_request(messages: list[dict[str, Any]], *, max_tokens: int, payload: 
         "passages": passages,
         "generation_text": generation_text,
         "max_tokens": max_tokens,
+        "disable_bridgeprag_memory": bool(payload.get("bridgeprag_disable_memory")),
+        "demo_feature": str(payload.get("demo_feature") or payload.get("feature") or "chat"),
         "stop": _payload_stop_sequences(payload),
         "repetition_penalty": _payload_float(payload, "repetition_penalty", SERVICE_REPETITION_PENALTY),
         "no_repeat_ngram_size": _payload_int(payload, "no_repeat_ngram_size", SERVICE_NO_REPEAT_NGRAM_SIZE),
@@ -446,6 +448,12 @@ def _build_generation_text(system_texts: list[str], user_prompt: str, question: 
 
 
 def _encode_memory_for_request(request: dict[str, Any]):
+    if request.get("disable_bridgeprag_memory"):
+        _demo_log(
+            "LLM",
+            f"일반 생성 경로 사용: feature={request.get('demo_feature', 'unknown')}, PRAG 주입 경로 미사용",
+        )
+        return None
     if not _request_uses_memory(request):
         _demo_log(
             "BRIDGEPRAG",
@@ -465,6 +473,8 @@ def _encode_memory_for_request(request: dict[str, Any]):
         "BRIDGEPRAG",
         f"2) HyperNetwork 인코딩 시작: fusion={runtime_config.get('question_fusion')}, num_kv={runtime_config.get('num_kv')}",
     )
+    _demo_log("BRIDGEPRAG", "   Question+Context 임베딩 및 Attention Pooling 수행")
+    _demo_log("BRIDGEPRAG", "   MLP 변환 시작: Linear -> GELU -> LayerNorm -> Linear -> GELU")
     memory = encode_merged_memory(
         model,
         tokenizer,
@@ -482,6 +492,10 @@ def _encode_memory_for_request(request: dict[str, Any]):
     )
     _demo_log("BRIDGEPRAG", f"   K preview={_tensor_preview(memory.get('K'))}")
     _demo_log("BRIDGEPRAG", f"   V preview={_tensor_preview(memory.get('V'))}")
+    _demo_log(
+        "BRIDGEPRAG",
+        f"   Orthogonal Merge 완료: merge={memory.get('merge_mode', 'orthogonal')}, merged={memory.get('merged_count', len(passages))}",
+    )
     return memory
 
 
@@ -518,7 +532,7 @@ def _generate_text(request: dict[str, Any]) -> str:
     with generation_lock, torch.no_grad():
         memory = _encode_memory_for_request(request)
         _log_request_trace(request, memory)
-        hook = _register_memory_hook(memory, request.get("alpha"))
+        hook = None if request.get("disable_bridgeprag_memory") else _register_memory_hook(memory, request.get("alpha"))
         kwargs = _generation_kwargs(request)
         _demo_log("BRIDGEPRAG", f"5) 답변 생성 시작: max_new_tokens={request.get('max_tokens')}")
         try:
@@ -540,7 +554,7 @@ def _stream_openai_chunks(request: dict[str, Any]):
     with generation_lock, torch.no_grad():
         memory = _encode_memory_for_request(request)
         _log_request_trace(request, memory)
-        hook = _register_memory_hook(memory, request.get("alpha"))
+        hook = None if request.get("disable_bridgeprag_memory") else _register_memory_hook(memory, request.get("alpha"))
         _demo_log("BRIDGEPRAG", f"5) 스트리밍 생성 시작: max_new_tokens={request.get('max_tokens')}")
         def _worker():
             with torch.no_grad():
@@ -614,6 +628,8 @@ def _register_memory_hook(memory: dict[str, Any] | None, request_alpha: float | 
 
 
 def _request_uses_memory(request: dict[str, Any]) -> bool:
+    if request.get("disable_bridgeprag_memory"):
+        return False
     if not request.get("passages"):
         return False
     alpha = float(runtime_config.get("alpha", 1.0) if request.get("alpha") is None else request.get("alpha"))
@@ -638,6 +654,18 @@ def _request_trace(request: dict[str, Any], memory: dict[str, Any] | None = None
 
 def _log_request_trace(request: dict[str, Any], memory: dict[str, Any] | None) -> None:
     if not LOG_REQUESTS:
+        return
+    if request.get("disable_bridgeprag_memory"):
+        question = re.sub(r"\s+", " ", str(request.get("question") or "")).strip()
+        if len(question) > 80:
+            question = f"{question[:77]}..."
+        print(
+            "[LLM:request] "
+            f"feature={request.get('demo_feature', 'unknown')} "
+            f"memory_active=False "
+            f"prompt={runtime_config.get('generation_prompt_mode')} "
+            f"question={question!r}"
+        )
         return
     trace = _request_trace(request, memory)
     question = re.sub(r"\s+", " ", str(request.get("question") or "")).strip()

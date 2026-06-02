@@ -40,6 +40,12 @@ from stt.whisper_service import (
 import logging
 
 logger = logging.getLogger(__name__)
+DEMO_PIPELINE_LOG = True
+
+
+def _demo_log(stage: str, message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:{stage}] {message}", flush=True)
 
 app = FastAPI()
 
@@ -224,7 +230,12 @@ async def websocket_endpoint(ws: WebSocket):
     async def process_transcript_chunk(audio_16k: np.ndarray, start_time: float, end_time: float):
         """STT, 교정, 저장, RAG 추가를 한 청크 단위로 처리합니다."""
         try:
+            _demo_log(
+                "STT",
+                f"전사 시작: start={start_time:.3f}s, end={end_time:.3f}s, samples={len(audio_16k)}",
+            )
             raw_text = await loop.run_in_executor(transcribe_pool, transcribe_16k_chunk, audio_16k)
+            _demo_log("STT", f"STT 원문 전사 완료: raw='{str(raw_text or '').strip()}'")
         except Exception as e:
             # 신창영: 수정 이유 - MPS/STT 런타임 에러가 나도 WebSocket 전체가 500으로 죽지 않게 프론트에 에러만 전달합니다.
             logger.exception("[STT] 전사 실패")
@@ -255,7 +266,9 @@ async def websocket_endpoint(ws: WebSocket):
         })
 
         if correction_enabled and raw_text:
+            _demo_log("STT", f"KoBART 교정 시작: raw='{str(raw_text or '').strip()}'")
             corrected_text = await loop.run_in_executor(correction_pool, correct_transcript_text, raw_text)
+            _demo_log("STT", f"KoBART 교정 완료: corrected='{str(corrected_text or '').strip()}'")
             if corrected_text != raw_text:
                 await send_ws_json({
                     "type": "corrected",
@@ -269,6 +282,8 @@ async def websocket_endpoint(ws: WebSocket):
                 })
         else:
             corrected_text = raw_text
+            if raw_text:
+                _demo_log("STT", "KoBART 교정 생략: correction_disabled 또는 raw_text 없음")
 
         transcript_data = {
             "session_id": session_id,
@@ -296,6 +311,11 @@ async def websocket_endpoint(ws: WebSocket):
             saved_transcript = await save_transcript(transcript_data) or {}
             if chunk_record is not None:
                 chunk_record["transcript_id"] = saved_transcript.get("transcript_id")
+            _demo_log(
+                "STT",
+                f"DB 저장 완료: transcript_id={saved_transcript.get('transcript_id')}, "
+                f"text='{str(corrected_text or '').strip()}'",
+            )
         except Exception as e:
             print(f"[DB] save_transcript 실패: {e}")
 
@@ -314,6 +334,7 @@ async def websocket_endpoint(ws: WebSocket):
 
         if corrected_text:
             try:
+                _demo_log("STT", f"RAG 색인 시작: chunk_id={chunk_id}")
                 rag_add_document(corrected_text, {
                     "session_id": session_id,
                     "recording_id": recording_id,
@@ -327,6 +348,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "end_time": end_time,
                     "speaker_id": speaker_id or "UNKNOWN",
                 })
+                _demo_log("STT", f"RAG 색인 완료: chunk_id={chunk_id}")
             except Exception as e:
                 print(f"[RAG] 임베딩 추가 실패 (전사는 정상): {e}")
 
@@ -628,16 +650,3 @@ async def websocket_endpoint(ws: WebSocket):
             task.cancel()
         if diarize_tasks:
             await asyncio.gather(*diarize_tasks, return_exceptions=True)
-
-import os
-from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse
-frontend_dist = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
-if os.path.isdir(frontend_dist):
-    app.mount('/assets', StaticFiles(directory=os.path.join(frontend_dist, 'assets')), name='assets')
-    @app.get('/{full_path:path}')
-    async def serve_frontend(full_path: str):
-        file_path = os.path.join(frontend_dist, full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        return FileResponse(os.path.join(frontend_dist, 'index.html'))

@@ -192,6 +192,7 @@ async def generate_material_summary_with_textrank(
     summary_text = await _call_llm(
         _build_messages(prompt),
         max_tokens=MATERIAL_SUMMARY_MAX_TOKENS,
+        source_text=format_ranked_sentences_for_prompt(ranked_sentences),
     )
     _demo_log(f"6) 요약 생성 완료: output_chars={len(summary_text)}")
     return summary_text, metadata

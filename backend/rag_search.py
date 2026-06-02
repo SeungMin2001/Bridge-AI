@@ -1982,11 +1982,19 @@ def search(
         locator_query=locator_query,
         top_k=top_k,
     )
-    _demo_log(f"5) Hybrid 검색 완료: scope={search_scope}, candidates={len(results)}")
-    for rank, item in enumerate(results[:top_k], 1):
+    _demo_log(f"5) Hybrid 검색 완료: scope={search_scope}, similar_sentences={len(results)}")
+    for rank, item in enumerate(results, 1):
+        score_parts = []
+        for score_key in ("score", "similarity", "distance", "lexical_score", "rank_score"):
+            value = item.get(score_key)
+            if isinstance(value, (int, float)):
+                score_parts.append(f"{score_key}={value:.4f}")
         _demo_log(
-            f"   후보#{rank}: source={item.get('source')}, type={item.get('source_type', 'transcript')}, "
-            f"text='{_preview(item.get('text'), 130)}'"
+            f"   유사문장#{rank}: source={item.get('source')}, "
+            f"type={item.get('source_type', 'transcript')}, "
+            f"citation='{_format_citation(item)}', "
+            f"{' '.join(score_parts) if score_parts else 'score=n/a'}, "
+            f"text='{_preview(item.get('text'), 160)}'"
         )
 
     if RAG_DEBUG:
@@ -2014,9 +2022,11 @@ def search(
     citations = []
     full_transcript_cache = {}
     recording_transcript_cache = {}
-    for i, r in enumerate(results, 1):
+    selected_results = results[:top_k]
+    _demo_log(f"6) 최종 근거 선택: selected={len(selected_results)}, max_evidence={top_k}")
+    for i, r in enumerate(selected_results, 1):
         citation = _format_citation(r)
-        _demo_log(f"6) Citation 연결#{i}: {citation}")
+        _demo_log(f"   근거#{i}: {citation}")
         result_session_id = r.get("session_id") or session_id
         if r.get("source_type") == "material":
             context_parts.append(f"[{i}] {r['text']} (출처: {citation})")
