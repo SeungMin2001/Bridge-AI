@@ -32,6 +32,17 @@ import httpx
 import os
 
 logger = logging.getLogger(__name__)
+DEMO_PIPELINE_LOG = True
+
+
+def _demo_log(stage: str, message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:{stage}] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("QUIZ_MOCK_MODE", "false").lower() == "true"
@@ -621,6 +632,9 @@ async def _build_quiz_source_summary(
 ) -> str:
     """원문을 바로 퀴즈에 넣지 않고 요약본으로 압축해 문제 품질을 안정화합니다."""
     fallback_summary = _local_quiz_source_summary(source_text)
+    _demo_log("QUIZ", f"2) 선택 소스 정제: source_chars={len(source_text)}, candidate_sentences={len(_source_sentences(source_text, limit=30))}")
+    for index, sentence in enumerate(_source_sentences(source_text, limit=5), start=1):
+        _demo_log("QUIZ", f"   핵심문장 후보#{index}: {_preview(sentence, 120)}")
     prompt_source = fallback_summary if len(fallback_summary) >= 80 else _clean_quiz_fragment(source_text)
     prompt_source = _trim_text(prompt_source, QUIZ_CONTEXT_CHARS)
 
@@ -628,6 +642,7 @@ async def _build_quiz_source_summary(
         raise ValueError("퀴즈 생성에 사용할 소스 내용이 없습니다.")
 
     try:
+        _demo_log("QUIZ", f"3) 퀴즈용 요약본 LLM 생성 요청: prompt_chars={len(prompt_source)}")
         res = await client.post(
             f"{LLM_URL}/v1/chat/completions",
             json={
@@ -653,11 +668,14 @@ async def _build_quiz_source_summary(
         summary_text = _local_quiz_source_summary(summary_text, max_sentences=16)
         if len(summary_text) >= 40:
             logger.info("[QUIZ] 퀴즈용 요약본 생성 완료: %d chars", len(summary_text))
+            _demo_log("QUIZ", f"4) 퀴즈용 요약본 생성 완료: summary_chars={len(summary_text)}")
             return summary_text
     except Exception as exc:
         logger.warning("[QUIZ] 퀴즈용 LLM 요약 실패, 로컬 정제 요약본 사용: %s", exc)
+        _demo_log("QUIZ", f"4) LLM 요약 실패 -> 로컬 요약본 사용: {exc}")
 
     logger.info("[QUIZ] 로컬 정제 요약본 사용: %d chars", len(fallback_summary))
+    _demo_log("QUIZ", f"4) 로컬 정제 요약본 사용: summary_chars={len(fallback_summary)}")
     return fallback_summary
 
 
@@ -1933,6 +1951,7 @@ async def _request_quiz_json(
     *,
     temperature: float = 0.0,
 ) -> list[dict]:
+    _demo_log("QUIZ", f"5) 문항 생성 LLM 호출: max_tokens={max_tokens}, temperature={temperature}")
     res = await client.post(
         f"{LLM_URL}/v1/chat/completions",
         json=_quiz_generation_payload(messages, max_tokens, temperature=temperature),
@@ -1942,6 +1961,7 @@ async def _request_quiz_json(
     data = res.json()
     raw_answer = data["choices"][0]["message"]["content"]
     logger.info(f"[QUIZ] LLM JSON 응답 수신: {len(raw_answer)} chars")
+    _demo_log("QUIZ", f"6) LLM 문항 응답 수신: chars={len(raw_answer)}")
     return _parse_quiz_json(raw_answer)
 
 
@@ -1993,6 +2013,7 @@ async def _generate_single_question(
     max_tokens = min(LLM_MAX_TOKENS, 760)
     for attempt in range(2):
         try:
+            _demo_log("QUIZ", f"5) {question_type} 단일 문항 생성 시도: index={type_index + 1}, attempt={attempt + 1}")
             candidates = await _request_quiz_json(
                 client,
                 _build_single_question_messages(transcript_text, question_type, existing_questions, type_index),
@@ -2021,6 +2042,7 @@ async def _generate_single_question(
                     rejected_sample = rejected_sample or normalized_candidate
                     continue
                 if _is_valid_question_shape(normalized_candidate):
+                    _demo_log("QUIZ", f"7) 문항 검증 통과: type={question_type}, question='{_preview(normalized_candidate.get('question'), 80)}'")
                     return normalized_candidate
                 rejected_reasons.extend(_question_shape_issues(normalized_candidate))
                 rejected_sample = rejected_sample or normalized_candidate
@@ -2063,6 +2085,7 @@ async def _generate_single_question(
                 fallback = candidate
                 break
     logger.info("[QUIZ] %s 문항을 선택 소스 기반으로 보충했습니다: %s", question_type, fallback.get("question"))
+    _demo_log("QUIZ", f"7) LLM 문항 실패 -> 소스 기반 보충: type={question_type}, question='{_preview(fallback.get('question'), 80)}'")
     return fallback
 
 
@@ -2201,6 +2224,7 @@ async def generate_quiz(
     """
     normalized_counts = _normalize_type_counts(num_questions, type_counts)
     total_questions = sum(normalized_counts.values())
+    _demo_log("QUIZ", f"1) 퀴즈 생성 요청: source_chars={len(transcript_text)}, total={total_questions}, counts={normalized_counts}")
 
     if MOCK_MODE:
         logger.info("[QUIZ] MOCK_MODE: 목업 퀴즈 데이터 반환")
@@ -2225,6 +2249,8 @@ async def generate_quiz(
                 raise ValueError("퀴즈 문항 형식이 올바르지 않습니다: " + "; ".join(quality_issues[:5]))
 
         logger.info(f"[QUIZ] {len(quiz_data)}개 문제 파싱 완료")
+        type_summary = {key: sum(1 for item in quiz_data if item.get("type") == key) for key in QUIZ_TYPE_KEYS}
+        _demo_log("QUIZ", f"8) 최종 퀴즈 생성 완료: questions={len(quiz_data)}, types={type_summary}")
         return quiz_data
 
     except httpx.HTTPError as e:
@@ -2232,6 +2258,7 @@ async def generate_quiz(
         quiz_source_summary = _local_quiz_source_summary(transcript_text)
         quiz_data = _fit_quiz_to_expected_counts([], normalized_counts, quiz_source_summary)
         logger.info(f"[QUIZ] 소스 기반 {len(quiz_data)}개 문제 생성 완료")
+        _demo_log("QUIZ", f"8) LLM 연결 실패 -> 소스 기반 퀴즈 생성 완료: questions={len(quiz_data)}")
         return quiz_data
     except ValueError:
         raise

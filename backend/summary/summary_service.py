@@ -15,6 +15,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+try:
+    from summary.material_textrank import extract_ranked_sentences
+except Exception:  # pragma: no cover - demo logging should never break summary generation
+    extract_ranked_sentences = None
+
 # ── 설정 ──
 MOCK_MODE = os.getenv("SUMMARY_MOCK_MODE", "false").lower() == "true"
 DEFAULT_LLM_URL = "http://localhost:8001"
@@ -31,6 +36,7 @@ MAX_COURSE_CHARS = int(os.getenv("SUMMARY_COURSE_MAX_CHARS", 4000))
 MAX_KEYWORDS = int(os.getenv("SUMMARY_MAX_KEYWORDS", 30))
 MAX_SPEAKER_SUMMARIES = int(os.getenv("SUMMARY_MAX_SPEAKER_SUMMARIES", 10))
 MAX_SESSION_SUMMARIES = int(os.getenv("SUMMARY_MAX_SESSION_SUMMARIES", 10))
+DEMO_PIPELINE_LOG = True
 
 SUMMARY_SYSTEM_PROMPT = (
     "당신은 강의 내용을 보고서형 학습 자료로 정리하는 AI입니다. "
@@ -124,10 +130,53 @@ SUMMARY_COURSE_PROMPT_TEMPLATE = """아래는 과목 요약을 위한 정보입�
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[\.\?\!。？！])\s+|\n+")
 
 
+def _demo_log(stage: str, message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:{stage}] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
+
+
 def _split_sentences(text: str) -> list[str]:
     """문장 단위 분리를 통해 간단한 요약/미리보기 용도를 지원합니다."""
     text = re.sub(r"\r\n?", "\n", text)
     return [part.strip() for part in _SENTENCE_SPLIT_RE.split(text) if part and part.strip()]
+
+
+def _keyword_candidates(text: str, limit: int = 12) -> list[str]:
+    words = re.findall(r"[가-힣A-Za-z0-9_+#.-]{2,}", str(text or ""))
+    stopwords = {"그리고", "하지만", "따라서", "이번", "수업", "강의", "내용", "설명", "합니다", "있습니다"}
+    ranked: dict[str, int] = {}
+    for word in words:
+        if word in stopwords:
+            continue
+        ranked[word] = ranked.get(word, 0) + 1
+    return [word for word, _count in sorted(ranked.items(), key=lambda item: (-item[1], item[0]))[:limit]]
+
+
+def _log_summary_pipeline(kind: str, source_text: str, prompt: str, summary_sentences: int) -> None:
+    sentences = _split_sentences(source_text)
+    _demo_log("SUMMARY", f"1) 입력 수집: type={kind}, chars={len(source_text)}, sentences={len(sentences)}")
+    _demo_log("SUMMARY", f"2) 형태소/키워드 분석: {', '.join(_keyword_candidates(source_text)) or '(없음)'}")
+
+    ranked = []
+    if extract_ranked_sentences is not None:
+        try:
+            candidates, ranked = extract_ranked_sentences(source_text, top_k=5, min_chars=8)
+            _demo_log("SUMMARY", f"3) TextRank 그래프 구성: candidates={len(candidates)}, top={len(ranked)}")
+        except Exception as exc:
+            _demo_log("SUMMARY", f"3) TextRank 실패, 문장 순서 기반 후보 사용: {exc}")
+    if not ranked:
+        ranked = [{"text": sentence, "score": 0.0, "page": None} for sentence in sentences[:5]]
+    for index, item in enumerate(ranked[:5], start=1):
+        score = float(item.get("score") or 0.0)
+        page = f"p.{item.get('page')}" if item.get("page") else "transcript"
+        _demo_log("SUMMARY", f"   핵심문장#{index} score={score:.4f} {page}: {_preview(item.get('text'), 130)}")
+
+    _demo_log("SUMMARY", f"4) 모델 전달: prompt_chars={len(prompt)}, target_items>={summary_sentences}")
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
@@ -262,6 +311,7 @@ def _build_messages(user_prompt: str) -> list[dict]:
 
 async def _call_llm(messages: list[dict], max_tokens: int = 1200) -> str:
     """LLM 호출 후 요약 문자열을 반환합니다."""
+    _demo_log("SUMMARY", f"5) 요약 생성 LLM 호출: model={LLM_MODEL}, max_tokens={max_tokens}")
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
         res = await client.post(
             f"{LLM_URL}/v1/chat/completions",
@@ -280,7 +330,9 @@ async def _call_llm(messages: list[dict], max_tokens: int = 1200) -> str:
     data = res.json()
     raw_answer = data["choices"][0]["message"]["content"]
     logger.info("[SUMMARY] LLM 응답 수신: %d chars", len(raw_answer))
-    return _parse_summary_json(raw_answer)
+    summary = _parse_summary_json(raw_answer)
+    _demo_log("SUMMARY", f"6) 요약 생성 완료: raw_chars={len(raw_answer)}, summary_chars={len(summary)}")
+    return summary
 
 
 async def generate_speaker_summary(
@@ -305,6 +357,7 @@ async def generate_speaker_summary(
         summary_sentences=summary_sentences,
     )
 
+    _log_summary_pipeline("speaker", transcript_text, user_prompt, summary_sentences)
     return await _call_llm(_build_messages(user_prompt))
 
 
@@ -335,6 +388,7 @@ async def generate_session_summary(
         summary_sentences=summary_sentences,
     )
 
+    _log_summary_pipeline("session", payload_text, user_prompt, summary_sentences)
     return await _call_llm(_build_messages(user_prompt))
 
 
@@ -361,6 +415,7 @@ async def generate_session_summary_from_text(
         summary_sentences=summary_sentences,
     )
 
+    _log_summary_pipeline("session_text", transcript_text, user_prompt, summary_sentences)
     return await _call_llm(_build_messages(user_prompt))
 
 
@@ -394,4 +449,5 @@ async def generate_course_summary(
         summary_sentences=summary_sentences,
     )
 
+    _log_summary_pipeline("course", payload_text, user_prompt, summary_sentences)
     return await _call_llm(_build_messages(user_prompt))

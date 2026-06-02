@@ -19,14 +19,18 @@ DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
 llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
-CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "120"))
-CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "220"))
-CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "650"))
-CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "4"))
-CHAT_STREAM_HOLD_CHARS = max(8, int(os.getenv("CHAT_STREAM_HOLD_CHARS", "24")))
-CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "fast").strip().lower()
+# Demo-safe defaults are fixed in code so chat does not cut off during presentation.
+CHAT_MAX_TOKENS = 240
+CHAT_SOURCE_MAX_TOKENS = 320
+CHAT_ANSWER_MAX_CHARS = 1400
+CHAT_ANSWER_MAX_SENTENCES = 6
+CHAT_STREAM_HOLD_CHARS = 1
+CHAT_STREAM_MODE = "fast"
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
-CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
+# Demo default: AI 채팅은 RAG 근거가 있을 때 BridgePRAG K/V 주입을 코드상에서 바로 사용합니다.
+CHAT_DISABLE_BRIDGEPRAG = False
+CHAT_BRIDGEPRAG_REFERENCE_ALPHA = 0.35
+CHAT_BRIDGEPRAG_SUMMARY_ALPHA = 0.20
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
 CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
 CHAT_REPETITION_PENALTY = float(os.getenv("CHAT_REPETITION_PENALTY", "1.03"))
@@ -126,6 +130,12 @@ def _trim_to_char_budget(text: str, max_chars: int) -> str:
     if sentence_ends:
         clipped = clipped[: sentence_ends[-1]]
     return clipped.rstrip(" ,;:：-")
+
+
+def _stream_chars(text: str):
+    """SSE 체감 속도를 높이기 위해 정리된 조각을 글자 단위로 내보냅니다."""
+    for char in str(text or ""):
+        yield char
 
 
 def build_chat_messages(prompt: str, system_prompt: str | None = None) -> list[dict]:
@@ -381,12 +391,15 @@ async def _clean_token_stream_chunks(raw_chunks):
         if remaining <= 0:
             return
         if len(piece) > remaining:
-            piece = piece[:remaining]
+            piece = _trim_to_char_budget(piece, remaining)
             stopped = True
+        if not piece:
+            return
 
         emitted_any = True
         visible_text += piece
-        yield piece
+        for char in _stream_chars(piece):
+            yield char
 
         if stopped or _stream_sentence_count(visible_text) >= CHAT_ANSWER_MAX_SENTENCES:
             return
@@ -397,13 +410,16 @@ async def _clean_token_stream_chunks(raw_chunks):
         pending = _truncate_before_repeated_sentence(visible_text + pending)[len(visible_text):]
         remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
         if pending and remaining > 0:
-            yield pending[:remaining]
+            pending = _trim_to_char_budget(pending, remaining)
+            for char in _stream_chars(pending):
+                yield char
             emitted_any = True
 
     if not emitted_any:
         fallback = _clean_visible_answer(buffer)
         if fallback:
-            yield fallback
+            for char in _stream_chars(fallback):
+                yield char
 
 
 def _looks_like_partial_answer_label(text: str) -> bool:
@@ -619,15 +635,19 @@ def _openai_chat_payload(
 
 
 def _bridgeprag_alpha_for_prompt(messages: list[dict]) -> float:
-    """서비스 채팅은 RAG 텍스트를 주 근거로 쓰고 BridgePRAG 주입은 기본 비활성화합니다."""
+    """RAG 근거가 있는 AI 채팅에서는 BridgePRAG K/V 주입을 활성화합니다."""
     if CHAT_DISABLE_BRIDGEPRAG:
+        print("[DEMO:CHAT->PRAG] BridgePRAG alpha 비활성화: CHAT_DISABLE_BRIDGEPRAG=1", flush=True)
         return 0.0
 
     prompt = "\n".join(str(item.get("content") or "") for item in messages)
     if "검색된 참고자료 전체를 종합" in prompt:
-        return 0.05
+        print(f"[DEMO:CHAT->PRAG] 종합 참고자료 감지 -> bridgeprag_alpha={CHAT_BRIDGEPRAG_SUMMARY_ALPHA}", flush=True)
+        return CHAT_BRIDGEPRAG_SUMMARY_ALPHA
     if "[검색된 참고자료]" in prompt:
-        return 0.15
+        print(f"[DEMO:CHAT->PRAG] RAG 참고자료 감지 -> bridgeprag_alpha={CHAT_BRIDGEPRAG_REFERENCE_ALPHA}", flush=True)
+        return CHAT_BRIDGEPRAG_REFERENCE_ALPHA
+    print("[DEMO:CHAT->PRAG] RAG 참고자료 없음 -> bridgeprag_alpha=0.0", flush=True)
     return 0.0
 
 

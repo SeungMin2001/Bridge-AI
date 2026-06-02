@@ -28,6 +28,17 @@ import numpy as np
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+DEMO_PIPELINE_LOG = True
+
+
+def _demo_log(stage: str, message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:{stage}] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "false").lower() == "true"
@@ -1203,19 +1214,33 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
         logger.info("[SCHEDULE] MOCK_MODE: 목업 일정 데이터 반환")
         return _generate_mock_schedules()
 
+    sentences = _split_schedule_sentences(transcript_text)
+    _demo_log("SCHEDULE", f"1) 전사문 수신: chars={len(transcript_text)}, sentences={len(sentences)}")
+    for index, sentence in enumerate(sentences[:6], start=1):
+        _demo_log("SCHEDULE", f"   문장#{index}: {_preview(sentence, 130)}")
+
     rule_schedules = _extract_rule_based_schedules(transcript_text)
+    _demo_log("SCHEDULE", f"2) 규칙 기반 날짜/학사키워드 추출: candidates={len(rule_schedules)}")
+    for index, schedule in enumerate(rule_schedules[:5], start=1):
+        _demo_log(
+            "SCHEDULE",
+            f"   규칙후보#{index}: title='{schedule.get('title')}', date={schedule.get('due_date')}, type={schedule.get('event_type')}",
+        )
     if rule_schedules:
         logger.info(f"[SCHEDULE] 규칙 기반 일정 {len(rule_schedules)}개 감지")
         if SCHEDULE_RULE_FIRST:
+            _demo_log("SCHEDULE", "3) RULE_FIRST 활성화 -> LLM 호출 없이 규칙 기반 일정 반환")
             return rule_schedules
 
     if _is_non_academic(transcript_text, "", ""):
         logger.info("[SCHEDULE] 비학사 일정 문맥으로 판단되어 추출 생략")
+        _demo_log("SCHEDULE", "3) 비학사 문맥 감지 -> 일정 추출 생략")
         return []
 
     # 긴 텍스트를 청크로 분할
     chunks = _split_transcript_chunks(transcript_text)
     logger.info(f"[SCHEDULE] 전사문 {len(transcript_text)}자 → {len(chunks)}개 청크로 분할")
+    _demo_log("SCHEDULE", f"3) LLM 추출용 청크 분할: chunks={len(chunks)}")
 
     all_schedules = list(rule_schedules)
 
@@ -1224,6 +1249,7 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
             for i, chunk in enumerate(chunks):
                 messages = _build_schedule_prompt(chunk)
                 logger.info(f"[SCHEDULE] 청크 {i+1}/{len(chunks)} LLM 호출 ({len(chunk)}자)")
+                _demo_log("SCHEDULE", f"4) 청크 {i+1}/{len(chunks)} LLM 일정 추출 요청: chars={len(chunk)}")
 
                 res = await client.post(
                     f"{LLM_URL}/v1/chat/completions",
@@ -1242,16 +1268,25 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
                 data = res.json()
                 raw_answer = data["choices"][0]["message"]["content"]
                 logger.info(f"[SCHEDULE] 청크 {i+1} LLM 응답: {len(raw_answer)} chars")
+                _demo_log("SCHEDULE", f"5) 청크 {i+1} LLM 응답 수신: chars={len(raw_answer)}")
 
                 try:
                     chunk_schedules = _parse_schedule_json(raw_answer)
                 except ValueError as e:
                     logger.warning(f"[SCHEDULE] 청크 {i+1} LLM JSON 파싱 실패, 해당 청크 건너뜀: {e}")
+                    _demo_log("SCHEDULE", f"6) 청크 {i+1} JSON 파싱 실패 -> skip: {e}")
                     continue
+                _demo_log("SCHEDULE", f"6) 청크 {i+1} 일정 후보 파싱 완료: candidates={len(chunk_schedules)}")
                 all_schedules.extend(chunk_schedules)
 
         # 모든 청크 결과를 합친 후 전체 중복 제거 (_filter_valid_schedules에서 처리됨)
         logger.info(f"[SCHEDULE] 전체 {len(all_schedules)}개 일정 추출 완료 ({len(chunks)}개 청크)")
+        _demo_log("SCHEDULE", f"7) 최종 일정 후보 반환: schedules={len(all_schedules)}")
+        for index, schedule in enumerate(all_schedules[:5], start=1):
+            _demo_log(
+                "SCHEDULE",
+                f"   최종후보#{index}: title='{schedule.get('title')}', date={schedule.get('due_date')}, type={schedule.get('event_type')}",
+            )
         return all_schedules
 
     except httpx.HTTPError as e:

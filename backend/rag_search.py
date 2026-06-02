@@ -337,6 +337,17 @@ RAG_FAST_KEYWORD_MIN_HITS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_HITS
 RAG_USE_VECTOR_SEARCH = os.getenv("CHAT_RAG_USE_VECTOR_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
 RAG_VECTOR_CANDIDATE_MULTIPLIER = max(1, int(os.getenv("CHAT_RAG_VECTOR_CANDIDATE_MULTIPLIER", "2")))
 RAG_PREFETCH_FULL_TRANSCRIPT = os.getenv("CHAT_RAG_PREFETCH_FULL_TRANSCRIPT", "0").strip().lower() in {"1", "true", "yes", "on"}
+DEMO_PIPELINE_LOG = True
+
+
+def _demo_log(stage: str, message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:{stage}] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
 
 
 def _db_config() -> dict:
@@ -1452,6 +1463,7 @@ def _vector_search(
         if _init_error is not None:
             logger.warning("[RAG] 벡터 검색 비활성화: %s", _init_error)
         return []
+    _demo_log("RAG", f"5) 임베딩/벡터 검색 시작: query='{_preview(query, 70)}', top_k={top_k}")
     # 신창영 : session_id 필터 후 결과 부족을 줄이기 위해 후보를 더 넓게 조회
     # retriever = _index.as_retriever(similarity_top_k=top_k)
     filters = _normalize_source_filter(source_filter)
@@ -1545,6 +1557,7 @@ def _vector_search(
             "source_type": "transcript",
             "source": "vector",
         })
+    _demo_log("RAG", f"6) 벡터 검색 후보 수집 완료: candidates={len(nodes)}, filtered={len(results)}")
     return results
 
 
@@ -1752,6 +1765,7 @@ def _run_hybrid_search(
     query_keywords = extract_keywords(queries[0]) if queries else []
     filters = _normalize_source_filter(source_filter)
     material_source_requested = _has_material_source_filter(filters)
+    _demo_log("RAG", f"3) Hybrid 검색 시작: queries={queries}, keywords={query_keywords}")
 
     for query in queries:
         all_keyword.extend(_keyword_search_all_sources(
@@ -1762,14 +1776,17 @@ def _run_hybrid_search(
         ))
 
     keyword_results = _merge_results([], all_keyword, top_k=top_k, query_keywords=query_keywords)
+    _demo_log("RAG", f"4) 키워드 검색 완료: raw={len(all_keyword)}, merged_top={len(keyword_results)}")
     if (
         RAG_FAST_KEYWORD_FIRST
         and not material_source_requested
         and len(keyword_results) >= min(top_k, RAG_FAST_KEYWORD_MIN_RESULTS)
         and _keyword_results_are_confident(keyword_results, query_keywords)
     ):
+        _demo_log("RAG", "7) 키워드 검색이 충분히 정확하여 벡터 검색 생략")
         return keyword_results
     if not RAG_USE_VECTOR_SEARCH:
+        _demo_log("RAG", "7) 벡터 검색 비활성화 -> 키워드 결과만 사용")
         return keyword_results
 
     all_vector = []
@@ -1778,7 +1795,9 @@ def _run_hybrid_search(
     for query in queries[:1]:
         all_vector.extend(_vector_search(query, top_k=top_k, session_id=session_id, source_filter=source_filter))
 
-    return _merge_results(all_vector, all_keyword, top_k=top_k, query_keywords=query_keywords)
+    merged = _merge_results(all_vector, all_keyword, top_k=top_k, query_keywords=query_keywords)
+    _demo_log("RAG", f"7) RRF 병합 완료: vector={len(all_vector)}, keyword={len(all_keyword)}, final={len(merged)}")
+    return merged
 
 
 def _run_keyword_only_search(
@@ -1861,6 +1880,8 @@ def search(
     """
     # 1. Multi-query 확장
     queries = _expand_queries(question)
+    _demo_log("RAG", f"1) 질문 수신: '{_preview(question, 100)}'")
+    _demo_log("RAG", f"2) 형태소 분석/검색어 확장: keywords={extract_keywords(question)}, queries={queries}")
 
     # 2. 현재 파일에서 먼저 검색하고, 없으면 전체 파일에서 다시 검색
     # 신창영 : 선택 세션 기준 검색 후 결과가 없을 때만 전체 검색으로 fallback
@@ -1954,6 +1975,7 @@ def search(
         search_scope = "all_files_fallback"
 
     if not results:
+        _demo_log("RAG", "8) 최종 검색 결과 없음")
         return {"context": "", "citations": []}
 
     results = _prioritize_grounded_lookup_results(
@@ -2049,6 +2071,13 @@ def search(
         })
 
     context = "\n".join(context_parts)
+    _demo_log("RAG", f"8) 최종 근거 선택 완료: scope={search_scope}, citations={len(citations)}")
+    for index, citation in enumerate(citations, start=1):
+        _demo_log(
+            "RAG",
+            f"   [{index}] {citation.get('citation', '')} :: {_preview(citation.get('text', ''), 120)}",
+        )
+    _demo_log("RAG", f"9) LLM/BridgePRAG 전달 context_chars={len(context)}")
 
     return {"context": context, "citations": citations}
 

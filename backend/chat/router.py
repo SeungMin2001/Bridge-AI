@@ -21,6 +21,7 @@ from chat.llm_client import EmptyLLMResponse, complete_answer, set_llm_url, stre
 
 
 router = APIRouter(tags=["chat"])
+DEMO_PIPELINE_LOG = True
 WORD_EXPLANATION_MAX_TOKENS = int(os.getenv("CHAT_WORD_EXPLANATION_MAX_TOKENS", "64"))
 WORD_EXPLANATION_SYSTEM_PROMPT = (
     "너는 전사 단어를 빠르게 설명하는 한국어 학습 조교다. "
@@ -28,6 +29,11 @@ WORD_EXPLANATION_SYSTEM_PROMPT = (
     "전사 문맥이 있으면 문맥상 의미를 우선하고, 없으면 일반적인 뜻을 쉽게 설명한다. "
     "citation, 출처 목록, 참고자료 문구는 쓰지 않는다."
 )
+
+
+def _demo_log(stage: str, message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:{stage}] {message}", flush=True)
 
 
 class ChatRequest(BaseModel):
@@ -79,6 +85,7 @@ async def chat(req: ChatRequest):
     PDF/RAG 인덱싱을 확인하고, 현재 워크스페이스 컨텍스트를 포함한 prompt를 만들어 한 번에 답변을 반환합니다.
     """
     print(f"[CHAT] 요청 수신: {req.question}")
+    _demo_log("CHAT", f"1) AI 질문 수신: '{req.question}'")
     try:
         is_word_explanation = _is_word_explanation_request(req)
         if is_word_explanation:
@@ -91,6 +98,10 @@ async def chat(req: ChatRequest):
             # 해당 파일 PDF는 누락된 인덱스가 있으면 증분 보강만 수행합니다.
             await ensure_material_rag_for_chat(req.session_id, req.source_filter)
             prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
+            _demo_log("CHAT", f"2) RAG 프롬프트 구성 완료: citations={len(citations)}, prompt_chars={len(prompt)}")
+        if is_word_explanation or is_smalltalk_question(req.question):
+            _demo_log("CHAT", "2) 경량 질문 감지: RAG 검색 없이 LLM 직접 호출")
+        _demo_log("CHAT", "3) 8001 LLM/BridgePRAG 서버로 요청 전달")
         answer = await complete_answer(
             prompt,
             None,
@@ -99,6 +110,7 @@ async def chat(req: ChatRequest):
         )
         if not answer:
             answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
+        _demo_log("CHAT", f"4) 최종 답변 수신: chars={len(answer)}")
         return {"thinking": "", "answer": answer, "citations": citations}
     except Exception as e:
         print(f"[CHAT] 에러: {e}")
@@ -110,6 +122,7 @@ async def chat_stream(req: ChatRequest):
     """SSE 방식으로 citations와 LLM 토큰을 순차 전송하는 채팅 엔드포인트입니다."""
     request_started_at = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
+    _demo_log("CHAT", f"1) 스트리밍 AI 질문 수신: '{req.question}'")
 
     is_word_explanation = _is_word_explanation_request(req)
     if is_word_explanation:
@@ -121,8 +134,12 @@ async def chat_stream(req: ChatRequest):
         # 요약/퀴즈는 선택 파일 기준을 유지하지만, AI 채팅은 항상 전체 자료 검색으로 고정합니다.
         await ensure_material_rag_for_chat(req.session_id, req.source_filter)
         prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
+        _demo_log("CHAT", f"2) RAG 프롬프트 구성 완료: citations={len(citations)}, prompt_chars={len(prompt)}")
+    if is_word_explanation or is_smalltalk_question(req.question):
+        _demo_log("CHAT", "2) 경량 질문 감지: RAG 검색 없이 LLM 직접 호출")
     t_rag = time.perf_counter()
     print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
+    _demo_log("CHAT", "3) SSE citation 전송 후 8001 LLM/BridgePRAG 스트림 시작")
 
     async def generate():
         """SSE 이벤트 형식으로 citations, token, error, DONE 메시지를 생성합니다."""
@@ -146,6 +163,7 @@ async def chat_stream(req: ChatRequest):
                     first_token_logged = True
                     first_token_elapsed = time.perf_counter() - request_started_at
                     print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
+                    _demo_log("CHAT", f"4) 첫 토큰 수신: {first_token_elapsed:.3f}s")
                 yield f"data: {json.dumps({'type': 'token', 'token': token}, ensure_ascii=False)}\n\n"
         except EmptyLLMResponse as e:
             emitted_error = True
@@ -161,6 +179,7 @@ async def chat_stream(req: ChatRequest):
                 f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, "
                 f"content={emitted_content}, error={emitted_error}, total={total_elapsed:.3f}s"
             )
+            _demo_log("CHAT", f"5) 스트리밍 답변 종료: total={total_elapsed:.3f}s, error={emitted_error}")
 
         yield "data: [DONE]\n\n"
 
