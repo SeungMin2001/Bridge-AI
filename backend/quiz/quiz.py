@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 import uuid
 import logging
 
-from db import get_transcripts_by_ids, get_transcripts_by_session
+from db import get_transcripts_by_ids, get_transcripts_by_recording_ids, get_transcripts_by_session
 from quiz.quiz_db import (
     save_quiz,
     get_quiz,
@@ -56,9 +56,10 @@ class QuizGenerateRequest(BaseModel):
 
 
 class QuizGenerateTranscriptsRequest(BaseModel):
-    """특정 전사 chunk 묶음 기반 퀴즈 생성 요청"""
+    """특정 전사 chunk 또는 녹음본 묶음 기반 퀴즈 생성 요청"""
     session_id: str
-    transcript_ids: list[str] = Field(..., description="퀴즈 생성 대상 transcript_id 목록")
+    transcript_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 transcript_id 목록")
+    recording_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 recording_id 목록")
     num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
     source_title: str | None = Field(default=None, description="퀴즈 목록에 표시할 소스 제목")
@@ -84,6 +85,7 @@ class QuizGenerateSourcesRequest(BaseModel):
     material_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 material id 목록")
     stored_names: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 저장 파일명 목록")
     transcript_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 transcript_id 목록")
+    recording_ids: list[str] = Field(default_factory=list, description="퀴즈 생성 대상 recording_id 목록")
     num_questions: int = Field(default=5, ge=1, le=20, description="생성할 문제 수 (1~20)")
     type_counts: QuizTypeCounts | None = Field(default=None, description="퀴즈 유형별 생성 개수")
     source_title: str | None = Field(default=None, description="퀴즈 목록에 표시할 소스 제목")
@@ -127,10 +129,18 @@ def build_transcript_text(transcripts: list[dict]) -> str:
 
 
 def normalize_transcript_ids(transcript_ids: list[str]) -> list[str]:
+    return normalize_string_ids(transcript_ids)
+
+
+def normalize_recording_ids(recording_ids: list[str]) -> list[str]:
+    return normalize_string_ids(recording_ids)
+
+
+def normalize_string_ids(values: list[str]) -> list[str]:
     normalized = []
     seen = set()
-    for transcript_id in transcript_ids:
-        value = str(transcript_id or "").strip()
+    for item in values:
+        value = str(item or "").strip()
         if not value or value in seen:
             continue
         seen.add(value)
@@ -176,6 +186,67 @@ async def build_selected_transcript_text(
     found_ids = {item["transcript_id"] for item in transcripts}
     missing_ids = [item for item in normalized_ids if item not in found_ids]
     return build_transcript_text(transcripts), [item["transcript_id"] for item in transcripts], missing_ids
+
+
+async def build_selected_voice_text(
+    session_id: str,
+    transcript_ids: list[str] | None = None,
+    recording_ids: list[str] | None = None,
+) -> tuple[str, list[str], list[str], list[str], list[str]]:
+    """선택한 transcript_id/recording_id 목록으로 퀴즈 입력 전사문을 구성합니다."""
+    normalized_transcript_ids = normalize_transcript_ids(transcript_ids or [])
+    normalized_recording_ids = normalize_recording_ids(recording_ids or [])
+
+    transcripts = []
+    missing_transcript_ids = []
+    missing_recording_ids = []
+
+    if normalized_transcript_ids:
+        try:
+            transcript_rows = await get_transcripts_by_ids(session_id, normalized_transcript_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"transcript_id 형식이 올바르지 않습니다: {exc}") from exc
+        found_transcript_ids = {item["transcript_id"] for item in transcript_rows}
+        missing_transcript_ids = [
+            item for item in normalized_transcript_ids if item not in found_transcript_ids
+        ]
+        transcripts.extend(transcript_rows)
+
+    if normalized_recording_ids:
+        recording_rows = await get_transcripts_by_recording_ids(session_id, normalized_recording_ids)
+        found_recording_ids = {
+            str(item.get("recording_id") or "").strip()
+            for item in recording_rows
+            if item.get("recording_id")
+        }
+        missing_recording_ids = [
+            item for item in normalized_recording_ids if item not in found_recording_ids
+        ]
+        transcripts.extend(recording_rows)
+
+    deduped_transcripts = []
+    seen_transcript_ids = set()
+    for transcript in transcripts:
+        transcript_id = transcript.get("transcript_id")
+        if transcript_id and transcript_id in seen_transcript_ids:
+            continue
+        if transcript_id:
+            seen_transcript_ids.add(transcript_id)
+        deduped_transcripts.append(transcript)
+
+    source_transcript_ids = [
+        item["transcript_id"] for item in deduped_transcripts if item.get("transcript_id")
+    ]
+    source_recording_ids = [
+        item for item in normalized_recording_ids if item not in missing_recording_ids
+    ]
+    return (
+        build_transcript_text(deduped_transcripts),
+        source_transcript_ids,
+        missing_transcript_ids,
+        source_recording_ids,
+        missing_recording_ids,
+    )
 
 
 async def create_and_save_quiz(
@@ -263,21 +334,29 @@ async def quiz_generate(req: QuizGenerateRequest):
 @router.post("/generate/transcripts")
 async def quiz_generate_from_transcripts(req: QuizGenerateTranscriptsRequest):
     """
-    선택한 녹음본/자료에 연결된 transcript_id 목록만 사용하여 퀴즈를 생성하고 DB에 저장합니다.
+    선택한 녹음본/자료에 연결된 transcript_id 또는 recording_id 목록으로 퀴즈를 생성하고 DB에 저장합니다.
     """
     logger.info(
-        "[QUIZ] transcript_id 기반 퀴즈 생성 요청: session_id=%s, transcript_ids=%s, num=%s",
+        "[QUIZ] 전사 기반 퀴즈 생성 요청: session_id=%s, transcript_ids=%s, recording_ids=%s, num=%s",
         req.session_id,
         len(req.transcript_ids),
+        len(req.recording_ids),
         req.num_questions,
     )
 
-    transcript_text, source_transcript_ids, missing_ids = await build_selected_transcript_text(
+    (
+        transcript_text,
+        source_transcript_ids,
+        missing_transcript_ids,
+        source_recording_ids,
+        missing_recording_ids,
+    ) = await build_selected_voice_text(
         req.session_id,
-        req.transcript_ids,
+        transcript_ids=req.transcript_ids,
+        recording_ids=req.recording_ids,
     )
     if not source_transcript_ids:
-        raise HTTPException(status_code=422, detail="transcript_ids는 1개 이상 필요합니다.")
+        raise HTTPException(status_code=422, detail="transcript_ids 또는 recording_ids는 1개 이상 필요합니다.")
 
     result = await create_and_save_quiz(
         session_id=req.session_id,
@@ -291,7 +370,9 @@ async def quiz_generate_from_transcripts(req: QuizGenerateTranscriptsRequest):
     return {
         **result,
         "source_transcript_ids": source_transcript_ids,
-        "missing_transcript_ids": missing_ids,
+        "missing_transcript_ids": missing_transcript_ids,
+        "source_recording_ids": source_recording_ids,
+        "missing_recording_ids": missing_recording_ids,
     }
 
 
@@ -350,11 +431,12 @@ async def quiz_generate_from_sources(req: QuizGenerateSourcesRequest):
     PDF와 전사를 함께 선택한 경우 한 요청에서 같은 문제 생성 범위로 사용합니다.
     """
     logger.info(
-        "[QUIZ] 선택 소스 기반 퀴즈 생성 요청: session_id=%s, materials=%s/%s, transcripts=%s, num=%s",
+        "[QUIZ] 선택 소스 기반 퀴즈 생성 요청: session_id=%s, materials=%s/%s, transcripts=%s, recordings=%s, num=%s",
         req.session_id,
         len(req.material_ids),
         len(req.stored_names),
         len(req.transcript_ids),
+        len(req.recording_ids),
         req.num_questions,
     )
 
@@ -362,6 +444,8 @@ async def quiz_generate_from_sources(req: QuizGenerateSourcesRequest):
     source_materials = []
     source_transcript_ids = []
     missing_transcript_ids = []
+    source_recording_ids = []
+    missing_recording_ids = []
 
     if req.material_ids or req.stored_names:
         try:
@@ -376,10 +460,17 @@ async def quiz_generate_from_sources(req: QuizGenerateSourcesRequest):
         if material_text.strip():
             text_parts.append(f"[강의자료]\n{material_text.strip()}")
 
-    if req.transcript_ids:
-        transcript_text, source_transcript_ids, missing_transcript_ids = await build_selected_transcript_text(
+    if req.transcript_ids or req.recording_ids:
+        (
+            transcript_text,
+            source_transcript_ids,
+            missing_transcript_ids,
+            source_recording_ids,
+            missing_recording_ids,
+        ) = await build_selected_voice_text(
             req.session_id,
-            req.transcript_ids,
+            transcript_ids=req.transcript_ids,
+            recording_ids=req.recording_ids,
         )
         if transcript_text.strip():
             text_parts.append(f"[전사]\n{transcript_text.strip()}")
@@ -409,6 +500,8 @@ async def quiz_generate_from_sources(req: QuizGenerateSourcesRequest):
         ],
         "source_transcript_ids": source_transcript_ids,
         "missing_transcript_ids": missing_transcript_ids,
+        "source_recording_ids": source_recording_ids,
+        "missing_recording_ids": missing_recording_ids,
     }
 
 

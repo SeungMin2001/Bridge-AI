@@ -413,6 +413,45 @@ async def get_transcripts_by_ids(session_id: str, transcript_ids: list[str]) -> 
         ]
 
 
+async def get_transcripts_by_recording_ids(session_id: str, recording_ids: list[str]) -> list[dict]:
+    """선택한 recording_id 녹음본들의 전사문을 시간순으로 조회.
+
+    요약/퀴즈 소스 선택은 같은 과목 폴더의 여러 주차 파일을 함께 고를 수 있으므로,
+    저장 대상 session_id와 실제 transcript의 session_id가 다를 수 있다.
+    """
+    if not recording_ids:
+        return []
+
+    normalized_ids = [str(item).strip() for item in recording_ids if str(item).strip()]
+    if not normalized_ids:
+        return []
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await ensure_transcripts_schema(conn)
+        rows = await conn.fetch("""
+            SELECT transcript_id, session_id, recording_id, chunk_index, start_time, end_time,
+                   chunk_text, corrected_text
+            FROM transcripts
+            WHERE recording_id = ANY($1::text[])
+            ORDER BY session_id ASC, recording_id ASC, chunk_index ASC
+        """, normalized_ids)
+        return [
+            {
+                "transcript_id": str(r["transcript_id"]),
+                "session_id": str(r["session_id"]),
+                "recording_id": r["recording_id"],
+                "chunk_index": r["chunk_index"],
+                "start_time": r["start_time"],
+                "end_time": r["end_time"],
+                "chunk_text": r["chunk_text"],
+                "corrected_text": r["corrected_text"],
+                "text": r["corrected_text"] or r["chunk_text"],
+            }
+            for r in rows
+        ]
+
+
 async def get_course_id_by_session(session_id: str) -> str | None:
     """session_id로 course_id 조회"""
     import uuid as _uuid

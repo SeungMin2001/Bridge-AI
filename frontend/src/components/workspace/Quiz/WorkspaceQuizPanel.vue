@@ -147,6 +147,20 @@ const collectRecordingTranscriptIds = (recording = {}) => {
   return Array.from(ids)
 }
 
+const getRecordingTranscriptCount = (recording = {}, transcriptIds = []) => {
+  const explicitCount = Number(recording?.transcriptCount ?? recording?.transcriptionCount ?? 0)
+  return Math.max(transcriptIds.length, Number.isFinite(explicitCount) ? explicitCount : 0)
+}
+
+const isRecordingTranscribed = (recording = {}, transcriptIds = []) => {
+  if (transcriptIds.length > 0) return true
+  const status = String(recording?.transcriptionStatus || '').toLowerCase()
+  return (
+    getRecordingTranscriptCount(recording, transcriptIds) > 0 ||
+    ['completed', 'complete', 'done'].includes(status)
+  )
+}
+
 const getFileMaterials = (file = {}) => {
   const weekMaterials = Array.isArray(file.weeks)
     ? file.weeks.flatMap((week) => Array.isArray(week?.materials) ? week.materials : [])
@@ -229,6 +243,8 @@ const availableQuizSourceItems = computed(() => {
     getFileRecordings(file).forEach((recording, index) => {
       const id = getSourceStableId(recording, 'recording', index)
       const transcriptIds = collectRecordingTranscriptIds(recording)
+      const recordingId = recording?.id || recording?.recordingId || id
+      const canUseRecording = !!recordingId && isRecordingTranscribed(recording, transcriptIds)
       const title = getRecordingTitle(recording, index)
       addSource({
         uid: `recording:${fileId}:${id}`,
@@ -238,10 +254,11 @@ const availableQuizSourceItems = computed(() => {
         type: 'recording',
         title: getQuizSourceTitle(title, file),
         icon: 'graphic_eq',
-        recordingId: recording?.id || recording?.recordingId || id,
+        recordingId,
+        recordingIds: recordingId ? [recordingId] : [],
         recording,
         transcriptIds,
-        disabled: transcriptIds.length === 0,
+        disabled: !canUseRecording,
         disabledReason: file?.resourcesLoaded === false ? '전사문을 불러오는 중입니다.' : '전사된 녹음본만 퀴즈로 만들 수 있습니다.'
       })
     })
@@ -269,18 +286,20 @@ const externalSelectedSourceItems = computed(() => (
   Array.isArray(props.quizSource?.sources)
     ? props.quizSource.sources
     : (props.quizSource?.title ? [{
-        id: props.quizSource?.materialId || props.quizSource?.recordingId || props.quizSource?.title,
-        type: props.quizSource?.type || 'source',
-        title: props.quizSource?.title,
-        material: props.quizSource?.material || null,
-        transcriptIds: Array.isArray(props.quizSource?.transcriptIds) ? props.quizSource.transcriptIds : []
-      }] : (previewPdfMaterial.value ? [{
-        id: previewPdfMaterial.value.id || previewPdfMaterial.value.url || previewPdfMaterial.value.name,
-        type: 'material',
-        title: previewPdfMaterial.value.name || 'PDF 강의자료',
-        material: previewPdfMaterial.value,
-        transcriptIds: []
-      }] : []))
+      id: props.quizSource?.materialId || props.quizSource?.recordingId || props.quizSource?.title,
+      type: props.quizSource?.type || 'source',
+      title: props.quizSource?.title,
+      material: props.quizSource?.material || null,
+      recordingId: props.quizSource?.recordingId || '',
+      recordingIds: Array.isArray(props.quizSource?.recordingIds) ? props.quizSource.recordingIds : [],
+      transcriptIds: Array.isArray(props.quizSource?.transcriptIds) ? props.quizSource.transcriptIds : []
+    }] : (previewPdfMaterial.value ? [{
+      id: previewPdfMaterial.value.id || previewPdfMaterial.value.url || previewPdfMaterial.value.name,
+      type: 'material',
+      title: previewPdfMaterial.value.name || 'PDF 강의자료',
+      material: previewPdfMaterial.value,
+      transcriptIds: []
+    }] : []))
 ))
 
 const selectedSourceItems = computed(() => {
@@ -300,8 +319,26 @@ const sourceTranscriptIds = computed(() => {
   })
   return Array.from(ids)
 })
+const sourceRecordingIds = computed(() => {
+  const ids = new Set()
+  selectedSourceItems.value.forEach((source) => {
+    ;(source.recordingIds || []).forEach((id) => {
+      const recordingId = String(id || '').trim()
+      if (recordingId) ids.add(recordingId)
+    })
+
+    const fallbackId = String(
+      source.recordingId ||
+      source.recording?.id ||
+      source.recording?.recordingId ||
+      ''
+    ).trim()
+    if (source.type === 'recording' && fallbackId) ids.add(fallbackId)
+  })
+  return Array.from(ids)
+})
 const hasSelectedQuizSource = computed(() => selectedSourceItems.value.length > 0)
-const hasTranscriptScope = computed(() => sourceTranscriptIds.value.length > 0)
+const hasTranscriptScope = computed(() => sourceTranscriptIds.value.length > 0 || sourceRecordingIds.value.length > 0)
 const selectedPdfMaterials = computed(() => {
   const materials = []
   const seen = new Set()
@@ -379,7 +416,10 @@ const selectedSourceMeta = computed(() => {
   const sourceCount = selectedSourceItems.value.length
   const scopeParts = []
   if (hasPdfScope.value) scopeParts.push(`PDF ${selectedPdfCount.value}개`)
-  if (hasTranscriptScope.value) scopeParts.push(`전사 ${sourceTranscriptIds.value.length}개`)
+  if (hasTranscriptScope.value) {
+    const transcriptCount = sourceTranscriptIds.value.length
+    scopeParts.push(transcriptCount > 0 ? `전사 ${transcriptCount}개` : `녹음본 ${sourceRecordingIds.value.length}개`)
+  }
   return `선택자료 ${sourceCount}개 · ${scopeParts.join(' · ')} 연결 됨`
 })
 const selectedQuizListSourceTitle = computed(() => {
@@ -396,7 +436,10 @@ const getSourceIcon = (source = {}) => {
 
 const getAvailableSourceMeta = (source = {}) => {
   if (source.disabled) return source.disabledReason || '퀴즈 생성에 사용할 수 없습니다.'
-  if (source.type === 'recording') return `전사 ${source.transcriptIds?.length || 0}개`
+  if (source.type === 'recording') {
+    const transcriptCount = getRecordingTranscriptCount(source.recording, source.transcriptIds || [])
+    return transcriptCount > 0 ? `전사 ${transcriptCount}개` : '전사 DB 조회'
+  }
   if (isPdfMaterial(materialFromSource(source))) return 'PDF 자료'
   return '강의자료'
 }
@@ -693,7 +736,8 @@ const generateQuizForSource = async () => {
       stored_names: selectedPdfMaterials.value.map((material) => material.storedName).filter(Boolean)
     }
     const transcriptPayload = {
-      transcript_ids: sourceTranscriptIds.value
+      transcript_ids: sourceTranscriptIds.value,
+      recording_ids: sourceRecordingIds.value
     }
 
     const quiz = hasPdfScope.value && hasTranscriptScope.value

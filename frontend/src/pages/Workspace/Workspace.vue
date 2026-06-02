@@ -1039,6 +1039,12 @@ const activeWorkspaceSource = computed(() => {
     .filter((source) => source.type === 'recording' && source.recording)
     .map((source) => source.recording)
   const transcriptIds = Array.from(new Set(sources.flatMap((source) => source.transcriptIds || [])))
+  const recordingIds = Array.from(new Set(
+    sources
+      .filter((source) => source.type === 'recording')
+      .map((source) => source.recordingId || source.recording?.id || source.recording?.recordingId || '')
+      .filter(Boolean)
+  ))
   const sourceCount = sources.length
 
   return {
@@ -1048,7 +1054,8 @@ const activeWorkspaceSource = computed(() => {
     sourceCount,
     sources,
     recordings,
-    transcriptIds
+    transcriptIds,
+    recordingIds
   }
 })
 </script>
