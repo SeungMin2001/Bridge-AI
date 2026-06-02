@@ -21,6 +21,7 @@ from summary.summary_service import (
 
 
 logger = logging.getLogger(__name__)
+DEMO_PIPELINE_LOG = True
 
 MATERIAL_TEXTRANK_TOP_K = int(os.getenv("SUMMARY_MATERIAL_TEXTRANK_TOP_K", "24"))
 MATERIAL_MIN_SENTENCE_CHARS = int(os.getenv("SUMMARY_MATERIAL_MIN_SENTENCE_CHARS", "12"))
@@ -110,6 +111,11 @@ MATERIAL_SUMMARY_PROMPT_TEMPLATE = """아래는 PDF 강의자료에서 TextRank�
 """
 
 
+def _demo_log(message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:SUMMARY] {message}", flush=True)
+
+
 def normalize_material_summary_level(summary_level: str | None) -> str:
     """프론트에서 들어온 요약 단계 값을 내부 표준값으로 맞춘다."""
     level = (summary_level or "standard").strip().lower()
@@ -149,6 +155,10 @@ async def generate_material_summary_with_textrank(
     level = normalize_material_summary_level(summary_level)
     config = MATERIAL_SUMMARY_LEVELS[level]
     target_top_k = top_k or max(MATERIAL_TEXTRANK_TOP_K, config["topic_count"] * 3)
+    _demo_log(
+        f"PDF 요약 시작: level={level}, input_chars={len(material_text)}, "
+        f"textrank_top_k={target_top_k}"
+    )
 
     candidates, ranked_sentences = extract_ranked_sentences(
         material_text,
@@ -175,8 +185,13 @@ async def generate_material_summary_with_textrank(
         level_guidance=config["guidance"],
         ranked_sentences=format_ranked_sentences_for_prompt(ranked_sentences),
     )
+    _demo_log(
+        f"5) 모델 전달: prompt_chars={len(prompt)}, "
+        f"ranked_sentences={len(ranked_sentences)}, max_tokens={MATERIAL_SUMMARY_MAX_TOKENS}"
+    )
     summary_text = await _call_llm(
         _build_messages(prompt),
         max_tokens=MATERIAL_SUMMARY_MAX_TOKENS,
     )
+    _demo_log(f"6) 요약 생성 완료: output_chars={len(summary_text)}")
     return summary_text, metadata

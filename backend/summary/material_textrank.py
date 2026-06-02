@@ -16,6 +16,17 @@ _SENTENCE_END_RE = re.compile(r"(?<=[\.\?\!。？！])\s+|\n+")
 _PAGE_TAG_RE = re.compile(r"\[PDF page (\d+)\]")
 _PDF_METADATA_RE = re.compile(r"\[PDF [^\]]+\]\s*")
 _KEYWORD_TAGS = {"NNG", "NNP", "VV", "VA"}
+DEMO_PIPELINE_LOG = True
+
+
+def _demo_log(message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:SUMMARY:TextRank] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
 
 
 def clean_material_sentence(text: str) -> str:
@@ -173,8 +184,20 @@ def extract_ranked_sentences(
     min_chars: int = 12,
 ) -> tuple[list[dict], list[dict]]:
     """PDF 텍스트에서 문장 후보 전체와 TextRank 상위 문장을 함께 반환한다."""
+    _demo_log(f"1) 문장 후보 추출 시작: input_chars={len(material_text or '')}, top_k={top_k}")
     candidates = extract_sentence_candidates(material_text, min_chars=min_chars)
+    _demo_log(f"2) 문장 후보 추출 완료: candidates={len(candidates)}")
+    for index, item in enumerate(candidates[:5], start=1):
+        tokens = sorted(_tokenize_for_rank(item["text"]))[:10]
+        _demo_log(f"   형태소 후보#{index}: sentence='{_preview(item['text'], 90)}' tokens={tokens}")
+    _demo_log("3) TextRank PageRank 계산 시작")
     ranked = rank_sentences(candidates, top_k=top_k)
+    _demo_log(f"4) TextRank 핵심문장 선택 완료: selected={len(ranked)}")
+    for index, item in enumerate(ranked[:5], start=1):
+        _demo_log(
+            f"   핵심문장#{index}: score={item.get('score', 0):.4f}, "
+            f"page={item.get('page')}, text='{_preview(item.get('text'), 110)}'"
+        )
     return candidates, ranked
 
 

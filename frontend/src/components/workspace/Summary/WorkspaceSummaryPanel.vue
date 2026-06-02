@@ -31,7 +31,7 @@ const emit = defineEmits([
 
 const summaryModes = [
   { key: 'basic', label: '요약', icon: 'summarize' },
-  { key: 'live', label: '실시간 요약', icon: 'graphic_eq' }
+  { key: 'list', label: '요약 리스트', icon: 'view_list' }
 ]
 
 const summaryMode = ref('basic')
@@ -841,6 +841,92 @@ const sessionSummaryTitle = computed(() => {
   const recordingTitle = recording?.title || recording?.name || ''
   return recordingTitle ? `${recordingTitle} 요약` : '녹음본 요약'
 })
+
+const getSummaryListSourceLabel = (summary = {}, fallback = '저장된 요약') => {
+  if (Array.isArray(summary.sourceMaterials) && summary.sourceMaterials.length) {
+    return summary.sourceMaterials
+      .map((source, index) => getSourceTitle(source, `자료 ${index + 1}`))
+      .join(', ')
+  }
+  if (summary.recordingTitle || summary.recordingName) {
+    return summary.recordingTitle || summary.recordingName
+  }
+  return fallback
+}
+
+const getSummaryListTitle = (summary = {}, fallback = '요약') => (
+  String(summary.title || summary.name || summary.summaryTitle || fallback).trim()
+)
+
+const summaryListItems = computed(() => {
+  const seen = new Set()
+  const items = []
+  const pushItem = (item = {}) => {
+    if (!String(item.summary || '').trim()) return
+    const key = item.id || `${item.type}:${item.title}:${String(item.summary || '').slice(0, 80)}`
+    if (seen.has(key)) return
+    seen.add(key)
+    items.push({ ...item, key })
+  }
+
+  materialSummaries.value.forEach((summary, index) => {
+    const sourceLabel = getSummaryListSourceLabel(summary, `자료 요약 ${index + 1}`)
+    pushItem({
+      id: summary.id,
+      type: 'material',
+      typeLabel: '자료 요약',
+      icon: 'library_books',
+      title: getSummaryListTitle(summary, sourceLabel || '자료 요약'),
+      sourceLabel,
+      createdAt: summary.createdAt,
+      summary: summary.summary
+    })
+  })
+
+  recordingSummaries.value.forEach((summary, index) => {
+    const sourceLabel = getSummaryListSourceLabel(summary, `녹음 요약 ${index + 1}`)
+    pushItem({
+      id: summary.id,
+      type: 'recording',
+      typeLabel: '녹음 요약',
+      icon: 'graphic_eq',
+      title: getSummaryListTitle(summary, sourceLabel || '녹음 요약'),
+      sourceLabel,
+      createdAt: summary.createdAt,
+      summary: summary.summary
+    })
+  })
+
+  if (sessionSummary.value?.summary) {
+    pushItem({
+      id: sessionSummary.value.id,
+      type: 'session',
+      typeLabel: '전체 요약',
+      icon: 'mic',
+      title: sessionSummaryTitle.value,
+      sourceLabel: '녹음본 요약',
+      createdAt: sessionSummary.value.createdAt,
+      summary: sessionSummary.value.summary
+    })
+  }
+
+  displayedSpeakerSummaryItems.value.forEach((speaker) => {
+    pushItem({
+      id: speaker.id,
+      type: 'speaker',
+      typeLabel: '화자 요약',
+      icon: 'record_voice_over',
+      title: speaker.label,
+      sourceLabel: '화자별 요약',
+      createdAt: speaker.createdAt,
+      summary: speaker.summary
+    })
+  })
+
+  return items.sort((left, right) => (
+    new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime()
+  ))
+})
 const isSummaryLoading = computed(() => props.summaryState?.status === 'loading')
 const isFinalRecordingSummaryGenerating = computed(() => (
   !props.isRecording && props.summaryState?.status === 'generating'
@@ -1185,6 +1271,77 @@ watch(
         </div>
       </section>
 
+      <section v-else-if="summaryMode === 'list'" class="summary-view">
+        <div class="summary-view-heading">
+          <h2>요약 리스트</h2>
+          <p>지금까지 생성된 자료 요약과 녹음 요약을 한 번에 확인합니다.</p>
+        </div>
+
+        <div v-if="isSummaryLoading && !summaryListItems.length" class="summary-empty">
+          <LoadingHourglass :size="70" />
+          <p>저장된 요약을 불러오고 있습니다.</p>
+        </div>
+
+        <div v-else-if="!summaryListItems.length" class="summary-empty">
+          <span class="material-symbols-outlined">summarize</span>
+          <p>아직 저장된 요약이 없습니다. 자료나 녹음본을 선택해 요약을 생성해 주세요.</p>
+        </div>
+
+        <div v-else class="ai-summary-list summary-history-list">
+          <article
+            v-for="item in summaryListItems"
+            :key="item.key"
+            class="speaker-summary-card summary-history-card transcription-item-enter"
+          >
+            <div class="speaker-summary-top">
+              <div class="speaker-summary-identity">
+                <div
+                  :class="[
+                    'speaker-summary-avatar',
+                    item.type === 'material' ? 'material-summary-avatar' : 'speaker-summary-avatar-blue'
+                  ]"
+                >
+                  <span class="material-symbols-outlined">{{ item.icon }}</span>
+                </div>
+                <div class="min-w-0">
+                  <h3>{{ item.title }}</h3>
+                  <p>
+                    <span>{{ item.typeLabel }}</span>
+                    <span v-if="formatSummaryTime(item.createdAt)"> · {{ formatSummaryTime(item.createdAt) }}</span>
+                    <span v-if="item.sourceLabel"> · {{ item.sourceLabel }}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div class="speaker-summary-actions">
+                <button
+                  type="button"
+                  class="summary-icon-button summary-download-button"
+                  title="DOC로 저장"
+                  @click="downloadSummaryDoc({
+                    title: item.title,
+                    summary: item.summary,
+                    sourceLabel: item.sourceLabel || item.typeLabel
+                  })"
+                >
+                  <span class="material-symbols-outlined">download</span>
+                </button>
+                <button
+                  v-if="item.id"
+                  type="button"
+                  class="summary-icon-button"
+                  title="요약 삭제"
+                  @click="handleDeleteSummary(item.id)"
+                >
+                  <span class="material-symbols-outlined">delete</span>
+                </button>
+              </div>
+            </div>
+            <div class="summary-text material-summary-markdown summary-scroll-body custom-scrollbar" v-html="renderMarkdown(item.summary)"></div>
+          </article>
+        </div>
+      </section>
+
       <section v-else-if="summaryMode === 'live'" class="summary-view">
         <div class="summary-view-heading">
           <h2>실시간 요약</h2>
@@ -1366,6 +1523,17 @@ watch(
   color: #8e8e93;
   font-size: 13px;
   font-weight: 800;
+}
+
+.summary-history-list {
+  padding-bottom: 24px;
+}
+
+.summary-history-card .speaker-summary-identity p {
+  max-width: min(560px, 62vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .summary-file-card,

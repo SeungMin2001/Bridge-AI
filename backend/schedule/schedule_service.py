@@ -28,6 +28,7 @@ import numpy as np
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+DEMO_PIPELINE_LOG = True
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "false").lower() == "true"
@@ -40,6 +41,16 @@ LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 LLM_API_KEY = os.getenv("LLM_API_KEY", "test-key")
 SCHEDULE_SEMANTIC_DUP_FILTER = os.getenv("SCHEDULE_SEMANTIC_DUP_FILTER", "0").strip().lower() in {"1", "true", "yes", "on"}
 SCHEDULE_RULE_FIRST = os.getenv("SCHEDULE_RULE_FIRST", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _demo_log(message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:SCHEDULE] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
 
 
 #  LLM 프롬프트 템플릿
@@ -582,7 +593,9 @@ def _build_rule_source_text(sentences: list[str], index: int, event_type: str) -
     context.append(sentence)
     if index + 1 < len(sentences) and "과제" in sentences[index + 1] and len(sentences[index + 1]) <= 180:
         context.append(sentences[index + 1])
-    return " ".join(context)
+    expanded = " ".join(context)
+    _demo_log(f"문맥 확장: base='{_preview(sentence, 80)}' expanded='{_preview(expanded, 140)}'")
+    return expanded
 
 
 def _extract_rule_based_schedules(transcript_text: str) -> list[dict]:
@@ -592,6 +605,7 @@ def _extract_rule_based_schedules(transcript_text: str) -> list[dict]:
     """
     candidates = []
     sentences = _split_schedule_sentences(transcript_text)
+    _demo_log(f"1) 전사문 일정 후보 스캔: sentences={len(sentences)}, chars={len(transcript_text or '')}")
     for index, sentence in enumerate(sentences):
         if not SCHEDULE_DATE_HINT_PATTERN.search(sentence):
             continue
@@ -602,11 +616,16 @@ def _extract_rule_based_schedules(transcript_text: str) -> list[dict]:
 
         due_date = parse_due_date(sentence)
         if due_date is None:
+            _demo_log(f"   후보 제외: 날짜 파싱 실패 sentence='{_preview(sentence, 100)}'")
             continue
 
         event_type = _classify_schedule_from_text(sentence)
         source_text = _build_rule_source_text(sentences, index, event_type)
         title = _make_rule_based_title(event_type, source_text)
+        _demo_log(
+            f"2) 규칙 후보 감지: type={event_type}, title='{title}', "
+            f"due_date={due_date.isoformat()}, source='{_preview(source_text, 120)}'"
+        )
         candidates.append({
             "title": title,
             "description": source_text,
@@ -837,15 +856,23 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
         logger.info("[SCHEDULE] MOCK_MODE: 목업 일정 데이터 반환")
         return _generate_mock_schedules()
 
+    _demo_log(f"일정 추출 시작: input_chars={len(transcript_text or '')}")
     rule_schedules = _extract_rule_based_schedules(transcript_text)
     if rule_schedules:
         logger.info(f"[SCHEDULE] 규칙 기반 일정 {len(rule_schedules)}개 감지")
+        _demo_log(f"3) 규칙 기반 일정 추출 완료: count={len(rule_schedules)}")
+        for item in rule_schedules:
+            _demo_log(
+                f"   일정: title='{item.get('title')}', date={item.get('due_date')}, "
+                f"source='{_preview(item.get('source_text'), 120)}'"
+            )
         if SCHEDULE_RULE_FIRST:
             return rule_schedules
 
     # 긴 텍스트를 청크로 분할
     chunks = _split_transcript_chunks(transcript_text)
     logger.info(f"[SCHEDULE] 전사문 {len(transcript_text)}자 → {len(chunks)}개 청크로 분할")
+    _demo_log(f"4) LLM 일정 추출 준비: chunks={len(chunks)}")
 
     all_schedules = list(rule_schedules)
 
@@ -854,6 +881,7 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
             for i, chunk in enumerate(chunks):
                 messages = _build_schedule_prompt(chunk)
                 logger.info(f"[SCHEDULE] 청크 {i+1}/{len(chunks)} LLM 호출 ({len(chunk)}자)")
+                _demo_log(f"5) 청크 {i+1}/{len(chunks)} 모델 전달: chunk_chars={len(chunk)}")
 
                 res = await client.post(
                     f"{LLM_URL}/v1/chat/completions",
@@ -872,12 +900,19 @@ async def extract_schedules(transcript_text: str) -> list[dict]:
                 data = res.json()
                 raw_answer = data["choices"][0]["message"]["content"]
                 logger.info(f"[SCHEDULE] 청크 {i+1} LLM 응답: {len(raw_answer)} chars")
+                _demo_log(f"6) 청크 {i+1} 모델 응답 수신: chars={len(raw_answer)}")
 
                 chunk_schedules = _parse_schedule_json(raw_answer)
+                for item in chunk_schedules:
+                    _demo_log(
+                        f"   LLM 일정 후보: title='{item.get('title')}', date={item.get('due_date')}, "
+                        f"source='{_preview(item.get('source_text'), 120)}'"
+                    )
                 all_schedules.extend(chunk_schedules)
 
         # 모든 청크 결과를 합친 후 전체 중복 제거 (_filter_valid_schedules에서 처리됨)
         logger.info(f"[SCHEDULE] 전체 {len(all_schedules)}개 일정 추출 완료 ({len(chunks)}개 청크)")
+        _demo_log(f"7) 일정 추출 완료: total={len(all_schedules)}")
         return all_schedules
 
     except httpx.HTTPError as e:

@@ -357,7 +357,7 @@ onUnmounted(() => {
   >
     <div class="copy-rail-inner" aria-label="주 메뉴">
       <button v-if="showRailLogo" class="copy-rail-logo" type="button" aria-label="홈" @click="emit('navigate', 'home')">
-        <img class="copy-rail-logo-img" src="/images/logo.png" alt="" draggable="false" />
+        <img class="copy-rail-logo-img" src="/images/Bicorn.png" alt="" draggable="false" />
       </button>
 
       <nav v-if="showRailNav" class="copy-rail-nav">
@@ -405,7 +405,7 @@ onUnmounted(() => {
       <div class="sidebar-header transition-all">
         <div class="sidebar-logo-section">
           <div class="sidebar-logo-box">
-            <img class="sidebar-logo-img" src="/images/logo.png" alt="" draggable="false" />
+            <img class="sidebar-logo-img" src="/images/Bicorn.png" alt="" draggable="false" />
           </div>
           <span class="collapsible-content sidebar-logo-text font-extrabold">LectoAI</span>
         </div>
@@ -690,21 +690,31 @@ onUnmounted(() => {
 }
 
 .copy-rail-logo {
-  width: 43px;
-  height: 43px;
-  margin: 0 0 9px;
+  width: calc(var(--copy-rail-width) - 16px);
+  height: 70px;
+  margin: 0 0 16px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   background: transparent;
   color: #fff;
-  box-shadow: 0 12px 26px rgba(21, 22, 26, 0.1);
+  box-shadow: none;
   cursor: pointer;
-  overflow: hidden;
+  overflow: visible;
 }
 
-.copy-rail-logo-img,
+.copy-rail-logo-img {
+  width: 100%;
+  height: auto;
+  max-height: 65px;
+  display: block;
+  object-fit: contain;
+  object-position: center;
+  user-select: none;
+  pointer-events: none;
+}
+
 .sidebar-logo-img {
   width: 100%;
   height: 100%;

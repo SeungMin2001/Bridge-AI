@@ -337,6 +337,17 @@ RAG_FAST_KEYWORD_MIN_HITS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_HITS
 RAG_USE_VECTOR_SEARCH = os.getenv("CHAT_RAG_USE_VECTOR_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
 RAG_VECTOR_CANDIDATE_MULTIPLIER = max(1, int(os.getenv("CHAT_RAG_VECTOR_CANDIDATE_MULTIPLIER", "2")))
 RAG_PREFETCH_FULL_TRANSCRIPT = os.getenv("CHAT_RAG_PREFETCH_FULL_TRANSCRIPT", "0").strip().lower() in {"1", "true", "yes", "on"}
+DEMO_PIPELINE_LOG = True
+
+
+def _demo_log(message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:RAG] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
 
 
 def _db_config() -> dict:
@@ -1861,6 +1872,9 @@ def search(
     """
     # 1. Multi-query 확장
     queries = _expand_queries(question)
+    _demo_log(f"1) 질문 수신: '{_preview(question, 100)}'")
+    _demo_log(f"2) 형태소/키워드 분석: keywords={extract_keywords(question)[:12]}")
+    _demo_log(f"3) Multi-query 구성: queries={queries}")
 
     # 2. 현재 파일에서 먼저 검색하고, 없으면 전체 파일에서 다시 검색
     # 신창영 : 선택 세션 기준 검색 후 결과가 없을 때만 전체 검색으로 fallback
@@ -1873,6 +1887,11 @@ def search(
     strict_keyword_query = locator_query
     current_scope_query = _is_current_scope_query(question)
     candidate_top_k = top_k * 3 if grounded_lookup_query and not locator_query else top_k
+    _demo_log(
+        "4) 검색 전략 결정: "
+        f"vector={'on' if RAG_USE_VECTOR_SEARCH and not strict_keyword_query else 'off'}, "
+        f"keyword=on, top_k={top_k}, scope={'selected' if session_id else 'all'}"
+    )
 
     if strict_keyword_query:
         results = _run_keyword_only_search(
@@ -1954,6 +1973,7 @@ def search(
         search_scope = "all_files_fallback"
 
     if not results:
+        _demo_log("5) 검색 결과 없음: context 비움")
         return {"context": "", "citations": []}
 
     results = _prioritize_grounded_lookup_results(
@@ -1962,6 +1982,12 @@ def search(
         locator_query=locator_query,
         top_k=top_k,
     )
+    _demo_log(f"5) Hybrid 검색 완료: scope={search_scope}, candidates={len(results)}")
+    for rank, item in enumerate(results[:top_k], 1):
+        _demo_log(
+            f"   후보#{rank}: source={item.get('source')}, type={item.get('source_type', 'transcript')}, "
+            f"text='{_preview(item.get('text'), 130)}'"
+        )
 
     if RAG_DEBUG:
         print(
@@ -1990,6 +2016,7 @@ def search(
     recording_transcript_cache = {}
     for i, r in enumerate(results, 1):
         citation = _format_citation(r)
+        _demo_log(f"6) Citation 연결#{i}: {citation}")
         result_session_id = r.get("session_id") or session_id
         if r.get("source_type") == "material":
             context_parts.append(f"[{i}] {r['text']} (출처: {citation})")
@@ -2049,6 +2076,7 @@ def search(
         })
 
     context = "\n".join(context_parts)
+    _demo_log(f"7) LLM 전달용 RAG context 생성: context_chars={len(context)}, citations={len(citations)}")
 
     return {"context": context, "citations": citations}
 

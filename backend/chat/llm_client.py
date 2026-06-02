@@ -19,14 +19,18 @@ DEFAULT_LLM_MODEL = "bridgeprag-qwen25-3b-kv64"
 llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
-CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "120"))
-CHAT_SOURCE_MAX_TOKENS = int(os.getenv("CHAT_SOURCE_MAX_TOKENS", "220"))
-CHAT_ANSWER_MAX_CHARS = int(os.getenv("CHAT_ANSWER_MAX_CHARS", "650"))
-CHAT_ANSWER_MAX_SENTENCES = int(os.getenv("CHAT_ANSWER_MAX_SENTENCES", "4"))
-CHAT_STREAM_HOLD_CHARS = max(12, int(os.getenv("CHAT_STREAM_HOLD_CHARS", "72")))
-CHAT_STREAM_MODE = os.getenv("CHAT_STREAM_MODE", "buffered").strip().lower()
+# Demo-safe defaults are fixed in code so the presentation path does not depend on shell env vars.
+CHAT_MAX_TOKENS = 240
+CHAT_SOURCE_MAX_TOKENS = 320
+CHAT_ANSWER_MAX_CHARS = 1400
+CHAT_ANSWER_MAX_SENTENCES = 6
+CHAT_STREAM_HOLD_CHARS = 1
+CHAT_STREAM_MODE = "fast"
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
-CHAT_DISABLE_BRIDGEPRAG = os.getenv("CHAT_DISABLE_BRIDGEPRAG", "1").strip().lower() in {"1", "true", "yes", "on"}
+# AI 채팅은 RAG 근거가 있을 때 낮은 강도의 BridgePRAG K/V 주입을 기본 사용합니다.
+CHAT_DISABLE_BRIDGEPRAG = False
+CHAT_BRIDGEPRAG_REFERENCE_ALPHA = 0.15
+CHAT_BRIDGEPRAG_SUMMARY_ALPHA = 0.08
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
 CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
 CHAT_REPETITION_PENALTY = float(os.getenv("CHAT_REPETITION_PENALTY", "1.03"))
@@ -128,27 +132,51 @@ def _trim_to_char_budget(text: str, max_chars: int) -> str:
     return clipped.rstrip(" ,;:：-")
 
 
-def build_chat_messages(prompt: str) -> list[dict]:
+def _stream_chars(text: str):
+    """SSE 체감 속도를 높이기 위해 정리된 조각을 글자 단위로 내보냅니다."""
+    for char in str(text or ""):
+        yield char
+
+
+def build_chat_messages(prompt: str, system_prompt: str | None = None) -> list[dict]:
     """시스템 프롬프트와 사용자 prompt를 LLM chat messages 형식으로 묶습니다."""
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
 
 
-async def complete_answer(prompt: str, source_filter: dict | None) -> str:
+async def complete_answer(
+    prompt: str,
+    source_filter: dict | None,
+    *,
+    max_tokens: int | None = None,
+    system_prompt: str | None = None,
+) -> str:
     """비스트리밍 LLM 호출을 수행하고 최종 답변 문자열만 반환합니다."""
-    messages = build_chat_messages(prompt)
+    messages = build_chat_messages(prompt, system_prompt)
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=CHAT_LLM_READ_TIMEOUT)) as client:
         if _use_ollama_native_chat():
             res = await client.post(
                 _llm_url("/api/chat"),
-                json=_ollama_chat_payload(messages, source_filter, stream=False, thinking=False),
+                json=_ollama_chat_payload(
+                    messages,
+                    source_filter,
+                    stream=False,
+                    thinking=False,
+                    max_tokens=max_tokens,
+                ),
             )
         else:
             res = await client.post(
                 _llm_url("/v1/chat/completions"),
-                json=_openai_chat_payload(messages, source_filter, stream=False, thinking=False),
+                json=_openai_chat_payload(
+                    messages,
+                    source_filter,
+                    stream=False,
+                    thinking=False,
+                    max_tokens=max_tokens,
+                ),
                 headers={"Authorization": f"Bearer {llm_api_key}"},
             )
     res.raise_for_status()
@@ -160,20 +188,33 @@ async def complete_answer(prompt: str, source_filter: dict | None) -> str:
     return remove_thinking(raw_answer)
 
 
-async def stream_answer(prompt: str, source_filter: dict | None, *, thinking: bool = False):
+async def stream_answer(
+    prompt: str,
+    source_filter: dict | None,
+    *,
+    thinking: bool = False,
+    max_tokens: int | None = None,
+    system_prompt: str | None = None,
+):
     """스트리밍 LLM 호출을 수행하고 사용자에게 보여줄 토큰만 async iterator로 반환합니다."""
     if CHAT_STREAM_MODE in {"buffered", "complete", "nonstream", "non-stream"}:
-        answer = await complete_answer(prompt, source_filter)
+        answer = await complete_answer(prompt, source_filter, max_tokens=max_tokens, system_prompt=system_prompt)
         if answer:
             yield answer
             return
         raise EmptyLLMResponse("모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
 
-    messages = build_chat_messages(prompt)
+    messages = build_chat_messages(prompt, system_prompt)
     state = {"saw_thinking_only": False}
     emitted_content = False
 
-    raw_chunks = _raw_stream_answer(messages, source_filter, thinking=thinking, state=state)
+    raw_chunks = _raw_stream_answer(
+        messages,
+        source_filter,
+        thinking=thinking,
+        state=state,
+        max_tokens=max_tokens,
+    )
     cleaner = _clean_token_stream_chunks if CHAT_STREAM_MODE in {"token", "raw", "fast"} else _clean_stream_chunks
     async for chunk in cleaner(raw_chunks):
         emitted_content = True
@@ -185,7 +226,14 @@ async def stream_answer(prompt: str, source_filter: dict | None, *, thinking: bo
         raise EmptyLLMResponse("모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
 
 
-async def _raw_stream_answer(messages: list[dict], source_filter: dict | None, *, thinking: bool, state: dict):
+async def _raw_stream_answer(
+    messages: list[dict],
+    source_filter: dict | None,
+    *,
+    thinking: bool,
+    state: dict,
+    max_tokens: int | None = None,
+):
     """LLM 서버에서 받은 raw 스트림 토큰을 그대로 생성합니다."""
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=CHAT_LLM_READ_TIMEOUT)) as client:
         if _use_ollama_native_chat():
@@ -197,6 +245,7 @@ async def _raw_stream_answer(messages: list[dict], source_filter: dict | None, *
                     source_filter,
                     stream=True,
                     thinking=thinking,
+                    max_tokens=max_tokens,
                 ),
             ) as stream:
                 await _raise_for_llm_stream_error(stream)
@@ -223,6 +272,7 @@ async def _raw_stream_answer(messages: list[dict], source_filter: dict | None, *
                     source_filter,
                     stream=True,
                     thinking=thinking,
+                    max_tokens=max_tokens,
                 ),
                 headers={"Authorization": f"Bearer {llm_api_key}"},
             ) as stream:
@@ -341,12 +391,15 @@ async def _clean_token_stream_chunks(raw_chunks):
         if remaining <= 0:
             return
         if len(piece) > remaining:
-            piece = piece[:remaining]
+            piece = _trim_to_char_budget(piece, remaining)
             stopped = True
+        if not piece:
+            return
 
         emitted_any = True
         visible_text += piece
-        yield piece
+        for char in _stream_chars(piece):
+            yield char
 
         if stopped or _stream_sentence_count(visible_text) >= CHAT_ANSWER_MAX_SENTENCES:
             return
@@ -357,13 +410,16 @@ async def _clean_token_stream_chunks(raw_chunks):
         pending = _truncate_before_repeated_sentence(visible_text + pending)[len(visible_text):]
         remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
         if pending and remaining > 0:
-            yield pending[:remaining]
+            pending = _trim_to_char_budget(pending, remaining)
+            for char in _stream_chars(pending):
+                yield char
             emitted_any = True
 
     if not emitted_any:
         fallback = _clean_visible_answer(buffer)
         if fallback:
-            yield fallback
+            for char in _stream_chars(fallback):
+                yield char
 
 
 def _looks_like_partial_answer_label(text: str) -> bool:
@@ -503,8 +559,10 @@ def _ends_like_complete_sentence(text: str) -> bool:
     return bool(re.search(r"(?:[.!?。？！]|\[\d+\]|\d+)\s*$", text.strip()))
 
 
-def _chat_max_tokens(source_filter: dict | None) -> int:
+def _chat_max_tokens(source_filter: dict | None, max_tokens: int | None = None) -> int:
     """선택 파일 컨텍스트가 있을 때는 더 긴 답변 예산을 사용합니다."""
+    if max_tokens is not None:
+        return max(1, int(max_tokens))
     return CHAT_SOURCE_MAX_TOKENS if source_filter_has_any_source(source_filter) else CHAT_MAX_TOKENS
 
 
@@ -522,7 +580,14 @@ def _use_ollama_native_chat() -> bool:
     return ":11434" in llm_server_url or "ollama" in llm_server_url.lower()
 
 
-def _ollama_chat_payload(messages: list[dict], source_filter: dict | None, *, stream: bool, thinking: bool = False) -> dict:
+def _ollama_chat_payload(
+    messages: list[dict],
+    source_filter: dict | None,
+    *,
+    stream: bool,
+    thinking: bool = False,
+    max_tokens: int | None = None,
+) -> dict:
     """Ollama /api/chat 요청 payload를 생성합니다."""
     return {
         "model": llm_model_name,
@@ -530,18 +595,25 @@ def _ollama_chat_payload(messages: list[dict], source_filter: dict | None, *, st
         "stream": stream,
         "think": bool(thinking),
         "options": {
-            "num_predict": _chat_max_tokens(source_filter),
+            "num_predict": _chat_max_tokens(source_filter, max_tokens),
             "temperature": CHAT_TEMPERATURE,
         },
     }
 
 
-def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, stream: bool, thinking: bool = False) -> dict:
+def _openai_chat_payload(
+    messages: list[dict],
+    source_filter: dict | None,
+    *,
+    stream: bool,
+    thinking: bool = False,
+    max_tokens: int | None = None,
+) -> dict:
     """OpenAI 호환 /v1/chat/completions 요청 payload를 생성합니다."""
     payload = {
         "model": llm_model_name,
         "messages": messages,
-        "max_tokens": _chat_max_tokens(source_filter),
+        "max_tokens": _chat_max_tokens(source_filter, max_tokens),
         "temperature": CHAT_TEMPERATURE,
         "stream": stream,
         "stop": [
@@ -563,15 +635,15 @@ def _openai_chat_payload(messages: list[dict], source_filter: dict | None, *, st
 
 
 def _bridgeprag_alpha_for_prompt(messages: list[dict]) -> float:
-    """서비스 채팅은 RAG 텍스트를 주 근거로 쓰고 BridgePRAG 주입은 기본 비활성화합니다."""
+    """RAG 근거가 있는 AI 채팅에서는 낮은 강도의 BridgePRAG K/V 주입을 사용합니다."""
     if CHAT_DISABLE_BRIDGEPRAG:
         return 0.0
 
     prompt = "\n".join(str(item.get("content") or "") for item in messages)
     if "검색된 참고자료 전체를 종합" in prompt:
-        return 0.05
+        return CHAT_BRIDGEPRAG_SUMMARY_ALPHA
     if "[검색된 참고자료]" in prompt:
-        return 0.15
+        return CHAT_BRIDGEPRAG_REFERENCE_ALPHA
     return 0.0
 
 

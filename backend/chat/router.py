@@ -21,6 +21,18 @@ from chat.llm_client import EmptyLLMResponse, complete_answer, set_llm_url, stre
 
 router = APIRouter(tags=["chat"])
 
+DEMO_PIPELINE_LOG = True
+
+
+def _demo_log(message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:CHAT] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = " ".join(str(text or "").split())
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
+
 
 class ChatRequest(BaseModel):
     """AI 채팅 요청 본문.
@@ -60,16 +72,22 @@ async def chat(req: ChatRequest):
     PDF/RAG 인덱싱을 확인하고, 현재 워크스페이스 컨텍스트를 포함한 prompt를 만들어 한 번에 답변을 반환합니다.
     """
     print(f"[CHAT] 요청 수신: {req.question}")
+    _demo_log(f"1) 질문 수신: '{_preview(req.question, 100)}'")
     try:
         if is_smalltalk_question(req.question):
             prompt, citations = req.question, []
+            _demo_log("2) 일반 대화로 분류: RAG 검색 생략, LLM에 직접 전달")
         else:
             search_session_id, search_source_filter = _global_chat_scope()
             # 기존 프론트가 session_id를 보내도 검색 범위는 전체로 풀고,
             # 해당 파일 PDF는 누락된 인덱스가 있으면 증분 보강만 수행합니다.
+            _demo_log("2) 자료 기반 질문으로 분류: PDF/전사 RAG 인덱스 확인")
             await ensure_material_rag_for_chat(req.session_id, req.source_filter)
             prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
+            _demo_log(f"3) RAG prompt 구성 완료: prompt_chars={len(prompt)}, citations={len(citations)}")
+        _demo_log("4) LLM 서버에 답변 생성 요청")
         answer = await complete_answer(prompt, None)
+        _demo_log(f"5) LLM 답변 수신: answer_chars={len(answer or '')}")
         if not answer:
             answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
         return {"thinking": "", "answer": answer, "citations": citations}
@@ -83,16 +101,21 @@ async def chat_stream(req: ChatRequest):
     """SSE 방식으로 citations와 LLM 토큰을 순차 전송하는 채팅 엔드포인트입니다."""
     request_started_at = time.perf_counter()
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
+    _demo_log(f"1) 스트리밍 질문 수신: '{_preview(req.question, 100)}'")
 
     if is_smalltalk_question(req.question):
         prompt, citations = req.question, []
+        _demo_log("2) 일반 대화로 분류: RAG 검색 생략, LLM 스트리밍으로 직접 전달")
     else:
         search_session_id, search_source_filter = _global_chat_scope()
         # 요약/퀴즈는 선택 파일 기준을 유지하지만, AI 채팅은 항상 전체 자료 검색으로 고정합니다.
+        _demo_log("2) 자료 기반 질문으로 분류: 전체 PDF/전사 자료에서 RAG 검색 준비")
         await ensure_material_rag_for_chat(req.session_id, req.source_filter)
         prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
+        _demo_log(f"3) RAG prompt 구성 완료: prompt_chars={len(prompt)}, citations={len(citations)}")
     t_rag = time.perf_counter()
     print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
+    _demo_log(f"4) RAG 단계 완료: elapsed_ms={(t_rag - request_started_at)*1000:.0f}")
 
     async def generate():
         """SSE 이벤트 형식으로 citations, token, error, DONE 메시지를 생성합니다."""
@@ -104,6 +127,7 @@ async def chat_stream(req: ChatRequest):
         yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
 
         try:
+            _demo_log("5) LLM 서버에 스트리밍 답변 생성 요청")
             async for token in stream_answer(
                 prompt,
                 None,
@@ -114,6 +138,7 @@ async def chat_stream(req: ChatRequest):
                     first_token_logged = True
                     first_token_elapsed = time.perf_counter() - request_started_at
                     print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
+                    _demo_log(f"6) 첫 글자 수신: elapsed_s={first_token_elapsed:.3f}")
                 yield f"data: {json.dumps({'type': 'token', 'token': token}, ensure_ascii=False)}\n\n"
         except EmptyLLMResponse as e:
             emitted_error = True
@@ -129,6 +154,7 @@ async def chat_stream(req: ChatRequest):
                 f"[CHAT STREAM] 응답 종료: first_token={first_token_text}, "
                 f"content={emitted_content}, error={emitted_error}, total={total_elapsed:.3f}s"
             )
+            _demo_log(f"7) 스트리밍 종료: total_s={total_elapsed:.3f}, content={emitted_content}, error={emitted_error}")
 
         yield "data: [DONE]\n\n"
 

@@ -1147,7 +1147,8 @@ const activeWorkspaceSource = computed(() => {
           title="홈으로 이동"
           @click="emit('navigateHome')"
         >
-          <img class="workspace-mini-toggle-logo" src="/images/logo.png" alt="" draggable="false" />
+          <img class="workspace-mini-toggle-logo" src="/images/Bicorn.png" alt="" draggable="false" />
+          <img class="workspace-mini-toggle-title" src="/images/Btitle.png" alt="Bridge AI" draggable="false" />
         </button>
 
         <div class="workspace-mini-actions">
@@ -1470,7 +1471,7 @@ const activeWorkspaceSource = computed(() => {
 
 .workspace-mini-card {
   --workspace-mini-collapsed-width: 76px;
-  --workspace-mini-expanded-width: 220px;
+  --workspace-mini-expanded-width: 260px;
   --workspace-mini-bg: var(--copy-bg, #050506);
   --workspace-mini-fg: #f8fafc;
   --workspace-mini-muted: #9ca3af;
@@ -1507,9 +1508,9 @@ const activeWorkspaceSource = computed(() => {
 }
 
 .workspace-mini-toggle {
-  width: 48px;
-  height: 48px;
-  flex: 0 0 48px;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1519,7 +1520,20 @@ const activeWorkspaceSource = computed(() => {
   background: transparent;
   box-shadow: none;
   outline: none;
-  transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  transition: width 0.2s ease, height 0.2s ease, flex-basis 0.2s ease, background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  overflow: hidden;
+}
+
+.workspace-mini-card.is-open .workspace-mini-toggle {
+  width: 100%;
+  height: 65px;
+  flex: 0 0 65px;
+  border-radius: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
 }
 
 .workspace-mini-toggle:hover {
@@ -1528,13 +1542,48 @@ const activeWorkspaceSource = computed(() => {
 }
 
 .workspace-mini-toggle-logo {
-  width: 43px;
-  height: 43px;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   border-radius: 999px;
   user-select: none;
   pointer-events: none;
+  transition: width 0.2s ease, height 0.2s ease, flex-basis 0.2s ease;
+}
+
+.workspace-mini-card.is-open .workspace-mini-toggle-logo {
+  width: 65px;
+  height: 65px;
+  flex: 0 0 65px;
+}
+
+.workspace-mini-toggle-title {
+  display: none;
+  height: auto;
+  max-height: 28px;
+  max-width: 110px;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+}
+
+.workspace-mini-card.is-open .workspace-mini-toggle-title {
+  display: block;
+  animation: workspaceLogoFadeIn 0.3s ease forwards;
+}
+
+@keyframes workspaceLogoFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .workspace-mini-top {

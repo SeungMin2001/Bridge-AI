@@ -47,11 +47,12 @@ GENERATION_PROMPT_MODE = os.getenv("BRIDGEPRAG_GENERATION_PROMPT", "full").strip
 SERVICE_DEFAULT_ALPHA = 0.35
 SERVICE_REPETITION_PENALTY = float(os.getenv("BRIDGEPRAG_REPETITION_PENALTY", "1.03"))
 SERVICE_NO_REPEAT_NGRAM_SIZE = int(os.getenv("BRIDGEPRAG_NO_REPEAT_NGRAM_SIZE", "0"))
-SERVICE_MAX_ANSWER_CHARS = int(os.getenv("BRIDGEPRAG_MAX_ANSWER_CHARS", "700"))
-SERVICE_MAX_ANSWER_SENTENCES = int(os.getenv("BRIDGEPRAG_MAX_ANSWER_SENTENCES", "4"))
+SERVICE_MAX_ANSWER_CHARS = 1400
+SERVICE_MAX_ANSWER_SENTENCES = 6
 DTYPE = os.getenv("BRIDGEPRAG_DTYPE", "float16").strip().lower()
 STRICT_MODEL_ID = os.getenv("BRIDGEPRAG_STRICT_MODEL_ID", "0").strip().lower() in {"1", "true", "yes", "on"}
 LOG_REQUESTS = os.getenv("BRIDGEPRAG_LOG_REQUESTS", "1").strip().lower() in {"1", "true", "yes", "on"}
+DEMO_PIPELINE_LOG = True
 
 
 model = None
@@ -61,6 +62,31 @@ device = None
 target_layer = None
 runtime_config: dict[str, Any] = {}
 generation_lock = Lock()
+
+
+def _demo_log(stage: str, message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:{stage}] {message}", flush=True)
+
+
+def _preview(text: Any, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
+
+
+def _tensor_shape(value: Any) -> str:
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        return "unknown"
+    return "x".join(str(part) for part in tuple(shape))
+
+
+def _tensor_preview(value: Any, limit: int = 6) -> str:
+    try:
+        tensor = value.detach().float().flatten()[:limit].cpu().tolist()
+    except Exception:
+        return "[]"
+    return "[" + ", ".join(f"{item:.4f}" for item in tensor) + "]"
 
 
 class ServiceStopCriteria(StoppingCriteria):
@@ -198,16 +224,24 @@ async def lifespan(app: FastAPI):
         "checkpoint_alpha": float(config.get("alpha", 1.0)),
         "device": str(device),
     }
-    print(f"[BridgePRAG] ready {runtime_config}")
+    print(f"[BridgePRAG] ready {_public_runtime_config()}")
     yield
 
 
 app = FastAPI(lifespan=lifespan)
 
 
+def _public_runtime_config() -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in runtime_config.items()
+        if key not in {"alpha", "checkpoint_alpha"}
+    }
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", **runtime_config}
+    return {"status": "ok", **_public_runtime_config()}
 
 
 @app.get("/v1/models")
@@ -413,11 +447,25 @@ def _build_generation_text(system_texts: list[str], user_prompt: str, question: 
 
 def _encode_memory_for_request(request: dict[str, Any]):
     if not _request_uses_memory(request):
+        _demo_log(
+            "BRIDGEPRAG",
+            f"K/V 메모리 생성 생략: passages={len(request.get('passages') or [])}",
+        )
         return None
     passages = request["passages"]
     if not passages:
         return None
-    return encode_merged_memory(
+    _demo_log(
+        "BRIDGEPRAG",
+        f"1) Question-Passage pair 구성: question='{_preview(request.get('question'), 80)}', passages={len(passages)}",
+    )
+    for index, passage in enumerate(passages[:MAX_PASSAGES], start=1):
+        _demo_log("BRIDGEPRAG", f"   pair#{index}: {_preview(passage, 130)}")
+    _demo_log(
+        "BRIDGEPRAG",
+        f"2) HyperNetwork 인코딩 시작: fusion={runtime_config.get('question_fusion')}, num_kv={runtime_config.get('num_kv')}",
+    )
+    memory = encode_merged_memory(
         model,
         tokenizer,
         hypernet,
@@ -426,6 +474,15 @@ def _encode_memory_for_request(request: dict[str, Any]):
         question=request["question"],
         question_conditioned=bool(runtime_config.get("question_conditioned_memory", True)),
     )
+    _demo_log(
+        "BRIDGEPRAG",
+        "3) K/V 메모리 생성 완료: "
+        f"K_shape={_tensor_shape(memory.get('K'))}, V_shape={_tensor_shape(memory.get('V'))}, "
+        f"merge={memory.get('merge_mode', 'orthogonal')}, merged={memory.get('merged_count', len(passages))}",
+    )
+    _demo_log("BRIDGEPRAG", f"   K preview={_tensor_preview(memory.get('K'))}")
+    _demo_log("BRIDGEPRAG", f"   V preview={_tensor_preview(memory.get('V'))}")
+    return memory
 
 
 def _generation_kwargs(request: dict[str, Any], streamer: TextIteratorStreamer | None = None) -> dict[str, Any]:
@@ -463,6 +520,7 @@ def _generate_text(request: dict[str, Any]) -> str:
         _log_request_trace(request, memory)
         hook = _register_memory_hook(memory, request.get("alpha"))
         kwargs = _generation_kwargs(request)
+        _demo_log("BRIDGEPRAG", f"5) 답변 생성 시작: max_new_tokens={request.get('max_tokens')}")
         try:
             generated = model.generate(**kwargs)
         finally:
@@ -470,7 +528,9 @@ def _generate_text(request: dict[str, Any]) -> str:
                 hook.remove()
         prompt_len = kwargs["input_ids"].shape[1]
         text = tokenizer.decode(generated[0, prompt_len:], skip_special_tokens=True)
-        return _clean_output(text, request.get("stop") or [], json_mode=bool(request.get("json_mode")))
+        cleaned = _clean_output(text, request.get("stop") or [], json_mode=bool(request.get("json_mode")))
+        _demo_log("BRIDGEPRAG", f"6) 답변 생성 완료: chars={len(cleaned)}")
+        return cleaned
 
 
 def _stream_openai_chunks(request: dict[str, Any]):
@@ -481,6 +541,7 @@ def _stream_openai_chunks(request: dict[str, Any]):
         memory = _encode_memory_for_request(request)
         _log_request_trace(request, memory)
         hook = _register_memory_hook(memory, request.get("alpha"))
+        _demo_log("BRIDGEPRAG", f"5) 스트리밍 생성 시작: max_new_tokens={request.get('max_tokens')}")
         def _worker():
             with torch.no_grad():
                 model.generate(**_generation_kwargs(request, streamer=streamer))
@@ -531,10 +592,16 @@ def _stream_openai_chunks(request: dict[str, Any]):
 
 def _register_memory_hook(memory: dict[str, Any] | None, request_alpha: float | None = None):
     if not memory:
+        _demo_log("BRIDGEPRAG", "4) Attention 주입 생략: K/V 메모리 없음")
         return None
     alpha = float(runtime_config.get("alpha", 1.0) if request_alpha is None else request_alpha)
     if alpha <= 0.0:
+        _demo_log("BRIDGEPRAG", "4) Attention 주입 생략: 주입 비활성 요청")
         return None
+    _demo_log(
+        "BRIDGEPRAG",
+        f"4) Transformer layer {runtime_config.get('critical_layer')} Attention에 K/V 메모리 주입: mode={runtime_config.get('injection_mode')}",
+    )
     return target_layer.register_forward_hook(
         make_memory_hook(
             memory["K"],
@@ -566,7 +633,6 @@ def _request_trace(request: dict[str, Any], memory: dict[str, Any] | None = None
         "question_fusion": runtime_config.get("question_fusion"),
         "injection_mode": runtime_config.get("injection_mode"),
         "generation_prompt_mode": runtime_config.get("generation_prompt_mode"),
-        "alpha": request.get("alpha") if request.get("alpha") is not None else runtime_config.get("alpha"),
     }
 
 
@@ -586,7 +652,6 @@ def _log_request_trace(request: dict[str, Any], memory: dict[str, Any] | None) -
         f"num_kv={trace['num_kv']} "
         f"fusion={trace['question_fusion']} "
         f"injection={trace['injection_mode']} "
-        f"alpha={trace['alpha']} "
         f"prompt={trace['generation_prompt_mode']} "
         f"question={question!r}"
     )
@@ -688,7 +753,7 @@ def _clean_generated_prefix(text: str, stop_sequences: list[str]) -> tuple[str, 
     stopped = stopped or sentence_limited
 
     if len(text) > SERVICE_MAX_ANSWER_CHARS:
-        text = text[:SERVICE_MAX_ANSWER_CHARS].rstrip(" ,;:：-")
+        text = _trim_to_char_budget(text, SERVICE_MAX_ANSWER_CHARS)
         stopped = True
 
     return text, stopped
@@ -734,3 +799,13 @@ def _truncate_to_sentence_limit(text: str, max_sentences: int) -> tuple[str, boo
     if len(spans) <= max_sentences:
         return text, False
     return text[: spans[max_sentences - 1][1]].rstrip(), True
+
+
+def _trim_to_char_budget(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text.strip()
+    clipped = text[:max_chars].rstrip()
+    sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(clipped)]
+    if sentence_ends:
+        clipped = clipped[: sentence_ends[-1]].rstrip()
+    return clipped.rstrip(" ,;:：-")

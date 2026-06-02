@@ -14,6 +14,7 @@ import re
 import httpx
 
 logger = logging.getLogger(__name__)
+DEMO_PIPELINE_LOG = True
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("SUMMARY_MOCK_MODE", "false").lower() == "true"
@@ -122,6 +123,16 @@ SUMMARY_COURSE_PROMPT_TEMPLATE = """아래는 과목 요약을 위한 정보입�
 """
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[\.\?\!。？！])\s+|\n+")
+
+
+def _demo_log(message: str) -> None:
+    if DEMO_PIPELINE_LOG:
+        print(f"[DEMO:SUMMARY] {message}", flush=True)
+
+
+def _preview(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -262,6 +273,8 @@ def _build_messages(user_prompt: str) -> list[dict]:
 
 async def _call_llm(messages: list[dict], max_tokens: int = 1200) -> str:
     """LLM 호출 후 요약 문자열을 반환합니다."""
+    prompt_chars = sum(len(str(item.get("content") or "")) for item in messages)
+    _demo_log(f"모델 전달: messages={len(messages)}, prompt_chars={prompt_chars}, max_tokens={max_tokens}")
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
         res = await client.post(
             f"{LLM_URL}/v1/chat/completions",
@@ -280,7 +293,9 @@ async def _call_llm(messages: list[dict], max_tokens: int = 1200) -> str:
     data = res.json()
     raw_answer = data["choices"][0]["message"]["content"]
     logger.info("[SUMMARY] LLM 응답 수신: %d chars", len(raw_answer))
-    return _parse_summary_json(raw_answer)
+    summary_text = _parse_summary_json(raw_answer)
+    _demo_log(f"요약 생성 완료: output_chars={len(summary_text)}")
+    return summary_text
 
 
 async def generate_speaker_summary(
@@ -294,6 +309,10 @@ async def generate_speaker_summary(
 
     summary_sentences = summary_sentences or DEFAULT_SUMMARY_SENTENCES
     transcript_text = _truncate_text(speaker_text, MAX_SPEAKER_CHARS)
+    sentences = _split_sentences(transcript_text)
+    _demo_log(f"화자 요약 시작: speaker={speaker_id}, input_chars={len(speaker_text)}, sentences={len(sentences)}")
+    for index, sentence in enumerate(sentences[:5], start=1):
+        _demo_log(f"   문장분리#{index}: {_preview(sentence, 100)}")
 
     if MOCK_MODE:
         logger.info("[SUMMARY] MOCK_MODE: 화자 요약 반환")
@@ -350,6 +369,15 @@ async def generate_session_summary_from_text(
     summary_sentences = summary_sentences or DEFAULT_SUMMARY_SENTENCES
     transcript_text = _truncate_text(session_text, MAX_SESSION_CHARS)
     keywords_text = _format_keywords(keywords or [], MAX_KEYWORDS)
+    sentences = _split_sentences(transcript_text)
+    _demo_log(
+        f"전사 요약 시작: input_chars={len(session_text)}, "
+        f"used_chars={len(transcript_text)}, sentences={len(sentences)}, keywords={len(keywords or [])}"
+    )
+    for index, sentence in enumerate(sentences[:5], start=1):
+        _demo_log(f"   문장분리#{index}: {_preview(sentence, 100)}")
+    if keywords:
+        _demo_log(f"   핵심 키워드: {[kw.get('keyword_text') for kw in keywords[:10]]}")
 
     if MOCK_MODE:
         logger.info("[SUMMARY] MOCK_MODE: 전체 전사 기반 세션 요약 반환")

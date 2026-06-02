@@ -825,7 +825,7 @@ watch(() => props.recordingSourceRequest, (request) => {
             title="홈으로 이동"
             @click="emit('navigateHome')"
           >
-            <img class="workspace-file-back-logo" src="/images/logo.png" alt="" draggable="false" />
+            <img class="workspace-file-back-logo" src="/images/Bicorn.png" alt="" draggable="false" />
           </button>
           <input
             v-if="isEditingFileTitle"
