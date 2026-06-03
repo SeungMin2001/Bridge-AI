@@ -37,7 +37,7 @@ except ImportError:
     Kiwi = None
 
 logger = logging.getLogger(__name__)
-DEMO_PIPELINE_LOG = True
+DEMO_PIPELINE_LOG = os.getenv("QUIZ_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 _kiwi = Kiwi() if Kiwi is not None else None
 
 # ── 설정 ──

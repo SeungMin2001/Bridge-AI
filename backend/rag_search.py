@@ -337,7 +337,7 @@ RAG_FAST_KEYWORD_MIN_HITS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_HITS
 RAG_USE_VECTOR_SEARCH = os.getenv("CHAT_RAG_USE_VECTOR_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
 RAG_VECTOR_CANDIDATE_MULTIPLIER = max(1, int(os.getenv("CHAT_RAG_VECTOR_CANDIDATE_MULTIPLIER", "2")))
 RAG_PREFETCH_FULL_TRANSCRIPT = os.getenv("CHAT_RAG_PREFETCH_FULL_TRANSCRIPT", "0").strip().lower() in {"1", "true", "yes", "on"}
-DEMO_PIPELINE_LOG = True
+DEMO_PIPELINE_LOG = os.getenv("RAG_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _demo_log(message: str) -> None:

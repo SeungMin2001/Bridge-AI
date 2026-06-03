@@ -21,7 +21,7 @@ from summary.summary_service import (
 
 
 logger = logging.getLogger(__name__)
-DEMO_PIPELINE_LOG = True
+DEMO_PIPELINE_LOG = os.getenv("SUMMARY_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 MATERIAL_TEXTRANK_TOP_K = int(os.getenv("SUMMARY_MATERIAL_TEXTRANK_TOP_K", "24"))
 MATERIAL_MIN_SENTENCE_CHARS = int(os.getenv("SUMMARY_MATERIAL_MIN_SENTENCE_CHARS", "12"))

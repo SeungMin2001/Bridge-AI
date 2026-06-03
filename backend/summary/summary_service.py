@@ -16,7 +16,7 @@ import httpx
 from kiwipiepy import Kiwi
 
 logger = logging.getLogger(__name__)
-DEMO_PIPELINE_LOG = True
+DEMO_PIPELINE_LOG = os.getenv("SUMMARY_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 _kiwi = Kiwi()
 
 # ── 설정 ──

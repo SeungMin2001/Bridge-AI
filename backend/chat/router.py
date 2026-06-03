@@ -5,6 +5,7 @@
 """
 
 import json
+import os
 import time
 
 from fastapi import APIRouter
@@ -21,7 +22,7 @@ from chat.llm_client import EmptyLLMResponse, complete_answer, set_llm_url, stre
 
 router = APIRouter(tags=["chat"])
 
-DEMO_PIPELINE_LOG = True
+DEMO_PIPELINE_LOG = os.getenv("CHAT_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _demo_log(message: str) -> None:

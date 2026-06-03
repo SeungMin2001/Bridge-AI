@@ -5,6 +5,7 @@ PDF 자료 요약 전처리용 TextRank 유틸.
 PDF에서 뽑힌 긴 텍스트 중 LLM에 먼저 보여줄 핵심 원문 문장 후보를 고르는 것이다.
 """
 import math
+import os
 import re
 
 import networkx as nx
@@ -16,7 +17,7 @@ _SENTENCE_END_RE = re.compile(r"(?<=[\.\?\!。？！])\s+|\n+")
 _PAGE_TAG_RE = re.compile(r"\[PDF page (\d+)\]")
 _PDF_METADATA_RE = re.compile(r"\[PDF [^\]]+\]\s*")
 _KEYWORD_TAGS = {"NNG", "NNP", "VV", "VA"}
-DEMO_PIPELINE_LOG = True
+DEMO_PIPELINE_LOG = os.getenv("SUMMARY_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _demo_log(message: str) -> None:

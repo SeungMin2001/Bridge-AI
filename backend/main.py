@@ -41,11 +41,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 DEMO_PIPELINE_LOG = True
+DIARIZE_VERBOSE_LOG = os.getenv("DIARIZE_VERBOSE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _demo_log(stage: str, message: str) -> None:
     if DEMO_PIPELINE_LOG:
         print(f"[DEMO:{stage}] {message}", flush=True)
+
+
+def _diarize_debug(message: str) -> None:
+    if DIARIZE_VERBOSE_LOG:
+        logger.info(message)
 
 app = FastAPI()
 
@@ -103,7 +109,7 @@ async def _call_diarize(audio_float32: np.ndarray, sample_rate: int = 16000,
         payload_bytes = audio_payload.nbytes
         duration = sample_count / sample_rate if sample_rate else 0.0
         rms = float(np.sqrt(np.mean(audio_payload ** 2))) if sample_count else 0.0
-        logger.info(
+        _diarize_debug(
             f"[DIARIZE:{source}] 요청 준비: url={DIARIZE_URL}, sr={sample_rate}Hz, "
             f"samples={sample_count}, bytes={payload_bytes}, duration={duration:.2f}s, "
             f"rms={rms:.4f}, min_speakers={min_speakers}, timeout={timeout_seconds:.1f}s"
@@ -121,11 +127,11 @@ async def _call_diarize(audio_float32: np.ndarray, sample_rate: int = 16000,
 
             # 상세 로깅
             speakers = set(s["speaker"] for s in segments)
-            logger.info(f"[DIARIZE:{source}] 응답: {len(segments)} segments, 화자: {speakers}, "
-                        f"num_speakers: {data.get('num_speakers')}")
+            _diarize_debug(f"[DIARIZE:{source}] 응답: {len(segments)} segments, 화자: {speakers}, "
+                           f"num_speakers: {data.get('num_speakers')}")
             for seg in segments:
-                logger.info(f"[DIARIZE:{source}]   → {seg['speaker']}: "
-                            f"{seg['start']:.1f}s ~ {seg['end']:.1f}s")
+                _diarize_debug(f"[DIARIZE:{source}]   → {seg['speaker']}: "
+                               f"{seg['start']:.1f}s ~ {seg['end']:.1f}s")
 
             return segments
     except Exception as e:
@@ -250,9 +256,9 @@ async def websocket_endpoint(ws: WebSocket):
 
         speaker_id = _dominant_speaker(diarize_segments, start_time, end_time) if effective_diarize else None
         chunk_id = f"{recording_id}:{start_time:.3f}:{end_time:.3f}"
-        logger.info(f"[SPEAKER] {start_time:.1f}~{end_time:.1f}s → {speaker_id} "
-                    f"(segments: {len(diarize_segments)}개, "
-                    f"buffer_start: {diarize_buffer_start_time:.1f}s)")
+        _diarize_debug(f"[SPEAKER] {start_time:.1f}~{end_time:.1f}s → {speaker_id} "
+                       f"(segments: {len(diarize_segments)}개, "
+                       f"buffer_start: {diarize_buffer_start_time:.1f}s)")
 
         await send_ws_json({
             "type": "raw",
@@ -394,7 +400,7 @@ async def websocket_endpoint(ws: WebSocket):
                 })
 
             if not absolute_segments:
-                logger.info("[DIARIZE] 화자분리 결과 없음")
+                _diarize_debug("[DIARIZE] 화자분리 결과 없음")
                 return
 
             diarize_segments.extend(absolute_segments)
@@ -420,8 +426,8 @@ async def websocket_endpoint(ws: WebSocket):
                     "items": speaker_updates,
                 })
 
-            logger.info(f"[DIARIZE] background {len(absolute_segments)} segments, "
-                        f"updates: {len(speaker_updates)}")
+            _diarize_debug(f"[DIARIZE] background {len(absolute_segments)} segments, "
+                           f"updates: {len(speaker_updates)}")
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -432,7 +438,7 @@ async def websocket_endpoint(ws: WebSocket):
         # 신창영: 수정 이유 - 화자분리 task를 따로 예약해서 /ws 수신 루프와 STT 전사를 계속 진행합니다.
         sample_count = len(audio_bytes) // 4
         duration = sample_count / DIARIZE_SAMPLE_RATE if DIARIZE_SAMPLE_RATE else 0.0
-        logger.info(
+        _diarize_debug(
             f"[DIARIZE:window] 예약: start={window_start_time:.2f}s, "
             f"bytes={len(audio_bytes)}, samples={sample_count}, duration={duration:.2f}s"
         )
@@ -521,7 +527,7 @@ async def websocket_endpoint(ws: WebSocket):
             await asyncio.gather(*list(diarize_tasks), return_exceptions=True)
 
         if not effective_diarize:
-            logger.info("[DIARIZE:final] 생략: 화자분리 비활성화")
+            _diarize_debug("[DIARIZE:final] 생략: 화자분리 비활성화")
             await send_ws_json({
                 "type": "finalized",
                 "status": "skipped",
@@ -532,7 +538,7 @@ async def websocket_endpoint(ws: WebSocket):
             return
 
         if not full_diarize_buffer or not transcript_chunks:
-            logger.info(
+            _diarize_debug(
                 f"[DIARIZE:final] 생략: empty_audio_or_transcripts "
                 f"(buffer_bytes={len(full_diarize_buffer)}, transcripts={len(transcript_chunks)})"
             )
@@ -556,7 +562,7 @@ async def websocket_endpoint(ws: WebSocket):
             full_samples = full_buffer_bytes // 4
             full_duration = full_samples / DIARIZE_SAMPLE_RATE if DIARIZE_SAMPLE_RATE else 0.0
             # 신창영: 수정 이유 - 녹음 종료 후 전체 오디오 버퍼가 실제로 모델에 전달되는지 터미널 로그에서 확인하기 위한 진단 로그입니다.
-            logger.info(
+            _diarize_debug(
                 f"[DIARIZE:final] 전체 버퍼 전달 시작: "
                 f"bytes={full_buffer_bytes}, samples={full_samples}, "
                 f"duration={full_duration:.2f}s, transcripts={len(transcript_chunks)}"
@@ -580,7 +586,7 @@ async def websocket_endpoint(ws: WebSocket):
             ]
             speaker_updates = build_speaker_updates(diarize_segments, force=True)
             db_updated_count = await update_transcript_speakers(session_id, recording_id, speaker_updates)
-            logger.info(
+            _diarize_debug(
                 f"[DIARIZE:final] 전체 보정 완료: final_segments={len(diarize_segments)}, "
                 f"speaker_updates={len(speaker_updates)}, db_updated={db_updated_count}"
             )

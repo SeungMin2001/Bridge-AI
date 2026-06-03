@@ -28,7 +28,7 @@ import numpy as np
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
-DEMO_PIPELINE_LOG = True
+DEMO_PIPELINE_LOG = os.getenv("SCHEDULE_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 # ── 설정 ──
 MOCK_MODE = os.getenv("SCHEDULE_MOCK_MODE", "false").lower() == "true"
