@@ -10,7 +10,7 @@ quiz_data JSONB 구조:
 [
   {
     "question_index": 1,
-    "type": "MULTIPLE_CHOICE" | "OX" | "SHORT_ANSWER",
+    "type": "MULTIPLE_CHOICE" | "OX",
     "question": "질문 텍스트",
     "options": ["1. ...", "2. ...", ...],
     "correct_answer": "정답",
@@ -106,10 +106,10 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 문제 유형 배분:
 - MULTIPLE_CHOICE (객관식, 3~4지선다): {mc_count}개
 - OX (O/X 퀴즈): {ox_count}개
-- SHORT_ANSWER (단답형): {sa_count}개
 
 생성 규칙:
 - 요청한 문항 수와 유형별 개수를 정확히 지키세요.
+- 문항 유형은 MULTIPLE_CHOICE와 OX만 사용하세요.
 - 제공된 강의 내용에 명시된 사실만 사용하고, 외부 지식을 추가하지 마세요.
 - 같은 질문이나 거의 같은 질문을 반복하지 마세요.
 - 자료의 단순 제목/라벨/단어만 보고 "'제목'의 의미는 무엇입니까?" 같은 빈약한 문제를 만들지 마세요.
@@ -122,7 +122,6 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 - MULTIPLE_CHOICE는 options를 반드시 3~4개 작성하고 correct_answer는 options 중 정확히 하나와 완전히 같아야 합니다.
 - OX는 반드시 참/거짓을 판단할 수 있는 평서문으로 작성하세요. "무엇입니까?", "어디입니까?", "왜입니까?" 같은 의문문은 OX로 만들면 안 됩니다.
 - OX의 options는 반드시 ["O", "X"]이고 correct_answer는 반드시 "O" 또는 "X"입니다.
-- SHORT_ANSWER는 options를 []로 두고, correct_answer는 짧은 핵심 답안으로 작성하세요.
 
 반드시 아래 JSON 배열 형식으로만 응답하세요:
 [
@@ -141,14 +140,6 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
     "options": ["O", "X"],
     "correct_answer": "X",
     "explanation": "해설 텍스트"
-  }},
-  {{
-    "question_index": 3,
-    "type": "SHORT_ANSWER",
-    "question": "단답형 질문 텍스트",
-    "options": [],
-    "correct_answer": "정답 텍스트",
-    "explanation": "해설 텍스트"
   }}
 ]"""
 
@@ -161,7 +152,6 @@ QUIZ_REPAIR_PROMPT_TEMPLATE = """아래 퀴즈 JSON은 품질 검증에 실패�
 [필수 문항 수]
 - MULTIPLE_CHOICE: {mc_count}개
 - OX: {ox_count}개
-- SHORT_ANSWER: {sa_count}개
 
 [검증 실패 사유]
 {issues}
@@ -172,7 +162,7 @@ QUIZ_REPAIR_PROMPT_TEMPLATE = """아래 퀴즈 JSON은 품질 검증에 실패�
 수정 규칙:
 - OX는 반드시 참/거짓 평서문이어야 하며 options는 ["O", "X"]입니다.
 - 객관식은 options 3~4개와 그중 하나와 완전히 같은 correct_answer가 필요합니다.
-- 단답형은 options를 []로 두세요.
+- 문항 유형은 MULTIPLE_CHOICE와 OX만 사용하세요.
 - question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
 - JSON 외 텍스트는 쓰지 마세요."""
 
@@ -247,14 +237,6 @@ _GENERIC_MC_QUESTION_PHRASES = (
     "자료의 핵심 내용으로 알맞은 것",
     "주차에서 정리한",
 )
-_GENERIC_SHORT_QUESTION_PHRASES = (
-    "자료에서 설명한",
-    "핵심 내용을 쓰세요",
-    "강의 내용의 핵심",
-    "선택 소스의 핵심",
-    "요약하여 쓰세요",
-    "설명하세요",
-)
 _EXPLANATORY_MARKERS = (
     "한다",
     "하다",
@@ -301,20 +283,16 @@ class QuizParseError(ValueError):
         self.raw_text = raw_text
 
 
-def _calculate_type_distribution(num_questions: int) -> tuple[int, int, int]:
-    """문제 유형 배분 계산 (객관식 > OX > 단답형 비율)"""
-    if num_questions <= 2:
-        return num_questions, 0, 0
-    mc_count = max(1, num_questions * 50 // 100)
-    ox_count = max(1, num_questions * 30 // 100)
-    sa_count = num_questions - mc_count - ox_count
-    if sa_count < 0:
-        ox_count += sa_count
-        sa_count = 0
-    return mc_count, ox_count, sa_count
+def _calculate_type_distribution(num_questions: int) -> tuple[int, int]:
+    """문제 유형 배분 계산 (객관식과 O/X만 생성)"""
+    if num_questions <= 1:
+        return max(0, num_questions), 0
+    mc_count = max(1, (num_questions + 1) // 2)
+    ox_count = num_questions - mc_count
+    return mc_count, ox_count
 
 
-QUIZ_TYPE_KEYS = ("MULTIPLE_CHOICE", "OX", "SHORT_ANSWER")
+QUIZ_TYPE_KEYS = ("MULTIPLE_CHOICE", "OX")
 
 
 def _normalize_type_counts(
@@ -322,11 +300,10 @@ def _normalize_type_counts(
     type_counts: dict[str, int] | None = None,
 ) -> dict[str, int]:
     if type_counts is None:
-        mc, ox, sa = _calculate_type_distribution(num_questions)
+        mc, ox = _calculate_type_distribution(num_questions)
         return {
             "MULTIPLE_CHOICE": mc,
             "OX": ox,
-            "SHORT_ANSWER": sa,
         }
 
     counts = {}
@@ -342,7 +319,7 @@ def _normalize_type_counts(
 
     total = sum(counts.values())
     if total < 1:
-        raise ValueError("퀴즈 문항 수는 1개 이상이어야 합니다.")
+        raise ValueError("퀴즈 문항 수는 객관식 또는 O/X로 1개 이상이어야 합니다.")
     if total > 20:
         raise ValueError("퀴즈 문항 수는 최대 20개까지 생성할 수 있습니다.")
     return counts
@@ -370,7 +347,6 @@ def _build_quiz_prompt(
         num_questions=total_questions,
         mc_count=counts["MULTIPLE_CHOICE"],
         ox_count=counts["OX"],
-        sa_count=counts["SHORT_ANSWER"],
     )
     return [
         {"role": "system", "content": QUIZ_SYSTEM_PROMPT},
@@ -482,8 +458,6 @@ def _coerce_quiz_questions(parsed: object) -> list[dict]:
             options = ["O", "X"]
             if str(next_question.get("correct_answer") or "").upper() in {"O", "X"}:
                 next_question["correct_answer"] = str(next_question["correct_answer"]).upper()
-        if next_question["type"] == "SHORT_ANSWER":
-            options = []
         next_question["options"] = options
         next_question = _coerce_correct_answer(next_question)
         normalized_questions.append(next_question)
@@ -503,9 +477,6 @@ def _normalize_quiz_type(value) -> str:
         "OX": "OX",
         "TRUE_FALSE": "OX",
         "TRUE/FALSE": "OX",
-        "단답형": "SHORT_ANSWER",
-        "SHORT": "SHORT_ANSWER",
-        "SHORT_ANSWER": "SHORT_ANSWER",
     }
     return aliases.get(normalized, "MULTIPLE_CHOICE")
 
@@ -874,53 +845,6 @@ def _mc_question_from_source(source_sentence: str, answer_text: str, type_index:
     return question
 
 
-def _short_answer_from_sentence(
-    source_sentence: str,
-    fallback_answer: str,
-    type_index: int,
-) -> tuple[str, str]:
-    """단답형 문항을 서로 다른 지식/정보를 묻는 형태로 구성합니다."""
-    sentence = _clean_quiz_fragment(source_sentence or fallback_answer)
-    subject, predicate = _split_subject_predicate(sentence)
-
-    if "수직" in sentence and "일" in sentence and re.search(r"\b0\b|0이|영", sentence):
-        return "힘이 이동 방향과 수직일 때 일의 값은 얼마인가?", "0"
-    if "속력의 제곱" in sentence and "운동에너지" in sentence:
-        return "운동에너지는 속력에 대해 어떻게 비례하는가?", "속력의 제곱에 비례한다"
-    if "질량" in sentence and "속력" in sentence and "운동에너지" in sentence:
-        return "운동에너지를 증가시키는 두 요인은 무엇인가?", "질량과 속력"
-    if "역학적 에너지" in sentence and "보존" in sentence:
-        return "역학적 에너지 보존에서 일정하게 유지되는 값은 무엇인가?", "운동에너지와 위치에너지의 합"
-    if "위치에너지" in sentence and "높이" in sentence:
-        return "위치에너지는 어떤 조건 때문에 저장되는 에너지인가?", "위치나 높이"
-    if subject and predicate:
-        if subject == "일":
-            return "물리에서 일은 무엇을 의미하는가?", _clip_text(predicate, 56)
-        if any(marker in predicate for marker in ("에너지", "과정", "의미", "개념", "구조", "방식")):
-            return f"{subject}{_topic_particle(subject)} 무엇을 의미하는가?", _clip_text(predicate, 56)
-        templates = (
-            "{subject}은 무엇을 의미하는가?",
-            "{subject}의 핵심 특징은 무엇인가?",
-            "{subject}은 어떤 역할을 하는가?",
-            "{subject}와 관련된 핵심 조건은 무엇인가?",
-        )
-        return templates[type_index % len(templates)].format(subject=subject), _clip_text(predicate, 56)
-
-    topic = _extract_topic(sentence, f"핵심 개념 {type_index + 1}")
-    question_templates = (
-        "{topic}의 핵심 의미는 무엇인가?",
-        "{topic}에서 중요한 조건은 무엇인가?",
-        "{topic}와 관련된 주요 결과는 무엇인가?",
-        "{topic}의 대표적인 특징은 무엇인가?",
-    )
-    return question_templates[type_index % len(question_templates)].format(topic=topic), _compact_answer_from_sentence(sentence, limit=56)
-
-
-def _is_generic_short_answer_question(value: str) -> bool:
-    text = _clean_quiz_fragment(value)
-    return any(phrase in text for phrase in _GENERIC_SHORT_QUESTION_PHRASES)
-
-
 def _strip_option_prefix(value: str) -> str:
     text = " ".join(str(value or "").split()).strip()
     text = re.sub(r"^[A-Da-d]\s*[\.\)]\s*", "", text)
@@ -1142,21 +1066,6 @@ def _mc_question_leaks_answer(question_text: str, answer_text: str, options: lis
         option_keywords = _content_keywords(option_text)
         if len(option_keywords) >= 3 and len(question_keywords & option_keywords) >= 3:
             return True
-    return False
-
-
-def _short_question_leaks_answer(question_text: str, answer_text: str) -> bool:
-    """단답형 질문이 답을 그대로 포함하면 복습 문항으로 부적절합니다."""
-    question = _clean_quiz_fragment(question_text)
-    answer = _clean_quiz_fragment(answer_text)
-    if not question or not answer:
-        return False
-    if len(answer) >= 10 and answer in question:
-        return True
-    question_keywords = _content_keywords(question)
-    answer_keywords = _content_keywords(answer)
-    if len(answer_keywords) >= 3 and len(question_keywords & answer_keywords) >= 3:
-        return True
     return False
 
 
@@ -1630,24 +1539,7 @@ def _normalize_single_llm_question(
         next_question["explanation"] = _trim_text(next_question.get("explanation") or "", 70)
         return next_question
 
-    next_question["options"] = []
-    next_question = _coerce_correct_answer(next_question)
-    question_text = _clean_quiz_fragment(next_question.get("question") or "")
-    answer_text = _clean_quiz_fragment(next_question.get("correct_answer") or next_question.get("answer") or "")
-    source_sentence = _best_source_sentence_for_question(f"{question_text} {answer_text}", transcript_text, type_index)
-    fallback_question, fallback_answer = _short_answer_from_sentence(source_sentence, answer_text, type_index)
-    if (
-        not _is_good_question_text(question_text)
-        or _is_generic_short_answer_question(question_text)
-        or _short_question_leaks_answer(question_text, answer_text)
-    ):
-        question_text = fallback_question
-    if not answer_text or len(answer_text) > 72 or _has_bad_quiz_artifact(answer_text):
-        answer_text = fallback_answer
-    next_question["question"] = _clip_text(question_text, 80)
-    next_question["correct_answer"] = _clip_text(answer_text, 60)
-    next_question["explanation"] = _trim_text(next_question.get("explanation") or next_question["correct_answer"], 70)
-    return next_question
+    return None
 
 
 def _coerce_correct_answer(question: dict) -> dict:
@@ -1697,10 +1589,6 @@ def _coerce_correct_answer(question: dict) -> dict:
         question["correct_answer"] = ox_aliases.get(normalized, correct_answer)
         return question
 
-    if question_type == "SHORT_ANSWER":
-        question["options"] = []
-        question["correct_answer"] = correct_answer
-
     return question
 
 
@@ -1726,14 +1614,6 @@ def _is_valid_question_shape(question: dict) -> bool:
         )
     if question_type == "OX":
         return options == ["O", "X"] and correct_answer in {"O", "X"} and not _OX_INTERROGATIVE_RE.search(question_text)
-    if question_type == "SHORT_ANSWER":
-        return (
-            not options
-            and bool(correct_answer)
-            and _is_good_question_text(question_text)
-            and not _is_generic_short_answer_question(question_text)
-            and not _short_question_leaks_answer(question_text, correct_answer)
-        )
     return False
 
 
@@ -1805,17 +1685,7 @@ def _build_fallback_question(
             "explanation": _trim_text(sentence, 50),
         }
 
-    question_text, answer_text = _short_answer_from_sentence(sentence, correct_phrase, type_index)
-    return {
-        "question_index": 0,
-        "type": "SHORT_ANSWER",
-        "question": _clip_text(question_text, 80),
-        "options": [],
-        "correct_answer": _clip_text(answer_text, 60),
-        "user_answer": None,
-        "is_correct": None,
-        "explanation": _trim_text(sentence, 50),
-    }
+    raise ValueError(f"지원하지 않는 퀴즈 유형입니다: {question_type}")
 
 
 def _fit_quiz_to_expected_counts(
@@ -1944,17 +1814,6 @@ def _validate_quiz_quality(quiz_data: list[dict], expected_counts: dict[str, int
                 issues.append(f"{index}번 O/X 문항의 correct_answer가 O 또는 X가 아닙니다.")
             if _OX_INTERROGATIVE_RE.search(question_text):
                 issues.append(f"{index}번 O/X 문항이 참/거짓 평서문이 아니라 의문문입니다.")
-        elif question_type == "SHORT_ANSWER":
-            if options:
-                issues.append(f"{index}번 단답형 문항의 options는 비어 있어야 합니다.")
-            if not correct_answer:
-                issues.append(f"{index}번 단답형 문항의 correct_answer가 비어 있습니다.")
-            if not _is_good_question_text(question_text):
-                issues.append(f"{index}번 단답형 문항의 질문이 구체적인 지식 질문이 아닙니다.")
-            if _is_generic_short_answer_question(question_text):
-                issues.append(f"{index}번 단답형 문항이 일반적인 핵심 내용 질문으로 반복됩니다.")
-            if _short_question_leaks_answer(question_text, correct_answer):
-                issues.append(f"{index}번 단답형 문항의 질문이 정답을 포함합니다.")
         else:
             issues.append(f"{index}번 문항 타입이 지원되지 않습니다: {question_type}")
 
@@ -2019,10 +1878,7 @@ def _type_instruction(question_type: str) -> str:
             "OX 문항만 생성하세요. question은 참/거짓 판단이 가능한 평서문이어야 하고, "
             "options는 [\"O\", \"X\"], correct_answer는 \"O\" 또는 \"X\"입니다."
         )
-    return (
-        "SHORT_ANSWER 단답형만 생성하세요. options는 반드시 []이고 correct_answer는 짧은 핵심 답안입니다. "
-        "\"핵심 내용을 쓰세요\"처럼 포괄적으로 묻지 말고 정의, 값, 조건, 관계, 결과 중 하나를 구체적으로 물으세요."
-    )
+    raise ValueError(f"지원하지 않는 퀴즈 유형입니다: {question_type}")
 
 
 def _build_type_specific_messages(
@@ -2102,18 +1958,7 @@ def _build_single_question_messages(
   "explanation": "짧은 해설"
 }"""
     else:
-        option_rule = (
-            "options는 정확히 []이고 correct_answer는 짧은 핵심 답안입니다. "
-            "질문은 정의/값/조건/관계/결과 중 하나를 직접 물어야 하며, 이전 단답형과 다른 개념을 물어야 합니다."
-        )
-        response_example = """{
-  "question_index": 1,
-  "type": "SHORT_ANSWER",
-  "question": "질문",
-  "options": [],
-  "correct_answer": "짧은 정답",
-  "explanation": "짧은 해설"
-}"""
+        raise ValueError(f"지원하지 않는 퀴즈 유형입니다: {question_type}")
 
     user_prompt = f"""아래 선택 소스 요약본에서 {question_type} 퀴즈 1개만 생성하세요.
 
@@ -2193,11 +2038,6 @@ def _question_shape_issues(question: dict) -> list[str]:
             issues.append("bad_ox_options")
         if correct_answer not in {"O", "X"}:
             issues.append("bad_ox_answer")
-    elif question_type == "SHORT_ANSWER":
-        if options:
-            issues.append("short_answer_has_options")
-        if not correct_answer:
-            issues.append("empty_short_answer")
     else:
         issues.append(f"bad_type={question_type}")
     return issues
@@ -2505,8 +2345,12 @@ def grade_quiz(quiz_data: list[dict], answers: dict[str, str]) -> tuple[list[dic
         - correct_count: 정답 개수
     """
     correct_count = 0
+    supported_quiz_data = [
+        q for q in quiz_data
+        if isinstance(q, dict) and q.get("type") in QUIZ_TYPE_KEYS
+    ]
 
-    for q in quiz_data:
+    for q in supported_quiz_data:
         idx_str = str(q["question_index"])
         user_answer = answers.get(idx_str)
 
@@ -2521,36 +2365,14 @@ def grade_quiz(quiz_data: list[dict], answers: dict[str, str]) -> tuple[list[dic
         correct = q.get("correct_answer", "").strip()
         submitted = user_answer.strip()
 
-        if q["type"] == "SHORT_ANSWER":
-            # 단답형: 정답에 핵심 키워드가 포함되면 정답 처리
-            is_correct = _fuzzy_match(correct, submitted)
-        else:
-            # 객관식/OX: 정확히 일치
-            is_correct = correct == submitted
+        # 객관식/OX: 정확히 일치
+        is_correct = correct == submitted
 
         q["is_correct"] = is_correct
         if is_correct:
             correct_count += 1
 
-    return quiz_data, correct_count
-
-
-def _fuzzy_match(correct: str, submitted: str) -> bool:
-    """
-    단답형 퍼지 매칭:
-    - 정확히 일치하면 True
-    - 정답이 사용자 답에 포함되거나, 사용자 답이 정답에 포함되면 True
-    - 숫자 등 핵심 키워드 비교
-    """
-    c = correct.replace(" ", "").lower()
-    s = submitted.replace(" ", "").lower()
-
-    if c == s:
-        return True
-    if c in s or s in c:
-        return True
-
-    return False
+    return supported_quiz_data, correct_count
 
 
 #  목업 데이터 (LLM 미연결 시)
@@ -2562,7 +2384,6 @@ def _generate_mock_quiz(
     counts = _normalize_type_counts(num_questions, type_counts)
     mc = counts["MULTIPLE_CHOICE"]
     ox = counts["OX"]
-    sa = counts["SHORT_ANSWER"]
     questions = []
     idx = 1
 
@@ -2618,32 +2439,6 @@ def _generate_mock_quiz(
         questions.append({
             "question_index": idx,
             "type": "OX",
-            "user_answer": None,
-            "is_correct": None,
-            **m,
-        })
-        idx += 1
-
-    # 단답형
-    mock_sa = [
-        {
-            "question": "모든 릴레이션이 원자값만을 가지도록 하는 정규형은?",
-            "options": [],
-            "correct_answer": "제1정규형",
-            "explanation": "도메인이 원자값이어야 한다는 것은 제1정규형(1NF)의 정의입니다.",
-        },
-        {
-            "question": "기본 키(Primary Key)가 만족해야 하는 두 가지 제약조건은 유일성과 무엇인가?",
-            "options": [],
-            "correct_answer": "최소성",
-            "explanation": "기본 키는 유일성(uniqueness)과 최소성(minimality)을 만족해야 합니다.",
-        },
-    ]
-    for i in range(sa):
-        m = mock_sa[i % len(mock_sa)]
-        questions.append({
-            "question_index": idx,
-            "type": "SHORT_ANSWER",
             "user_answer": None,
             "is_correct": None,
             **m,

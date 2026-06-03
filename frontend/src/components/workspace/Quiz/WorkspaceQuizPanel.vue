@@ -32,13 +32,14 @@ const sourcePickerAnchor = ref({ left: 0, top: 0 })
 const localQuizSourceIds = ref([])
 const hasPickedQuizSources = ref(false)
 const DEFAULT_QUIZ_COUNT = 5
+const QUIZ_TYPE_KEYS = ['MULTIPLE_CHOICE', 'OX']
+const QUIZ_TYPE_SET = new Set(QUIZ_TYPE_KEYS)
 
 function buildSingleTypeCounts(type, count = DEFAULT_QUIZ_COUNT) {
-  return {
-    MULTIPLE_CHOICE: type === 'MULTIPLE_CHOICE' ? count : 0,
-    OX: type === 'OX' ? count : 0,
-    SHORT_ANSWER: type === 'SHORT_ANSWER' ? count : 0
-  }
+  return QUIZ_TYPE_KEYS.reduce((counts, key) => ({
+    ...counts,
+    [key]: key === type ? count : 0
+  }), {})
 }
 
 const frontendQuizType = ref('MULTIPLE_CHOICE')
@@ -63,13 +64,6 @@ const quizTypeOptions = [
     icon: 'rule',
     description: '참과 거짓을 판단',
     tone: 'amber'
-  },
-  {
-    key: 'SHORT_ANSWER',
-    label: '단답형',
-    icon: 'short_text',
-    description: '핵심 답안을 직접 입력',
-    tone: 'green'
   }
 ]
 
@@ -474,7 +468,9 @@ const selectAllQuizFolderSources = () => {
 }
 
 const getQuizQuestions = (quiz = activeQuiz.value) => (
-  Array.isArray(quiz?.quiz_data) ? quiz.quiz_data : []
+  Array.isArray(quiz?.quiz_data)
+    ? quiz.quiz_data.filter((question) => QUIZ_TYPE_SET.has(question?.type))
+    : []
 )
 
 const formatQuizDate = (value = '') => {
@@ -492,7 +488,6 @@ const formatQuizDate = (value = '') => {
 const getQuizTypeLabel = (type = '') => {
   if (type === 'MULTIPLE_CHOICE') return '객관식'
   if (type === 'OX') return 'O/X'
-  if (type === 'SHORT_ANSWER') return '단답형'
   return '문항'
 }
 
@@ -504,8 +499,7 @@ const countQuizTypesFromQuestions = (questions = []) => (
     return counts
   }, {
     MULTIPLE_CHOICE: 0,
-    OX: 0,
-    SHORT_ANSWER: 0
+    OX: 0
   })
 )
 
@@ -650,13 +644,11 @@ const returnToQuizBuilder = () => {
 }
 
 const applyPreset = (total) => {
-  const mc = Math.max(1, Math.floor(total * 0.5))
-  const ox = total >= 3 ? Math.max(1, Math.floor(total * 0.3)) : 0
-  const shortAnswer = Math.max(0, total - mc - ox)
+  const mc = total <= 1 ? total : Math.max(1, Math.ceil(total * 0.6))
+  const ox = Math.max(0, total - mc)
   quizTypeCounts.value = {
     MULTIPLE_CHOICE: mc,
-    OX: ox,
-    SHORT_ANSWER: shortAnswer
+    OX: ox
   }
 }
 
@@ -760,17 +752,6 @@ const buildDemoQuestions = () => {
       explanation: '자료 기반 퀴즈는 선택한 자료 범위를 기준으로 만들어져야 학습 맥락과 근거가 유지됩니다.',
       is_correct: null,
       user_answer: null
-    },
-    {
-      question_index: 3,
-      type: 'SHORT_ANSWER',
-      question: `${sourceTitle}에서 퀴즈를 만들 때 선택한 자료 범위를 기준으로 삼아야 하는 핵심 이유를 입력하세요.`,
-      options: [],
-      correct_answer: '자료의 맥락과 근거를 유지하기 위해서',
-      accepted_answers: ['맥락', '근거', '자료 범위', '선택한 자료'],
-      explanation: '단답형은 답안에 핵심 키워드가 포함되는지 확인하는 방식으로 데모 채점됩니다.',
-      is_correct: null,
-      user_answer: null
     }
   ]
 }
@@ -803,15 +784,6 @@ const isDemoAnswerCorrect = (question, answer) => {
   const normalizedAnswer = normalizeDemoAnswer(answer)
   const normalizedCorrectAnswer = normalizeDemoAnswer(question.correct_answer)
   if (!normalizedAnswer) return false
-  if (question.type === 'SHORT_ANSWER') {
-    const acceptedAnswers = Array.isArray(question.accepted_answers) && question.accepted_answers.length
-      ? question.accepted_answers
-      : [question.correct_answer]
-    return acceptedAnswers.some((acceptedAnswer) => {
-      const normalizedAcceptedAnswer = normalizeDemoAnswer(acceptedAnswer)
-      return normalizedAnswer.includes(normalizedAcceptedAnswer) || normalizedAcceptedAnswer.includes(normalizedAnswer)
-    })
-  }
   return normalizedAnswer === normalizedCorrectAnswer
 }
 
@@ -1325,18 +1297,7 @@ watch(
               <h2>{{ currentQuestion.question }}</h2>
             </div>
 
-            <div v-if="currentQuestion.type === 'SHORT_ANSWER'" class="quiz-play-short-answer">
-              <input
-                type="text"
-                :value="quizAnswers[String(currentQuestion.question_index)] || ''"
-                :disabled="currentQuestionIsGraded || !!quizResult"
-                placeholder="단답을 입력하세요"
-                @input="setQuizAnswer(currentQuestion, $event.target.value)"
-                @keydown.enter.prevent="goToNextQuizPage"
-              />
-            </div>
-
-            <div v-else class="quiz-play-options custom-scrollbar">
+            <div class="quiz-play-options custom-scrollbar">
               <button
                 v-for="option in currentQuestion.options"
                 :key="option"
@@ -2650,25 +2611,6 @@ watch(
   cursor: default;
 }
 
-.quiz-play-short-answer input {
-  width: 100%;
-  height: 48px;
-  padding: 0 14px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  color: #1f2937;
-  background: #ffffff;
-  font-size: 13px;
-  font-weight: 850;
-  line-height: 48px;
-  outline: none;
-}
-
-.quiz-play-short-answer input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-}
-
 .quiz-play-feedback {
   display: grid;
   gap: 7px;
@@ -2848,34 +2790,12 @@ watch(
   cursor: default;
 }
 
-.quiz-short-answer input {
-  width: 100%;
-  min-height: 46px;
-  padding: 11px 13px;
-  border: 1px solid #dfe5ee;
-  border-radius: 8px;
-  color: #1f2937;
-  background: #ffffff;
-  font-size: 14px;
-  font-weight: 800;
-  outline: none;
-}
-
 .quiz-question-card.type-MULTIPLE_CHOICE .quiz-options {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .quiz-question-card.type-OX .quiz-options {
   grid-template-columns: repeat(2, minmax(0, 180px));
-}
-
-.quiz-question-card.type-SHORT_ANSWER {
-  gap: 14px;
-}
-
-.quiz-short-answer input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 .quiz-explanation {

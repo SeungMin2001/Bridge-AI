@@ -679,7 +679,7 @@ const handleToolbarTitleCompositionEnd = () => {
                   class="clickable-word"
                   :class="{
                     'search-highlighted-word': isSearchHighlightedWord(word),
-                    'citation-highlighted-word': isCitationHighlightedWord(word, seg.text)
+                    'citation-highlighted-word': isCitationHighlightedTranscription(t) || isCitationHighlightedSegment(seg, t) || isCitationHighlightedWord(word, seg.text)
                   }"
                   @click="(e) => handleWordClick(e, word, seg.text)"
                 >{{ word }}&nbsp;</span>
@@ -692,7 +692,7 @@ const handleToolbarTitleCompositionEnd = () => {
                 class="clickable-word"
                 :class="{
                   'search-highlighted-word': isSearchHighlightedWord(word),
-                  'citation-highlighted-word': isCitationHighlightedWord(word, t.text)
+                  'citation-highlighted-word': isCitationHighlightedTranscription(t) || isCitationHighlightedWord(word, t.text)
                 }"
                 @click="(e) => handleWordClick(e, word, t.text)"
               >{{ word }}&nbsp;</span>

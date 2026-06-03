@@ -74,12 +74,26 @@ export function buildHighlightedCitationHtml(fullText = '', targetText = '') {
   const range = findHighlightRange(source, target)
   if (!range) return escapeCitationHtml(source)
 
-  const [start, end] = range
+  const [start, end] = expandRangeToParagraph(source, range)
   return [
     escapeCitationHtml(source.slice(0, start)),
     `<mark class="cite-highlighted-script">${escapeCitationHtml(source.slice(start, end))}</mark>`,
     escapeCitationHtml(source.slice(end)),
   ].join('')
+}
+
+function expandRangeToParagraph(source = '', range = [0, 0]) {
+  const text = String(source || '')
+  let [start, end] = range
+
+  while (start > 0 && text[start - 1] !== '\n') {
+    start -= 1
+  }
+  while (end < text.length && text[end] !== '\n') {
+    end += 1
+  }
+
+  return [start, end]
 }
 
 function citationKey(cite = {}, index = 0) {

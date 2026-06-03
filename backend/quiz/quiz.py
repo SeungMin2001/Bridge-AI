@@ -42,7 +42,6 @@ class QuizTypeCounts(BaseModel):
     """퀴즈 유형별 생성 개수"""
     MULTIPLE_CHOICE: int = Field(default=0, ge=0, le=20, description="객관식 문항 수")
     OX: int = Field(default=0, ge=0, le=20, description="O/X 문항 수")
-    SHORT_ANSWER: int = Field(default=0, ge=0, le=20, description="단답형 문항 수")
 
 
 class QuizGenerateRequest(BaseModel):
@@ -522,7 +521,7 @@ async def quiz_submit(quiz_id: str, req: QuizSubmitRequest):
     # 3. DB 업데이트
     await update_quiz_result(quiz_id, graded_data, correct_count)
 
-    total = quiz["total_questions"]
+    total = len(graded_data)
     score = round((correct_count / total) * 100, 1) if total > 0 else 0.0
 
     logger.info(f"[QUIZ] 채점 완료: {correct_count}/{total} ({score}%)")

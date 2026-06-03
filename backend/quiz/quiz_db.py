@@ -22,13 +22,28 @@ def _count_quiz_types(quiz_data: list) -> dict[str, int]:
     counts = {
         "MULTIPLE_CHOICE": 0,
         "OX": 0,
-        "SHORT_ANSWER": 0,
     }
     for question in quiz_data:
         quiz_type = question.get("type") if isinstance(question, dict) else None
         if quiz_type in counts:
             counts[quiz_type] += 1
     return counts
+
+
+def _supported_quiz_data(quiz_data: list) -> list:
+    return [
+        question for question in quiz_data
+        if isinstance(question, dict) and question.get("type") in {"MULTIPLE_CHOICE", "OX"}
+    ]
+
+
+def _safe_correct_count(value, total: int) -> int | None:
+    if value is None:
+        return None
+    try:
+        return min(max(0, int(value)), total)
+    except (TypeError, ValueError):
+        return None
 
 
 #  퀴즈 CRUD
@@ -80,7 +95,7 @@ async def get_quiz(quiz_id: str) -> dict | None:
         if row is None:
             return None
 
-        quiz_data_parsed = _parse_quiz_data(row["quiz_data"])
+        quiz_data_parsed = _supported_quiz_data(_parse_quiz_data(row["quiz_data"]))
 
         return {
             "quiz_id": str(row["quiz_id"]),
@@ -89,8 +104,8 @@ async def get_quiz(quiz_id: str) -> dict | None:
             "request_id": str(row["request_id"]) if row["request_id"] else None,
             "session_id": str(row["session_id"]) if row["session_id"] else None,
             "quiz_data": quiz_data_parsed,
-            "total_questions": row["total_questions"],
-            "correct_count": row["correct_count"],
+            "total_questions": len(quiz_data_parsed),
+            "correct_count": _safe_correct_count(row["correct_count"], len(quiz_data_parsed)),
             "source_title": row["source_title"],
             "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         }
@@ -108,20 +123,22 @@ async def get_quizzes_by_session(session_id: str) -> list[dict]:
             ORDER BY created_at DESC
         """, _uuid.UUID(session_id))
 
-        return [
-            {
+        quizzes = []
+        for r in rows:
+            quiz_data_parsed = _supported_quiz_data(_parse_quiz_data(r["quiz_data"]))
+            total_questions = len(quiz_data_parsed)
+            quizzes.append({
                 "quiz_id": str(r["quiz_id"]),
                 "user_id": str(r["user_id"]) if r["user_id"] else None,
                 "course_id": str(r["course_id"]) if r["course_id"] else None,
                 "session_id": str(r["session_id"]) if r["session_id"] else None,
-                "total_questions": r["total_questions"],
-                "correct_count": r["correct_count"],
+                "total_questions": total_questions,
+                "correct_count": _safe_correct_count(r["correct_count"], total_questions),
                 "source_title": r["source_title"],
-                "type_counts": _count_quiz_types(_parse_quiz_data(r["quiz_data"])),
+                "type_counts": _count_quiz_types(quiz_data_parsed),
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-            }
-            for r in rows
-        ]
+            })
+        return quizzes
 
 
 async def update_quiz_result(quiz_id: str, quiz_data: list, correct_count: int) -> dict:
