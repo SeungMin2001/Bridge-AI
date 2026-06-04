@@ -56,7 +56,7 @@ const getMicrophoneUnavailableReason = () => {
   if (typeof window !== 'undefined') {
     const localhostHosts = new Set(['localhost', '127.0.0.1', '::1'])
     if (!window.isSecureContext && !localhostHosts.has(window.location.hostname)) {
-      return '마이크 권한은 HTTPS 또는 localhost 접속에서만 사용할 수 있습니다. 프론트는 http://localhost:5173 으로 열어주세요.'
+      return '마이크 권한은 HTTPS 또는 localhost 접속에서만 사용할 수 있습니다. 다른 컴퓨터에서는 ngrok 같은 HTTPS 주소로 접속해주세요.'
     }
   }
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {

@@ -2,7 +2,8 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
-const BACKEND_URL = 'http://100.104.164.84:8000'
+const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8000'
+const BACKEND_URL = process.env.VITE_BACKEND_URL || DEFAULT_BACKEND_URL
 const FRONTEND_ROOT = fileURLToPath(new URL('.', import.meta.url))
 const FRONTEND_HOST = '0.0.0.0'
 const FRONTEND_PORT = 5173
@@ -69,6 +70,12 @@ export default defineConfig(() => {
     server: {
       host: FRONTEND_HOST,
       port: FRONTEND_PORT,
+      allowedHosts: [
+        '.ngrok-free.dev',
+        '.ngrok-free.app',
+        '.ngrok.app',
+        '.ngrok.io',
+      ],
       strictPort: true,
       hmr: false,
       watch: {
@@ -81,6 +88,12 @@ export default defineConfig(() => {
     preview: {
       host: FRONTEND_HOST,
       port: FRONTEND_PORT,
+      allowedHosts: [
+        '.ngrok-free.dev',
+        '.ngrok-free.app',
+        '.ngrok.app',
+        '.ngrok.io',
+      ],
       strictPort: true,
       proxy: proxyConfig(backendUrl, backendWsUrl),
     },
