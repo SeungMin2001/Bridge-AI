@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="500" viewBox="0 0 720 500">
+<rect width="100%" height="100%" fill="white"/>
+<defs><clipPath id="clip"><rect x="84" y="34" width="586" height="392"/></clipPath></defs>
+<line x1="84" y1="388.67" x2="670" y2="388.67" stroke="#f1f5f9" stroke-width="0.75"/>
+<line x1="84" y1="351.33" x2="670" y2="351.33" stroke="#e5e7eb" stroke-width="1.1"/>
+<line x1="84" y1="314.00" x2="670" y2="314.00" stroke="#f1f5f9" stroke-width="0.75"/>
+<line x1="84" y1="276.67" x2="670" y2="276.67" stroke="#e5e7eb" stroke-width="1.1"/>
+<line x1="84" y1="239.33" x2="670" y2="239.33" stroke="#f1f5f9" stroke-width="0.75"/>
+<line x1="84" y1="202.00" x2="670" y2="202.00" stroke="#e5e7eb" stroke-width="1.1"/>
+<line x1="84" y1="164.67" x2="670" y2="164.67" stroke="#f1f5f9" stroke-width="0.75"/>
+<line x1="84" y1="127.33" x2="670" y2="127.33" stroke="#e5e7eb" stroke-width="1.1"/>
+<line x1="84" y1="90.00" x2="670" y2="90.00" stroke="#f1f5f9" stroke-width="0.75"/>
+<line x1="84" y1="52.67" x2="670" y2="52.67" stroke="#e5e7eb" stroke-width="1.1"/>
+<line x1="104.44" y1="34" x2="104.44" y2="426" stroke="#e5e7eb" stroke-width="0.95"/>
+<line x1="240.72" y1="34" x2="240.72" y2="426" stroke="#f1f5f9" stroke-width="0.75"/>
+<line x1="377.00" y1="34" x2="377.00" y2="426" stroke="#e5e7eb" stroke-width="0.95"/>
+<line x1="513.28" y1="34" x2="513.28" y2="426" stroke="#f1f5f9" stroke-width="0.75"/>
+<line x1="649.56" y1="34" x2="649.56" y2="426" stroke="#e5e7eb" stroke-width="0.95"/>
+<g clip-path="url(#clip)">
+<polyline points="104.44,321.47 240.72,213.44 377.00,125.93 513.28,72.27 649.56,71.34" fill="none" stroke="#0072B2" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="104.44,331.20 240.72,325.61 377.00,299.65 513.28,283.99 649.56,241.60" fill="none" stroke="#E66100" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="104.44" cy="321.47" r="4.0" fill="white" stroke="#0072B2" stroke-width="1.8"/>
+<circle cx="240.72" cy="213.44" r="4.0" fill="white" stroke="#0072B2" stroke-width="1.8"/>
+<circle cx="377.00" cy="125.93" r="4.0" fill="white" stroke="#0072B2" stroke-width="1.8"/>
+<circle cx="513.28" cy="72.27" r="4.0" fill="white" stroke="#0072B2" stroke-width="1.8"/>
+<circle cx="649.56" cy="71.34" r="4.0" fill="white" stroke="#0072B2" stroke-width="1.8"/>
+<rect x="100.74" y="327.50" width="7.4" height="7.4" fill="white" stroke="#E66100" stroke-width="1.8"/>
+<rect x="237.02" y="321.91" width="7.4" height="7.4" fill="white" stroke="#E66100" stroke-width="1.8"/>
+<rect x="373.30" y="295.95" width="7.4" height="7.4" fill="white" stroke="#E66100" stroke-width="1.8"/>
+<rect x="509.58" y="280.29" width="7.4" height="7.4" fill="white" stroke="#E66100" stroke-width="1.8"/>
+<rect x="645.86" y="237.90" width="7.4" height="7.4" fill="white" stroke="#E66100" stroke-width="1.8"/>
+</g>
+<line x1="84" y1="426" x2="670" y2="426" stroke="#111827" stroke-width="1.8"/>
+<line x1="84" y1="34" x2="84" y2="426" stroke="#111827" stroke-width="1.8"/>
+<line x1="104.44" y1="426" x2="104.44" y2="433" stroke="#111827" stroke-width="1.4"/>
+<text x="104.44" y="453" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">1</text>
+<line x1="240.72" y1="426" x2="240.72" y2="433" stroke="#111827" stroke-width="1.4"/>
+<text x="240.72" y="453" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">2</text>
+<line x1="377.00" y1="426" x2="377.00" y2="433" stroke="#111827" stroke-width="1.4"/>
+<text x="377.00" y="453" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">3</text>
+<line x1="513.28" y1="426" x2="513.28" y2="433" stroke="#111827" stroke-width="1.4"/>
+<text x="513.28" y="453" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">4</text>
+<line x1="649.56" y1="426" x2="649.56" y2="433" stroke="#111827" stroke-width="1.4"/>
+<text x="649.56" y="453" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">5</text>
+<line x1="77" y1="426.00" x2="84" y2="426.00" stroke="#111827" stroke-width="1.4"/>
+<text x="69" y="431.00" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">0</text>
+<line x1="77" y1="351.33" x2="84" y2="351.33" stroke="#111827" stroke-width="1.4"/>
+<text x="69" y="356.33" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">20</text>
+<line x1="77" y1="276.67" x2="84" y2="276.67" stroke="#111827" stroke-width="1.4"/>
+<text x="69" y="281.67" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">40</text>
+<line x1="77" y1="202.00" x2="84" y2="202.00" stroke="#111827" stroke-width="1.4"/>
+<text x="69" y="207.00" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">60</text>
+<line x1="77" y1="127.33" x2="84" y2="127.33" stroke="#111827" stroke-width="1.4"/>
+<text x="69" y="132.33" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">80</text>
+<line x1="77" y1="52.67" x2="84" y2="52.67" stroke="#111827" stroke-width="1.4"/>
+<text x="69" y="57.67" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#111827">100</text>
+<text x="377.00" y="482" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#111827">Epoch</text>
+<text transform="translate(28 230.00) rotate(-90)" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#111827">Accuracy (%)</text>
+<g font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#111827">
+<line x1="492" y1="365" x2="526" y2="365" stroke="#0072B2" stroke-width="2.1" stroke-linecap="round"/>
+<circle cx="509" cy="365" r="4" fill="white" stroke="#0072B2" stroke-width="1.7"/>
+<text x="536" y="370">Question+Passage</text>
+<line x1="492" y1="388" x2="526" y2="388" stroke="#E66100" stroke-width="2.1" stroke-linecap="round"/>
+<rect x="505.2" y="384.2" width="7.6" height="7.6" fill="white" stroke="#E66100" stroke-width="1.7"/>
+<text x="536" y="393">Passage-only</text>
+</g></svg>

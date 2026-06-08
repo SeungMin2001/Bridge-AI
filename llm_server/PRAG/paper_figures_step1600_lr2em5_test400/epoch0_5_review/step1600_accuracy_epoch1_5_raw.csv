@@ -1,0 +1,6 @@
+epoch,question_passage_accuracy,passage_only_accuracy
+1,44.0,13.25
+2,56.99999999999999,26.0
+3,64.25,33.0
+4,56.25,33.5
+5,69.0,34.25

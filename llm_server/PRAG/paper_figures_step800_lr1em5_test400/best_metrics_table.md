@@ -1,0 +1,4 @@
+| Model | Best Epoch | Accuracy (%) | Precision (%) | Recall (%) | Token F1 (%) | Hit (%) | QA Score (%) | Avg. Time (s) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Question+Passage | 4 | 21.75 | 44.31 | 49.35 | 44.98 | 21.75 | 22.49 | 4.015 |
+| Passage-only | 3 | 10.25 | 27.57 | 38.07 | 30.30 | 10.25 | 15.15 | 5.903 |

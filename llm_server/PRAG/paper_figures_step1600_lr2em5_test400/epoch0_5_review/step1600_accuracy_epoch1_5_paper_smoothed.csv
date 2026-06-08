@@ -1,0 +1,6 @@
+epoch,qp_raw,ponly_raw,qp_smoothed,ponly_smoothed,smoothing
+1,44.0,13.25,50.5,19.625,centered_3_point_moving_average
+2,56.99999999999999,26.0,55.083333333333336,24.083333333333332,centered_3_point_moving_average
+3,64.25,33.0,59.166666666666664,30.833333333333332,centered_3_point_moving_average
+4,56.25,33.5,63.166666666666664,33.583333333333336,centered_3_point_moving_average
+5,69.0,34.25,62.625,33.875,centered_3_point_moving_average

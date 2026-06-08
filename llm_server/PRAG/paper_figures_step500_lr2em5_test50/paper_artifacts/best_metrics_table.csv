@@ -1,0 +1,3 @@
+﻿Model,Best Epoch,Accuracy (%),Token F1 (%),Hit (%),QA Score (%),Avg. Time (s)
+Question+Passage,5,26.00,50.53,26.00,25.26,3.560
+Passage-only,3,16.00,29.05,16.00,14.52,6.245

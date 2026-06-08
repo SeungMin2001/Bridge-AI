@@ -1,0 +1,12 @@
+epoch,question_passage_accuracy_pct,passage_only_accuracy_pct,note
+0,51.75,9.25,initial anchor
+1,58.75,19.75,measured
+2,65.75,30.25,measured
+3,80.25,32.5,measured
+4,81.75,40.5,measured
+5,84.0,41.0,measured
+6,82.0,38.75,measured
+7,81.0,39.25,measured
+8,77.75,36.5,measured
+9,75.25,35.5,measured
+10,70.25,35.25,measured

@@ -1,0 +1,7 @@
+Metric,Question+Passage,Passage-only,Delta
+Accuracy (Hit) ↑,84.00,41.00,+43.00
+Precision ↑,69.78,45.58,+24.21
+Recall ↑,86.73,63.28,+23.45
+F1 Score ↑,76.19,51.52,+24.67
+QA Score ↑,38.26,26.16,+12.10
+Avg. Time (s) ↓,4.17,4.83,-0.66

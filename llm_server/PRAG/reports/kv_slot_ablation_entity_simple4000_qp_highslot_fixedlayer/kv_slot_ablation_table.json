@@ -1,0 +1,68 @@
+{
+  "rows": [
+    {
+      "num_kv": 32,
+      "cases": 400,
+      "qp_mergeprag_hit": 0.905,
+      "ponly_mergeprag_hit": 0.6575,
+      "delta_mergeprag_hit": 0.24750000000000005,
+      "qp_token_f1": 0.8149318546763432,
+      "ponly_token_f1": 0.6714894666382137,
+      "delta_token_f1": 0.14344238803812948,
+      "qp_qa_score": 0.4112159273381717,
+      "ponly_qa_score": 0.33574473331910687,
+      "delta_qa_score": 0.07547119401906482,
+      "qp_time_s": 3.5840269325004193,
+      "ponly_time_s": 3.712867598749435,
+      "report_dir": "llm_server\\PRAG\\reports\\kv_slot_ablation_entity_simple4000_qp_highslot_fixedlayer\\kv32"
+    },
+    {
+      "num_kv": 48,
+      "cases": 400,
+      "qp_mergeprag_hit": 0.8975,
+      "ponly_mergeprag_hit": 0.6575,
+      "delta_mergeprag_hit": 0.24,
+      "qp_token_f1": 0.7799898223831916,
+      "ponly_token_f1": 0.6714894666382137,
+      "delta_token_f1": 0.10850035574497785,
+      "qp_qa_score": 0.3899949111915958,
+      "ponly_qa_score": 0.33574473331910687,
+      "delta_qa_score": 0.054250177872488925,
+      "qp_time_s": 3.874907344999228,
+      "ponly_time_s": 3.710233435998962,
+      "report_dir": "llm_server\\PRAG\\reports\\kv_slot_ablation_entity_simple4000_qp_highslot_fixedlayer\\kv48"
+    },
+    {
+      "num_kv": 64,
+      "cases": 400,
+      "qp_mergeprag_hit": 0.9475,
+      "ponly_mergeprag_hit": 0.6575,
+      "delta_mergeprag_hit": 0.29000000000000004,
+      "qp_token_f1": 0.8278843006029346,
+      "ponly_token_f1": 0.6714894666382137,
+      "delta_token_f1": 0.15639483396472087,
+      "qp_qa_score": 0.4139421503014673,
+      "ponly_qa_score": 0.33574473331910687,
+      "delta_qa_score": 0.07819741698236043,
+      "qp_time_s": 3.655587069001049,
+      "ponly_time_s": 3.6928210452494388,
+      "report_dir": "llm_server\\PRAG\\reports\\kv_slot_ablation_entity_simple4000_qp_highslot_fixedlayer\\kv64"
+    },
+    {
+      "num_kv": 72,
+      "cases": 400,
+      "qp_mergeprag_hit": 0.9775,
+      "ponly_mergeprag_hit": 0.6575,
+      "delta_mergeprag_hit": 0.32000000000000006,
+      "qp_token_f1": 0.8352269759998739,
+      "ponly_token_f1": 0.6714894666382137,
+      "delta_token_f1": 0.1637375093616602,
+      "qp_qa_score": 0.422613487999937,
+      "ponly_qa_score": 0.33574473331910687,
+      "delta_qa_score": 0.08686875468083011,
+      "qp_time_s": 3.771499332250096,
+      "ponly_time_s": 3.7026658495016456,
+      "report_dir": "llm_server\\PRAG\\reports\\kv_slot_ablation_entity_simple4000_qp_highslot_fixedlayer\\kv72"
+    }
+  ]
+}
