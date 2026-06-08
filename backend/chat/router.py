@@ -35,6 +35,10 @@ def _preview(text: str, limit: int = 120) -> str:
     return compact if len(compact) <= limit else f"{compact[:limit - 3]}..."
 
 
+def _sse_payload(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 class ChatRequest(BaseModel):
     """AI 채팅 요청 본문.
 
@@ -104,30 +108,40 @@ async def chat_stream(req: ChatRequest):
     print(f"[CHAT STREAM] 요청 수신: {req.question}")
     _demo_log(f"1) 스트리밍 질문 수신: '{_preview(req.question, 100)}'")
 
-    if is_smalltalk_question(req.question):
-        prompt, citations = req.question, []
-        _demo_log("2) 일반 대화로 분류: RAG 검색 생략, LLM 스트리밍으로 직접 전달")
-    else:
-        search_session_id, search_source_filter = _global_chat_scope()
-        # 요약/퀴즈는 선택 파일 기준을 유지하지만, AI 채팅은 항상 전체 자료 검색으로 고정합니다.
-        _demo_log("2) 자료 기반 질문으로 분류: 전체 PDF/전사 자료에서 RAG 검색 준비")
-        await ensure_material_rag_for_chat(req.session_id, req.source_filter)
-        prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
-        _demo_log(f"3) RAG prompt 구성 완료: prompt_chars={len(prompt)}, citations={len(citations)}")
-    t_rag = time.perf_counter()
-    print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
-    _demo_log(f"4) RAG 단계 완료: elapsed_ms={(t_rag - request_started_at)*1000:.0f}")
-
     async def generate():
         """SSE 이벤트 형식으로 citations, token, error, DONE 메시지를 생성합니다."""
         first_token_logged = False
         first_token_elapsed = None
         emitted_content = False
         emitted_error = False
+        prompt = req.question
+        citations = []
 
-        yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
+        yield _sse_payload({"type": "status", "phase": "analyzing", "message": "질문 분석 중"})
 
         try:
+            if is_smalltalk_question(req.question):
+                _demo_log("2) 일반 대화로 분류: RAG 검색 생략, LLM 스트리밍으로 직접 전달")
+                yield _sse_payload({"type": "status", "phase": "generating", "message": "답변 생성 중"})
+            else:
+                search_session_id, search_source_filter = _global_chat_scope()
+                # 요약/퀴즈는 선택 파일 기준을 유지하지만, AI 채팅은 항상 전체 자료 검색으로 고정합니다.
+                _demo_log("2) 자료 기반 질문으로 분류: 전체 PDF/전사 자료에서 RAG 검색 준비")
+                yield _sse_payload({"type": "status", "phase": "searching", "message": "관련 근거 검색 중"})
+                await ensure_material_rag_for_chat(req.session_id, req.source_filter)
+                prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
+                _demo_log(f"3) RAG prompt 구성 완료: prompt_chars={len(prompt)}, citations={len(citations)}")
+
+            t_rag = time.perf_counter()
+            print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
+            _demo_log(f"4) RAG 단계 완료: elapsed_ms={(t_rag - request_started_at)*1000:.0f}")
+            yield _sse_payload({"type": "citations", "citations": citations})
+
+            if citations:
+                yield _sse_payload({"type": "status", "phase": "validating", "message": "근거 기반 답변 검증 중"})
+            else:
+                yield _sse_payload({"type": "status", "phase": "generating", "message": "답변 생성 중"})
+
             _demo_log("5) LLM 서버에 스트리밍 답변 생성 요청")
             async for token in stream_answer(
                 prompt,
@@ -141,14 +155,15 @@ async def chat_stream(req: ChatRequest):
                     first_token_elapsed = time.perf_counter() - request_started_at
                     print(f"[CHAT STREAM] 첫 토큰 도착: {first_token_elapsed:.3f}s")
                     _demo_log(f"6) 첫 글자 수신: elapsed_s={first_token_elapsed:.3f}")
-                yield f"data: {json.dumps({'type': 'token', 'token': token}, ensure_ascii=False)}\n\n"
+                    yield _sse_payload({"type": "status", "phase": "answering", "message": "답변 출력 중"})
+                yield _sse_payload({"type": "token", "token": token})
         except EmptyLLMResponse as e:
             emitted_error = True
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield _sse_payload({"type": "error", "error": str(e)})
         except Exception as e:
             print(f"[CHAT STREAM] 에러: {e}")
             emitted_error = True
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield _sse_payload({"type": "error", "error": str(e)})
         finally:
             total_elapsed = time.perf_counter() - request_started_at
             first_token_text = f"{first_token_elapsed:.3f}s" if first_token_elapsed is not None else "N/A"

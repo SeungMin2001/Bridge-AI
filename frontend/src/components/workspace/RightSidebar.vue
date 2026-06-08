@@ -27,6 +27,12 @@ const isSending = ref(false) // 중복 전송 방지용 플래그
 const workspaceChatbotAnimationRef = ref(null)
 let workspaceChatbotTimer = null
 
+const WAITING_PHASES = new Set(['streaming', 'thinking', 'analyzing', 'searching', 'generating', 'validating'])
+
+function isWaitingForAi(msg = {}) {
+  return WAITING_PHASES.has(msg.phase) && !msg.text && !msg.thinking
+}
+
 async function sendMessage() {
   const question = props.aiInput.trim()
   if (!question || isSending.value) return // 전송 중이거나 빈 메시지면 무시
@@ -37,7 +43,14 @@ async function sendMessage() {
   emit('update:aiInput', '')
   isLoading.value = true
 
-  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'streaming' })
+  messages.value.push({
+    role: 'ai',
+    text: '',
+    thinking: '',
+    citations: [],
+    phase: 'analyzing',
+    statusText: '질문 분석 중'
+  })
 
   // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
   const t0 = performance.now()
@@ -80,9 +93,25 @@ async function sendMessage() {
 
         try {
           const data = JSON.parse(payload)
-          if (data.type === 'citations') {
+          if (data.type === 'status') {
+            updateLastAiMessage({
+              role: 'ai',
+              text: streamedText,
+              thinking: '',
+              citations: streamedCitations,
+              phase: data.phase || 'streaming',
+              statusText: data.message || ''
+            })
+          } else if (data.type === 'citations') {
             streamedCitations = data.citations
-            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+            updateLastAiMessage({
+              role: 'ai',
+              text: streamedText,
+              thinking: '',
+              citations: streamedCitations,
+              phase: 'streaming',
+              statusText: messages.value.at(-1)?.statusText || ''
+            })
           } else if (data.type === 'token') {
             if (!ttftLogged) {
               console.log(`⏱️ [TTFT] 첫 토큰까지: ${(performance.now() - t0).toFixed(0)}ms`)
@@ -90,10 +119,24 @@ async function sendMessage() {
             }
             tokenCount++
             streamedText += data.token
-            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+            updateLastAiMessage({
+              role: 'ai',
+              text: streamedText,
+              thinking: '',
+              citations: streamedCitations,
+              phase: 'answering',
+              statusText: ''
+            })
           } else if (data.type === 'error') {
             streamedText += `\n오류: ${data.error}`
-            updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'streaming' })
+            updateLastAiMessage({
+              role: 'ai',
+              text: streamedText,
+              thinking: '',
+              citations: streamedCitations,
+              phase: 'done',
+              statusText: ''
+            })
           }
         } catch (parseErr) {
           // SSE 파싱 실패 시 무시
@@ -104,7 +147,7 @@ async function sendMessage() {
     const totalMs = performance.now() - t0
     console.log(`⏱️ [응답완료] 총: ${totalMs.toFixed(0)}ms | 토큰: ${tokenCount}개 | 속도: ${(tokenCount / (totalMs / 1000)).toFixed(1)} tok/s`)
 
-    updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'done' })
+    updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'done', statusText: '' })
 
   } catch (e) {
     console.error('[오류] 실제 백엔드 서버 연결에 실패했습니다.', e)
@@ -330,7 +373,7 @@ watch(
                 />
 
                 <div
-                  v-if="(msg.phase === 'streaming' || msg.phase === 'thinking') && !msg.text && !msg.thinking"
+                  v-if="isWaitingForAi(msg)"
                   class="ai-stream-wait"
                   role="status"
                   aria-live="polite"
@@ -345,6 +388,7 @@ watch(
                       fallback-icon="more_horiz"
                     />
                   </span>
+                  <span class="ai-stream-status-text">{{ msg.statusText || '답변 준비 중' }}</span>
                 </div>
               </template>
             </div>
@@ -508,11 +552,14 @@ watch(
 .ai-stream-wait {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   width: fit-content;
   max-width: 100%;
   min-height: 32px;
   margin-top: 4px;
-  padding: 5px 2px;
+  padding: 6px 12px 6px 4px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .ai-typing-dots {
@@ -530,6 +577,14 @@ watch(
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
+}
+
+.ai-stream-status-text {
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 </style>
