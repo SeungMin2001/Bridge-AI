@@ -87,7 +87,7 @@ async def chat(req: ChatRequest):
             prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
             _demo_log(f"3) RAG prompt 구성 완료: prompt_chars={len(prompt)}, citations={len(citations)}")
         _demo_log("4) LLM 서버에 답변 생성 요청")
-        answer = await complete_answer(prompt, None)
+        answer = await complete_answer(prompt, None, max_tokens=420 if citations else None)
         _demo_log(f"5) LLM 답변 수신: answer_chars={len(answer or '')}")
         if not answer:
             answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
@@ -133,6 +133,7 @@ async def chat_stream(req: ChatRequest):
                 prompt,
                 None,
                 thinking=req.is_thinking,
+                max_tokens=420 if citations else None,
             ):
                 emitted_content = True
                 if not first_token_logged:

@@ -53,6 +53,11 @@ SYSTEM_PROMPT = (
     "같은 근거 citation은 답변 전체에서 한 번만 사용하고, 필요한 citation 번호는 답변 끝에 모아 붙여라. "
     "별도 출처 목록은 만들지 말라."
 )
+MINIMAL_GROUNDED_SYSTEM_PROMPT = (
+    "너는 제공된 근거 문장만 사용해 답하는 AI 학습 조교다. "
+    "규칙, 라벨, 원문 목록을 출력하지 말고 최종 답변만 한국어로 작성하라. "
+    "근거에 나온 정의와 연결 설명을 빠뜨리지 말라."
+)
 STRICT_GROUNDED_REPAIR_PROMPT = (
     "너는 강의 녹취록과 PDF 자료만 근거로 답하는 검증 담당 AI 학습 조교다. "
     "이전 답변이 근거를 충분히 반영하지 못했으므로, 제공된 [답변 필수 반영 포인트]를 모두 반영해 다시 작성하라. "
@@ -79,6 +84,9 @@ _GROUNDING_TERM_STOPWORDS = {
     "교수님",
     "교수",
     "수업",
+    "핵심",
+    "필수",
+    "반영",
 }
 
 
@@ -287,7 +295,24 @@ async def _repair_grounded_answer_if_needed(
         source_filter,
         max_tokens=max_tokens or CHAT_SOURCE_MAX_TOKENS,
     )
-    return strict_repaired or repaired or answer
+    if strict_repaired and _answer_covers_required_points(strict_repaired, prompt):
+        return strict_repaired
+
+    minimal_prompt = _build_minimal_grounded_prompt(prompt)
+    if minimal_prompt:
+        minimal_repaired = await _complete_messages(
+            build_chat_messages(minimal_prompt, MINIMAL_GROUNDED_SYSTEM_PROMPT),
+            source_filter,
+            max_tokens=max_tokens or CHAT_SOURCE_MAX_TOKENS,
+        )
+        if minimal_repaired and _answer_covers_required_points(minimal_repaired, prompt):
+            return minimal_repaired
+
+    if repaired and not _answer_leaks_prompt_or_system(repaired):
+        return repaired
+    if strict_repaired and not _answer_leaks_prompt_or_system(strict_repaired):
+        return strict_repaired
+    return answer
 
 
 def _answer_covers_required_points(answer: str, prompt: str) -> bool:
@@ -335,6 +360,19 @@ def _answer_leaks_prompt_or_system(answer: str) -> bool:
         "자료에 나온 항목",
         "2~4문장",
         "2~5문장",
+        "원인, 역할, 관계",
+        "근거에 함께 나온",
+        "답변은 한 문장",
+        "제공된 근거",
+        "검색된 여러 근거",
+        "핵심 참고문장",
+        "보조 문맥",
+        "규칙, 라벨",
+        "최종 답변만",
+        "자료의 목록",
+        "목록을 묻는",
+        "빠짐없이",
+        "추측하지",
         "번호를 매긴 새 예시",
         "질문:",
         "답변:",
@@ -359,6 +397,29 @@ def _extract_required_points(prompt: str) -> list[str]:
             if point:
                 points.append(point)
     return points
+
+
+def _build_minimal_grounded_prompt(prompt: str) -> str:
+    """LLM이 긴 규칙을 복사할 때 사용할 근거/질문만 남긴 재작성 prompt를 만듭니다."""
+    points = _extract_required_points(prompt)
+    if not points:
+        return ""
+    question = _extract_user_question(prompt)
+    evidence_lines = "\n".join(f"- {point}" for point in points)
+    return (
+        "근거 문장:\n"
+        f"{evidence_lines}\n\n"
+        f"질문: {question}\n\n"
+        "답변:"
+    )
+
+
+def _extract_user_question(prompt: str) -> str:
+    """prompt 마지막 질문만 추출해 재작성 prompt에 사용합니다."""
+    matches = list(re.finditer(r"(?:^|\n)\s*질문\s*[:：]\s*(.+)", str(prompt or "")))
+    if not matches:
+        return ""
+    return matches[-1].group(1).strip()
 
 
 def _important_terms_from_point(point: str) -> list[str]:

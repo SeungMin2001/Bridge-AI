@@ -868,6 +868,7 @@ def _select_sentence_level_excerpt(text: str, question: str, *, fallback: str = 
     ranked = sorted(
         ranked_pool,
         key=lambda sentence: (
+            _definition_sentence_score(sentence, strong_terms),
             _strong_subject_score(sentence, strong_terms),
             _strong_subject_hit_count(sentence, strong_terms),
             _keyword_hit_count(sentence, keywords),
@@ -917,7 +918,7 @@ def _select_relevant_evidence_sentences(text: str, question: str, *, max_sentenc
     ranked_pool = exact_candidates or candidates
     top = sorted(
         ranked_pool,
-        key=lambda item: (item[0], item[1], item[2], -item[3], -item[4], len(item[5])),
+        key=lambda item: (_definition_sentence_score(item[5], strong_terms), item[0], item[1], item[2], -item[3], -item[4], len(item[5])),
         reverse=True,
     )[:max_sentences]
 
@@ -2051,6 +2052,36 @@ def _strong_subject_hit_count(text: str, strong_terms: list[str]) -> int:
     return hits
 
 
+def _definition_sentence_score(text: str, strong_terms: list[str]) -> int:
+    """'전위는 ...입니다'처럼 질문 대상어를 직접 정의하는 문장을 우선합니다."""
+    if not strong_terms:
+        return 0
+    value = re.sub(r"\s+", " ", str(text or "").strip().casefold())
+    compact_value = _compact_text(value)
+    if not value:
+        return 0
+
+    score = 0
+    for term in strong_terms:
+        token = str(term or "").strip().casefold()
+        compact_token = _compact_text(token)
+        if len(compact_token) < 2:
+            continue
+        definition_markers = (
+            f"{compact_token}는",
+            f"{compact_token}은",
+            f"{compact_token}이란",
+            f"{compact_token}란",
+        )
+        if any(marker in compact_value for marker in definition_markers):
+            score += 8
+        if compact_value.startswith(compact_token):
+            score += 3
+        if any(marker in value for marker in ("의미", "정의", "나타내", "말합니다", "입니다")):
+            score += 2
+    return score
+
+
 def _has_long_subject_match(text: str, strong_terms: list[str]) -> bool:
     """수요곡선/가격탄력성처럼 긴 복합어가 직접 일치하면 단일 히트도 강한 근거로 봅니다."""
     haystack = str(text or "").casefold()
@@ -2172,6 +2203,12 @@ def _filter_relevant_results(results: list[dict], question: str, *, min_keep: in
 
     if len(kept) >= min_keep:
         return kept
+
+    # 개념/정의 조회형 질문에서 핵심어가 직접 들어간 근거를 못 찾은 경우,
+    # 코드 조각이나 벡터-only 잡음을 억지로 citation으로 쓰면 답변 품질이 무너진다.
+    # 이때는 빈 결과를 반환해 "근거 없음" 경로로 보내는 편이 더 안전하다.
+    if grounded_lookup_query and strong_terms:
+        return []
 
     fallback = [
         item

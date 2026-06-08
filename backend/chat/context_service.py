@@ -138,6 +138,12 @@ FAST_RAG_STYLE_PROMPT = (
     "- 별도 출처 목록은 만들지 마세요."
 )
 
+RAG_USER_PROMPT_TAIL = (
+    "위 근거 문장만 사용해 질문에 답하세요. "
+    "근거 문장에 나온 정의와 함께 붙어 있는 설명을 빠뜨리지 말고 2~5문장으로 압축하세요. "
+    "규칙, 라벨, 참고자료 원문은 반복하지 말고 최종 답변만 작성하세요."
+)
+
 
 async def build_prompt_and_citations(
     question: str,
@@ -208,7 +214,7 @@ async def build_prompt_and_citations(
         )
         scope_instruction = (
             "사용자가 파일 위치나 어느 파일에 언급됐는지 물으면 [검색된 참고자료]의 파일명, 녹음본명, 시간 범위를 기준으로 답하세요. "
-            if not session_id
+            if not session_id and _is_locator_question(question)
             else ""
         )
         scope_boundary_instruction = (
@@ -229,12 +235,7 @@ async def build_prompt_and_citations(
             else ""
         )
         grounded_answer_instruction = (
-            "사용자가 인물/용어의 정체나 의미를 물으면 [검색된 참고자료]에 직접 나온 표현만 요약하세요. "
-            "단, 핵심 참고문장에 정의와 관련 개념이 함께 나오면 정의만 말하고 끝내지 말고 관련 개념까지 함께 설명하세요. "
-            "소속, 직함, 역할이 명시되지 않았으면 단정하지 말고 '강의에서는 ...로 언급됩니다' 형식으로 답하세요. "
-            "약어를 임의로 풀어 쓰지 말고, 근거에 풀네임이 없으면 근거에 나온 설명과 역할을 중심으로 답하세요. "
-            if _is_grounded_content_question(question)
-            else ""
+            ""
         )
         prompt = (
             f"{reference_intro}:\n\n{reference_context}\n\n"
@@ -244,8 +245,8 @@ async def build_prompt_and_citations(
             f"{missing_selected_material_note}"
             f"{missing_locator_note}"
             f"{grounded_answer_instruction}"
-            f"{FAST_RAG_STYLE_PROMPT} "
-            f"{scope_boundary_instruction}\n\n"
+            f"{scope_boundary_instruction}"
+            f"{RAG_USER_PROMPT_TAIL}\n\n"
             f"질문: {question}"
         )
     elif has_selected_material and _is_current_scope_question(question):
@@ -300,8 +301,6 @@ def _build_required_answer_points(citations: list[dict], *, max_points: int = 6)
         return ""
     return (
         "[답변 필수 반영 포인트]\n"
-        "아래 포인트는 질문과 직접 관련된 근거 문장입니다. "
-        "답변에서는 의미를 바꾸지 말고 모두 반영하되, 근거에 없는 정의로 대체하지 마세요.\n"
         + "\n".join(points)
         + "\n\n"
     )

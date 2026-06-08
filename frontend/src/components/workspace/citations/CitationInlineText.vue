@@ -37,7 +37,7 @@ const renderedHtml = computed(() => {
   if (!cleanedText) return ''
 
   const displayText = props.enableCitations && citationCount > 0
-    ? addNotebookStyleFallbackMarkers(cleanedText, normalizedCitations.value)
+    ? ensureTrailingCitationMarker(cleanedText, normalizedCitations.value)
     : cleanedText
 
   let html = marked.parse(displayText)
@@ -64,6 +64,19 @@ function addNotebookStyleFallbackMarkers(text, citations) {
     .split('\n')
     .map((line) => addFallbackMarkersToLine(line, citations, fallbackState))
     .join('\n')
+}
+
+function ensureTrailingCitationMarker(text, citations) {
+  const value = String(text || '').trimEnd()
+  if (!value || !citations?.length) return value
+
+  const validExistingNumbers = extractCitationNumbers(value, citations.length)
+  if (validExistingNumbers.length) return value
+
+  const cleaned = stripCitationMarkers(value).trimEnd()
+  const numbers = bestCitationNumbers(cleaned, citations, { cursor: 0 }).slice(0, 3)
+  if (!numbers.length) return cleaned
+  return `${cleaned} [${numbers.join(',')}]`
 }
 
 function addFallbackMarkersToLine(line, citations, fallbackState) {
