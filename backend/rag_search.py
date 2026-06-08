@@ -844,6 +844,8 @@ def _select_sentence_level_excerpt(text: str, question: str, *, fallback: str = 
         return str(fallback or "").strip()
 
     keywords = _question_relevance_terms(question)
+    strong_terms = _strong_question_terms(question)
+    grounded_lookup_query = _is_grounded_lookup_query(question)
     if not keywords:
         return _first_reasonable_sentence(source) or source[:260]
 
@@ -857,17 +859,25 @@ def _select_sentence_level_excerpt(text: str, question: str, *, fallback: str = 
     if not candidates:
         return source[:260]
 
+    exact_candidates = [
+        sentence
+        for sentence in candidates
+        if _strong_subject_score(sentence, strong_terms) > 0
+    ] if grounded_lookup_query and strong_terms else []
+    ranked_pool = exact_candidates or candidates
     ranked = sorted(
-        candidates,
+        ranked_pool,
         key=lambda sentence: (
+            _strong_subject_score(sentence, strong_terms),
+            _strong_subject_hit_count(sentence, strong_terms),
             _keyword_hit_count(sentence, keywords),
-            sum(len(word) for word in keywords if word in sentence.casefold()),
+            _relevance_score(sentence, keywords),
             -abs(len(sentence) - 140),
         ),
         reverse=True,
     )
     best = ranked[0].strip()
-    if _keyword_hit_count(best, keywords) <= 0:
+    if _keyword_hit_count(best, keywords) <= 0 and _strong_subject_score(best, strong_terms) <= 0:
         fallback_sentence = _first_reasonable_sentence(fallback) if fallback else ""
         return fallback_sentence or best[:260]
     return best[:320]
@@ -880,29 +890,61 @@ def _select_relevant_evidence_sentences(text: str, question: str, *, max_sentenc
         return []
 
     terms = _question_relevance_terms(question)
+    strong_terms = _strong_question_terms(question)
+    grounded_lookup_query = _is_grounded_lookup_query(question)
     max_sentences = max_sentences or RAG_RELEVANT_SENTENCE_COUNT
-    candidates: list[tuple[int, int, int, str]] = []
+    candidates: list[tuple[int, int, int, int, int, str]] = []
+    all_sentences: list[tuple[int, int, str]] = []
     for order, line in enumerate(source.splitlines() or [source]):
         clean_line = re.sub(r"^\s*\[\d+:\d{2}~\d+:\d{2}\]\s*", "", line).strip()
         for sentence_order, sentence in enumerate(_split_sentences(clean_line)):
             compact = " ".join(sentence.split())
             if len(compact) < 8:
                 continue
+            all_sentences.append((order, sentence_order, compact))
             score = _relevance_score(compact, terms)
-            if score > 0:
-                candidates.append((score, order, sentence_order, compact))
+            strong_score = _strong_subject_score(compact, strong_terms)
+            strong_hits = _strong_subject_hit_count(compact, strong_terms)
+            if score > 0 or strong_score > 0:
+                candidates.append((strong_score, strong_hits, score, order, sentence_order, compact))
 
     if not candidates:
         fallback = _first_reasonable_sentence(source)
         return [fallback] if fallback else []
 
-    # 점수로 우선 고른 뒤, LLM이 자연스럽게 읽도록 원문 등장 순서를 복원합니다.
-    top = sorted(candidates, key=lambda item: (item[0], -item[1], -item[2], len(item[3])), reverse=True)[:max_sentences]
-    top = sorted(top, key=lambda item: (item[1], item[2]))
+    # 개념 조회형 질문은 질문 핵심어가 직접 들어간 문장을 citation/highlight의 최우선 근거로 사용합니다.
+    exact_candidates = [item for item in candidates if item[0] > 0] if grounded_lookup_query and strong_terms else []
+    ranked_pool = exact_candidates or candidates
+    top = sorted(
+        ranked_pool,
+        key=lambda item: (item[0], item[1], item[2], -item[3], -item[4], len(item[5])),
+        reverse=True,
+    )[:max_sentences]
+
+    if exact_candidates and len(top) < max_sentences:
+        selected_positions = {(item[3], item[4]) for item in top}
+        exact_positions = sorted((item[3], item[4]) for item in exact_candidates)
+        for exact_order, exact_sentence_order in exact_positions:
+            for neighbor_order, neighbor_sentence_order, neighbor_sentence in all_sentences:
+                if neighbor_order != exact_order:
+                    continue
+                if neighbor_sentence_order <= exact_sentence_order:
+                    continue
+                if (neighbor_order, neighbor_sentence_order) in selected_positions:
+                    continue
+                # 정의 문장 직후의 보조 설명은 질문 핵심어가 반복되지 않아도 답변 품질에 필요합니다.
+                top.append((0, 0, _relevance_score(neighbor_sentence, terms), neighbor_order, neighbor_sentence_order, neighbor_sentence))
+                selected_positions.add((neighbor_order, neighbor_sentence_order))
+                if len(top) >= max_sentences:
+                    break
+            if len(top) >= max_sentences:
+                break
+
+    top = sorted(top, key=lambda item: (item[3], item[4]))
 
     sentences: list[str] = []
     seen = set()
-    for _, _, _, sentence in top:
+    for _, _, _, _, _, sentence in top:
         key = sentence.casefold()
         if key in seen:
             continue
@@ -2026,6 +2068,7 @@ def _has_long_subject_match(text: str, strong_terms: list[str]) -> bool:
 def _relevance_score(text: str, terms: list[str]) -> int:
     """질문 관련어가 문장/근거에 얼마나 촘촘히 들어있는지 점수화합니다."""
     haystack = str(text or "").casefold()
+    compact_haystack = _compact_text(text)
     if not haystack or not terms:
         return 0
     score = 0
@@ -2034,6 +2077,9 @@ def _relevance_score(text: str, terms: list[str]) -> int:
         if not token:
             continue
         count = haystack.count(token)
+        compact_token = _compact_text(token)
+        if count <= 0 and compact_token:
+            count = compact_haystack.count(compact_token)
         if count <= 0:
             continue
         score += 2 if len(token) >= 4 else 1

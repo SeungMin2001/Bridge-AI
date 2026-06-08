@@ -53,6 +53,33 @@ SYSTEM_PROMPT = (
     "같은 근거 citation은 답변 전체에서 한 번만 사용하고, 필요한 citation 번호는 답변 끝에 모아 붙여라. "
     "별도 출처 목록은 만들지 말라."
 )
+STRICT_GROUNDED_REPAIR_PROMPT = (
+    "너는 강의 녹취록과 PDF 자료만 근거로 답하는 검증 담당 AI 학습 조교다. "
+    "이전 답변이 근거를 충분히 반영하지 못했으므로, 제공된 [답변 필수 반영 포인트]를 모두 반영해 다시 작성하라. "
+    "근거에 없는 정의나 외부 지식을 만들지 말고, 원문 의미를 바꾸지 말라. "
+    "최종 답변만 한국어로 2~5문장 작성하고 citation 번호는 필요한 번호만 답변 끝에 모아 붙여라."
+)
+_GROUNDING_TERM_STOPWORDS = {
+    "그리고",
+    "하지만",
+    "또는",
+    "있습니다",
+    "합니다",
+    "입니다",
+    "됩니다",
+    "의미합니다",
+    "나타냅니다",
+    "설명합니다",
+    "질문",
+    "근거",
+    "문장",
+    "포인트",
+    "답변",
+    "강의",
+    "교수님",
+    "교수",
+    "수업",
+}
 
 
 class EmptyLLMResponse(RuntimeError):
@@ -162,6 +189,24 @@ async def complete_answer(
 ) -> str:
     """비스트리밍 LLM 호출을 수행하고 최종 답변 문자열만 반환합니다."""
     messages = build_chat_messages(prompt, system_prompt)
+    answer = await _complete_messages(messages, source_filter, max_tokens=max_tokens)
+    if _needs_grounded_answer_validation(prompt):
+        answer = await _repair_grounded_answer_if_needed(
+            prompt,
+            answer,
+            source_filter,
+            max_tokens=max_tokens,
+        )
+    return answer
+
+
+async def _complete_messages(
+    messages: list[dict],
+    source_filter: dict | None,
+    *,
+    max_tokens: int | None = None,
+) -> str:
+    """LLM chat messages를 한 번 호출하고 화면용 답변으로 정리합니다."""
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=CHAT_LLM_READ_TIMEOUT)) as client:
         if _use_ollama_native_chat():
             res = await client.post(
@@ -195,6 +240,153 @@ async def complete_answer(
     return remove_thinking(raw_answer)
 
 
+def _needs_grounded_answer_validation(prompt: str) -> bool:
+    """RAG 필수 포인트가 있는 자료 기반 답변은 생성 후 근거 반영 여부를 확인합니다."""
+    return "[답변 필수 반영 포인트]" in str(prompt or "")
+
+
+async def _repair_grounded_answer_if_needed(
+    prompt: str,
+    answer: str,
+    source_filter: dict | None,
+    *,
+    max_tokens: int | None = None,
+) -> str:
+    """답변이 필수 근거를 반영하지 못하면 LLM에게 같은 근거로 한 번 더 재작성시킵니다."""
+    if _answer_covers_required_points(answer, prompt):
+        return answer
+
+    repair_prompt = (
+        "이전 답변은 검색 근거의 핵심 내용을 충분히 반영하지 못했습니다. "
+        "아래 원래 근거와 질문만 사용해서 다시 답하세요. "
+        "[답변 필수 반영 포인트]의 문장을 의미를 바꾸지 않고 모두 반영하세요.\n\n"
+        f"{prompt}\n\n"
+        f"이전 답변(무시하고 재작성):\n{answer}\n\n"
+        "수정 답변:"
+    )
+    repair_messages = build_chat_messages(repair_prompt, STRICT_GROUNDED_REPAIR_PROMPT)
+    repaired = await _complete_messages(
+        repair_messages,
+        source_filter,
+        max_tokens=max_tokens or CHAT_SOURCE_MAX_TOKENS,
+    )
+    if repaired and _answer_covers_required_points(repaired, prompt):
+        return repaired
+
+    # One more stricter pass catches cases where the first repair copied prompt rules
+    # instead of rewriting the evidence into an answer.
+    strict_repair_prompt = (
+        "아래 [답변 필수 반영 포인트]만 근거로 사용해 최종 답변을 다시 작성하세요. "
+        "시스템 지시문, 규칙, 질문 라벨, 참고자료 원문 라벨은 절대 출력하지 마세요. "
+        "각 포인트의 핵심 개념을 빠뜨리지 말고 2~5문장으로 설명하세요.\n\n"
+        f"{prompt}\n\n"
+        "최종 답변:"
+    )
+    strict_repaired = await _complete_messages(
+        build_chat_messages(strict_repair_prompt, STRICT_GROUNDED_REPAIR_PROMPT),
+        source_filter,
+        max_tokens=max_tokens or CHAT_SOURCE_MAX_TOKENS,
+    )
+    return strict_repaired or repaired or answer
+
+
+def _answer_covers_required_points(answer: str, prompt: str) -> bool:
+    """생성 답변이 RAG 필수 포인트의 핵심 내용을 실제로 반영했는지 가볍게 검증합니다."""
+    clean_answer = _compact_for_grounding(answer)
+    if len(clean_answer) < 12:
+        return False
+    if _answer_leaks_prompt_or_system(answer):
+        return False
+
+    required_points = _extract_required_points(prompt)
+    if not required_points:
+        return True
+
+    # 여러 citation이 있을 때는 최소한 상위 근거들의 핵심 개념이 답변에 들어가야 한다.
+    checked_points = required_points[:4]
+    covered = 0
+    for point in checked_points:
+        terms = _important_terms_from_point(point)
+        if not terms:
+            covered += 1
+            continue
+        hit_count = sum(1 for term in terms if _compact_for_grounding(term) in clean_answer)
+        required_hits = 1 if len(terms) <= 2 else min(3, max(2, len(terms) // 3))
+        if hit_count >= required_hits:
+            covered += 1
+
+    required_covered = len(checked_points) if len(checked_points) <= 2 else max(2, len(checked_points) - 1)
+    return covered >= required_covered
+
+
+def _answer_leaks_prompt_or_system(answer: str) -> bool:
+    """시스템/프롬프트 규칙이 답변 본문으로 새어 나온 경우를 탐지합니다."""
+    value = str(answer or "")
+    leak_markers = (
+        "[답변 필수 반영 포인트]",
+        "[검색된 참고자료]",
+        "시스템 지시문",
+        "참고자료 원문",
+        "사용자 질문",
+        "같은 근거 citation",
+        "citation 번호",
+        "별도 출처 목록",
+        "학습목표, 목차, 단계",
+        "자료에 나온 항목",
+        "2~4문장",
+        "2~5문장",
+        "번호를 매긴 새 예시",
+        "질문:",
+        "답변:",
+        "최종 답변:",
+    )
+    return any(marker in value for marker in leak_markers)
+
+
+def _extract_required_points(prompt: str) -> list[str]:
+    """context_service가 prompt에 넣은 '- [1] 근거문장' 목록만 추출합니다."""
+    value = str(prompt or "")
+    marker = "[답변 필수 반영 포인트]"
+    if marker not in value:
+        return []
+    section = value.split(marker, 1)[1]
+    section = section.split("\n\n", 1)[0]
+    points: list[str] = []
+    for line in section.splitlines():
+        match = re.match(r"\s*-\s*\[\d+\]\s*(.+)", line)
+        if match:
+            point = re.sub(r"\s+", " ", match.group(1)).strip()
+            if point:
+                points.append(point)
+    return points
+
+
+def _important_terms_from_point(point: str) -> list[str]:
+    """근거 문장에서 답변에 반드시 남아야 할 개념어를 추출합니다."""
+    text = str(point or "")
+    raw_terms = re.findall(r"[A-Za-z][A-Za-z0-9_+#./-]*|[가-힣]{2,}", text)
+    terms: list[str] = []
+    seen = set()
+    for raw in raw_terms:
+        term = re.sub(r"(은|는|이|가|을|를|에|에서|으로|로|도|만|와|과|의|이다|입니다|합니다|됩니다)$", "", raw)
+        term = term.strip()
+        if len(term) < 2:
+            continue
+        if term.casefold() in _GROUNDING_TERM_STOPWORDS or term in _GROUNDING_TERM_STOPWORDS:
+            continue
+        compact = _compact_for_grounding(term)
+        if len(compact) < 2 or compact in seen:
+            continue
+        seen.add(compact)
+        terms.append(term)
+    return terms[:12]
+
+
+def _compact_for_grounding(value: str) -> str:
+    """띄어쓰기/기호 차이를 무시하고 근거 핵심어 포함 여부를 비교합니다."""
+    return re.sub(r"[^0-9A-Za-z가-힣]+", "", str(value or "").casefold())
+
+
 async def stream_answer(
     prompt: str,
     source_filter: dict | None,
@@ -208,6 +400,14 @@ async def stream_answer(
         answer = await complete_answer(prompt, source_filter, max_tokens=max_tokens, system_prompt=system_prompt)
         if answer:
             yield answer
+            return
+        raise EmptyLLMResponse("모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
+
+    if _needs_grounded_answer_validation(prompt):
+        answer = await complete_answer(prompt, source_filter, max_tokens=max_tokens, system_prompt=system_prompt)
+        if answer:
+            for char in _stream_chars(answer):
+                yield char
             return
         raise EmptyLLMResponse("모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요.")
 

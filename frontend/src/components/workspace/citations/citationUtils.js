@@ -177,11 +177,23 @@ function findHighlightRange(source, target) {
   if (normalizedTarget.length < 8) return null
 
   const normalizedIndex = normalized.text.indexOf(normalizedTarget)
-  if (normalizedIndex < 0) return null
+  if (normalizedIndex >= 0) {
+    const start = normalized.map[normalizedIndex]
+    const endMapIndex = normalizedIndex + normalizedTarget.length - 1
+    const end = (normalized.map[endMapIndex] ?? start) + 1
+    return [start, end]
+  }
 
-  const start = normalized.map[normalizedIndex]
-  const endMapIndex = normalizedIndex + normalizedTarget.length - 1
-  const end = (normalized.map[endMapIndex] ?? start) + 1
+  const compact = compactIndexMap(source)
+  const compactTarget = compactCitationText(target)
+  if (compactTarget.length < 8) return null
+
+  const compactIndex = compact.text.indexOf(compactTarget)
+  if (compactIndex < 0) return null
+
+  const start = compact.map[compactIndex]
+  const endMapIndex = compactIndex + compactTarget.length - 1
+  const end = (compact.map[endMapIndex] ?? start) + 1
   return [start, end]
 }
 
@@ -212,4 +224,23 @@ function normalizedIndexMap(value = '') {
     text: text.trim(),
     map,
   }
+}
+
+function compactCitationText(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+function compactIndexMap(value = '') {
+  let text = ''
+  const map = []
+
+  Array.from(String(value || '')).forEach((char, index) => {
+    if (!/[\p{L}\p{N}]/u.test(char)) return
+    text += char.toLowerCase()
+    map.push(index)
+  })
+
+  return { text, map }
 }

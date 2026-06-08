@@ -215,7 +215,7 @@ const isSearchHighlightedWord = (word = '') => (
 const normalizeCitationText = (value = '') => (
   String(value || '')
     .toLowerCase()
-    .replace(/\s+/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '')
     .trim()
 )
 
@@ -279,19 +279,29 @@ const hasCitationTextMatch = (candidate = '') => {
   if (!normalizedCandidate || !normalizedCitation) return false
 
   const sentenceMatch = citationSentenceTexts.value.some((sentence) => (
-    normalizedCandidate.includes(sentence) || sentence.includes(normalizedCandidate)
+    hasCitationPhraseMatch(normalizedCandidate, sentence)
   ))
   if (sentenceMatch) return true
 
-  if (normalizedCandidate.includes(normalizedCitation) || normalizedCitation.includes(normalizedCandidate)) {
-    return true
-  }
+  return hasCitationPhraseMatch(normalizedCandidate, normalizedCitation)
+}
 
-  const shorter = normalizedCandidate.length < normalizedCitation.length ? normalizedCandidate : normalizedCitation
-  const longer = shorter === normalizedCandidate ? normalizedCitation : normalizedCandidate
-  if (shorter.length < 24) return false
-  for (let index = 0; index <= shorter.length - 24; index += 12) {
-    if (longer.includes(shorter.slice(index, index + 24))) return true
+const hasCitationPhraseMatch = (candidate = '', citation = '') => {
+  if (!candidate || !citation) return false
+  if (candidate.includes(citation)) return true
+  if (citation.includes(candidate)) return candidate.length >= Math.min(18, citation.length)
+  if (candidate.length < 32 || citation.length < 32) return false
+
+  let hits = 0
+  const chunkSize = 18
+  const step = 14
+  const seen = new Set()
+  for (let index = 0; index <= citation.length - chunkSize; index += step) {
+    const chunk = citation.slice(index, index + chunkSize)
+    if (seen.has(chunk)) continue
+    seen.add(chunk)
+    if (candidate.includes(chunk)) hits += 1
+    if (hits >= 2) return true
   }
   return false
 }
@@ -1156,8 +1166,7 @@ const handleToolbarTitleCompositionEnd = () => {
   box-shadow: inset 0 -0.34em 0 rgba(234, 179, 8, 0.28);
 }
 
-.transcript-panel-content .segment-wrap.is-citation-highlighted-segment,
-.transcript-panel-content .is-citation-highlight-result .voice-message-bubble.is-content {
+.transcript-panel-content .segment-wrap.is-citation-highlighted-segment {
   background: rgba(254, 240, 138, 0.48);
   border-radius: 8px;
   box-decoration-break: clone;
