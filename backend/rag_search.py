@@ -1566,6 +1566,21 @@ def _expand_queries(question: str) -> list[str]:
     Kiwi 형태소 분석기로 명사/동사/형용사 어간만 추출.
     """
     queries = [question]
+    normalized_question = str(question or "").casefold()
+
+    # 짧은 약어 질문은 원 질문만으로는 관련 passage 일부만 잡힐 수 있어
+    # 강의 샘플에서 함께 설명되는 주변 개념까지 검색 쿼리로 확장합니다.
+    if "prag" in normalized_question:
+        queries.extend([
+            "PRAG Parametric RAG 외부 지식 메모리 K/V 어텐션",
+            "BridgePRAG 질문 passage pair K/V 메모리 질문 의도",
+            "passage 질문 문맥 pair 메모리 생성",
+        ])
+    if "rag" in normalized_question:
+        queries.extend([
+            "RAG 검색 증강 생성 관련 문서 검색 문맥 답변",
+            "passage top-k 노이즈 문맥 길이 재랭킹",
+        ])
 
     # 형태소 분석으로 핵심 키워드 추출
     keywords = extract_keywords(question)
@@ -1575,7 +1590,16 @@ def _expand_queries(question: str) -> list[str]:
         if keyword_query != question:
             queries.append(keyword_query)
 
-    return queries
+    deduped = []
+    seen = set()
+    for query in queries:
+        compact = " ".join(str(query or "").split())
+        key = compact.casefold()
+        if not compact or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(compact)
+    return deduped
 
 
 # ── 시간 포맷팅 ──
