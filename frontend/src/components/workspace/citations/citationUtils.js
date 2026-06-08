@@ -71,29 +71,87 @@ export function buildHighlightedCitationHtml(fullText = '', targetText = '') {
   const target = String(targetText || '').trim()
   if (!source) return ''
 
-  const range = findHighlightRange(source, target)
-  if (!range) return escapeCitationHtml(source)
+  const ranges = findHighlightRanges(source, target)
+  if (!ranges.length) return escapeCitationHtml(source)
 
-  const [start, end] = range
-  return [
-    escapeCitationHtml(source.slice(0, start)),
-    `<mark class="cite-highlighted-script">${escapeCitationHtml(source.slice(start, end))}</mark>`,
-    escapeCitationHtml(source.slice(end)),
-  ].join('')
+  const parts = []
+  let cursor = 0
+  ranges.forEach(([start, end]) => {
+    if (start < cursor) return
+    parts.push(escapeCitationHtml(source.slice(cursor, start)))
+    parts.push(`<mark class="cite-highlighted-script">${escapeCitationHtml(source.slice(start, end))}</mark>`)
+    cursor = end
+  })
+  parts.push(escapeCitationHtml(source.slice(cursor)))
+  return parts.join('')
 }
 
-function expandRangeToParagraph(source = '', range = [0, 0]) {
+function findHighlightRanges(source, target) {
+  const primary = findHighlightRange(source, target)
+  if (primary) return [expandRangeToSentence(source, primary)]
+
+  const sentences = splitCitationSentences(target)
+  const ranges = []
+  sentences.forEach((sentence) => {
+    const range = findHighlightRange(source, sentence)
+    if (range) ranges.push(expandRangeToSentence(source, range))
+  })
+
+  return mergeRanges(ranges)
+}
+
+function splitCitationSentences(value = '') {
+  const cleaned = String(value || '')
+    .replace(/\[[^\]]+\]/g, ' ')
+    .replace(/\([^)]*출처[^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return []
+
+  const matches = cleaned.match(/[^.!?。？！]+(?:다\.|요\.|입니다\.|습니다\.|[.!?。？！])?/g) || [cleaned]
+  const seen = new Set()
+  return matches
+    .map((item) => item.trim())
+    .filter((item) => normalizeWhitespace(item).length >= 8)
+    .filter((item) => {
+      const key = normalizeWhitespace(item)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+function expandRangeToSentence(source = '', range = [0, 0]) {
   const text = String(source || '')
   let [start, end] = range
+  const sentenceBoundary = /[.!?。？！]|\n/
 
-  while (start > 0 && text[start - 1] !== '\n') {
+  while (start > 0 && !sentenceBoundary.test(text[start - 1])) {
     start -= 1
   }
-  while (end < text.length && text[end] !== '\n') {
+  while (end < text.length && !sentenceBoundary.test(text[end])) {
     end += 1
   }
-
+  if (end < text.length && sentenceBoundary.test(text[end])) {
+    end += 1
+  }
   return [start, end]
+}
+
+function mergeRanges(ranges = []) {
+  const sorted = ranges
+    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start)
+    .sort((a, b) => a[0] - b[0])
+  const merged = []
+  sorted.forEach(([start, end]) => {
+    const last = merged[merged.length - 1]
+    if (!last || start > last[1]) {
+      merged.push([start, end])
+      return
+    }
+    last[1] = Math.max(last[1], end)
+  })
+  return merged
 }
 
 function citationKey(cite = {}, index = 0) {

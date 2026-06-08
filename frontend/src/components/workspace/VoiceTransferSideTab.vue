@@ -866,6 +866,13 @@ const handleToolbarTitleCompositionEnd = () => {
   border-radius: 5px;
 }
 
+.segment-wrap.is-citation-highlighted-segment {
+  background: rgba(253, 224, 71, 0.42);
+  border-radius: 8px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
 .voice-message-bubble .clickable-word:active {
   background-color: rgba(226, 224, 232, 0.86);
 }
@@ -1089,6 +1096,7 @@ const handleToolbarTitleCompositionEnd = () => {
 
 .is-citation-highlight-result .voice-message-bubble {
   border-color: rgba(234, 179, 8, 0.7);
+  background: rgba(254, 249, 195, 0.72);
   box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.18), 0 14px 30px rgba(202, 138, 4, 0.08);
 }
 
@@ -1193,6 +1201,14 @@ const handleToolbarTitleCompositionEnd = () => {
   box-shadow: inset 0 -0.34em 0 rgba(234, 179, 8, 0.28);
 }
 
+.transcript-panel-content .segment-wrap.is-citation-highlighted-segment,
+.transcript-panel-content .is-citation-highlight-result .voice-message-bubble.is-content {
+  background: rgba(254, 240, 138, 0.48);
+  border-radius: 8px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
 .transcript-panel-content .transcription-row.is-current-playback .voice-message-bubble.is-content {
   color: #15161a;
 }
@@ -1215,7 +1231,7 @@ const handleToolbarTitleCompositionEnd = () => {
 
 .transcript-panel-content .is-citation-highlight-result .voice-message-bubble {
   border-color: transparent;
-  box-shadow: none;
+  box-shadow: inset 0 -0.34em 0 rgba(234, 179, 8, 0.16);
 }
 
 .transcript-panel-content .empty-transcript-animation {
