@@ -28,17 +28,18 @@ LLM_URL = os.getenv("SUMMARY_LLM_URL", os.getenv("LLM_URL", DEFAULT_LLM_URL))
 LLM_MODEL = os.getenv("SUMMARY_LLM_MODEL", os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL))
 LLM_API_KEY = os.getenv("SUMMARY_LLM_API_KEY", os.getenv("LLM_API_KEY", "test-key"))
 
-DEFAULT_SUMMARY_SENTENCES = int(os.getenv("SUMMARY_SENTENCES", 3))
-MAX_SPEAKER_CHARS = int(os.getenv("SUMMARY_SPEAKER_MAX_CHARS", 6000))
-MAX_SESSION_CHARS = int(os.getenv("SUMMARY_SESSION_MAX_CHARS", 4000))
-MAX_COURSE_CHARS = int(os.getenv("SUMMARY_COURSE_MAX_CHARS", 4000))
+DEFAULT_SUMMARY_SENTENCES = int(os.getenv("SUMMARY_SENTENCES", 6))
+MAX_SPEAKER_CHARS = int(os.getenv("SUMMARY_SPEAKER_MAX_CHARS", 8000))
+MAX_SESSION_CHARS = int(os.getenv("SUMMARY_SESSION_MAX_CHARS", 9000))
+MAX_COURSE_CHARS = int(os.getenv("SUMMARY_COURSE_MAX_CHARS", 7000))
 MAX_KEYWORDS = int(os.getenv("SUMMARY_MAX_KEYWORDS", 30))
 MAX_SPEAKER_SUMMARIES = int(os.getenv("SUMMARY_MAX_SPEAKER_SUMMARIES", 10))
 MAX_SESSION_SUMMARIES = int(os.getenv("SUMMARY_MAX_SESSION_SUMMARIES", 10))
 
 SUMMARY_SYSTEM_PROMPT = (
     "당신은 강의 내용을 보고서형 학습 자료로 정리하는 AI입니다. "
-    "원문에 없는 사실은 추가하지 말고, 중요한 개념과 흐름을 구조화해 충분히 설명하세요. "
+    "원문에 없는 사실은 추가하지 말고, 전사문/PDF에 실제로 나온 개념, 정의, 예시, 비교, 절차를 풍부하게 반영하세요. "
+    "'보고서는 ... 정리했습니다'처럼 형식만 설명하지 말고, 학습자가 바로 복습할 수 있는 구체적인 내용을 작성하세요. "
     "가능하면 아래 JSON 형식으로만 응답하세요."
 )
 
@@ -46,10 +47,18 @@ SUMMARY_SPEAKER_PROMPT_TEMPLATE = """아래는 화자 {speaker_id}의 전사문�
 
 {transcript_text}
 
+[반드시 반영할 핵심 원문 문장]
+{evidence_sentences}
+
+[핵심 개념어]
+{concept_keywords}
+
 위 내용을 바탕으로 한국어 Markdown 보고서형 요약을 작성하세요.
 - 최소 {summary_sentences}개 이상의 핵심 항목을 포함
 - 전체 흐름, 주요 개념, 세부 설명, 학습 포인트를 나누어 정리
 - 짧은 메모가 아니라 발표/복습에 바로 사용할 수 있는 보고서처럼 작성
+- [반드시 반영할 핵심 원문 문장]의 구체 내용을 빠뜨리지 말 것
+- "보고서는", "새로운 사실은 추가하지 않았으며" 같은 형식 설명 문장을 쓰지 말 것
 - 중복 표현은 줄이되 중요한 내용은 충분히 설명
 - 새로운 사실을 추가하지 말 것
 
@@ -67,10 +76,18 @@ SUMMARY_SESSION_PROMPT_TEMPLATE = """아래는 세션 요약을 위한 정보입
 [화자별 요약]
 {speaker_summaries}
 
+[반드시 반영할 핵심 원문 문장]
+{evidence_sentences}
+
+[핵심 개념어]
+{concept_keywords}
+
 위 내용을 바탕으로 한국어 Markdown 보고서형 요약을 작성하세요.
 - 최소 {summary_sentences}개 이상의 핵심 항목을 포함
 - 전체 흐름, 주요 개념, 세부 설명, 학습 포인트를 나누어 정리
 - 짧은 메모가 아니라 발표/복습에 바로 사용할 수 있는 보고서처럼 작성
+- [반드시 반영할 핵심 원문 문장]의 구체 내용을 빠뜨리지 말 것
+- "보고서는", "새로운 사실은 추가하지 않았으며" 같은 형식 설명 문장을 쓰지 말 것
 - 중복 표현은 줄이되 중요한 내용은 충분히 설명
 - 새로운 사실을 추가하지 말 것
 
@@ -88,10 +105,18 @@ SUMMARY_SESSION_TEXT_PROMPT_TEMPLATE = """아래는 하나의 녹음 세션 전�
 [전체 전사문]
 {transcript_text}
 
+[반드시 반영할 핵심 원문 문장]
+{evidence_sentences}
+
+[핵심 개념어]
+{concept_keywords}
+
 위 내용을 바탕으로 한국어 Markdown 보고서형 요약을 작성하세요.
 - 최소 {summary_sentences}개 이상의 핵심 항목을 포함
 - 전체 흐름, 주요 개념, 세부 설명, 학습 포인트를 나누어 정리
 - 짧은 메모가 아니라 발표/복습에 바로 사용할 수 있는 보고서처럼 작성
+- [반드시 반영할 핵심 원문 문장]의 구체 내용을 빠뜨리지 말 것
+- "보고서는", "새로운 사실은 추가하지 않았으며" 같은 형식 설명 문장을 쓰지 말 것
 - 중복 표현은 줄이되 중요한 내용은 충분히 설명
 - 새로운 사실을 추가하지 말 것
 
@@ -112,10 +137,18 @@ SUMMARY_COURSE_PROMPT_TEMPLATE = """아래는 과목 요약을 위한 정보입�
 [화자별 요약]
 {speaker_summaries}
 
+[반드시 반영할 핵심 원문 문장]
+{evidence_sentences}
+
+[핵심 개념어]
+{concept_keywords}
+
 위 내용을 바탕으로 한국어 Markdown 보고서형 요약을 작성하세요.
 - 최소 {summary_sentences}개 이상의 핵심 항목을 포함
 - 전체 흐름, 주요 개념, 세부 설명, 학습 포인트를 나누어 정리
 - 여러 세션을 연결해 과목 단위의 학습 보고서처럼 작성
+- [반드시 반영할 핵심 원문 문장]의 구체 내용을 빠뜨리지 말 것
+- "보고서는", "새로운 사실은 추가하지 않았으며" 같은 형식 설명 문장을 쓰지 말 것
 - 중복 표현은 줄이되 중요한 내용은 충분히 설명
 - 새로운 사실을 추가하지 말 것
 
@@ -229,6 +262,97 @@ def _format_keywords(keywords: list[dict], limit: int) -> str:
     return "\n".join(f"- {kw['keyword_text']}" for kw in items)
 
 
+def _extract_concept_keywords(text: str, *, limit: int = 18) -> list[str]:
+    """원문에서 요약에 반드시 남겨야 할 개념어를 빈도 기반으로 추출합니다."""
+    counter: Counter[str] = Counter()
+    for sentence in _split_sentences(text):
+        for token in _tokenize_for_demo(sentence):
+            if len(token) < 2:
+                continue
+            counter[token] += 1
+    return [word for word, _count in counter.most_common(limit)]
+
+
+def _format_concept_keywords(text: str, *, limit: int = 18) -> str:
+    """핵심 개념어를 프롬프트용 문자열로 변환합니다."""
+    keywords = _extract_concept_keywords(text, limit=limit)
+    return ", ".join(keywords) if keywords else "(없음)"
+
+
+def _build_evidence_sentences(text: str, *, limit: int = 12) -> list[str]:
+    """TextRank 유사 점수로 원문 핵심 문장을 고른 뒤 원래 흐름 순서로 정렬합니다."""
+    sentences = _split_sentences(text)
+    ranked = _rank_key_sentences_for_demo(sentences, limit=limit)
+    if not ranked:
+        return sentences[:limit]
+    ordered = sorted(ranked, key=lambda item: item.get("order", 0))
+    return [item["text"] for item in ordered if item.get("text")]
+
+
+def _format_evidence_sentences(text: str, *, limit: int = 12) -> str:
+    """핵심 원문 문장을 프롬프트용 번호 목록으로 변환합니다."""
+    evidence = _build_evidence_sentences(text, limit=limit)
+    if not evidence:
+        return "(없음)"
+    return "\n".join(f"{index}. {sentence}" for index, sentence in enumerate(evidence, start=1))
+
+
+def _summary_lacks_source_detail(summary_text: str, source_text: str) -> bool:
+    """요약이 형식 설명에 머무르거나 원문 핵심어를 충분히 반영하지 못했는지 판별합니다."""
+    text = str(summary_text or "").strip()
+    if len(text) < 220:
+        return True
+
+    generic_markers = (
+        "보고서는 전체 흐름",
+        "학습 포인트를 명확하게 정리",
+        "새로운 사실은 추가하지 않았",
+        "중요한 개념과 흐름을 구조화",
+        "위 핵심 개념과 세부 내용",
+    )
+    generic_hits = sum(1 for marker in generic_markers if marker in text)
+    if generic_hits >= 2:
+        return True
+
+    concepts = _extract_concept_keywords(source_text, limit=10)
+    if not concepts:
+        return False
+    covered = sum(1 for concept in concepts if concept in text)
+    return covered < max(3, min(5, len(concepts) // 2))
+
+
+def _build_extractive_report_summary(source_text: str, *, max_items: int = 12) -> str:
+    """LLM 출력이 빈약할 때 원문 핵심 문장 기반으로 풍부한 보고서형 요약을 구성합니다."""
+    evidence = _build_evidence_sentences(source_text, limit=max_items)
+    if not evidence:
+        return str(source_text or "").strip()
+
+    overview = evidence[:3]
+    details = evidence[3:10] or evidence[: min(len(evidence), 7)]
+    points = evidence[10:12] or evidence[:3]
+    concepts = _extract_concept_keywords(source_text, limit=8)
+
+    lines = ["## 핵심 요약"]
+    for sentence in overview:
+        lines.append(f"- {sentence}")
+
+    lines.extend(["", "## 주요 내용"])
+    for index, sentence in enumerate(details, start=1):
+        lines.append(f"{index}. {sentence}")
+
+    if concepts:
+        lines.extend(["", "## 핵심 개념"])
+        lines.append("- " + ", ".join(concepts))
+
+    lines.extend(["", "## 학습 포인트"])
+    for sentence in points:
+        lines.append(f"- {sentence}")
+
+    lines.extend(["", "## 복습 체크"])
+    lines.append("- 위 개념의 정의, 역할, 서로 연결되는 흐름을 원문 문장에 근거해 다시 설명할 수 있는지 확인하세요.")
+    return "\n".join(lines).strip()
+
+
 def _format_speaker_label(speaker_id: str | None) -> str | None:
     """내부 speaker_id를 사용자에게 보일 화자명으로 변환합니다."""
     normalized = str(speaker_id or "").strip()
@@ -330,6 +454,9 @@ def _ensure_structured_summary(summary_text: str, source_text: str = "") -> str:
     """LLM/복구/mock 결과가 한 문단으로만 나오지 않도록 보고서형 Markdown으로 보정합니다."""
     text = str(summary_text or "").strip()
     if text and sum(section in text for section in SUMMARY_REQUIRED_SECTIONS) >= 2:
+        if source_text and _summary_lacks_source_detail(text, source_text):
+            _demo_log("요약 품질 보정: LLM 출력의 원문 반영 부족으로 핵심문장 기반 보고서 재구성")
+            return _build_extractive_report_summary(source_text)
         return text
 
     sentences = _split_sentences(text) or _split_sentences(source_text)
@@ -373,7 +500,7 @@ def _build_messages(user_prompt: str) -> list[dict]:
     ]
 
 
-async def _call_llm(messages: list[dict], max_tokens: int = 1200, source_text: str = "") -> str:
+async def _call_llm(messages: list[dict], max_tokens: int = 1800, source_text: str = "") -> str:
     """LLM 호출 후 요약 문자열을 반환합니다."""
     prompt_chars = sum(len(str(item.get("content") or "")) for item in messages)
     _demo_log(f"모델 전달: messages={len(messages)}, prompt_chars={prompt_chars}, max_tokens={max_tokens}")
@@ -412,7 +539,7 @@ async def generate_speaker_summary(
     if not speaker_text.strip():
         raise ValueError("요약할 화자 텍스트가 없습니다")
 
-    summary_sentences = summary_sentences or DEFAULT_SUMMARY_SENTENCES
+    summary_sentences = max(summary_sentences or DEFAULT_SUMMARY_SENTENCES, DEFAULT_SUMMARY_SENTENCES)
     transcript_text = _truncate_text(speaker_text, MAX_SPEAKER_CHARS)
     sentences = _split_sentences(transcript_text)
     _demo_log(f"화자 요약 시작: speaker={speaker_id}, input_chars={len(speaker_text)}, sentences={len(sentences)}")
@@ -428,6 +555,8 @@ async def generate_speaker_summary(
     user_prompt = SUMMARY_SPEAKER_PROMPT_TEMPLATE.format(
         speaker_id=speaker_id,
         transcript_text=transcript_text,
+        evidence_sentences=_format_evidence_sentences(transcript_text),
+        concept_keywords=_format_concept_keywords(transcript_text),
         summary_sentences=summary_sentences,
     )
 
@@ -443,7 +572,7 @@ async def generate_session_summary(
     if not keywords and not speaker_summaries:
         raise ValueError("세션 요약에 사용할 데이터가 없습니다")
 
-    summary_sentences = summary_sentences or DEFAULT_SUMMARY_SENTENCES
+    summary_sentences = max(summary_sentences or DEFAULT_SUMMARY_SENTENCES, DEFAULT_SUMMARY_SENTENCES)
 
     keywords_text = _format_keywords(keywords, MAX_KEYWORDS)
     speaker_text = _format_speaker_summaries(speaker_summaries, MAX_SPEAKER_SUMMARIES)
@@ -465,6 +594,8 @@ async def generate_session_summary(
     user_prompt = SUMMARY_SESSION_PROMPT_TEMPLATE.format(
         keywords=keywords_text,
         speaker_summaries=speaker_text,
+        evidence_sentences=_format_evidence_sentences(payload_text),
+        concept_keywords=_format_concept_keywords(payload_text),
         summary_sentences=summary_sentences,
     )
 
@@ -480,7 +611,7 @@ async def generate_session_summary_from_text(
     if not session_text.strip():
         raise ValueError("요약할 세션 전사문이 없습니다")
 
-    summary_sentences = summary_sentences or DEFAULT_SUMMARY_SENTENCES
+    summary_sentences = max(summary_sentences or DEFAULT_SUMMARY_SENTENCES, DEFAULT_SUMMARY_SENTENCES)
     transcript_text = _truncate_text(session_text, MAX_SESSION_CHARS)
     keywords_text = _format_keywords(keywords or [], MAX_KEYWORDS)
     sentences = _split_sentences(transcript_text)
@@ -502,6 +633,8 @@ async def generate_session_summary_from_text(
     user_prompt = SUMMARY_SESSION_TEXT_PROMPT_TEMPLATE.format(
         keywords=keywords_text,
         transcript_text=transcript_text,
+        evidence_sentences=_format_evidence_sentences(transcript_text),
+        concept_keywords=_format_concept_keywords(transcript_text),
         summary_sentences=summary_sentences,
     )
 
@@ -518,7 +651,7 @@ async def generate_course_summary(
     if not keywords and not session_summaries and not speaker_summaries:
         raise ValueError("코스 요약에 사용할 데이터가 없습니다")
 
-    summary_sentences = summary_sentences or DEFAULT_SUMMARY_SENTENCES
+    summary_sentences = max(summary_sentences or DEFAULT_SUMMARY_SENTENCES, DEFAULT_SUMMARY_SENTENCES)
 
     keywords_text = _format_keywords(keywords, MAX_KEYWORDS)
     session_text = _format_session_summaries(session_summaries, MAX_SESSION_SUMMARIES)
@@ -542,6 +675,8 @@ async def generate_course_summary(
         keywords=keywords_text,
         session_summaries=session_text,
         speaker_summaries=speaker_text,
+        evidence_sentences=_format_evidence_sentences(payload_text),
+        concept_keywords=_format_concept_keywords(payload_text),
         summary_sentences=summary_sentences,
     )
 
