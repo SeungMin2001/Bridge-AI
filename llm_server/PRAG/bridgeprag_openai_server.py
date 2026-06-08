@@ -29,6 +29,7 @@ from .memory import (
     encode_merged_memory,
     make_memory_hook,
     model_num_heads,
+    uses_chat_prompt,
 )
 
 
@@ -329,13 +330,27 @@ def _build_request(messages: list[dict[str, Any]], *, max_tokens: int, payload: 
     user_prompt = user_texts[-1] if user_texts else str(messages[-1].get("content") or "")
     question = _extract_question(user_prompt)
     passages = _extract_passages(user_prompt)[:MAX_PASSAGES]
-    generation_text = _build_generation_text(system_texts, user_prompt, question, has_memory=bool(passages))
+
+    disable_bridgeprag_memory = bool(payload.get("bridgeprag_disable_memory"))
+    alpha = _payload_alpha(payload)
+    if alpha is None:
+        alpha = float(runtime_config.get("alpha", 1.0))
+    memory_active = bool(passages) and not disable_bridgeprag_memory and alpha > 0.0
+
+    generation_text = _build_generation_text(
+        system_texts,
+        user_prompt,
+        question,
+        has_memory=bool(passages),
+        memory_active=memory_active,
+        messages=messages,
+    )
     return {
         "question": question,
         "passages": passages,
         "generation_text": generation_text,
         "max_tokens": max_tokens,
-        "disable_bridgeprag_memory": bool(payload.get("bridgeprag_disable_memory")),
+        "disable_bridgeprag_memory": disable_bridgeprag_memory,
         "demo_feature": str(payload.get("demo_feature") or payload.get("feature") or "chat"),
         "stop": _payload_stop_sequences(payload),
         "repetition_penalty": _payload_float(payload, "repetition_penalty", SERVICE_REPETITION_PENALTY),
@@ -439,11 +454,30 @@ def _extract_passages(text: str) -> list[str]:
     return passages
 
 
-def _build_generation_text(system_texts: list[str], user_prompt: str, question: str, *, has_memory: bool) -> str:
-    if GENERATION_PROMPT_MODE == "full" or not has_memory:
-        content = "\n".join(part for part in [*system_texts, user_prompt] if part).strip()
-    else:
-        content = question.strip()
+def _build_generation_text(
+    system_texts: list[str],
+    user_prompt: str,
+    question: str,
+    *,
+    has_memory: bool,
+    memory_active: bool,
+    messages: list[dict[str, Any]],
+) -> str:
+    if memory_active:
+        return build_chat_prompt(tokenizer, question.strip())
+
+    if uses_chat_prompt(tokenizer):
+        try:
+            return tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except Exception:
+            pass
+
+    content = "\n".join(part for part in [*system_texts, user_prompt] if part).strip()
     return build_chat_prompt(tokenizer, content)
 
 
