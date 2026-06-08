@@ -82,6 +82,10 @@ _GROUNDED_LOOKUP_TERMS = (
     "뭐여",
     "뭐냐",
     "뭐임",
+    "뭐였",
+    "뭐였지",
+    "뭐라고",
+    "뭐라",
     "뭐에요",
     "뭐예요",
     "뭔가",
@@ -113,6 +117,13 @@ _GROUNDED_LOOKUP_STOPWORDS = _LOCATOR_QUERY_STOPWORDS | {
     "파일",
     "페이지",
     "pdf",
+    "뭐라고",
+    "뭐라",
+    "뭐였",
+    "뭐였지",
+    "했어",
+    "했었어",
+    "했었지",
     "어떻게",
     "왜",
     "설명",
@@ -120,6 +131,43 @@ _GROUNDED_LOOKUP_STOPWORDS = _LOCATOR_QUERY_STOPWORDS | {
     "설명해",
     "알려",
 }
+_WEAK_RELEVANCE_TERMS = _GROUNDED_LOOKUP_STOPWORDS | {
+    "함수",
+    "정의",
+    "의미",
+    "개념",
+    "설명",
+    "정리",
+    "요약",
+    "역할",
+    "특징",
+    "차이",
+    "관련",
+    "답변",
+    "질문",
+}
+_PROGRAMMING_QUERY_HINTS = (
+    "코드",
+    "구현",
+    "컴파일",
+    "에러",
+    "오류",
+    "프로그래밍",
+    "c언어",
+    "c 언어",
+    "파이썬",
+    "python",
+    "java",
+    "javascript",
+    "함수 구현",
+    "소스",
+    "알고리즘",
+)
+_CODE_HEAVY_RE = re.compile(
+    r"(#include|#define|printf\s*\(|scanf\s*\(|\bvoid\s+\w+\s*\(|"
+    r"\bint\s+\w+\s*\(|\breturn\s+0\s*;|```|</?\w+>|[{};]{4,})",
+    re.IGNORECASE,
+)
 
 
 def extract_keywords(text: str) -> list[str]:
@@ -276,9 +324,23 @@ def _extract_grounded_lookup_terms(query: str) -> list[str]:
     """'오태진 교수 누구야' 같은 질문에서 실제 조회할 핵심 표현을 추출합니다."""
     text = " ".join(str(query or "").split())
     focus = text
+    terms: list[str] = []
+
+    # "교수님이 전위를 뭐라고 설명했지?"처럼 주어/발화자가 앞에 붙은 질문에서는
+    # 발화자가 아니라 설명 대상 용어를 검색 핵심어로 잡아야 한다.
+    object_patterns = (
+        r"(?:교수님|교수|선생님|강의|수업).{0,20}?([가-힣A-Za-z0-9_+#.-]{2,30})\s*(?:은|는|이|가|을|를)?\s*(?:뭐라고|뭐라|어떻게)?\s*(?:설명|말|정의|언급)",
+        r"([가-힣A-Za-z0-9_+#.-]{2,30})\s*(?:은|는|이|가|을|를)?\s*(?:뭐라고|뭐라|어떻게)?\s*(?:설명|정의|말|언급)",
+    )
+    for pattern in object_patterns:
+        match = re.search(pattern, text)
+        if match:
+            _append_lookup_term(terms, match.group(1))
+            if terms:
+                return terms
 
     question_match = re.search(
-        r"(.+?)(?:누구|무엇|뭐야|뭐여|뭐냐|뭐임|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻|이란|란|요약|정리)",
+        r"(.+?)(?:누구|무엇|뭐야|뭐여|뭐냐|뭐임|뭐였|뭐였지|뭐라고|뭐라|뭐에요|뭐예요|뭔가|뭔데|무슨|의미|정의|설명|알려|개념|뜻|이란|란|요약|정리)",
         text,
     )
     if question_match:
@@ -299,7 +361,10 @@ def _extract_grounded_lookup_terms(query: str) -> list[str]:
     if alnum_terms:
         return alnum_terms
 
-    terms = []
+    _append_lookup_term(terms, focus)
+    if terms:
+        return terms
+
     for match in re.finditer(r"[가-힣A-Za-z0-9_+#.-]{2,30}", focus):
         term = _clean_lookup_term(match.group(0))
         if len(term) < 2:
@@ -878,12 +943,16 @@ def _first_reasonable_sentence(text: str) -> str:
 def _prioritize_selected_evidence(results: list[dict], question: str) -> list[dict]:
     """최종 근거 번호가 질문과 가장 직접적인 문장부터 시작되도록 재정렬합니다."""
     keywords = _question_relevance_terms(question)
+    strong_terms = _strong_question_terms(question)
+    programming_question = _is_programming_question(question)
     if not keywords or len(results) <= 1:
         return results
 
     ranked = sorted(
         enumerate(results),
         key=lambda item: (
+            _strong_subject_score(item[1].get("text", ""), strong_terms),
+            not (_looks_code_heavy(item[1].get("text", "")) and not programming_question),
             _relevance_score(item[1].get("text", ""), keywords),
             any(word in str(item[1].get("text", "")).casefold() for word in keywords),
             float(item[1].get("score") or item[1].get("match_count") or 0.0),
@@ -1836,6 +1905,72 @@ def _keyword_hit_count(text: str, keywords: list[str]) -> int:
     return sum(1 for word in keywords if str(word or "").casefold() in haystack)
 
 
+def _compact_text(value: str) -> str:
+    return re.sub(r"\s+", "", str(value or "").casefold())
+
+
+def _is_programming_question(question: str) -> bool:
+    text = str(question or "").casefold()
+    return any(hint in text for hint in _PROGRAMMING_QUERY_HINTS)
+
+
+def _looks_code_heavy(text: str) -> bool:
+    value = str(text or "")
+    if not value:
+        return False
+    if _CODE_HEAVY_RE.search(value):
+        return True
+    code_marks = sum(value.count(mark) for mark in ("{", "}", ";", "()", "->", "==", "!="))
+    return code_marks >= 5
+
+
+def _strong_question_terms(question: str) -> list[str]:
+    """'손실함수', '전위'처럼 근거에 반드시 있어야 하는 조회 대상어를 추출합니다."""
+    terms: list[str] = []
+
+    if _is_grounded_lookup_query(question):
+        terms.extend(_extract_grounded_lookup_terms(question))
+
+    for keyword in extract_keywords(question):
+        value = _clean_lookup_term(keyword)
+        if len(value) < 2:
+            continue
+        if value.casefold() in _WEAK_RELEVANCE_TERMS or value in _WEAK_RELEVANCE_TERMS:
+            continue
+        if value.startswith(("설명", "정리", "요약", "알려")) or value.endswith(("했어", "했었어", "했었지", "해줘")):
+            continue
+        terms.append(value)
+
+    deduped: list[str] = []
+    seen = set()
+    for term in terms:
+        normalized = str(term or "").strip().casefold()
+        if len(normalized) < 2 or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
+def _strong_subject_score(text: str, strong_terms: list[str]) -> int:
+    """질문 대상어가 근거에 직접 들어있는지 점수화합니다."""
+    if not strong_terms:
+        return 0
+    haystack = str(text or "").casefold()
+    compact_haystack = _compact_text(text)
+    score = 0
+    for term in strong_terms:
+        token = str(term or "").strip().casefold()
+        if not token:
+            continue
+        compact_token = _compact_text(token)
+        if token in haystack:
+            score += 3 if len(compact_token) >= 4 else 2
+        elif compact_token and compact_token in compact_haystack:
+            score += 3 if len(compact_token) >= 4 else 2
+    return score
+
+
 def _relevance_score(text: str, terms: list[str]) -> int:
     """질문 관련어가 문장/근거에 얼마나 촘촘히 들어있는지 점수화합니다."""
     haystack = str(text or "").casefold()
@@ -1856,15 +1991,19 @@ def _relevance_score(text: str, terms: list[str]) -> int:
 
 def _question_relevance_terms(question: str) -> list[str]:
     """검색/근거 필터링에 사용할 질문 핵심어를 확장합니다."""
-    terms = []
+    terms = _strong_question_terms(question)
     for keyword in extract_keywords(question):
-        value = str(keyword or "").strip()
+        value = _clean_lookup_term(keyword)
         if len(value) < 2:
+            continue
+        if value.casefold() in _WEAK_RELEVANCE_TERMS or value in _WEAK_RELEVANCE_TERMS:
+            continue
+        if value.startswith(("설명", "정리", "요약", "알려")) or value.endswith(("했어", "했었어", "했었지", "해줘")):
             continue
         terms.append(value)
 
         # 긴 한국어 복합어는 일부만 표현된 관련 문장도 놓치지 않도록 부분 단서를 추가합니다.
-        if len(value) >= 4:
+        if len(value) >= 4 and value.casefold() not in _WEAK_RELEVANCE_TERMS and value not in _WEAK_RELEVANCE_TERMS:
             for size in (2, 3):
                 for index in range(0, len(value) - size + 1):
                     piece = value[index:index + size]
@@ -1898,14 +2037,41 @@ def _filter_relevant_results(results: list[dict], question: str, *, min_keep: in
     if not terms:
         return results
 
-    scored = [
-        (_relevance_score(item.get("text", ""), terms), index, item)
-        for index, item in enumerate(results)
-    ]
-    kept = [item for score, _, item in scored if score > 0]
+    grounded_lookup_query = _is_grounded_lookup_query(question)
+    strong_terms = _strong_question_terms(question)
+    programming_question = _is_programming_question(question)
+    scored = []
+    kept = []
+    for index, item in enumerate(results):
+        text = item.get("text", "")
+        score = _relevance_score(text, terms)
+        strong_score = _strong_subject_score(text, strong_terms)
+        code_noise = _looks_code_heavy(text) and not programming_question
+        scored.append((score, strong_score, code_noise, index, item))
+
+        if grounded_lookup_query and strong_terms:
+            if strong_score <= 0 or code_noise:
+                continue
+        elif score <= 0:
+            continue
+        elif code_noise and score < 3:
+            continue
+        kept.append(item)
+
     if len(kept) >= min_keep:
         return kept
-    return [item for _, _, item in sorted(scored, key=lambda row: row[1])[:min_keep]]
+
+    fallback = [
+        item
+        for score, strong_score, code_noise, _, item in sorted(
+            scored,
+            key=lambda row: (row[2], -row[1], -row[0], row[3]),
+        )
+        if not code_noise
+    ]
+    if fallback:
+        return fallback[:min_keep]
+    return [item for _, _, _, _, item in sorted(scored, key=lambda row: row[3])[:min_keep]]
 
 
 def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, k: int = 60, query_keywords: list[str] | None = None) -> list[dict]:
@@ -2038,16 +2204,21 @@ def _prioritize_grounded_lookup_results(
     grounded_lookup_query: bool,
     locator_query: bool,
     top_k: int,
+    question: str = "",
 ) -> list[dict]:
-    """개념/정의 질문에서는 같은 후보 안에서 PDF 강의자료 근거를 음성 전사보다 우선 배치합니다."""
+    """개념/정의 질문에서는 자료 종류보다 질문 핵심어가 직접 일치하는 근거를 우선 배치합니다."""
     if not results:
         return []
     if not grounded_lookup_query or locator_query:
         return results[:top_k]
 
+    strong_terms = _strong_question_terms(question)
+    programming_question = _is_programming_question(question)
     ranked = sorted(
         enumerate(results),
         key=lambda item: (
+            _strong_subject_score(item[1].get("text", ""), strong_terms),
+            not (_looks_code_heavy(item[1].get("text", "")) and not programming_question),
             (item[1].get("source_type") == "material"),
             float(item[1].get("score") or item[1].get("match_count") or 0),
             -item[0],
@@ -2327,6 +2498,7 @@ def search(
         grounded_lookup_query=grounded_lookup_query,
         locator_query=locator_query,
         top_k=top_k,
+        question=question,
     )
     _demo_log(f"5) Hybrid 검색 완료: scope={search_scope}, similar_sentences={len(results)}")
     for rank, item in enumerate(results, 1):
