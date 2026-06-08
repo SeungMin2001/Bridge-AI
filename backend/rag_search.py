@@ -806,28 +806,28 @@ def _select_relevant_evidence_sentences(text: str, question: str, *, max_sentenc
 
     terms = _question_relevance_terms(question)
     max_sentences = max_sentences or RAG_RELEVANT_SENTENCE_COUNT
-    candidates: list[tuple[int, int, str]] = []
+    candidates: list[tuple[int, int, int, str]] = []
     for order, line in enumerate(source.splitlines() or [source]):
         clean_line = re.sub(r"^\s*\[\d+:\d{2}~\d+:\d{2}\]\s*", "", line).strip()
-        for sentence in _split_sentences(clean_line):
+        for sentence_order, sentence in enumerate(_split_sentences(clean_line)):
             compact = " ".join(sentence.split())
             if len(compact) < 8:
                 continue
             score = _relevance_score(compact, terms)
             if score > 0:
-                candidates.append((score, order, compact))
+                candidates.append((score, order, sentence_order, compact))
 
     if not candidates:
         fallback = _first_reasonable_sentence(source)
         return [fallback] if fallback else []
 
     # 점수로 우선 고른 뒤, LLM이 자연스럽게 읽도록 원문 등장 순서를 복원합니다.
-    top = sorted(candidates, key=lambda item: (item[0], -item[1], len(item[2])), reverse=True)[:max_sentences]
-    top = sorted(top, key=lambda item: item[1])
+    top = sorted(candidates, key=lambda item: (item[0], -item[1], -item[2], len(item[3])), reverse=True)[:max_sentences]
+    top = sorted(top, key=lambda item: (item[1], item[2]))
 
     sentences: list[str] = []
     seen = set()
-    for _, _, sentence in top:
+    for _, _, _, sentence in top:
         key = sentence.casefold()
         if key in seen:
             continue

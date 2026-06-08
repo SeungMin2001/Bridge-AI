@@ -189,6 +189,7 @@ async def build_prompt_and_citations(
     )
 
     if reference_context:
+        required_answer_points = _build_required_answer_points(citations)
         reference_intro = (
             "다음은 현재 워크스페이스 파일의 저장 목록과 강의 내용에서 검색된 참고자료입니다"
             if inventory_context
@@ -237,6 +238,7 @@ async def build_prompt_and_citations(
         )
         prompt = (
             f"{reference_intro}:\n\n{reference_context}\n\n"
+            f"{required_answer_points}"
             f"{inventory_instruction}"
             f"{scope_instruction}"
             f"{missing_selected_material_note}"
@@ -269,6 +271,53 @@ async def build_prompt_and_citations(
         prompt = question
 
     return prompt, citations
+
+
+def _build_required_answer_points(citations: list[dict], *, max_points: int = 6) -> str:
+    """검색 근거 중 답변에 반드시 들어가야 할 문장을 별도 포인트로 제공합니다."""
+    if not citations:
+        return ""
+
+    points: list[str] = []
+    seen = set()
+    for index, citation in enumerate(citations, 1):
+        evidence = _clean_evidence_text((citation or {}).get("text", ""))
+        if not evidence:
+            continue
+        for sentence in _split_prompt_sentences(evidence):
+            compact = _trim_sentence(sentence, 220)
+            key = compact.casefold()
+            if not compact or key in seen:
+                continue
+            seen.add(key)
+            points.append(f"- [{index}] {compact}")
+            if len(points) >= max_points:
+                break
+        if len(points) >= max_points:
+            break
+
+    if not points:
+        return ""
+    return (
+        "[답변 필수 반영 포인트]\n"
+        "아래 포인트는 질문과 직접 관련된 근거 문장입니다. "
+        "답변에서는 의미를 바꾸지 말고 모두 반영하되, 근거에 없는 정의로 대체하지 마세요.\n"
+        + "\n".join(points)
+        + "\n\n"
+    )
+
+
+def _split_prompt_sentences(text: str) -> list[str]:
+    """citation 텍스트를 답변 필수 포인트용 문장으로 나눕니다."""
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not value:
+        return []
+    parts = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?。？！])\s+|\n+", value)
+        if part.strip()
+    ]
+    return parts or [value]
 
 
 def _chat_evidence_top_k(question: str) -> int:
