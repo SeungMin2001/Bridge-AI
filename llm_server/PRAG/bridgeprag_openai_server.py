@@ -29,7 +29,6 @@ from .memory import (
     encode_merged_memory,
     make_memory_hook,
     model_num_heads,
-    uses_chat_prompt,
 )
 
 
@@ -466,7 +465,7 @@ def _build_generation_text(
     if memory_active:
         return build_chat_prompt(tokenizer, question.strip())
 
-    if uses_chat_prompt(tokenizer):
+    if getattr(tokenizer, "chat_template", None):
         try:
             return tokenizer.apply_chat_template(
                 messages,
