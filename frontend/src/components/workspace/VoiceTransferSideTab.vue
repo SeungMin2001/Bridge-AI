@@ -239,6 +239,39 @@ const citationText = computed(() => {
   )
 })
 
+const citationRawText = computed(() => {
+  const cite = props.citationHighlight || {}
+  return String(
+    cite.text
+    || cite.excerpt
+    || cite.citation_text
+    || cite.citationText
+    || cite.full_text
+    || cite.fullText
+    || ''
+  ).trim()
+})
+
+const citationSentenceTexts = computed(() => {
+  const raw = citationRawText.value
+    .replace(/\[[^\]]+\]/g, ' ')
+    .replace(/\([^)]*출처[^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!raw) return []
+
+  const sentences = raw.match(/[^.!?。？！]+(?:다\.|요\.|입니다\.|습니다\.|[.!?。？！])?/g) || [raw]
+  const seen = new Set()
+  return sentences
+    .map((sentence) => normalizeCitationText(sentence))
+    .filter((sentence) => sentence.length >= 12)
+    .filter((sentence) => {
+      if (seen.has(sentence)) return false
+      seen.add(sentence)
+      return true
+    })
+})
+
 const citationTranscriptId = computed(() => (
   String(
     props.citationHighlight?.transcript_id
@@ -267,15 +300,21 @@ const hasCitationTextMatch = (candidate = '') => {
   const normalizedCandidate = normalizeCitationText(candidate)
   const normalizedCitation = citationText.value
   if (!normalizedCandidate || !normalizedCitation) return false
+
+  const sentenceMatch = citationSentenceTexts.value.some((sentence) => (
+    normalizedCandidate.includes(sentence) || sentence.includes(normalizedCandidate)
+  ))
+  if (sentenceMatch) return true
+
   if (normalizedCandidate.includes(normalizedCitation) || normalizedCitation.includes(normalizedCandidate)) {
     return true
   }
 
   const shorter = normalizedCandidate.length < normalizedCitation.length ? normalizedCandidate : normalizedCitation
   const longer = shorter === normalizedCandidate ? normalizedCitation : normalizedCandidate
-  if (shorter.length < 12) return false
-  for (let index = 0; index <= shorter.length - 12; index += 6) {
-    if (longer.includes(shorter.slice(index, index + 12))) return true
+  if (shorter.length < 24) return false
+  for (let index = 0; index <= shorter.length - 24; index += 12) {
+    if (longer.includes(shorter.slice(index, index + 24))) return true
   }
   return false
 }
@@ -323,7 +362,7 @@ const isCitationHighlightedWord = (word = '', context = '') => {
   if (!props.citationHighlight || !citationText.value) return false
   const cleanedWord = cleanWordForCitation(word)
   if (cleanedWord.length < 2) return false
-  return hasCitationTextMatch(context) && citationText.value.includes(cleanedWord)
+  return hasCitationTextMatch(context)
 }
 
 const scrollToCitationHighlight = async (behavior = 'smooth') => {
