@@ -219,12 +219,6 @@ const normalizeCitationText = (value = '') => (
     .trim()
 )
 
-const cleanWordForCitation = (value = '') => (
-  String(value || '')
-    .replace(/[^\p{L}\p{N}가-힣]/gu, '')
-    .trim()
-)
-
 const citationText = computed(() => {
   const cite = props.citationHighlight || {}
   return normalizeCitationText(
@@ -272,23 +266,6 @@ const citationSentenceTexts = computed(() => {
     })
 })
 
-const citationTranscriptId = computed(() => (
-  String(
-    props.citationHighlight?.transcript_id
-    || props.citationHighlight?.transcriptId
-    || props.citationHighlight?.id
-    || ''
-  ).trim()
-))
-
-const getItemIdentityValues = (item = {}) => ([
-  item.id,
-  item.transcript_id,
-  item.transcriptId,
-  item.segment_id,
-  item.segmentId
-].map((value) => String(value || '').trim()).filter(Boolean))
-
 const getTranscriptionText = (item = {}) => {
   const segmentText = Array.isArray(item.segments)
     ? item.segments.map((segment) => segment?.text || '').join(' ')
@@ -319,24 +296,9 @@ const hasCitationTextMatch = (candidate = '') => {
   return false
 }
 
-const hasCitationTimeMatch = (item = {}) => {
-  const cite = props.citationHighlight || {}
-  const citeStart = getFiniteNumber(cite.start_time ?? cite.startTime ?? cite.start)
-  const citeEnd = getFiniteNumber(cite.end_time ?? cite.endTime ?? cite.end)
-  const itemRange = getTimeRange(item)
-  if (citeStart === null || citeEnd === null || !itemRange) return false
-  return itemRange.start <= citeEnd && itemRange.end >= citeStart
-}
-
-const hasCitationIdentityMatch = (item = {}) => (
-  citationTranscriptId.value && getItemIdentityValues(item).includes(citationTranscriptId.value)
-)
-
 const isCitationHighlightedSegment = (segment = {}, fallbackTranscription = {}) => (
   !!props.citationHighlight && (
-    hasCitationIdentityMatch(segment)
-    || hasCitationTimeMatch(segment)
-    || hasCitationTextMatch(segment.text || '')
+    hasCitationTextMatch(segment.text || '')
     || (!Array.isArray(fallbackTranscription.segments) && hasCitationTextMatch(getTranscriptionText(fallbackTranscription)))
   )
 )
@@ -350,20 +312,13 @@ const isCitationTextHighlightedSegment = (segment = {}, fallbackTranscription = 
 
 const isCitationHighlightedTranscription = (transcription = {}) => (
   !!props.citationHighlight && (
-    hasCitationIdentityMatch(transcription)
-    || hasCitationTimeMatch(transcription)
-    || hasCitationTextMatch(getTranscriptionText(transcription))
+    hasCitationTextMatch(getTranscriptionText(transcription))
     || (Array.isArray(transcription.segments)
       && transcription.segments.some((segment) => isCitationHighlightedSegment(segment, transcription)))
   )
 )
 
-const isCitationHighlightedWord = (word = '', context = '') => {
-  if (!props.citationHighlight || !citationText.value) return false
-  const cleanedWord = cleanWordForCitation(word)
-  if (cleanedWord.length < 2) return false
-  return hasCitationTextMatch(context)
-}
+const isCitationHighlightedWord = () => false
 
 const scrollToCitationHighlight = async (behavior = 'smooth') => {
   await nextTick()
