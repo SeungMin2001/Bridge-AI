@@ -332,7 +332,7 @@ logger = logging.getLogger(__name__)
 SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS = int(os.getenv("CHAT_SELECTED_TRANSCRIPT_CONTEXT_MAX_CHARS", "16000"))
 RAG_DEBUG = os.getenv("CHAT_RAG_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
 RAG_FAST_KEYWORD_FIRST = os.getenv("CHAT_RAG_FAST_KEYWORD_FIRST", "1").strip().lower() in {"1", "true", "yes", "on"}
-RAG_FAST_KEYWORD_MIN_RESULTS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_RESULTS", "1")))
+RAG_FAST_KEYWORD_MIN_RESULTS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_RESULTS", "2")))
 RAG_FAST_KEYWORD_MIN_HITS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_HITS", "1")))
 RAG_USE_VECTOR_SEARCH = os.getenv("CHAT_RAG_USE_VECTOR_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
 RAG_VECTOR_CANDIDATE_MULTIPLIER = max(1, int(os.getenv("CHAT_RAG_VECTOR_CANDIDATE_MULTIPLIER", "2")))
@@ -1632,7 +1632,37 @@ def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, 
         ),
         reverse=True,
     )
-    return [item["data"] for item in ranked[:top_k]]
+    return _diversify_ranked_results([item["data"] for item in ranked], top_k=top_k)
+
+
+def _diversify_ranked_results(results: list[dict], *, top_k: int) -> list[dict]:
+    """같은 근거가 반복되지 않도록 하되, 부족하면 원래 랭킹으로 채웁니다."""
+    if top_k <= 0:
+        return []
+
+    selected: list[dict] = []
+    seen_identity: set[tuple] = set()
+    seen_text: set[str] = set()
+
+    for item in results:
+        identity = _result_identity(item)
+        text_key = re.sub(r"\s+", " ", str(item.get("text") or "")).strip()[:180]
+        if identity in seen_identity or text_key in seen_text:
+            continue
+        selected.append(item)
+        seen_identity.add(identity)
+        seen_text.add(text_key)
+        if len(selected) >= top_k:
+            return selected
+
+    for item in results:
+        identity = _result_identity(item)
+        if any(_result_identity(selected_item) == identity for selected_item in selected):
+            continue
+        selected.append(item)
+        if len(selected) >= top_k:
+            break
+    return selected
 
 
 def _keyword_results_are_confident(keyword_results: list[dict], query_keywords: list[str] | None = None) -> bool:

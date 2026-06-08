@@ -15,7 +15,8 @@ from rag_search import search as rag_search
 
 logger = logging.getLogger(__name__)
 
-CHAT_EVIDENCE_TOP_K = max(2, int(os.getenv("CHAT_EVIDENCE_TOP_K", "2")))
+CHAT_EVIDENCE_TOP_K = max(3, int(os.getenv("CHAT_EVIDENCE_TOP_K", "5")))
+CHAT_EVIDENCE_BROAD_TOP_K = max(CHAT_EVIDENCE_TOP_K, int(os.getenv("CHAT_EVIDENCE_BROAD_TOP_K", "6")))
 CHAT_SELECTED_MATERIAL_CONTEXT_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_CHARS", "6000"))
 CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS = int(os.getenv("CHAT_SELECTED_MATERIAL_CONTEXT_PER_FILE_CHARS", "2000"))
 CHAT_WORKSPACE_INVENTORY_MAX_ITEMS = int(os.getenv("CHAT_WORKSPACE_INVENTORY_MAX_ITEMS", "40"))
@@ -118,6 +119,8 @@ _EVIDENCE_EXPLANATION_TERMS = (
 FAST_RAG_STYLE_PROMPT = (
     "[통합 답변 규칙]\n"
     "- 검색된 참고자료에 직접 나온 내용만 사용해 답하세요.\n"
+    "- 검색된 참고자료가 여러 개이면 한두 문장만 고르지 말고, 서로 다른 근거의 핵심 개념을 종합해 압축적으로 설명하세요.\n"
+    "- 특정 키워드나 넓은 개념을 물으면 정의, 특징, 차이, 조건, 예시처럼 근거에 나온 관련 하위 개념을 빠뜨리지 말고 묶어서 설명하세요.\n"
     "- 질문/참고자료/시스템 지시문을 반복하지 말고 최종 답변만 작성하세요.\n"
     "- 참고자료에 불릿, 번호, 학습목표, 목차, 단계처럼 목록형 정보가 있으면 항목을 빠짐없이 불릿으로 나열하세요.\n"
     "- 목록형 정보는 원문 표현을 최대한 그대로 유지하고, 없는 항목을 새로 만들지 마세요.\n"
@@ -143,8 +146,8 @@ async def build_prompt_and_citations(
         if _should_include_inventory_context(question)
         else ""
     )
-    # 시연에서는 근거가 한 개만 보이면 RAG가 약하게 보이므로, 근거형 질문도 최대 2개까지 유지합니다.
-    evidence_top_k = CHAT_EVIDENCE_TOP_K
+    # 넓은 개념 설명 질문은 상위 1-2개 근거만 쓰면 일부 개념이 빠지기 쉬워 근거 폭을 넓힙니다.
+    evidence_top_k = _chat_evidence_top_k(question)
     rag_result = rag_search(
         question,
         top_k=evidence_top_k,
@@ -168,7 +171,7 @@ async def build_prompt_and_citations(
             )
         if material_context:
             context = "\n\n".join(part for part in (context, material_context) if part)
-            citations = _merge_citations(citations, material_citations)[:CHAT_EVIDENCE_TOP_K]
+            citations = _merge_citations(citations, material_citations)[:evidence_top_k]
 
     reference_context = "\n\n".join(
         part for part in (
@@ -257,6 +260,32 @@ async def build_prompt_and_citations(
         prompt = question
 
     return prompt, citations
+
+
+def _chat_evidence_top_k(question: str) -> int:
+    """질문이 넓은 설명/정리형이면 더 많은 근거를 LLM에 전달합니다."""
+    text = str(question or "")
+    broad_terms = (
+        "정리",
+        "요약",
+        "전체",
+        "전반",
+        "다양",
+        "관련",
+        "차이",
+        "비교",
+        "구조",
+        "과정",
+        "원리",
+        "특징",
+        "종류",
+        "개념",
+        "설명",
+        "알려",
+        "뭐야",
+        "무엇",
+    )
+    return CHAT_EVIDENCE_BROAD_TOP_K if any(term in text for term in broad_terms) else CHAT_EVIDENCE_TOP_K
 
 
 async def ensure_material_rag_for_chat(session_id: str | None, source_filter: dict | None):
