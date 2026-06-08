@@ -268,6 +268,27 @@ const normalizeSessionSummary = (item = {}) => ({
   sourceText: item.source_text || ''
 })
 
+const normalizeGeneratedSessionSummary = (item = {}, recordingId = '') => normalizeSessionSummary({
+  summary_id: item.summary_id || item.id,
+  recording_id: item.recording_id || recordingId || '',
+  session_summary: item.session_summary || item.summary || '',
+  created_at: item.created_at || new Date().toISOString(),
+  source_text: item.source_text || ''
+})
+
+const upsertSummaryItem = (items = [], nextItem = {}) => {
+  const nextKey = nextItem.id || nextItem.key
+  if (!nextKey && !String(nextItem.summary || '').trim()) return items
+  return [
+    nextItem,
+    ...items.filter((item) => {
+      const itemKey = item.id || item.key
+      if (nextKey && itemKey) return itemKey !== nextKey
+      return item.summary !== nextItem.summary
+    })
+  ]
+}
+
 // DB에 계속 저장되는 실시간 요약 중 화면에는 화자별 최신 1개만 노출합니다.
 const normalizeSummaries = (summaries = [], recordingId = '') => {
   const scopedSummaries = recordingId
@@ -426,6 +447,7 @@ export function useSummaryState() {
     const shouldDiarize = options.diarizationEnabled !== false
     const summarySentences = Math.max(3, Math.min(10, Number(options.summarySentences) || 8))
     const sessionText = buildSessionText(recordingSnapshot)
+    let generatedSessionSummary = null
 
     if (!shouldDiarize) {
       if (sessionText.length < 10) {
@@ -447,11 +469,16 @@ export function useSummaryState() {
       })
 
       try {
-        await postSummaryJson('/session/text/generate', {
+        const result = await postSummaryJson('/session/text/generate', {
           session_id: sessionId,
           recording_id: recordingId || null,
           session_text: sessionText,
           summary_sentences: summarySentences
+        })
+        generatedSessionSummary = normalizeGeneratedSessionSummary(result, recordingId)
+        setSummaryState({
+          sessionSummary: generatedSessionSummary,
+          recordingSummaries: upsertSummaryItem(summaryState.value.recordingSummaries || [], generatedSessionSummary)
         })
       } catch (error) {
         console.warn('[summary] session text generation failed:', error)
@@ -471,6 +498,12 @@ export function useSummaryState() {
         silent: isLiveUpdate,
         diarizationEnabled: false
       })
+      if (generatedSessionSummary) {
+        setSummaryState({
+          sessionSummary: generatedSessionSummary,
+          recordingSummaries: upsertSummaryItem(summaryState.value.recordingSummaries || [], generatedSessionSummary)
+        })
+      }
       return
     }
 
@@ -485,11 +518,16 @@ export function useSummaryState() {
     if (!isLiveUpdate && sessionText.length >= 10) {
       try {
         // 신창영: 수정 이유 - 화자분리 녹음도 종료 후에는 전체 녹음 요약과 화자별 요약을 둘 다 생성합니다.
-        await postSummaryJson('/session/text/generate', {
+        const result = await postSummaryJson('/session/text/generate', {
           session_id: sessionId,
           recording_id: recordingId || null,
           session_text: sessionText,
           summary_sentences: summarySentences
+        })
+        generatedSessionSummary = normalizeGeneratedSessionSummary(result, recordingId)
+        setSummaryState({
+          sessionSummary: generatedSessionSummary,
+          recordingSummaries: upsertSummaryItem(summaryState.value.recordingSummaries || [], generatedSessionSummary)
         })
       } catch (error) {
         console.warn('[summary] diarized session summary generation failed:', error)
@@ -517,6 +555,12 @@ export function useSummaryState() {
           silent: false,
           diarizationEnabled: true
         })
+        if (generatedSessionSummary) {
+          setSummaryState({
+            sessionSummary: generatedSessionSummary,
+            recordingSummaries: upsertSummaryItem(summaryState.value.recordingSummaries || [], generatedSessionSummary)
+          })
+        }
         return
       }
       if (!isLiveUpdate) {
@@ -547,6 +591,12 @@ export function useSummaryState() {
       silent: isLiveUpdate,
       diarizationEnabled: true
     })
+    if (generatedSessionSummary) {
+      setSummaryState({
+        sessionSummary: generatedSessionSummary,
+        recordingSummaries: upsertSummaryItem(summaryState.value.recordingSummaries || [], generatedSessionSummary)
+      })
+    }
   }
 
   const generateMaterialSummaryForSource = async ({
@@ -605,10 +655,7 @@ export function useSummaryState() {
       setSummaryState({
         materialStatus: 'done',
         materialError: '',
-        materialSummaries: [
-          materialSummary,
-          ...(summaryState.value.materialSummaries || []).filter((item) => item.id !== materialSummary.id)
-        ]
+        materialSummaries: upsertSummaryItem(summaryState.value.materialSummaries || [], materialSummary)
       })
     } catch (error) {
       console.warn('[summary] material generation failed:', error)
