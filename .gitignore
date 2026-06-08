@@ -76,3 +76,29 @@ postgres/
 pgvector/
 backend/data/transcripts/
 backend/uploads/
+
+# PRAG research outputs / generated experiment artifacts
+llm_server/PRAG/reports/
+llm_server/PRAG/paper_figures*/
+llm_server/PRAG/canva_assets/
+llm_server/PRAG/epoch_checkpoints/
+llm_server/PRAG/step_checkpoints/
+llm_server/PRAG/*train_log*.json
+llm_server/PRAG/prag_*_memory_checkpoint.pt
+llm_server/PRAG/prag_*_checkpoint.pt
+llm_server/PRAG/*.partial.jsonl
+llm_server/PRAG/*.csv
+
+# PRAG generated datasets and local experiment outputs
+data/PRAG_*.jsonl
+data/tmp_*.jsonl
+data/samples/PRAG_*.jsonl
+output/
+outputs/
+tmp/
+test_plot.png
+
+# Local worktrees / backups created during experiments
+.codex-backups/
+Group-Chat-agent-*/
+BridgePRAG/

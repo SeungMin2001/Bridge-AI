@@ -1,7 +1,0 @@
-epoch,question_passage_hit_accuracy,passage_only_hit_accuracy,source
-0,2.5,2.2,epoch0_eval
-1,58.75,19.75,paper_epoch_metrics
-2,65.75,30.25,paper_epoch_metrics
-3,80.25,32.5,paper_epoch_metrics
-4,81.75,40.5,paper_epoch_metrics
-5,84.0,41.0,paper_epoch_metrics

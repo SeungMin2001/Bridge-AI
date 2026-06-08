@@ -1,4 +1,0 @@
-| Model | Epoch | Accuracy (%) | Token F1 (%) | Hit (%) | QA Score (%) | Avg. Time (s) |
-| --- | --- | --- | --- | --- | --- | --- |
-| Question+Passage | 10 | 54.00 | 66.20 | 54.00 | 34.10 | 3.458 |
-| Passage-only | 10 | 25.25 | 49.60 | 25.25 | 24.80 | 4.235 |

@@ -1,7 +1,0 @@
-epoch,question_passage_accuracy_pct,passage_only_accuracy_pct
-0,2.5,2.25
-1,58.75,19.75
-2,65.75,30.25
-3,80.25,32.5
-4,81.75,40.5
-5,84.0,41.0
