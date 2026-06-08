@@ -439,6 +439,7 @@ def _extract_passages(text: str) -> list[str]:
         passage = match.group(2).strip()
         passage = re.sub(r"\s*\(출처:\s*.*?\)\s*$", "", passage, flags=re.DOTALL).strip()
         passage = re.sub(r"^선택된\s+녹음본\s+전체\s+전사\s*\(출처:\s*.*?\)\s*", "", passage).strip()
+        passage = _normalize_reference_passage_for_memory(passage)
         if passage and passage not in passages:
             passages.append(passage)
 
@@ -448,9 +449,39 @@ def _extract_passages(text: str) -> list[str]:
             match = re.match(r"^\[\d+\]\s*(.+?)(?:\s*\(출처:\s*.*?\))?$", line)
             if match:
                 passage = match.group(1).strip()
+                passage = _normalize_reference_passage_for_memory(passage)
                 if passage and passage not in passages:
                     passages.append(passage)
     return passages
+
+
+def _normalize_reference_passage_for_memory(passage: str) -> str:
+    """LLM 프롬프트용 라벨을 제거하고 K/V 메모리에는 핵심 근거 문장만 넣습니다."""
+    value = str(passage or "").strip()
+    if not value:
+        return ""
+
+    core_marker = "핵심 참고문장"
+    support_marker = "보조 문맥:"
+    if core_marker in value:
+        core_part = value.split(core_marker, 1)[1]
+        if ":" in core_part[:40]:
+            core_part = core_part.split(":", 1)[1]
+        if support_marker in core_part:
+            core_part = core_part.split(support_marker, 1)[0]
+        core_lines = []
+        for line in core_part.splitlines():
+            clean = re.sub(r"^\s*[-•]\s*", "", line).strip()
+            if clean:
+                core_lines.append(clean)
+        if core_lines:
+            return " ".join(core_lines)
+
+    if support_marker in value:
+        value = value.split(support_marker, 1)[1].strip()
+    value = re.sub(r"\s*\(출처:\s*.*?\)\s*$", "", value, flags=re.DOTALL).strip()
+    value = re.sub(r"^\s*핵심\s+참고문장.*?:\s*", "", value, flags=re.DOTALL).strip()
+    return value
 
 
 def _build_generation_text(
@@ -462,9 +493,6 @@ def _build_generation_text(
     memory_active: bool,
     messages: list[dict[str, Any]],
 ) -> str:
-    if memory_active:
-        return build_chat_prompt(tokenizer, question.strip())
-
     if getattr(tokenizer, "chat_template", None):
         try:
             return tokenizer.apply_chat_template(
@@ -477,6 +505,8 @@ def _build_generation_text(
             pass
 
     content = "\n".join(part for part in [*system_texts, user_prompt] if part).strip()
+    # PRAG 메모리가 활성화되어도 검색 근거와 답변 규칙은 텍스트 프롬프트에 남겨 둡니다.
+    # K/V 메모리는 보조 신호이고, 최종 답변의 사실 근거는 RAG 원문이 직접 통제해야 합니다.
     return build_chat_prompt(tokenizer, content)
 
 
