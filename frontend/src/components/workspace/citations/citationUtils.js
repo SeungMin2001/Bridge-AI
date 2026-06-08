@@ -74,7 +74,7 @@ export function buildHighlightedCitationHtml(fullText = '', targetText = '') {
   const range = findHighlightRange(source, target)
   if (!range) return escapeCitationHtml(source)
 
-  const [start, end] = expandRangeToParagraph(source, range)
+  const [start, end] = range
   return [
     escapeCitationHtml(source.slice(0, start)),
     `<mark class="cite-highlighted-script">${escapeCitationHtml(source.slice(start, end))}</mark>`,

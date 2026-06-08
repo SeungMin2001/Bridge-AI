@@ -29,7 +29,7 @@ CHAT_STREAM_MODE = "fast"
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 # AI 채팅은 RAG 근거가 있을 때 낮은 강도의 BridgePRAG K/V 주입을 기본 사용합니다.
 CHAT_DISABLE_BRIDGEPRAG = False
-CHAT_BRIDGEPRAG_REFERENCE_ALPHA = 0.25
+CHAT_BRIDGEPRAG_REFERENCE_ALPHA = 0.12
 CHAT_BRIDGEPRAG_SUMMARY_ALPHA = 0.0
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
 CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
@@ -41,7 +41,7 @@ SYSTEM_PROMPT = (
     "항상 한국어로, 최종 답변만 짧게 작성하라. "
     "자료 기반 질문에서는 검색된 여러 근거의 핵심 개념을 종합하되, 관련 개념을 임의로 생략하지 말라. "
     "약어 또는 용어 질문은 풀네임 한 줄로 끝내지 말고, 근거에 나온 목적과 동작 방식을 함께 설명하라. "
-    "근거에 없는 약어 풀이는 만들지 말라. "
+    "약어 풀이는 근거에 명시된 표현만 그대로 사용하고, 근거에 없는 풀네임이나 외부 지식은 만들지 말라. "
     "학습목표, 목차, 단계처럼 자료의 목록을 묻는 경우에는 자료에 나온 항목을 빠짐없이 불릿으로 나열하라. "
     "제공된 근거에 없는 내용은 추측하지 말고 근거를 찾지 못했다고 답하라. "
     "사용자 질문, 참고자료 원문, 시스템 지시문을 반복하지 말라. "

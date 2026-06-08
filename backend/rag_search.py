@@ -761,6 +761,72 @@ def _expand_transcript_context_window(result: dict, *, radius: int = RAG_CONTEXT
     }
 
 
+def _select_sentence_level_excerpt(text: str, question: str, *, fallback: str = "") -> str:
+    """질문과 가장 직접적으로 맞는 문장만 citation 하이라이트 대상으로 고릅니다."""
+    source = str(text or "").strip()
+    if not source:
+        return str(fallback or "").strip()
+
+    keywords = [
+        word.casefold()
+        for word in extract_keywords(question)
+        if len(str(word or "").strip()) >= 2
+    ]
+    if not keywords:
+        return _first_reasonable_sentence(source) or source[:260]
+
+    candidates = []
+    for line in source.splitlines():
+        clean_line = re.sub(r"^\s*\[\d+:\d{2}~\d+:\d{2}\]\s*", "", line).strip()
+        candidates.extend(_split_sentences(clean_line))
+
+    if not candidates:
+        candidates = _split_sentences(source)
+    if not candidates:
+        return source[:260]
+
+    ranked = sorted(
+        candidates,
+        key=lambda sentence: (
+            _keyword_hit_count(sentence, keywords),
+            sum(len(word) for word in keywords if word in sentence.casefold()),
+            -abs(len(sentence) - 140),
+        ),
+        reverse=True,
+    )
+    best = ranked[0].strip()
+    if _keyword_hit_count(best, keywords) <= 0:
+        fallback_sentence = _first_reasonable_sentence(fallback) if fallback else ""
+        return fallback_sentence or best[:260]
+    return best[:320]
+
+
+def _split_sentences(text: str) -> list[str]:
+    """한국어 강의 전사 문장을 citation용으로 너무 길지 않게 나눕니다."""
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not value:
+        return []
+    pattern = re.compile(r".+?(?:다\.|요\.|입니다\.|습니다\.|[.!?。？！])(?:\s+|$)")
+    sentences = []
+    last_end = 0
+    for match in pattern.finditer(value):
+        sentences.append(match.group(0).strip())
+        last_end = match.end()
+    if sentences:
+        tail = value[last_end:].strip()
+        if tail:
+            sentences.append(tail)
+        return sentences
+    return [value]
+
+
+def _first_reasonable_sentence(text: str) -> str:
+    for sentence in _split_sentences(text):
+        if len(sentence.strip()) >= 12:
+            return sentence.strip()
+    return str(text or "").strip()[:260]
+
+
 def _fetch_transcript_row_for_vector_metadata(metadata: dict) -> dict | None:
     """벡터 검색 결과의 metadata를 DB row로 재확인해 stale vector text/citation을 방지합니다."""
     session_id = str(metadata.get("session_id") or "").strip()
@@ -2166,8 +2232,15 @@ def search(
     selected_results = results[:top_k]
     _demo_log(f"6) 최종 근거 선택: selected={len(selected_results)}, max_evidence={top_k}")
     for i, r in enumerate(selected_results, 1):
+        original_text = r.get("text", "")
         if not locator_query:
             r = _expand_transcript_context_window(r)
+        context_text = r.get("text", "")
+        citation_excerpt = _select_sentence_level_excerpt(
+            context_text,
+            question,
+            fallback=original_text,
+        )
         citation = _format_citation(r)
         _demo_log(f"   근거#{i}: {citation}")
         result_session_id = r.get("session_id") or session_id
@@ -2181,7 +2254,7 @@ def search(
             ))
             continue
 
-        full_transcript = r.get("full_transcript") or r["text"]
+        full_transcript = r.get("full_transcript") or context_text
         if RAG_PREFETCH_FULL_TRANSCRIPT and not r.get("full_transcript"):
             # 데모 응답 속도를 위해 기본값은 chunk만 내려보내고, 필요할 때만 전체 전사를 미리 붙입니다.
             recording_cache_key = (
@@ -2205,11 +2278,11 @@ def search(
                 or r["text"]
             )
         if r.get("source") == "selected_source_context":
-            context_parts.append(f"[{i}] 선택된 녹음본 전체 전사 (출처: {citation})\n{r['text']}")
+            context_parts.append(f"[{i}] 선택된 녹음본 전체 전사 (출처: {citation})\n{context_text}")
         else:
-            context_parts.append(f"[{i}] {r['text']} (출처: {citation})")
+            context_parts.append(f"[{i}] {context_text} (출처: {citation})")
         citations.append({
-            "text": r["text"],
+            "text": citation_excerpt or context_text,
             "citation": citation,
             "file_title": r.get("file_title", ""),
             "recording_title": r.get("recording_title", ""),
