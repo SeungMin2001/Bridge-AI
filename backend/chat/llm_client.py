@@ -29,7 +29,8 @@ CHAT_STREAM_MODE = "fast"
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 # AI 채팅은 RAG 근거가 있을 때 낮은 강도의 BridgePRAG K/V 주입을 기본 사용합니다.
 CHAT_DISABLE_BRIDGEPRAG = False
-CHAT_BRIDGEPRAG_REFERENCE_ALPHA = 0.12
+CHAT_BRIDGEPRAG_REFERENCE_ALPHA = 0.0
+CHAT_BRIDGEPRAG_TOPIC_ALPHA = 0.08
 CHAT_BRIDGEPRAG_SUMMARY_ALPHA = 0.0
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
 CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
@@ -641,7 +642,13 @@ def _openai_chat_payload(
 
 
 def _bridgeprag_alpha_for_prompt(messages: list[dict]) -> float:
-    """RAG 근거가 있는 AI 채팅에서는 낮은 강도의 BridgePRAG K/V 주입을 사용합니다."""
+    """RAG 근거가 있는 AI 채팅에서 K/V 주입 강도를 안정적으로 선택합니다.
+
+    BridgePRAG 메모리 주입은 연구 주제 설명에는 유용하지만, 물리/경제처럼
+    일반 강의 정의를 묻는 데서는 frozen LLM의 문맥 추종을 흔들 수 있습니다.
+    그래서 일반 자료 질문은 RAG prompt를 우선하고, PRAG/BridgePRAG 자체를
+    묻는 경우에만 낮은 alpha로 주입합니다.
+    """
     if CHAT_DISABLE_BRIDGEPRAG:
         return 0.0
 
@@ -649,6 +656,9 @@ def _bridgeprag_alpha_for_prompt(messages: list[dict]) -> float:
     if "검색된 참고자료 전체를 종합" in prompt:
         return CHAT_BRIDGEPRAG_SUMMARY_ALPHA
     if "[검색된 참고자료]" in prompt:
+        prompt_lc = prompt.casefold()
+        if any(term in prompt_lc for term in ("bridgeprag", "prag", "parametric retrieval", "k/v 메모리")):
+            return CHAT_BRIDGEPRAG_TOPIC_ALPHA
         return CHAT_BRIDGEPRAG_REFERENCE_ALPHA
     return 0.0
 

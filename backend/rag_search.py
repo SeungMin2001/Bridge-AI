@@ -163,6 +163,16 @@ _PROGRAMMING_QUERY_HINTS = (
     "소스",
     "알고리즘",
 )
+_ASSIGNMENT_QUERY_HINTS = ("과제", "제출", "마감", "기한", "언제까지", "실습", "숙제", "보고서")
+_ASSIGNMENT_CONTEXT_HINTS = (
+    "과제",
+    "제출",
+    "마감",
+    "실습",
+    "다음 시간까지",
+    "풀어오",
+    "보고서",
+)
 _CODE_HEAVY_RE = re.compile(
     r"(#include|#define|printf\s*\(|scanf\s*\(|\bvoid\s+\w+\s*\(|"
     r"\bint\s+\w+\s*\(|\breturn\s+0\s*;|```|</?\w+>|[{};]{4,})",
@@ -952,6 +962,7 @@ def _prioritize_selected_evidence(results: list[dict], question: str) -> list[di
         enumerate(results),
         key=lambda item: (
             _strong_subject_score(item[1].get("text", ""), strong_terms),
+            _strong_subject_hit_count(item[1].get("text", ""), strong_terms),
             not (_looks_code_heavy(item[1].get("text", "")) and not programming_question),
             _relevance_score(item[1].get("text", ""), keywords),
             any(word in str(item[1].get("text", "")).casefold() for word in keywords),
@@ -1914,6 +1925,16 @@ def _is_programming_question(question: str) -> bool:
     return any(hint in text for hint in _PROGRAMMING_QUERY_HINTS)
 
 
+def _is_assignment_or_schedule_question(question: str) -> bool:
+    text = str(question or "")
+    return any(hint in text for hint in _ASSIGNMENT_QUERY_HINTS)
+
+
+def _looks_assignment_context(text: str) -> bool:
+    value = str(text or "")
+    return any(hint in value for hint in _ASSIGNMENT_CONTEXT_HINTS)
+
+
 def _looks_code_heavy(text: str) -> bool:
     value = str(text or "")
     if not value:
@@ -1969,6 +1990,37 @@ def _strong_subject_score(text: str, strong_terms: list[str]) -> int:
         elif compact_token and compact_token in compact_haystack:
             score += 3 if len(compact_token) >= 4 else 2
     return score
+
+
+def _strong_subject_hit_count(text: str, strong_terms: list[str]) -> int:
+    """질문 핵심어 중 몇 개가 근거에 직접 등장하는지 계산합니다."""
+    if not strong_terms:
+        return 0
+    haystack = str(text or "").casefold()
+    compact_haystack = _compact_text(text)
+    hits = 0
+    for term in strong_terms:
+        token = str(term or "").strip().casefold()
+        compact_token = _compact_text(token)
+        if token and token in haystack:
+            hits += 1
+        elif compact_token and compact_token in compact_haystack:
+            hits += 1
+    return hits
+
+
+def _has_long_subject_match(text: str, strong_terms: list[str]) -> bool:
+    """수요곡선/가격탄력성처럼 긴 복합어가 직접 일치하면 단일 히트도 강한 근거로 봅니다."""
+    haystack = str(text or "").casefold()
+    compact_haystack = _compact_text(text)
+    for term in strong_terms:
+        compact_token = _compact_text(term)
+        token = str(term or "").strip().casefold()
+        if len(compact_token) < 4:
+            continue
+        if token in haystack or compact_token in compact_haystack:
+            return True
+    return False
 
 
 def _relevance_score(text: str, terms: list[str]) -> int:
@@ -2040,23 +2092,37 @@ def _filter_relevant_results(results: list[dict], question: str, *, min_keep: in
     grounded_lookup_query = _is_grounded_lookup_query(question)
     strong_terms = _strong_question_terms(question)
     programming_question = _is_programming_question(question)
+    assignment_question = _is_assignment_or_schedule_question(question)
     scored = []
     kept = []
     for index, item in enumerate(results):
         text = item.get("text", "")
         score = _relevance_score(text, terms)
         strong_score = _strong_subject_score(text, strong_terms)
+        strong_hits = _strong_subject_hit_count(text, strong_terms)
+        has_long_subject = _has_long_subject_match(text, strong_terms)
         code_noise = _looks_code_heavy(text) and not programming_question
         scored.append((score, strong_score, code_noise, index, item))
 
         if grounded_lookup_query and strong_terms:
-            if strong_score <= 0 or code_noise:
+            if code_noise:
+                continue
+            if strong_score <= 0 and score < 12:
+                continue
+            if strong_score > 0 and len(strong_terms) >= 2 and strong_hits < 2 and not has_long_subject:
                 continue
         elif score <= 0:
+            continue
+        elif strong_terms and len(strong_terms) >= 2 and strong_hits < 2 and not has_long_subject:
             continue
         elif code_noise and score < 3:
             continue
         kept.append(item)
+
+    if kept and not assignment_question:
+        non_assignment_kept = [item for item in kept if not _looks_assignment_context(item.get("text", ""))]
+        if len(non_assignment_kept) >= min_keep:
+            kept = non_assignment_kept
 
     if len(kept) >= min_keep:
         return kept
@@ -2218,6 +2284,7 @@ def _prioritize_grounded_lookup_results(
         enumerate(results),
         key=lambda item: (
             _strong_subject_score(item[1].get("text", ""), strong_terms),
+            _strong_subject_hit_count(item[1].get("text", ""), strong_terms),
             not (_looks_code_heavy(item[1].get("text", "")) and not programming_question),
             (item[1].get("source_type") == "material"),
             float(item[1].get("score") or item[1].get("match_count") or 0),
@@ -2497,7 +2564,7 @@ def search(
         results,
         grounded_lookup_query=grounded_lookup_query,
         locator_query=locator_query,
-        top_k=top_k,
+        top_k=candidate_top_k,
         question=question,
     )
     _demo_log(f"5) Hybrid 검색 완료: scope={search_scope}, similar_sentences={len(results)}")
@@ -2540,7 +2607,7 @@ def search(
     citations = []
     full_transcript_cache = {}
     recording_transcript_cache = {}
-    selected_results = _prioritize_selected_evidence(results[:top_k], question)
+    selected_results = _prioritize_selected_evidence(results, question)
     selected_results = _filter_relevant_results(selected_results, question, min_keep=1)
     selected_results = selected_results[:top_k]
     _demo_log(f"6) 최종 근거 선택: selected={len(selected_results)}, max_evidence={top_k}")
