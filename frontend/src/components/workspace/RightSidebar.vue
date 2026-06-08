@@ -28,6 +28,7 @@ const workspaceChatbotAnimationRef = ref(null)
 let workspaceChatbotTimer = null
 
 const WAITING_PHASES = new Set(['streaming', 'thinking', 'analyzing', 'searching', 'generating', 'validating'])
+const TYPEWRITER_INTERVAL_MS = 8
 
 function isWaitingForAi(msg = {}) {
   return WAITING_PHASES.has(msg.phase) && !msg.text && !msg.thinking
@@ -55,6 +56,7 @@ async function sendMessage() {
   // 2. 실제 백엔드 서버 연동 모드 (SSE 스트리밍)
   const t0 = performance.now()
   let ttftLogged = false
+  let stopActiveTypewriter = null
   try {
     const res = await fetch('/chat/stream', {
       method: 'POST',
@@ -74,9 +76,53 @@ async function sendMessage() {
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
-    let streamedText = ''
+    let renderedText = ''
+    let queuedText = ''
     let streamedCitations = []
     let tokenCount = 0
+    let typewriterTimer = null
+
+    const stopTypewriter = () => {
+      if (!typewriterTimer) return
+      window.clearInterval(typewriterTimer)
+      typewriterTimer = null
+    }
+    stopActiveTypewriter = stopTypewriter
+
+    const renderTypewriterTick = () => {
+      if (!queuedText) {
+        stopTypewriter()
+        return
+      }
+      const nextChar = queuedText.slice(0, 1)
+      queuedText = queuedText.slice(1)
+      renderedText += nextChar
+      updateLastAiMessage({
+        role: 'ai',
+        text: renderedText,
+        thinking: '',
+        citations: streamedCitations,
+        phase: 'answering',
+        statusText: ''
+      })
+    }
+
+    const startTypewriter = () => {
+      if (typewriterTimer) return
+      typewriterTimer = window.setInterval(renderTypewriterTick, TYPEWRITER_INTERVAL_MS)
+      renderTypewriterTick()
+    }
+
+    const enqueueVisibleText = (text = '') => {
+      queuedText += String(text || '')
+      startTypewriter()
+    }
+
+    const flushTypewriter = async () => {
+      while (queuedText || typewriterTimer) {
+        await new Promise(resolve => window.setTimeout(resolve, TYPEWRITER_INTERVAL_MS + 4))
+      }
+    }
 
     while (true) {
       const { done, value } = await reader.read()
@@ -96,7 +142,7 @@ async function sendMessage() {
           if (data.type === 'status') {
             updateLastAiMessage({
               role: 'ai',
-              text: streamedText,
+              text: renderedText,
               thinking: '',
               citations: streamedCitations,
               phase: data.phase || 'streaming',
@@ -106,7 +152,7 @@ async function sendMessage() {
             streamedCitations = data.citations
             updateLastAiMessage({
               role: 'ai',
-              text: streamedText,
+              text: renderedText,
               thinking: '',
               citations: streamedCitations,
               phase: 'streaming',
@@ -118,25 +164,9 @@ async function sendMessage() {
               ttftLogged = true
             }
             tokenCount++
-            streamedText += data.token
-            updateLastAiMessage({
-              role: 'ai',
-              text: streamedText,
-              thinking: '',
-              citations: streamedCitations,
-              phase: 'answering',
-              statusText: ''
-            })
+            enqueueVisibleText(data.token)
           } else if (data.type === 'error') {
-            streamedText += `\n오류: ${data.error}`
-            updateLastAiMessage({
-              role: 'ai',
-              text: streamedText,
-              thinking: '',
-              citations: streamedCitations,
-              phase: 'done',
-              statusText: ''
-            })
+            enqueueVisibleText(`\n오류: ${data.error}`)
           }
         } catch (parseErr) {
           // SSE 파싱 실패 시 무시
@@ -144,13 +174,16 @@ async function sendMessage() {
       }
     }
 
+    await flushTypewriter()
+
     const totalMs = performance.now() - t0
     console.log(`⏱️ [응답완료] 총: ${totalMs.toFixed(0)}ms | 토큰: ${tokenCount}개 | 속도: ${(tokenCount / (totalMs / 1000)).toFixed(1)} tok/s`)
 
-    updateLastAiMessage({ role: 'ai', text: streamedText, thinking: '', citations: streamedCitations, phase: 'done', statusText: '' })
+    updateLastAiMessage({ role: 'ai', text: renderedText, thinking: '', citations: streamedCitations, phase: 'done', statusText: '' })
 
   } catch (e) {
     console.error('[오류] 실제 백엔드 서버 연결에 실패했습니다.', e)
+    stopActiveTypewriter?.()
     updateLastAiMessage({
       role: 'ai',
       thinking: '',
