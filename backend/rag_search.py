@@ -337,6 +337,8 @@ RAG_FAST_KEYWORD_MIN_HITS = max(1, int(os.getenv("CHAT_RAG_FAST_KEYWORD_MIN_HITS
 RAG_USE_VECTOR_SEARCH = os.getenv("CHAT_RAG_USE_VECTOR_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
 RAG_VECTOR_CANDIDATE_MULTIPLIER = max(1, int(os.getenv("CHAT_RAG_VECTOR_CANDIDATE_MULTIPLIER", "2")))
 RAG_PREFETCH_FULL_TRANSCRIPT = os.getenv("CHAT_RAG_PREFETCH_FULL_TRANSCRIPT", "0").strip().lower() in {"1", "true", "yes", "on"}
+RAG_CONTEXT_NEIGHBOR_CHUNKS = max(0, int(os.getenv("CHAT_RAG_CONTEXT_NEIGHBOR_CHUNKS", "1")))
+RAG_CONTEXT_NEIGHBOR_MAX_CHARS = max(500, int(os.getenv("CHAT_RAG_CONTEXT_NEIGHBOR_MAX_CHARS", "1800")))
 DEMO_PIPELINE_LOG = os.getenv("RAG_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -672,6 +674,91 @@ def _get_db_recording_transcript(session_id: str | None, recording_id: str = "")
 def _get_full_transcript(session_id: str | None) -> str:
     """출처 팝오버에서 보여줄 세션 전체 전사문을 DB 기준으로 조회합니다."""
     return _get_db_recording_transcript(session_id)
+
+
+def _expand_transcript_context_window(result: dict, *, radius: int = RAG_CONTEXT_NEIGHBOR_CHUNKS) -> dict:
+    """검색된 전사 chunk의 앞뒤 문맥을 함께 가져와 답변 누락을 줄입니다.
+
+    반환된 text/start/end는 citation 범위와 함께 확장되므로, 모델에 전달된
+    근거와 프론트에서 열리는 출처 범위가 어긋나지 않습니다.
+    """
+    if radius <= 0:
+        return result
+    if result.get("source_type", "transcript") != "transcript":
+        return result
+    if result.get("source") == "selected_source_context":
+        return result
+
+    session_id = str(result.get("session_id") or "").strip()
+    recording_id = str(result.get("recording_id") or "").strip()
+    chunk_index = result.get("chunk_index")
+    if not session_id or chunk_index is None:
+        return result
+
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(**_db_config())
+        cur = conn.cursor()
+        values = [session_id, int(chunk_index) - radius, int(chunk_index) + radius]
+        where = [
+            "t.session_id::text = %s",
+            "t.chunk_index BETWEEN %s AND %s",
+        ]
+        if recording_id:
+            where.append("t.recording_id = %s")
+            values.append(recording_id)
+        cur.execute(
+            f"""
+            SELECT t.transcript_id, t.recording_id, t.chunk_index,
+                   t.start_time, t.end_time, t.created_at,
+                   COALESCE(t.corrected_text, t.chunk_text, '') AS chunk_text
+            FROM transcripts t
+            WHERE {" AND ".join(where)}
+            ORDER BY t.chunk_index ASC NULLS LAST,
+                     t.start_time ASC NULLS LAST,
+                     t.created_at ASC
+            """,
+            values,
+        )
+        rows = cur.fetchall()
+    except Exception as exc:
+        logger.warning("[RAG] 주변 전사 문맥 조회 실패: %s", exc)
+        return result
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+    parts = []
+    start_times = []
+    end_times = []
+    transcript_ids = []
+    for transcript_id, row_recording_id, row_chunk_index, start_time, end_time, _created_at, chunk_text in rows:
+        text = str(chunk_text or "").strip()
+        if not text:
+            continue
+        parts.append(f"[{_format_time(float(start_time or 0))}~{_format_time(float(end_time or 0))}] {text}")
+        start_times.append(float(start_time or 0))
+        end_times.append(float(end_time or 0))
+        transcript_ids.append(str(transcript_id))
+
+    if len(parts) <= 1:
+        return result
+
+    expanded_text = "\n".join(parts).strip()
+    if len(expanded_text) > RAG_CONTEXT_NEIGHBOR_MAX_CHARS:
+        expanded_text = f"{expanded_text[:RAG_CONTEXT_NEIGHBOR_MAX_CHARS].rstrip()}\n...[주변 전사 문맥이 길어 일부만 사용했습니다]"
+
+    return {
+        **result,
+        "text": expanded_text,
+        "start_time": min(start_times) if start_times else result.get("start_time", 0),
+        "end_time": max(end_times) if end_times else result.get("end_time", 0),
+        "transcript_id": result.get("transcript_id") or (transcript_ids[0] if transcript_ids else ""),
+        "context_expanded": True,
+    }
 
 
 def _fetch_transcript_row_for_vector_metadata(metadata: dict) -> dict | None:
@@ -2079,6 +2166,8 @@ def search(
     selected_results = results[:top_k]
     _demo_log(f"6) 최종 근거 선택: selected={len(selected_results)}, max_evidence={top_k}")
     for i, r in enumerate(selected_results, 1):
+        if not locator_query:
+            r = _expand_transcript_context_window(r)
         citation = _format_citation(r)
         _demo_log(f"   근거#{i}: {citation}")
         result_session_id = r.get("session_id") or session_id
