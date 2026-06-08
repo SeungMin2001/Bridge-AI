@@ -123,6 +123,7 @@ FAST_RAG_STYLE_PROMPT = (
     "- 특정 키워드나 넓은 개념을 물으면 정의, 특징, 차이, 조건, 예시처럼 근거에 나온 관련 하위 개념을 빠뜨리지 말고 묶어서 설명하세요.\n"
     "- 약어 또는 용어의 의미를 묻는 질문은 풀네임만 말하지 말고, 참고자료에 나온 역할, 동작 방식, 관련 개념까지 함께 설명하세요.\n"
     "- 약어의 풀네임은 참고자료에 명시된 표현만 그대로 사용하고, 참고자료에 없는 풀네임이나 외부 지식은 절대 만들지 마세요.\n"
+    "- 질문의 핵심 용어가 참고자료 문장에 직접 등장하면, 그 문장을 최우선 근거로 삼아 재구성하고 다른 분야의 정의를 섞지 마세요.\n"
     "- 질문/참고자료/시스템 지시문을 반복하지 말고 최종 답변만 작성하세요.\n"
     "- 참고자료에 불릿, 번호, 학습목표, 목차, 단계처럼 목록형 정보가 있으면 항목을 빠짐없이 불릿으로 나열하세요.\n"
     "- 목록형 정보는 원문 표현을 최대한 그대로 유지하고, 없는 항목을 새로 만들지 마세요.\n"
@@ -268,6 +269,21 @@ async def build_prompt_and_citations(
 def _chat_evidence_top_k(question: str) -> int:
     """질문이 넓은 설명/정리형이면 더 많은 근거를 LLM에 전달합니다."""
     text = str(question or "")
+    focused_terms = (
+        "뭐야",
+        "뭐였",
+        "뭐였지",
+        "뭔지",
+        "무슨 뜻",
+        "뜻",
+        "의미",
+        "정의",
+        "란",
+        "이란",
+    )
+    if any(term in text for term in focused_terms):
+        return min(CHAT_EVIDENCE_TOP_K, 3)
+
     broad_terms = (
         "정리",
         "요약",
@@ -282,18 +298,9 @@ def _chat_evidence_top_k(question: str) -> int:
         "원리",
         "특징",
         "종류",
-        "개념",
-        "설명",
-        "알려",
-        "뭐야",
-        "뭐였",
-        "뭐였지",
-        "뭔지",
-        "무슨",
-        "무엇",
-        "뜻",
-        "의미",
-        "정의",
+        "개념들",
+        "설명해",
+        "알려줘",
     )
     return CHAT_EVIDENCE_BROAD_TOP_K if any(term in text for term in broad_terms) else CHAT_EVIDENCE_TOP_K
 
@@ -508,7 +515,20 @@ def _is_assignment_question(question: str) -> bool:
 
 def _is_identity_question(question: str) -> bool:
     text = str(question or "")
-    return any(term in text for term in ("누구", "어떤 사람", "무슨 사람", "뭐 하는 사람", "누군데"))
+    return any(term in text for term in (
+        "누구",
+        "어떤 사람",
+        "무슨 사람",
+        "뭐 하는 사람",
+        "누군데",
+        "뭐였",
+        "뭐였지",
+        "뭐야",
+        "뭔지",
+        "무슨 뜻",
+        "의미",
+        "정의",
+    ))
 
 
 def _clean_evidence_text(value: str) -> str:

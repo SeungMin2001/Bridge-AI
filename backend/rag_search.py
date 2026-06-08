@@ -827,6 +827,29 @@ def _first_reasonable_sentence(text: str) -> str:
     return str(text or "").strip()[:260]
 
 
+def _prioritize_selected_evidence(results: list[dict], question: str) -> list[dict]:
+    """최종 근거 번호가 질문과 가장 직접적인 문장부터 시작되도록 재정렬합니다."""
+    keywords = [
+        word.casefold()
+        for word in extract_keywords(question)
+        if len(str(word or "").strip()) >= 2
+    ]
+    if not keywords or len(results) <= 1:
+        return results
+
+    ranked = sorted(
+        enumerate(results),
+        key=lambda item: (
+            _keyword_hit_count(item[1].get("text", ""), keywords),
+            any(word in str(item[1].get("text", "")).casefold() for word in keywords),
+            float(item[1].get("score") or item[1].get("match_count") or 0.0),
+            -item[0],
+        ),
+        reverse=True,
+    )
+    return [item for _, item in ranked]
+
+
 def _fetch_transcript_row_for_vector_metadata(metadata: dict) -> dict | None:
     """벡터 검색 결과의 metadata를 DB row로 재확인해 stale vector text/citation을 방지합니다."""
     session_id = str(metadata.get("session_id") or "").strip()
@@ -2229,7 +2252,7 @@ def search(
     citations = []
     full_transcript_cache = {}
     recording_transcript_cache = {}
-    selected_results = results[:top_k]
+    selected_results = _prioritize_selected_evidence(results[:top_k], question)
     _demo_log(f"6) 최종 근거 선택: selected={len(selected_results)}, max_evidence={top_k}")
     for i, r in enumerate(selected_results, 1):
         original_text = r.get("text", "")
