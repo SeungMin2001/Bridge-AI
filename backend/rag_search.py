@@ -339,6 +339,7 @@ RAG_VECTOR_CANDIDATE_MULTIPLIER = max(1, int(os.getenv("CHAT_RAG_VECTOR_CANDIDAT
 RAG_PREFETCH_FULL_TRANSCRIPT = os.getenv("CHAT_RAG_PREFETCH_FULL_TRANSCRIPT", "0").strip().lower() in {"1", "true", "yes", "on"}
 RAG_CONTEXT_NEIGHBOR_CHUNKS = max(0, int(os.getenv("CHAT_RAG_CONTEXT_NEIGHBOR_CHUNKS", "1")))
 RAG_CONTEXT_NEIGHBOR_MAX_CHARS = max(500, int(os.getenv("CHAT_RAG_CONTEXT_NEIGHBOR_MAX_CHARS", "1800")))
+RAG_RELEVANT_SENTENCE_COUNT = max(1, int(os.getenv("CHAT_RAG_RELEVANT_SENTENCE_COUNT", "3")))
 DEMO_PIPELINE_LOG = os.getenv("RAG_DEMO_PIPELINE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -767,11 +768,7 @@ def _select_sentence_level_excerpt(text: str, question: str, *, fallback: str = 
     if not source:
         return str(fallback or "").strip()
 
-    keywords = [
-        word.casefold()
-        for word in extract_keywords(question)
-        if len(str(word or "").strip()) >= 2
-    ]
+    keywords = _question_relevance_terms(question)
     if not keywords:
         return _first_reasonable_sentence(source) or source[:260]
 
@@ -799,6 +796,57 @@ def _select_sentence_level_excerpt(text: str, question: str, *, fallback: str = 
         fallback_sentence = _first_reasonable_sentence(fallback) if fallback else ""
         return fallback_sentence or best[:260]
     return best[:320]
+
+
+def _select_relevant_evidence_sentences(text: str, question: str, *, max_sentences: int | None = None) -> list[str]:
+    """LLM이 빠뜨리면 안 되는 질문 관련 문장을 근거 안에서 선별합니다."""
+    source = str(text or "").strip()
+    if not source:
+        return []
+
+    terms = _question_relevance_terms(question)
+    max_sentences = max_sentences or RAG_RELEVANT_SENTENCE_COUNT
+    candidates: list[tuple[int, int, str]] = []
+    for order, line in enumerate(source.splitlines() or [source]):
+        clean_line = re.sub(r"^\s*\[\d+:\d{2}~\d+:\d{2}\]\s*", "", line).strip()
+        for sentence in _split_sentences(clean_line):
+            compact = " ".join(sentence.split())
+            if len(compact) < 8:
+                continue
+            score = _relevance_score(compact, terms)
+            if score > 0:
+                candidates.append((score, order, compact))
+
+    if not candidates:
+        fallback = _first_reasonable_sentence(source)
+        return [fallback] if fallback else []
+
+    # 점수로 우선 고른 뒤, LLM이 자연스럽게 읽도록 원문 등장 순서를 복원합니다.
+    top = sorted(candidates, key=lambda item: (item[0], -item[1], len(item[2])), reverse=True)[:max_sentences]
+    top = sorted(top, key=lambda item: item[1])
+
+    sentences: list[str] = []
+    seen = set()
+    for _, _, sentence in top:
+        key = sentence.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        sentences.append(sentence[:420])
+    return sentences
+
+
+def _format_evidence_context_block(index: int, context_text: str, citation: str, relevant_sentences: list[str]) -> str:
+    """검색 문맥을 핵심 참고문장 중심으로 재구성해 LLM 입력에 넣습니다."""
+    context_text = str(context_text or "").strip()
+    if relevant_sentences:
+        evidence_lines = "\n".join(f"- {sentence}" for sentence in relevant_sentences)
+        return (
+            f"[{index}] 핵심 참고문장 (반드시 답변에 반영):\n{evidence_lines}\n"
+            f"보조 문맥:\n{context_text}\n"
+            f"(출처: {citation})"
+        )
+    return f"[{index}] {context_text} (출처: {citation})"
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -829,18 +877,14 @@ def _first_reasonable_sentence(text: str) -> str:
 
 def _prioritize_selected_evidence(results: list[dict], question: str) -> list[dict]:
     """최종 근거 번호가 질문과 가장 직접적인 문장부터 시작되도록 재정렬합니다."""
-    keywords = [
-        word.casefold()
-        for word in extract_keywords(question)
-        if len(str(word or "").strip()) >= 2
-    ]
+    keywords = _question_relevance_terms(question)
     if not keywords or len(results) <= 1:
         return results
 
     ranked = sorted(
         enumerate(results),
         key=lambda item: (
-            _keyword_hit_count(item[1].get("text", ""), keywords),
+            _relevance_score(item[1].get("text", ""), keywords),
             any(word in str(item[1].get("text", "")).casefold() for word in keywords),
             float(item[1].get("score") or item[1].get("match_count") or 0.0),
             -item[0],
@@ -1792,6 +1836,78 @@ def _keyword_hit_count(text: str, keywords: list[str]) -> int:
     return sum(1 for word in keywords if str(word or "").casefold() in haystack)
 
 
+def _relevance_score(text: str, terms: list[str]) -> int:
+    """질문 관련어가 문장/근거에 얼마나 촘촘히 들어있는지 점수화합니다."""
+    haystack = str(text or "").casefold()
+    if not haystack or not terms:
+        return 0
+    score = 0
+    for term in terms:
+        token = str(term or "").strip().casefold()
+        if not token:
+            continue
+        count = haystack.count(token)
+        if count <= 0:
+            continue
+        score += 2 if len(token) >= 4 else 1
+        score += min(count - 1, 2)
+    return score
+
+
+def _question_relevance_terms(question: str) -> list[str]:
+    """검색/근거 필터링에 사용할 질문 핵심어를 확장합니다."""
+    terms = []
+    for keyword in extract_keywords(question):
+        value = str(keyword or "").strip()
+        if len(value) < 2:
+            continue
+        terms.append(value)
+
+        # 긴 한국어 복합어는 일부만 표현된 관련 문장도 놓치지 않도록 부분 단서를 추가합니다.
+        if len(value) >= 4:
+            for size in (2, 3):
+                for index in range(0, len(value) - size + 1):
+                    piece = value[index:index + size]
+                    if len(piece) >= 2:
+                        terms.append(piece)
+
+    question_text = str(question or "").casefold()
+    if "rag" in question_text:
+        terms.extend(["rag", "검색", "문맥", "passage", "메모리", "k/v"])
+    if "prag" in question_text:
+        terms.extend(["prag", "parametric", "메모리", "k/v", "어텐션", "passage"])
+    if "탄력" in question_text:
+        terms.extend(["탄력", "비탄력", "가격", "수요", "수요량", "총수입", "민감"])
+
+    deduped = []
+    seen = set()
+    for term in terms:
+        normalized = str(term or "").strip().casefold()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
+def _filter_relevant_results(results: list[dict], question: str, *, min_keep: int = 1) -> list[dict]:
+    """질문과 직접 관련 없는 검색 결과를 LLM 입력 전에 줄입니다."""
+    if not results:
+        return []
+    terms = _question_relevance_terms(question)
+    if not terms:
+        return results
+
+    scored = [
+        (_relevance_score(item.get("text", ""), terms), index, item)
+        for index, item in enumerate(results)
+    ]
+    kept = [item for score, _, item in scored if score > 0]
+    if len(kept) >= min_keep:
+        return kept
+    return [item for _, _, item in sorted(scored, key=lambda row: row[1])[:min_keep]]
+
+
 def _merge_results(vector_results: list, keyword_results: list, top_k: int = 5, k: int = 60, query_keywords: list[str] | None = None) -> list[dict]:
     """
     RRF로 벡터 + 키워드 결과를 통합 랭킹.
@@ -2253,13 +2369,16 @@ def search(
     full_transcript_cache = {}
     recording_transcript_cache = {}
     selected_results = _prioritize_selected_evidence(results[:top_k], question)
+    selected_results = _filter_relevant_results(selected_results, question, min_keep=1)
+    selected_results = selected_results[:top_k]
     _demo_log(f"6) 최종 근거 선택: selected={len(selected_results)}, max_evidence={top_k}")
     for i, r in enumerate(selected_results, 1):
         original_text = r.get("text", "")
         if not locator_query:
             r = _expand_transcript_context_window(r)
         context_text = r.get("text", "")
-        citation_excerpt = _select_sentence_level_excerpt(
+        relevant_sentences = _select_relevant_evidence_sentences(context_text, question)
+        citation_excerpt = " ".join(relevant_sentences).strip() or _select_sentence_level_excerpt(
             context_text,
             question,
             fallback=original_text,
@@ -2268,7 +2387,8 @@ def search(
         _demo_log(f"   근거#{i}: {citation}")
         result_session_id = r.get("session_id") or session_id
         if r.get("source_type") == "material":
-            context_parts.append(f"[{i}] {r['text']} (출처: {citation})")
+            material_relevant_sentences = relevant_sentences or _select_relevant_evidence_sentences(r.get("text", ""), question)
+            context_parts.append(_format_evidence_context_block(i, r.get("text", ""), citation, material_relevant_sentences))
             citations.append(build_material_citation(
                 r,
                 citation=citation,
@@ -2301,9 +2421,16 @@ def search(
                 or r["text"]
             )
         if r.get("source") == "selected_source_context":
-            context_parts.append(f"[{i}] 선택된 녹음본 전체 전사 (출처: {citation})\n{context_text}")
+            context_parts.append(
+                _format_evidence_context_block(
+                    i,
+                    f"선택된 녹음본 전체 전사\n{context_text}",
+                    citation,
+                    relevant_sentences,
+                )
+            )
         else:
-            context_parts.append(f"[{i}] {context_text} (출처: {citation})")
+            context_parts.append(_format_evidence_context_block(i, context_text, citation, relevant_sentences))
         citations.append({
             "text": citation_excerpt or context_text,
             "citation": citation,
