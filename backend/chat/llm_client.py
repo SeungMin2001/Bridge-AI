@@ -7,6 +7,7 @@ OpenAI 호환 Chat Completions API와 Ollama native chat API 호출을 감싸고
 import os
 import re
 import json
+import time
 
 import httpx
 
@@ -26,6 +27,7 @@ CHAT_ANSWER_MAX_CHARS = 1800
 CHAT_ANSWER_MAX_SENTENCES = 8
 CHAT_STREAM_HOLD_CHARS = 1
 CHAT_STREAM_MODE = "fast"
+CHAT_GROUNDED_FAST_PATH = True
 CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 # AI 채팅은 RAG 근거가 있을 때 낮은 강도의 BridgePRAG K/V 주입을 기본 사용합니다.
 CHAT_DISABLE_BRIDGEPRAG = False
@@ -196,6 +198,15 @@ async def complete_answer(
     system_prompt: str | None = None,
 ) -> str:
     """비스트리밍 LLM 호출을 수행하고 최종 답변 문자열만 반환합니다."""
+    if CHAT_GROUNDED_FAST_PATH and _needs_grounded_answer_validation(prompt):
+        fast_answer = await _complete_minimal_grounded_answer(
+            prompt,
+            source_filter,
+            max_tokens=max_tokens,
+        )
+        if fast_answer:
+            return fast_answer
+
     messages = build_chat_messages(prompt, system_prompt)
     answer = await _complete_messages(messages, source_filter, max_tokens=max_tokens)
     if _needs_grounded_answer_validation(prompt):
@@ -206,6 +217,33 @@ async def complete_answer(
             max_tokens=max_tokens,
         )
     return answer
+
+
+async def _complete_minimal_grounded_answer(
+    prompt: str,
+    source_filter: dict | None,
+    *,
+    max_tokens: int | None = None,
+) -> str:
+    """긴 RAG prompt 대신 핵심 근거만 먼저 사용해 grounded 답변을 빠르게 생성합니다."""
+    minimal_prompt = _build_minimal_grounded_prompt(prompt)
+    if not minimal_prompt:
+        return ""
+
+    started_at = time.perf_counter()
+    answer = await _complete_messages(
+        build_chat_messages(minimal_prompt, MINIMAL_GROUNDED_SYSTEM_PROMPT),
+        source_filter,
+        max_tokens=max_tokens or CHAT_SOURCE_MAX_TOKENS,
+    )
+    elapsed = time.perf_counter() - started_at
+    print(
+        f"[LLM:grounded-fast] answer_chars={len(answer or '')} "
+        f"valid={_answer_covers_required_points(answer, prompt)} elapsed={elapsed:.3f}s"
+    )
+    if answer and _answer_covers_required_points(answer, prompt):
+        return answer
+    return ""
 
 
 async def _complete_messages(
@@ -327,8 +365,9 @@ def _answer_covers_required_points(answer: str, prompt: str) -> bool:
     if not required_points:
         return True
 
-    # 여러 citation이 있을 때는 최소한 상위 근거들의 핵심 개념이 답변에 들어가야 한다.
-    checked_points = required_points[:4]
+    # 여러 citation이 있을 때는 상위 근거 중심으로 검증한다.
+    # 모든 보조 근거를 강제하면 불필요한 재작성 호출이 늘어 시연 응답성이 떨어진다.
+    checked_points = required_points[:3]
     covered = 0
     for point in checked_points:
         terms = _important_terms_from_point(point)
@@ -340,7 +379,7 @@ def _answer_covers_required_points(answer: str, prompt: str) -> bool:
         if hit_count >= required_hits:
             covered += 1
 
-    required_covered = len(checked_points) if len(checked_points) <= 2 else max(2, len(checked_points) - 1)
+    required_covered = len(checked_points) if len(checked_points) <= 2 else 2
     return covered >= required_covered
 
 

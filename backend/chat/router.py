@@ -138,7 +138,7 @@ async def chat_stream(req: ChatRequest):
             yield _sse_payload({"type": "citations", "citations": citations})
 
             if citations:
-                yield _sse_payload({"type": "status", "phase": "validating", "message": "근거 기반 답변 검증 중"})
+                yield _sse_payload({"type": "status", "phase": "generating", "message": "근거 기반 답변 생성 중"})
             else:
                 yield _sse_payload({"type": "status", "phase": "generating", "message": "답변 생성 중"})
 
