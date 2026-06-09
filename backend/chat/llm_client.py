@@ -104,17 +104,17 @@ def set_llm_url(url: str) -> str:
     return llm_server_url
 
 
-def remove_thinking(text: str) -> str:
+def remove_thinking(text: str, prompt: str = "") -> str:
     """모델 응답에 섞인 <think> 블록이나 chat template 잔여 문자열을 제거합니다."""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     if "<think>" in text:
         text = text[:text.index("<think>")]
     if "assistant\n" in text:
         text = text.split("assistant\n")[-1]
-    return _clean_visible_answer(text)
+    return _clean_visible_answer(text, prompt)
 
 
-def _clean_visible_answer(text: str) -> str:
+def _clean_visible_answer(text: str, prompt: str = "") -> str:
     """서비스 화면에 보여줄 최종 답변만 남기고 과생성된 예시/질문 반복을 잘라냅니다."""
     text = text.replace("\r\n", "\n").strip()
     text, _ = _truncate_at_stop_pattern(text)
@@ -132,11 +132,15 @@ def _clean_visible_answer(text: str) -> str:
         if match:
             text = text[:match.start()].strip()
 
+    is_keyword = "라는 단어의 뜻을" in prompt or "단어의 뜻을 한국어로" in prompt
+    max_sentences = 1 if is_keyword else CHAT_ANSWER_MAX_SENTENCES
+    max_chars = 200 if is_keyword else CHAT_ANSWER_MAX_CHARS
+
     text = _strip_boilerplate(text)
     text = _truncate_before_repeated_sentence(text)
-    text = _trim_sentences(text, CHAT_ANSWER_MAX_SENTENCES)
-    if len(text) > CHAT_ANSWER_MAX_CHARS:
-        text = _trim_to_char_budget(text, CHAT_ANSWER_MAX_CHARS)
+    text = _trim_sentences(text, max_sentences)
+    if len(text) > max_chars:
+        text = _trim_to_char_budget(text, max_chars)
     text = _deduplicate_trailing_citations(text)
     return text.strip()
 
@@ -283,7 +287,12 @@ async def _complete_messages(
         raw_answer = (data.get("message") or {}).get("content", "")
     else:
         raw_answer = data["choices"][0]["message"]["content"]
-    return remove_thinking(raw_answer)
+    user_prompt = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            user_prompt = msg.get("content", "")
+            break
+    return remove_thinking(raw_answer, user_prompt)
 
 
 def _needs_grounded_answer_validation(prompt: str) -> bool:
@@ -508,7 +517,7 @@ async def stream_answer(
         max_tokens=max_tokens,
     )
     cleaner = _clean_token_stream_chunks if CHAT_STREAM_MODE in {"token", "raw", "fast"} else _clean_stream_chunks
-    async for chunk in cleaner(raw_chunks):
+    async for chunk in cleaner(raw_chunks, prompt=prompt):
         emitted_content = True
         yield chunk
 
@@ -585,12 +594,15 @@ async def _raw_stream_answer(
                         yield content
 
 
-async def _clean_stream_chunks(raw_chunks):
+async def _clean_stream_chunks(raw_chunks, prompt: str = ""):
     """raw 토큰을 문장 단위로 정리해, 미완성 문장이 화면에 찍히지 않게 합니다."""
     buffer = ""
     emitted_sentences = 0
     emitted_any = False
     stopped = False
+
+    is_keyword = "라는 단어의 뜻을" in prompt or "단어의 뜻을 한국어로" in prompt
+    max_sentences = 1 if is_keyword else CHAT_ANSWER_MAX_SENTENCES
 
     async for raw in raw_chunks:
         buffer += raw
@@ -599,7 +611,7 @@ async def _clean_stream_chunks(raw_chunks):
             buffer = _strip_leading_answer_noise(buffer)
         buffer = _strip_boilerplate(buffer, strip_edges=False)
 
-        while emitted_sentences < CHAT_ANSWER_MAX_SENTENCES:
+        while emitted_sentences < max_sentences:
             end = _first_sentence_end(buffer)
             if end is None:
                 break
@@ -609,34 +621,38 @@ async def _clean_stream_chunks(raw_chunks):
                 continue
             emitted_any = True
             emitted_sentences += 1
-            yield piece + (" " if emitted_sentences < CHAT_ANSWER_MAX_SENTENCES else "")
+            yield piece + (" " if emitted_sentences < max_sentences else "")
 
         if stopped:
-            fallback = _clean_visible_answer(buffer)
-            if fallback and emitted_sentences < CHAT_ANSWER_MAX_SENTENCES and _ends_like_complete_sentence(fallback):
+            fallback = _clean_visible_answer(buffer, prompt)
+            if fallback and emitted_sentences < max_sentences and _ends_like_complete_sentence(fallback):
                 yield fallback
             return
 
-        if emitted_sentences >= CHAT_ANSWER_MAX_SENTENCES:
+        if emitted_sentences >= max_sentences:
             return
 
     if emitted_any:
-        fallback = _clean_visible_answer(buffer)
-        if fallback and emitted_sentences < CHAT_ANSWER_MAX_SENTENCES and _ends_like_complete_sentence(fallback):
+        fallback = _clean_visible_answer(buffer, prompt)
+        if fallback and emitted_sentences < max_sentences and _ends_like_complete_sentence(fallback):
             yield fallback
         return
 
-    fallback = _clean_visible_answer(buffer)
+    fallback = _clean_visible_answer(buffer, prompt)
     if fallback and _ends_like_complete_sentence(fallback):
         yield fallback
 
 
-async def _clean_token_stream_chunks(raw_chunks):
+async def _clean_token_stream_chunks(raw_chunks, prompt: str = ""):
     """raw 토큰을 빠르게 흘려보내되, 과생성 라벨이 화면에 찍히기 전 작은 버퍼로 잡아냅니다."""
     buffer = ""
     pending = ""
     visible_text = ""
     emitted_any = False
+
+    is_keyword = "라는 단어의 뜻을" in prompt or "단어의 뜻을 한국어로" in prompt
+    max_sentences = 1 if is_keyword else CHAT_ANSWER_MAX_SENTENCES
+    max_chars = 200 if is_keyword else CHAT_ANSWER_MAX_CHARS
 
     async for raw in raw_chunks:
         buffer += raw
@@ -674,12 +690,12 @@ async def _clean_token_stream_chunks(raw_chunks):
 
         candidate = visible_text + piece
         candidate = _truncate_before_repeated_sentence(candidate)
-        candidate = _trim_sentences(candidate, CHAT_ANSWER_MAX_SENTENCES)
+        candidate = _trim_sentences(candidate, max_sentences)
         if len(candidate) <= len(visible_text):
             return
         piece = candidate[len(visible_text):]
 
-        remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
+        remaining = max_chars - len(visible_text)
         if remaining <= 0:
             return
         if len(piece) > remaining:
@@ -693,14 +709,14 @@ async def _clean_token_stream_chunks(raw_chunks):
         for char in _stream_chars(piece):
             yield char
 
-        if stopped or _stream_sentence_count(visible_text) >= CHAT_ANSWER_MAX_SENTENCES:
+        if stopped or _stream_sentence_count(visible_text) >= max_sentences:
             return
 
     if pending:
         pending, _ = _truncate_at_stop_pattern(pending)
-        pending = _clean_visible_answer(pending)
+        pending = _clean_visible_answer(pending, prompt)
         pending = _truncate_before_repeated_sentence(visible_text + pending)[len(visible_text):]
-        remaining = CHAT_ANSWER_MAX_CHARS - len(visible_text)
+        remaining = max_chars - len(visible_text)
         if pending and remaining > 0:
             pending = _trim_to_char_budget(pending, remaining)
             for char in _stream_chars(pending):
@@ -708,7 +724,7 @@ async def _clean_token_stream_chunks(raw_chunks):
             emitted_any = True
 
     if not emitted_any:
-        fallback = _clean_visible_answer(buffer)
+        fallback = _clean_visible_answer(buffer, prompt)
         if fallback:
             for char in _stream_chars(fallback):
                 yield char
