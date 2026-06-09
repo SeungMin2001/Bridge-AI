@@ -1,6 +1,7 @@
 <!-- 홈 화면에서 선택한 강의 자료나 AI 분석 결과를 상세하게 보여주는 오른쪽 사이드바입니다. -->
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
+import { buildHighlightedCitationHtml } from '../workspace/citations/citationUtils'
 
 const props = defineProps({
   isOpen: {
@@ -112,9 +113,9 @@ const highlightedScript = computed(() => {
 
   const target = String(props.referenceData?.raw?.text || '').trim()
 
-  if (target && fullText.includes(target)) {
-    const highlightedTarget = `<mark class="home-reference-highlight">${escapeHtml(target)}</mark>`
-    return fullText.split(target).map((part) => escapeHtml(part)).join(highlightedTarget)
+  if (target) {
+    const html = buildHighlightedCitationHtml(fullText, target)
+    return html.replace(/cite-highlighted-script/g, 'home-reference-highlight')
   }
 
   return escapeHtml(fullText)

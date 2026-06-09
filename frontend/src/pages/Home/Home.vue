@@ -14,7 +14,7 @@ const props = defineProps({
   recentFiles: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['navigate', 'fileSelect', 'update:fileTree', 'update:favorites'])
+const emit = defineEmits(['navigate', 'fileSelect', 'update:fileTree', 'update:favorites', 'open-workspace-source'])
 
 const isSidebarCollapsed = ref(false)
 const hasStartedChat = ref(false)
@@ -67,15 +67,19 @@ const findNodeById = (nodes = [], id = '') => {
 }
 
 const openReferenceFileHandler = (refData) => {
-  const sessionId = refData?.raw?.session_id
+  const raw = refData?.raw || {}
+  const sessionId = raw.session_id
   if (!sessionId) return
 
-  const node = findNodeById(props.fileTree, sessionId)
-  if (node) {
-    emit('fileSelect', sessionId, node)
-  }
-
-  emit('navigate', 'workspace')
+  emit('open-workspace-source', {
+    id: refData.id || `home-ref-${Date.now()}`,
+    sessionId: sessionId,
+    recordingId: raw.recording_id || '',
+    transcriptId: raw.transcript_id || '',
+    sourceStartTime: raw.start_time ?? null,
+    sourceEndTime: raw.end_time ?? null,
+    sourceText: raw.text || raw.full_transcript || ''
+  })
 }
 
 const openRecentFileHandler = (file) => {

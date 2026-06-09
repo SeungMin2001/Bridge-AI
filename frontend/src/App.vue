@@ -118,6 +118,7 @@ function handleScheduleWorkspaceOpen(item = {}) {
     @update:favorites="handleFavoritesUpdate"
     @fileSelect="handleFileSelect"
     @navigate="navigateTo"
+    @open-workspace-source="handleScheduleWorkspaceOpen"
   />
 
   <ScheduleManagement
