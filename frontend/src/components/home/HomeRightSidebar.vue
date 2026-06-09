@@ -551,7 +551,7 @@ watch([referenceSearch, () => searchMatches.value.length], () => {
   font-weight: 900;
   border-radius: 5px;
   padding: 1px 3px;
-  box-shadow: inset 0 -0.34em 0 rgba(250, 204, 21, 0.38);
+  box-shadow: none;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
