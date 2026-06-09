@@ -1183,8 +1183,8 @@ const handleToolbarTitleCompositionEnd = () => {
 
 .transcript-panel-content .segment-wrap.is-current-playback-segment .clickable-word,
 .transcript-panel-content .transcription-row.is-current-playback .voice-message-bubble.is-content > .clickable-word {
-  color: #111827;
-  background: rgba(47, 125, 246, 0.1);
+  color: inherit;
+  background: transparent;
   box-shadow: none;
 }
 
