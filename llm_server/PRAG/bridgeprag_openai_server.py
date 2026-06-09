@@ -571,7 +571,7 @@ def _encode_memory_for_request(request: dict[str, Any]):
     return memory
 
 
-def _generation_kwargs(request: dict[str, Any], streamer: TextIteratorStreamer | None = None) -> dict[str, Any]:
+def _generation_kwargs(request: dict[str, Any], streamer: TextIteratorStreamer | None = None, cancelled: list[bool] | None = None) -> dict[str, Any]:
     inputs = tokenizer(
         request["generation_text"],
         return_tensors="pt",
@@ -583,18 +583,23 @@ def _generation_kwargs(request: dict[str, Any], streamer: TextIteratorStreamer |
     generation_config.no_repeat_ngram_size = int(request.get("no_repeat_ngram_size") or SERVICE_NO_REPEAT_NGRAM_SIZE)
     prompt_len = int(inputs["input_ids"].shape[1])
 
+    stopping_criteria = []
+    if request.get("json_mode"):
+        stopping_criteria.append(JsonCompletionStopCriteria(tokenizer, prompt_len))
+    else:
+        stopping_criteria.append(ServiceStopCriteria(tokenizer, prompt_len, request.get("stop") or []))
+
+    if cancelled is not None:
+        class CancelStoppingCriteria(StoppingCriteria):
+            def __call__(self, input_ids, scores, **kwargs) -> bool:
+                return bool(cancelled[0])
+        stopping_criteria.append(CancelStoppingCriteria())
+
     kwargs = {
         **inputs,
         "generation_config": generation_config,
+        "stopping_criteria": StoppingCriteriaList(stopping_criteria),
     }
-    if request.get("json_mode"):
-        kwargs["stopping_criteria"] = StoppingCriteriaList([
-            JsonCompletionStopCriteria(tokenizer, prompt_len)
-        ])
-    else:
-        kwargs["stopping_criteria"] = StoppingCriteriaList([
-            ServiceStopCriteria(tokenizer, prompt_len, request.get("stop") or [])
-        ])
     if streamer is not None:
         kwargs["streamer"] = streamer
     return kwargs
@@ -622,6 +627,7 @@ def _generate_text(request: dict[str, Any]) -> str:
 def _stream_openai_chunks(request: dict[str, Any]):
     streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
     done_payload = "data: [DONE]\n\n"
+    cancelled = [False]
 
     with generation_lock, torch.no_grad():
         memory = _encode_memory_for_request(request)
@@ -630,7 +636,10 @@ def _stream_openai_chunks(request: dict[str, Any]):
         _demo_log("BRIDGEPRAG", f"5) 스트리밍 생성 시작: max_new_tokens={request.get('max_tokens')}")
         def _worker():
             with torch.no_grad():
-                model.generate(**_generation_kwargs(request, streamer=streamer))
+                try:
+                    model.generate(**_generation_kwargs(request, streamer=streamer, cancelled=cancelled))
+                except Exception as e:
+                    print(f"[BridgePRAG:worker] generate error: {e}", flush=True)
 
         thread = Thread(target=_worker)
         thread.start()
@@ -670,6 +679,18 @@ def _stream_openai_chunks(request: dict[str, Any]):
                 if should_stop:
                     break
             thread.join()
+        except GeneratorExit:
+            cancelled[0] = True
+            for _ in streamer:
+                pass
+            thread.join()
+            raise
+        except Exception:
+            cancelled[0] = True
+            for _ in streamer:
+                pass
+            thread.join()
+            raise
         finally:
             if hook is not None:
                 hook.remove()
