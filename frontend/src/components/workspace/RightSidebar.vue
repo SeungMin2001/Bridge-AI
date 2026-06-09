@@ -22,12 +22,16 @@ const {
   updateLastAiMessage,
   switchChatSession,
   startNewChat,
+  renameChatSession,
   openCitePopover
 } = useChat()
 const isLoading = ref(false)
 const isThinkingMode = ref(false)
 const aiTextarea = ref(null)
 const isSending = ref(false) // 중복 전송 방지용 플래그
+const isChatListOpen = ref(false)
+const editingChatSessionId = ref('')
+const editingChatTitle = ref('')
 const workspaceChatbotAnimationRef = ref(null)
 let workspaceChatbotTimer = null
 
@@ -208,12 +212,32 @@ async function sendMessage() {
 function handleNewChat() {
   if (isSending.value) return
   startNewChat()
+  isChatListOpen.value = false
   emit('update:aiInput', '')
 }
 
-function handleChatSessionChange(event) {
+function handleChatSessionSelect(sessionId) {
   if (isSending.value) return
-  switchChatSession(event.target.value)
+  switchChatSession(sessionId)
+  isChatListOpen.value = false
+  editingChatSessionId.value = ''
+}
+
+function startEditingChatTitle(session) {
+  editingChatSessionId.value = session.id
+  editingChatTitle.value = session.title
+}
+
+function commitChatTitleEdit() {
+  if (!editingChatSessionId.value) return
+  renameChatSession(editingChatSessionId.value, editingChatTitle.value)
+  editingChatSessionId.value = ''
+  editingChatTitle.value = ''
+}
+
+function cancelChatTitleEdit() {
+  editingChatSessionId.value = ''
+  editingChatTitle.value = ''
 }
 
 function handleInput(e) {
@@ -377,21 +401,18 @@ watch(
   >
     <div class="card workspace-right-sidebar-card h-full flex flex-col p-4 pt-3.5 relative min-w-0">
       <div class="chat-session-toolbar">
-        <select
-          class="chat-session-select"
-          :value="activeChatSessionId"
+        <button
+          type="button"
+          class="chat-session-list-toggle"
           :disabled="isSending"
-          aria-label="이전 AI 채팅 선택"
-          @change="handleChatSessionChange"
+          @click="isChatListOpen = !isChatListOpen"
         >
-          <option
-            v-for="session in chatSessionSummaries"
-            :key="session.id"
-            :value="session.id"
-          >
-            {{ session.title }}
-          </option>
-        </select>
+          <span class="material-symbols-outlined">forum</span>
+          <span>{{ chatSessionSummaries.find((session) => session.id === activeChatSessionId)?.title || '새 채팅' }}</span>
+          <span class="material-symbols-outlined chat-session-chevron">
+            {{ isChatListOpen ? 'expand_less' : 'expand_more' }}
+          </span>
+        </button>
         <button
           type="button"
           class="chat-session-new"
@@ -401,6 +422,57 @@ watch(
           <span class="material-symbols-outlined">add</span>
           새 채팅
         </button>
+      </div>
+      <div v-if="isChatListOpen" class="chat-session-list-panel">
+        <button
+          type="button"
+          class="chat-session-list-new"
+          :disabled="isSending"
+          @click="handleNewChat"
+        >
+          <span class="material-symbols-outlined">add_comment</span>
+          새로운 채팅 시작
+        </button>
+        <div class="chat-session-list-scroll custom-scrollbar">
+          <div
+            v-for="session in chatSessionSummaries"
+            :key="session.id"
+            class="chat-session-list-item"
+            :class="{ 'is-active': session.id === activeChatSessionId }"
+          >
+            <button
+              v-if="editingChatSessionId !== session.id"
+              type="button"
+              class="chat-session-title-button"
+              :disabled="isSending"
+              @click="handleChatSessionSelect(session.id)"
+            >
+              <span class="material-symbols-outlined">chat_bubble</span>
+              <span class="chat-session-title-text">{{ session.title }}</span>
+            </button>
+            <input
+              v-else
+              v-model="editingChatTitle"
+              class="chat-session-title-input"
+              type="text"
+              maxlength="40"
+              @keyup.enter="commitChatTitleEdit"
+              @keyup.esc="cancelChatTitleEdit"
+              @blur="commitChatTitleEdit"
+            />
+            <button
+              type="button"
+              class="chat-session-edit-button"
+              :disabled="isSending"
+              :title="editingChatSessionId === session.id ? '이름 저장' : '이름 변경'"
+              @click="editingChatSessionId === session.id ? commitChatTitleEdit() : startEditingChatTitle(session)"
+            >
+              <span class="material-symbols-outlined">
+                {{ editingChatSessionId === session.id ? 'check' : 'edit' }}
+              </span>
+            </button>
+          </div>
+        </div>
       </div>
       <transition name="fade-slide-switch" mode="out-in">
         <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
@@ -529,11 +601,14 @@ watch(
   padding: 2px 2px 0;
 }
 
-.chat-session-select {
+.chat-session-list-toggle {
   flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
   height: 34px;
-  padding: 0 30px 0 12px;
+  padding: 0 10px;
   border: 1px solid #dbe3ee;
   border-radius: 999px;
   background: #f8fafc;
@@ -541,11 +616,29 @@ watch(
   font-size: 12px;
   font-weight: 800;
   outline: none;
+  text-align: left;
 }
 
-.chat-session-select:focus {
+.chat-session-list-toggle span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-session-list-toggle .material-symbols-outlined {
+  flex: 0 0 auto;
+  font-size: 17px;
+  color: #64748b;
+}
+
+.chat-session-list-toggle:focus {
   border-color: #94a3b8;
   background: #ffffff;
+}
+
+.chat-session-chevron {
+  margin-left: auto;
 }
 
 .chat-session-new {
@@ -568,13 +661,122 @@ watch(
 }
 
 .chat-session-new:disabled,
-.chat-session-select:disabled {
+.chat-session-list-toggle:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
 .chat-session-new .material-symbols-outlined {
   font-size: 17px;
+}
+
+.chat-session-list-panel {
+  margin: -4px 2px 12px;
+  padding: 8px;
+  border: 1px solid #e5edf6;
+  border-radius: 18px;
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.chat-session-list-new {
+  width: 100%;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 13px;
+  color: #1d1d1f;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.chat-session-list-new .material-symbols-outlined {
+  font-size: 17px;
+}
+
+.chat-session-list-scroll {
+  max-height: 172px;
+  overflow-y: auto;
+  margin-top: 8px;
+  padding-right: 2px;
+}
+
+.chat-session-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 4px;
+  border-radius: 13px;
+  color: #334155;
+}
+
+.chat-session-list-item.is-active {
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.chat-session-title-button {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  text-align: left;
+}
+
+.chat-session-title-button .material-symbols-outlined {
+  flex: 0 0 auto;
+  font-size: 16px;
+  color: #94a3b8;
+}
+
+.chat-session-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-session-title-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 850;
+  outline: none;
+}
+
+.chat-session-edit-button {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: #64748b;
+}
+
+.chat-session-edit-button:hover:not(:disabled) {
+  background: #eef2f7;
+  color: #1d1d1f;
+}
+
+.chat-session-edit-button .material-symbols-outlined {
+  font-size: 15px;
 }
 
 .chat-input-glow {

@@ -38,10 +38,12 @@ const normalizeChatSession = (session = {}) => {
   const normalizedMessages = Array.isArray(session.messages)
     ? session.messages.map(normalizeStoredMessage).filter((message) => message.text || message.thinking || message.phase !== 'done')
     : []
+  const hasCustomTitle = Boolean(session.customTitle)
 
   return {
     id: String(session.id || createChatSessionId()),
     title: String(session.title || inferChatTitle(normalizedMessages)),
+    customTitle: hasCustomTitle,
     createdAt: session.createdAt || now,
     updatedAt: session.updatedAt || now,
     messages: normalizedMessages.slice(-MAX_STORED_MESSAGES)
@@ -104,11 +106,14 @@ const getActiveChatSession = () => (
 )
 const messages = ref(getActiveChatSession()?.messages || [])
 const activeChatSession = computed(() => getActiveChatSession())
+const getChatSessionTitle = (session = {}) => (
+  session.customTitle ? (session.title || '제목 없는 채팅') : inferChatTitle(session.messages || [])
+)
 const chatSessionSummaries = computed(() => (
   chatSessions.value
     .map((session) => ({
       id: session.id,
-      title: session.title || inferChatTitle(session.messages),
+      title: getChatSessionTitle(session),
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       messageCount: Array.isArray(session.messages) ? session.messages.length : 0
@@ -141,7 +146,9 @@ watch(messages, (nextMessages) => {
       .slice(-MAX_STORED_MESSAGES)
       .map(normalizeStoredMessage)
   activeSession.messages = stableMessages
-  activeSession.title = inferChatTitle(stableMessages)
+  if (!activeSession.customTitle) {
+    activeSession.title = inferChatTitle(stableMessages)
+  }
   activeSession.updatedAt = new Date().toISOString()
   persistChatSessions()
 }, { deep: true })
@@ -359,6 +366,17 @@ export function useChat() {
     persistChatSessions()
   }
 
+  const renameChatSession = (sessionId, title = '') => {
+    const targetSession = chatSessions.value.find((session) => session.id === sessionId)
+    if (!targetSession) return
+
+    const cleanTitle = String(title || '').replace(/\s+/g, ' ').trim()
+    targetSession.title = cleanTitle || inferChatTitle(targetSession.messages)
+    targetSession.customTitle = Boolean(cleanTitle)
+    targetSession.updatedAt = new Date().toISOString()
+    persistChatSessions()
+  }
+
   // 팝오버 열기
   const openCitePopover = (cite, x = 0, y = 0) => {
     if (!cite) return
@@ -432,6 +450,7 @@ export function useChat() {
     switchChatSession,
     startNewChat,
     deleteChatSession,
+    renameChatSession,
     showCitePopover,
     currentCite,
     citePopoverPos,

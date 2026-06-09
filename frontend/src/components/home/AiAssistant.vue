@@ -20,8 +20,12 @@ const {
   addMessage,
   updateLastAiMessage,
   switchChatSession,
-  startNewChat
+  startNewChat,
+  renameChatSession
 } = useChat()
+const isChatListOpen = ref(false)
+const editingChatSessionId = ref('')
+const editingChatTitle = ref('')
 
 async function sendMessage() {
   const question = inputText.value.trim()
@@ -65,12 +69,32 @@ async function sendMessage() {
 function handleNewChat() {
   if (isLoading.value) return
   startNewChat()
+  isChatListOpen.value = false
   inputText.value = ''
 }
 
-function handleChatSessionChange(event) {
+function handleChatSessionSelect(sessionId) {
   if (isLoading.value) return
-  switchChatSession(event.target.value)
+  switchChatSession(sessionId)
+  isChatListOpen.value = false
+  editingChatSessionId.value = ''
+}
+
+function startEditingChatTitle(session) {
+  editingChatSessionId.value = session.id
+  editingChatTitle.value = session.title
+}
+
+function commitChatTitleEdit() {
+  if (!editingChatSessionId.value) return
+  renameChatSession(editingChatSessionId.value, editingChatTitle.value)
+  editingChatSessionId.value = ''
+  editingChatTitle.value = ''
+}
+
+function cancelChatTitleEdit() {
+  editingChatSessionId.value = ''
+  editingChatTitle.value = ''
 }
 </script>
 
@@ -97,21 +121,18 @@ function handleChatSessionChange(event) {
     </div>
 
     <div class="home-chat-session-toolbar">
-      <select
-        class="home-chat-session-select"
-        :value="activeChatSessionId"
+      <button
+        type="button"
+        class="home-chat-session-toggle"
         :disabled="isLoading"
-        aria-label="이전 AI 채팅 선택"
-        @change="handleChatSessionChange"
+        @click="isChatListOpen = !isChatListOpen"
       >
-        <option
-          v-for="session in chatSessionSummaries"
-          :key="session.id"
-          :value="session.id"
-        >
-          {{ session.title }}
-        </option>
-      </select>
+        <span class="material-symbols-outlined text-[15px]">forum</span>
+        <span>{{ chatSessionSummaries.find((session) => session.id === activeChatSessionId)?.title || '새 채팅' }}</span>
+        <span class="material-symbols-outlined text-[15px] ml-auto">
+          {{ isChatListOpen ? 'expand_less' : 'expand_more' }}
+        </span>
+      </button>
       <button
         type="button"
         class="home-chat-session-new"
@@ -121,6 +142,56 @@ function handleChatSessionChange(event) {
         <span class="material-symbols-outlined text-[16px]">add</span>
         새 채팅
       </button>
+    </div>
+    <div v-if="isChatListOpen" class="home-chat-session-list-panel">
+      <button
+        type="button"
+        class="home-chat-session-list-new"
+        :disabled="isLoading"
+        @click="handleNewChat"
+      >
+        <span class="material-symbols-outlined text-[16px]">add_comment</span>
+        새로운 채팅 시작
+      </button>
+      <div class="home-chat-session-list-scroll custom-scrollbar">
+        <div
+          v-for="session in chatSessionSummaries"
+          :key="session.id"
+          class="home-chat-session-list-item"
+          :class="{ 'is-active': session.id === activeChatSessionId }"
+        >
+          <button
+            v-if="editingChatSessionId !== session.id"
+            type="button"
+            class="home-chat-session-title-button"
+            :disabled="isLoading"
+            @click="handleChatSessionSelect(session.id)"
+          >
+            <span class="material-symbols-outlined text-[15px]">chat_bubble</span>
+            <span>{{ session.title }}</span>
+          </button>
+          <input
+            v-else
+            v-model="editingChatTitle"
+            class="home-chat-session-title-input"
+            type="text"
+            maxlength="40"
+            @keyup.enter="commitChatTitleEdit"
+            @keyup.esc="cancelChatTitleEdit"
+            @blur="commitChatTitleEdit"
+          />
+          <button
+            type="button"
+            class="home-chat-session-edit-button"
+            :disabled="isLoading"
+            @click="editingChatSessionId === session.id ? commitChatTitleEdit() : startEditingChatTitle(session)"
+          >
+            <span class="material-symbols-outlined text-[14px]">
+              {{ editingChatSessionId === session.id ? 'check' : 'edit' }}
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="chat-content custom-scrollbar">
@@ -208,11 +279,14 @@ function handleChatSessionChange(event) {
   border-bottom: 1px solid rgba(242, 242, 247, 0.92);
 }
 
-.home-chat-session-select {
+.home-chat-session-toggle {
   flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
   height: 32px;
-  padding: 0 28px 0 10px;
+  padding: 0 9px;
   border-radius: 999px;
   border: 1px solid #e5e7eb;
   background: #f8fafc;
@@ -220,6 +294,13 @@ function handleChatSessionChange(event) {
   font-size: 11px;
   font-weight: 800;
   outline: none;
+}
+
+.home-chat-session-toggle span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .home-chat-session-new {
@@ -237,9 +318,101 @@ function handleChatSessionChange(event) {
 }
 
 .home-chat-session-new:disabled,
-.home-chat-session-select:disabled {
+.home-chat-session-toggle:disabled {
   opacity: 0.56;
   cursor: not-allowed;
+}
+
+.home-chat-session-list-panel {
+  margin: 0 14px 8px;
+  padding: 8px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+}
+
+.home-chat-session-list-new {
+  width: 100%;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 12px;
+  color: #1d1d1f;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.home-chat-session-list-scroll {
+  max-height: 150px;
+  overflow-y: auto;
+  margin-top: 7px;
+}
+
+.home-chat-session-list-item {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+  border-radius: 12px;
+}
+
+.home-chat-session-list-item.is-active {
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.home-chat-session-title-button {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 850;
+  text-align: left;
+}
+
+.home-chat-session-title-button span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-chat-session-title-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 27px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #1d1d1f;
+  font-size: 11px;
+  font-weight: 850;
+  outline: none;
+}
+
+.home-chat-session-edit-button {
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: #64748b;
+}
+
+.home-chat-session-edit-button:hover:not(:disabled) {
+  background: #eef2f7;
+  color: #1d1d1f;
 }
 
 .home-chat-empty {
