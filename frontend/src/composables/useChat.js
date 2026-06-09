@@ -212,7 +212,7 @@ const appendWordInsightText = async (word, text, requestId) => {
   return true
 }
 
-const streamWordExplanation = async (word, context, requestId) => {
+const loadWordExplanation = async (word, context, requestId) => {
   activeWordInsightController?.abort()
   if (activeWordInsightTimeout) {
     clearTimeout(activeWordInsightTimeout)
@@ -220,11 +220,11 @@ const streamWordExplanation = async (word, context, requestId) => {
   }
   const controller = new AbortController()
   activeWordInsightController = controller
-  const timeoutId = setTimeout(() => controller.abort(), 18000)
+  const timeoutId = setTimeout(() => controller.abort(), 30000)
   activeWordInsightTimeout = timeoutId
 
   try {
-    const response = await fetch('/chat/stream', {
+    const response = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
@@ -239,52 +239,24 @@ const streamWordExplanation = async (word, context, requestId) => {
       throw new Error(`서버 응답 오류 (${response.status})`)
     }
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let receivedText = ''
-    let finished = false
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop()
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-
-        const payload = line.slice(6)
-        if (payload === '[DONE]') {
-          finished = true
-          break
-        }
-
-        let data = null
-        try {
-          data = JSON.parse(payload)
-        } catch {
-          continue
-        }
-        if (data.type === 'token' && data.token) {
-          receivedText += data.token
-          const shouldContinue = await appendWordInsightText(word, data.token, requestId)
-          if (!shouldContinue) return
-        } else if (data.type === 'error') {
-          throw new Error(data.error || 'AI 응답 중 오류가 발생했습니다.')
-        }
-      }
-
-      if (finished) break
-    }
+    const data = await response.json()
+    const receivedText = String(data.answer || '').trim()
 
     if (!receivedText.trim()) {
       throw new Error('AI 응답이 비어 있습니다.')
     }
 
     if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return
+    selectedWordData.value = {
+      ...selectedWordData.value,
+      desc: '',
+      source: 'AI 분석 결과',
+      isLoading: true,
+      error: ''
+    }
+
+    const shouldContinue = await appendWordInsightText(word, receivedText, requestId)
+    if (!shouldContinue) return
 
     selectedWordData.value = {
       ...selectedWordData.value,
@@ -296,7 +268,7 @@ const streamWordExplanation = async (word, context, requestId) => {
   } catch (error) {
     if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return
     const message = error?.name === 'AbortError'
-      ? 'AI 설명 요청이 지연되어 중단되었습니다. 다시 눌러 주세요.'
+      ? 'AI 설명 요청이 지연되고 있습니다. 잠시 후 다시 눌러 주세요.'
       : (error?.message || 'AI 분석 결과를 불러오지 못했습니다.')
 
     selectedWordData.value = {
@@ -411,7 +383,7 @@ export function useChat() {
     }
     isWordCardVisible.value = true
 
-    streamWordExplanation(cleanWord, context, requestId)
+    loadWordExplanation(cleanWord, context, requestId)
   }
 
   // 선택된 단어 카드를 잠시 감춥니다.
