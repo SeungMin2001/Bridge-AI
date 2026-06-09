@@ -517,9 +517,14 @@ async def stream_answer(
         max_tokens=max_tokens,
     )
     cleaner = _clean_token_stream_chunks if CHAT_STREAM_MODE in {"token", "raw", "fast"} else _clean_stream_chunks
-    async for chunk in cleaner(raw_chunks, prompt=prompt):
-        emitted_content = True
-        yield chunk
+    clean_stream = cleaner(raw_chunks, prompt=prompt)
+    try:
+        async for chunk in clean_stream:
+            emitted_content = True
+            yield chunk
+    finally:
+        await clean_stream.aclose()
+        await raw_chunks.aclose()
 
     if not emitted_content:
         if state["saw_thinking_only"]:
