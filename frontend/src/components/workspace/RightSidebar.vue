@@ -16,8 +16,12 @@ const emit = defineEmits(['update:aiInput', 'openEvidenceSource'])
 
 const { 
   messages, 
+  chatSessionSummaries,
+  activeChatSessionId,
   addMessage, 
   updateLastAiMessage,
+  switchChatSession,
+  startNewChat,
   openCitePopover
 } = useChat()
 const isLoading = ref(false)
@@ -201,6 +205,17 @@ async function sendMessage() {
   }
 }
 
+function handleNewChat() {
+  if (isSending.value) return
+  startNewChat()
+  emit('update:aiInput', '')
+}
+
+function handleChatSessionChange(event) {
+  if (isSending.value) return
+  switchChatSession(event.target.value)
+}
+
 function handleInput(e) {
   emit('update:aiInput', e.target.value)
   // 높이 자동 조절
@@ -361,6 +376,32 @@ watch(
     :style="{ '--right-sidebar-width': visible ? `${width}px` : '0px' }"
   >
     <div class="card workspace-right-sidebar-card h-full flex flex-col p-4 pt-3.5 relative min-w-0">
+      <div class="chat-session-toolbar">
+        <select
+          class="chat-session-select"
+          :value="activeChatSessionId"
+          :disabled="isSending"
+          aria-label="이전 AI 채팅 선택"
+          @change="handleChatSessionChange"
+        >
+          <option
+            v-for="session in chatSessionSummaries"
+            :key="session.id"
+            :value="session.id"
+          >
+            {{ session.title }}
+          </option>
+        </select>
+        <button
+          type="button"
+          class="chat-session-new"
+          :disabled="isSending"
+          @click="handleNewChat"
+        >
+          <span class="material-symbols-outlined">add</span>
+          새 채팅
+        </button>
+      </div>
       <transition name="fade-slide-switch" mode="out-in">
         <div v-if="messages.length === 0" key="initial-ui" class="flex-1 flex flex-col items-center justify-center px-2">
           <div class="mb-6 flex items-center justify-center">
@@ -478,6 +519,62 @@ watch(
 
 .workspace-right-sidebar-card::after {
   border-color: rgba(226, 232, 240, 0.78);
+}
+
+.chat-session-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 2px 2px 0;
+}
+
+.chat-session-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 30px 0 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 800;
+  outline: none;
+}
+
+.chat-session-select:focus {
+  border-color: #94a3b8;
+  background: #ffffff;
+}
+
+.chat-session-new {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #1d1d1f;
+  font-size: 12px;
+  font-weight: 900;
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+
+.chat-session-new:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.chat-session-new:disabled,
+.chat-session-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chat-session-new .material-symbols-outlined {
+  font-size: 17px;
 }
 
 .chat-input-glow {

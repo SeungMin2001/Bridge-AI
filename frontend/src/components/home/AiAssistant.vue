@@ -13,17 +13,15 @@ const emit = defineEmits(['update:isOpen'])
 
 const inputText = ref('')
 const isLoading = ref(false)
-const { messages, addMessage, updateLastAiMessage } = useChat()
-
-if (!messages.value.length) {
-  addMessage({
-    role: 'ai',
-    text: '안녕하세요! 어떤 것을 도와드릴까요? 강의 노트 요약이나 시험 문제 생성 등을 도와드릴 수 있습니다.',
-    thinking: '',
-    citations: [],
-    phase: 'done'
-  })
-}
+const {
+  messages,
+  chatSessionSummaries,
+  activeChatSessionId,
+  addMessage,
+  updateLastAiMessage,
+  switchChatSession,
+  startNewChat
+} = useChat()
 
 async function sendMessage() {
   const question = inputText.value.trim()
@@ -63,6 +61,17 @@ async function sendMessage() {
     isLoading.value = false
   }
 }
+
+function handleNewChat() {
+  if (isLoading.value) return
+  startNewChat()
+  inputText.value = ''
+}
+
+function handleChatSessionChange(event) {
+  if (isLoading.value) return
+  switchChatSession(event.target.value)
+}
 </script>
 
 <template>
@@ -87,8 +96,40 @@ async function sendMessage() {
       </button>
     </div>
 
+    <div class="home-chat-session-toolbar">
+      <select
+        class="home-chat-session-select"
+        :value="activeChatSessionId"
+        :disabled="isLoading"
+        aria-label="이전 AI 채팅 선택"
+        @change="handleChatSessionChange"
+      >
+        <option
+          v-for="session in chatSessionSummaries"
+          :key="session.id"
+          :value="session.id"
+        >
+          {{ session.title }}
+        </option>
+      </select>
+      <button
+        type="button"
+        class="home-chat-session-new"
+        :disabled="isLoading"
+        @click="handleNewChat"
+      >
+        <span class="material-symbols-outlined text-[16px]">add</span>
+        새 채팅
+      </button>
+    </div>
+
     <div class="chat-content custom-scrollbar">
+      <div v-if="messages.length === 0" class="home-chat-empty">
+        <span class="material-symbols-outlined">chat_bubble</span>
+        <p>새 채팅을 시작해 보세요.<br />강의 요약, 퀴즈, 개념 질문을 바로 도와드릴게요.</p>
+      </div>
       <div
+        v-else
         v-for="(msg, i) in messages"
         :key="i"
         :class="[
@@ -157,6 +198,67 @@ async function sendMessage() {
   background: transparent;
   border: 0;
   box-shadow: none;
+}
+
+.home-chat-session-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid rgba(242, 242, 247, 0.92);
+}
+
+.home-chat-session-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  color: #1d1d1f;
+  font-size: 11px;
+  font-weight: 800;
+  outline: none;
+}
+
+.home-chat-session-new {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #373549;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.home-chat-session-new:disabled,
+.home-chat-session-select:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.home-chat-empty {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #8e8e93;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.home-chat-empty .material-symbols-outlined {
+  color: #c7c7cc;
+  font-size: 30px;
 }
 
 .thinking-loading {

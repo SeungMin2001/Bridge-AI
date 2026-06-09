@@ -51,6 +51,8 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     # 왼쪽 사이드바에서 고른 PDF/녹음본만 AI 채팅 근거로 쓰기 위한 필터.
     source_filter: dict | None = None
+    # 전사 단어 클릭처럼 RAG 검색보다 클릭 문맥 기반 짧은 설명이 필요한 요청을 구분합니다.
+    mode: str | None = None
 
 
 class RegisterRequest(BaseModel):
@@ -62,6 +64,13 @@ class RegisterRequest(BaseModel):
 def _global_chat_scope() -> tuple[None, None]:
     """AI 질문은 파일 선택과 무관하게 모든 전사문/PDF 자료를 검색합니다."""
     return None, None
+
+
+def _is_word_explanation_request(req: ChatRequest) -> bool:
+    """전사문 단어 클릭 설명은 전체 RAG 검색을 생략하고 클릭 문맥만 LLM에 전달합니다."""
+    if str(req.mode or "").strip().lower() == "word_explanation":
+        return True
+    return "라는 단어의 뜻을" in req.question or "단어의 뜻을 한국어로" in req.question
 
 
 @router.post("/register-llm")
@@ -79,7 +88,10 @@ async def chat(req: ChatRequest):
     print(f"[CHAT] 요청 수신: {req.question}")
     _demo_log(f"1) 질문 수신: '{_preview(req.question, 100)}'")
     try:
-        if is_smalltalk_question(req.question):
+        if _is_word_explanation_request(req):
+            prompt, citations = req.question, []
+            _demo_log("2) 단어 설명 요청으로 분류: 클릭 문맥 기반 LLM 직접 전달")
+        elif is_smalltalk_question(req.question):
             prompt, citations = req.question, []
             _demo_log("2) 일반 대화로 분류: RAG 검색 생략, LLM에 직접 전달")
         else:
@@ -91,7 +103,11 @@ async def chat(req: ChatRequest):
             prompt, citations = await build_prompt_and_citations(req.question, search_session_id, search_source_filter)
             _demo_log(f"3) RAG prompt 구성 완료: prompt_chars={len(prompt)}, citations={len(citations)}")
         _demo_log("4) LLM 서버에 답변 생성 요청")
-        answer = await complete_answer(prompt, None, max_tokens=300 if citations else None)
+        answer = await complete_answer(
+            prompt,
+            None,
+            max_tokens=80 if _is_word_explanation_request(req) else (300 if citations else None),
+        )
         _demo_log(f"5) LLM 답변 수신: answer_chars={len(answer or '')}")
         if not answer:
             answer = "모델이 표시 가능한 답변을 반환하지 않았습니다. 다시 질문해 주세요."
@@ -120,7 +136,10 @@ async def chat_stream(req: ChatRequest):
         yield _sse_payload({"type": "status", "phase": "analyzing", "message": "질문 분석 중"})
 
         try:
-            if is_smalltalk_question(req.question):
+            if _is_word_explanation_request(req):
+                _demo_log("2) 단어 설명 요청으로 분류: RAG 검색 생략, 클릭 문맥 기반 LLM 스트리밍")
+                yield _sse_payload({"type": "status", "phase": "generating", "message": "단어 설명 생성 중"})
+            elif is_smalltalk_question(req.question):
                 _demo_log("2) 일반 대화로 분류: RAG 검색 생략, LLM 스트리밍으로 직접 전달")
                 yield _sse_payload({"type": "status", "phase": "generating", "message": "답변 생성 중"})
             else:
@@ -133,8 +152,12 @@ async def chat_stream(req: ChatRequest):
                 _demo_log(f"3) RAG prompt 구성 완료: prompt_chars={len(prompt)}, citations={len(citations)}")
 
             t_rag = time.perf_counter()
-            print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
-            _demo_log(f"4) RAG 단계 완료: elapsed_ms={(t_rag - request_started_at)*1000:.0f}")
+            if _is_word_explanation_request(req):
+                print(f"⏱️ [단어 설명 준비] {(t_rag - request_started_at)*1000:.0f}ms")
+                _demo_log(f"4) 단어 설명 준비 완료: elapsed_ms={(t_rag - request_started_at)*1000:.0f}")
+            else:
+                print(f"⏱️ [RAG 검색] {(t_rag - request_started_at)*1000:.0f}ms")
+                _demo_log(f"4) RAG 단계 완료: elapsed_ms={(t_rag - request_started_at)*1000:.0f}")
             yield _sse_payload({"type": "citations", "citations": citations})
 
             if citations:
@@ -147,7 +170,7 @@ async def chat_stream(req: ChatRequest):
                 prompt,
                 None,
                 thinking=req.is_thinking,
-                max_tokens=300 if citations else None,
+                max_tokens=80 if _is_word_explanation_request(req) else (300 if citations else None),
             ):
                 emitted_content = True
                 if not first_token_logged:

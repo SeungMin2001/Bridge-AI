@@ -1,8 +1,10 @@
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 // 홈/워크스페이스 AI 채팅에서 공유하는 메시지 목록입니다.
-const CHAT_HISTORY_STORAGE_KEY = 'lecto-ai-chat-history-v1'
+const CHAT_SESSIONS_STORAGE_KEY = 'lecto-ai-chat-sessions-v1'
+const LEGACY_CHAT_HISTORY_STORAGE_KEY = 'lecto-ai-chat-history-v1'
 const MAX_STORED_MESSAGES = 80
+const MAX_STORED_SESSIONS = 30
 
 const canUseLocalStorage = () => (
   typeof window !== 'undefined'
@@ -18,35 +20,130 @@ const normalizeStoredMessage = (message = {}) => ({
   statusText: message.statusText || ''
 })
 
-const loadStoredMessages = () => {
-  if (!canUseLocalStorage()) return []
+const createChatSessionId = () => (
+  typeof crypto !== 'undefined' && crypto.randomUUID
+    ? `chat-${crypto.randomUUID()}`
+    : `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+)
 
-  try {
-    const raw = window.localStorage.getItem(CHAT_HISTORY_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed)
-      ? parsed.map(normalizeStoredMessage).filter((message) => message.text || message.thinking)
-      : []
-  } catch (error) {
-    console.warn('[chat] stored history restore failed:', error)
-    return []
+const inferChatTitle = (messages = []) => {
+  const firstUserMessage = messages.find((message) => message.role === 'user' && message.text)
+  const title = String(firstUserMessage?.text || '').replace(/\s+/g, ' ').trim()
+  if (!title) return '새 채팅'
+  return title.length > 24 ? `${title.slice(0, 24)}...` : title
+}
+
+const normalizeChatSession = (session = {}) => {
+  const now = new Date().toISOString()
+  const normalizedMessages = Array.isArray(session.messages)
+    ? session.messages.map(normalizeStoredMessage).filter((message) => message.text || message.thinking || message.phase !== 'done')
+    : []
+
+  return {
+    id: String(session.id || createChatSessionId()),
+    title: String(session.title || inferChatTitle(normalizedMessages)),
+    createdAt: session.createdAt || now,
+    updatedAt: session.updatedAt || now,
+    messages: normalizedMessages.slice(-MAX_STORED_MESSAGES)
   }
 }
 
-const messages = ref(loadStoredMessages())
+const createChatSession = (messages = []) => normalizeChatSession({
+  id: createChatSessionId(),
+  title: inferChatTitle(messages),
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  messages
+})
 
-watch(messages, (nextMessages) => {
+const loadStoredChatState = () => {
+  if (!canUseLocalStorage()) {
+    const session = createChatSession([])
+    return { sessions: [session], activeSessionId: session.id }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(CHAT_SESSIONS_STORAGE_KEY)
+    if (!raw) {
+      const legacyRaw = window.localStorage.getItem(LEGACY_CHAT_HISTORY_STORAGE_KEY)
+      if (!legacyRaw) {
+        const session = createChatSession([])
+        return { sessions: [session], activeSessionId: session.id }
+      }
+
+      const legacyParsed = JSON.parse(legacyRaw)
+      const legacyMessages = Array.isArray(legacyParsed)
+        ? legacyParsed.map(normalizeStoredMessage).filter((message) => message.text || message.thinking)
+        : []
+      const session = createChatSession(legacyMessages)
+      return { sessions: [session], activeSessionId: session.id }
+    }
+
+    const parsed = JSON.parse(raw)
+    const sessions = Array.isArray(parsed?.sessions)
+      ? parsed.sessions.map(normalizeChatSession)
+      : []
+    const safeSessions = sessions.length ? sessions : [createChatSession([])]
+    const activeSessionId = safeSessions.some((session) => session.id === parsed?.activeSessionId)
+      ? parsed.activeSessionId
+      : safeSessions[0].id
+    return { sessions: safeSessions, activeSessionId }
+  } catch (error) {
+    console.warn('[chat] stored sessions restore failed:', error)
+    const session = createChatSession([])
+    return { sessions: [session], activeSessionId: session.id }
+  }
+}
+
+const initialChatState = loadStoredChatState()
+const chatSessions = ref(initialChatState.sessions)
+const activeChatSessionId = ref(initialChatState.activeSessionId)
+const getActiveChatSession = () => (
+  chatSessions.value.find((session) => session.id === activeChatSessionId.value)
+  || chatSessions.value[0]
+)
+const messages = ref(getActiveChatSession()?.messages || [])
+const activeChatSession = computed(() => getActiveChatSession())
+const chatSessionSummaries = computed(() => (
+  chatSessions.value
+    .map((session) => ({
+      id: session.id,
+      title: session.title || inferChatTitle(session.messages),
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      messageCount: Array.isArray(session.messages) ? session.messages.length : 0
+    }))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+))
+
+const persistChatSessions = () => {
   if (!canUseLocalStorage()) return
 
   try {
-    const stableMessages = nextMessages
+    const sessions = chatSessions.value
+      .slice(0, MAX_STORED_SESSIONS)
+      .map(normalizeChatSession)
+    window.localStorage.setItem(CHAT_SESSIONS_STORAGE_KEY, JSON.stringify({
+      activeSessionId: activeChatSessionId.value,
+      sessions
+    }))
+    window.localStorage.removeItem(LEGACY_CHAT_HISTORY_STORAGE_KEY)
+  } catch (error) {
+    console.warn('[chat] stored sessions save failed:', error)
+  }
+}
+
+watch(messages, (nextMessages) => {
+  const activeSession = getActiveChatSession()
+  if (!activeSession) return
+
+  const stableMessages = nextMessages
       .slice(-MAX_STORED_MESSAGES)
       .map(normalizeStoredMessage)
-    window.localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(stableMessages))
-  } catch (error) {
-    console.warn('[chat] stored history save failed:', error)
-  }
+  activeSession.messages = stableMessages
+  activeSession.title = inferChatTitle(stableMessages)
+  activeSession.updatedAt = new Date().toISOString()
+  persistChatSessions()
 }, { deep: true })
 
 // ═══ 근거 확인 팝오버 상태 (전역) ═══
@@ -58,6 +155,8 @@ const citePopoverPos = ref({ x: 0, y: 0 })
 const selectedWordData = ref(null)
 const isWordCardVisible = ref(false)
 let wordInsightRequestId = 0
+let activeWordInsightController = null
+let activeWordInsightTimeout = null
 
 // 전사 단어를 클릭했을 때 보여줄 임시 설명 사전입니다.
 const WORD_EXPLANATIONS = {
@@ -83,7 +182,7 @@ const buildWordExplanationQuestion = (word, context = '') => {
     ? `\n이 단어가 나온 전사 문맥: "${context}"`
     : ''
 
-  return `"${word}"라는 단어의 뜻을 한국어로 쉽게 설명해줘.${contextText}\n답변은 1~2문장으로 짧게 하고, 문맥에서의 의미가 있으면 그 의미를 우선 설명해줘.`
+  return `"${word}"라는 단어의 뜻을 한국어로 쉽게 설명해줘.${contextText}\n답변은 반드시 위 문맥을 우선 반영해서 1문장으로 짧게 설명해줘.`
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -107,13 +206,25 @@ const appendWordInsightText = async (word, text, requestId) => {
 }
 
 const streamWordExplanation = async (word, context, requestId) => {
+  activeWordInsightController?.abort()
+  if (activeWordInsightTimeout) {
+    clearTimeout(activeWordInsightTimeout)
+    activeWordInsightTimeout = null
+  }
+  const controller = new AbortController()
+  activeWordInsightController = controller
+  const timeoutId = setTimeout(() => controller.abort(), 18000)
+  activeWordInsightTimeout = timeoutId
+
   try {
     const response = await fetch('/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         question: buildWordExplanationQuestion(word, context),
-        is_thinking: false
+        is_thinking: false,
+        mode: 'word_explanation'
       })
     })
 
@@ -125,6 +236,7 @@ const streamWordExplanation = async (word, context, requestId) => {
     const decoder = new TextDecoder()
     let buffer = ''
     let receivedText = ''
+    let finished = false
 
     while (true) {
       const { done, value } = await reader.read()
@@ -138,9 +250,17 @@ const streamWordExplanation = async (word, context, requestId) => {
         if (!line.startsWith('data: ')) continue
 
         const payload = line.slice(6)
-        if (payload === '[DONE]') break
+        if (payload === '[DONE]') {
+          finished = true
+          break
+        }
 
-        const data = JSON.parse(payload)
+        let data = null
+        try {
+          data = JSON.parse(payload)
+        } catch {
+          continue
+        }
         if (data.type === 'token' && data.token) {
           receivedText += data.token
           const shouldContinue = await appendWordInsightText(word, data.token, requestId)
@@ -149,6 +269,8 @@ const streamWordExplanation = async (word, context, requestId) => {
           throw new Error(data.error || 'AI 응답 중 오류가 발생했습니다.')
         }
       }
+
+      if (finished) break
     }
 
     if (!receivedText.trim()) {
@@ -166,13 +288,24 @@ const streamWordExplanation = async (word, context, requestId) => {
     }
   } catch (error) {
     if (requestId !== wordInsightRequestId || selectedWordData.value?.word !== word) return
+    const message = error?.name === 'AbortError'
+      ? 'AI 설명 요청이 지연되어 중단되었습니다. 다시 눌러 주세요.'
+      : (error?.message || 'AI 분석 결과를 불러오지 못했습니다.')
 
     selectedWordData.value = {
       ...selectedWordData.value,
       desc: selectedWordData.value?.desc || 'AI 분석 결과를 불러오지 못했습니다.',
       source: 'AI 분석 실패',
       isLoading: false,
-      error: error?.message || 'AI 분석 결과를 불러오지 못했습니다.'
+      error: message
+    }
+  } finally {
+    if (activeWordInsightController === controller) {
+      activeWordInsightController = null
+    }
+    if (activeWordInsightTimeout === timeoutId) {
+      clearTimeout(timeoutId)
+      activeWordInsightTimeout = null
     }
   }
 }
@@ -197,9 +330,33 @@ export function useChat() {
   // 현재 세션의 채팅 메시지를 모두 비웁니다.
   const clearHistory = () => {
     messages.value = []
-    if (canUseLocalStorage()) {
-      window.localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY)
+  }
+
+  const switchChatSession = (sessionId) => {
+    const targetSession = chatSessions.value.find((session) => session.id === sessionId)
+    if (!targetSession) return
+
+    activeChatSessionId.value = targetSession.id
+    messages.value = targetSession.messages.map(normalizeStoredMessage)
+    persistChatSessions()
+  }
+
+  const startNewChat = () => {
+    const session = createChatSession([])
+    chatSessions.value = [session, ...chatSessions.value].slice(0, MAX_STORED_SESSIONS)
+    activeChatSessionId.value = session.id
+    messages.value = []
+    persistChatSessions()
+  }
+
+  const deleteChatSession = (sessionId) => {
+    const remainingSessions = chatSessions.value.filter((session) => session.id !== sessionId)
+    chatSessions.value = remainingSessions.length ? remainingSessions : [createChatSession([])]
+    if (activeChatSessionId.value === sessionId) {
+      activeChatSessionId.value = chatSessions.value[0].id
+      messages.value = chatSessions.value[0].messages.map(normalizeStoredMessage)
     }
+    persistChatSessions()
   }
 
   // 팝오버 열기
@@ -253,15 +410,28 @@ export function useChat() {
 
   // 선택된 단어와 카드 상태를 모두 초기화합니다.
   const clearSelectedWord = () => {
+    activeWordInsightController?.abort()
+    activeWordInsightController = null
+    if (activeWordInsightTimeout) {
+      clearTimeout(activeWordInsightTimeout)
+      activeWordInsightTimeout = null
+    }
     selectedWordData.value = null
     isWordCardVisible.value = false
   }
 
   return {
     messages,
+    chatSessions,
+    chatSessionSummaries,
+    activeChatSessionId,
+    activeChatSession,
     addMessage,
     updateLastAiMessage,
     clearHistory,
+    switchChatSession,
+    startNewChat,
+    deleteChatSession,
     showCitePopover,
     currentCite,
     citePopoverPos,

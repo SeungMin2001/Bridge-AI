@@ -7,7 +7,14 @@ defineProps({
 })
 
 const emit = defineEmits(['close'])
-const { messages, clearHistory } = useChat()
+const {
+  messages,
+  chatSessionSummaries,
+  activeChatSessionId,
+  clearHistory,
+  switchChatSession,
+  startNewChat
+} = useChat()
 
 const formatDate = () => {
   const now = new Date()
@@ -31,10 +38,16 @@ const formatDate = () => {
             </div>
             <div>
               <h2 class="text-[17px] font-bold text-[#1d1d1f]">AI 채팅 히스토리</h2>
-              <p class="text-[11px] text-[#8e8e93] font-medium">현재 세션의 대화 내역입니다</p>
+              <p class="text-[11px] text-[#8e8e93] font-medium">이전 채팅을 선택해 다시 확인할 수 있습니다</p>
             </div>
           </div>
           <div class="flex items-center gap-2">
+            <button
+              class="text-[12px] text-[#1d1d1f] font-semibold px-3 py-1.5 hover:bg-[#1d1d1f]/5 rounded-lg transition-colors"
+              @click="startNewChat"
+            >
+              새 채팅
+            </button>
             <button 
               v-if="messages.length > 0"
               class="text-[12px] text-[#ff3b30] font-semibold px-3 py-1.5 hover:bg-[#ff3b30]/5 rounded-lg transition-colors"
@@ -52,6 +65,21 @@ const formatDate = () => {
         </div>
 
         <!-- Body -->
+        <div class="px-6 pt-4">
+          <div class="flex gap-2 overflow-x-auto custom-scrollbar pb-2">
+            <button
+              v-for="session in chatSessionSummaries"
+              :key="session.id"
+              type="button"
+              class="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold border transition-colors"
+              :class="session.id === activeChatSessionId ? 'bg-[#1d1d1f] text-white border-[#1d1d1f]' : 'bg-white text-[#636366] border-[#e5e5ea]'"
+              @click="switchChatSession(session.id)"
+            >
+              {{ session.title }}
+            </button>
+          </div>
+        </div>
+
         <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
           <div v-if="messages.length === 0" class="h-full flex flex-col items-center justify-center py-20 text-center">
             <div class="w-16 h-16 bg-[#f2f2f7] rounded-full flex items-center justify-center mb-4">
