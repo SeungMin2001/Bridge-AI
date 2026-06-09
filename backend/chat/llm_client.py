@@ -23,8 +23,8 @@ llm_api_key = os.getenv("LLM_API_KEY", "test-key")
 # Demo-safe defaults are fixed in code so the presentation path does not depend on shell env vars.
 CHAT_MAX_TOKENS = 240
 CHAT_SOURCE_MAX_TOKENS = 300
-CHAT_ANSWER_MAX_CHARS = 1200
-CHAT_ANSWER_MAX_SENTENCES = 5
+CHAT_ANSWER_MAX_CHARS = 800
+CHAT_ANSWER_MAX_SENTENCES = 3
 CHAT_STREAM_HOLD_CHARS = 1
 CHAT_STREAM_MODE = "fast"
 CHAT_GROUNDED_FAST_PATH = True
@@ -43,7 +43,7 @@ SYSTEM_PROMPT = (
     "너는 강의 녹취록과 PDF 자료를 근거로 답하는 AI 학습 조교다. "
     "항상 한국어로, 핵심 내용 위주로 요약하여 최종 답변만 간결하게 작성하라. "
     "자료 기반 질문에서는 검색된 여러 근거의 핵심 개념을 종합하되, 관련 개념을 임의로 생략하지 말라. "
-    "정의나 개념을 묻는 질문은 한 문장으로 끝내지 말고, 근거에 함께 나온 원인, 역할, 관계를 2~3문장으로 요약하여 설명하라. "
+    "정의나 개념을 묻는 질문은 한 문장으로 끝내지 말고, 근거에 함께 나온 원인, 역할, 관계를 2문장 내외로 요약하여 설명하라. "
     "약어 또는 용어 질문은 풀네임 한 줄로 끝내지 말고, 근거에 나온 목적과 동작 방식을 함께 2문장 내외로 설명하라. "
     "약어 풀이는 근거에 명시된 표현만 그대로 사용하고, 근거에 없는 풀네임이나 외부 지식은 만들지 말라. "
     "질문 용어가 근거 문장에 직접 나오면 그 문장을 최우선으로 재구성하고 다른 분야의 정의를 섞지 말라. "
@@ -64,7 +64,7 @@ STRICT_GROUNDED_REPAIR_PROMPT = (
     "너는 강의 녹취록과 PDF 자료만 근거로 답하는 검증 담당 AI 학습 조교다. "
     "이전 답변이 근거를 충분히 반영하지 못했으므로, 제공된 [답변 필수 반영 포인트]를 모두 반영해 다시 작성하라. "
     "근거에 없는 정의나 외부 지식을 만들지 말고, 원문 의미를 바꾸지 말라. "
-    "최종 답변만 한국어로 2~5문장 작성하고 citation 번호는 필요한 번호만 답변 끝에 모아 붙여라."
+    "최종 답변만 한국어로 2~3문장 작성하고 citation 번호는 필요한 번호만 답변 끝에 모아 붙여라."
 )
 _GROUNDING_TERM_STOPWORDS = {
     "그리고",
@@ -370,6 +370,7 @@ def _answer_leaks_prompt_or_system(answer: str) -> bool:
         "별도 출처 목록",
         "학습목표, 목차, 단계",
         "자료에 나온 항목",
+        "2~3문장",
         "2~4문장",
         "2~5문장",
         "원인, 역할, 관계",
@@ -433,7 +434,7 @@ def _build_minimal_grounded_prompt(prompt: str) -> str:
         "근거 문장:\n"
         f"{evidence_lines}\n\n"
         f"질문: {question}\n\n"
-        "위 근거 문장의 핵심을 빠뜨리지 말고 2~5문장으로 설명하세요. 답변:"
+        "위 근거 문장의 핵심을 빠뜨리지 말고 2~3문장으로 설명하세요. 답변:"
     )
 
 
