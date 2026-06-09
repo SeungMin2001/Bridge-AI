@@ -364,6 +364,8 @@ def _answer_covers_required_points(answer: str, prompt: str) -> bool:
     required_points = _extract_required_points(prompt)
     if not required_points:
         return True
+    if len(required_points) >= 2 and _visible_sentence_count(answer) < 2:
+        return False
 
     # 여러 citation이 있을 때는 상위 근거 중심으로 검증한다.
     # 모든 보조 근거를 강제하면 불필요한 재작성 호출이 늘어 시연 응답성이 떨어진다.
@@ -420,6 +422,17 @@ def _answer_leaks_prompt_or_system(answer: str) -> bool:
     return any(marker in value for marker in leak_markers)
 
 
+def _visible_sentence_count(text: str) -> int:
+    """사용자에게 보이는 답변이 근거 여러 문장을 설명할 만큼 충분한지 확인합니다."""
+    value = re.sub(r"\[[0-9,\s]+\]", "", str(text or "")).strip()
+    if not value:
+        return 0
+    matches = re.findall(r"[.!?。？！]|다\.|요\.", value)
+    if matches:
+        return len(matches)
+    return 1
+
+
 def _extract_required_points(prompt: str) -> list[str]:
     """context_service가 prompt에 넣은 '- [1] 근거문장' 목록만 추출합니다."""
     value = str(prompt or "")
@@ -449,7 +462,7 @@ def _build_minimal_grounded_prompt(prompt: str) -> str:
         "근거 문장:\n"
         f"{evidence_lines}\n\n"
         f"질문: {question}\n\n"
-        "답변:"
+        "위 근거 문장의 핵심을 빠뜨리지 말고 2~5문장으로 설명하세요. 답변:"
     )
 
 

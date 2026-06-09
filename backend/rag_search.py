@@ -961,7 +961,6 @@ def _format_evidence_context_block(index: int, context_text: str, citation: str,
         evidence_lines = "\n".join(f"- {sentence}" for sentence in relevant_sentences)
         return (
             f"[{index}] 핵심 참고문장 (반드시 답변에 반영):\n{evidence_lines}\n"
-            f"보조 문맥:\n{context_text}\n"
             f"(출처: {citation})"
         )
     return f"[{index}] {context_text} (출처: {citation})"
@@ -2000,6 +1999,13 @@ def _strong_question_terms(question: str) -> list[str]:
         if len(value) < 2:
             continue
         if value.casefold() in _WEAK_RELEVANCE_TERMS or value in _WEAK_RELEVANCE_TERMS:
+            continue
+        compact_value = _compact_text(value)
+        if compact_value and any(
+            compact_value != _compact_text(existing)
+            and compact_value in _compact_text(existing)
+            for existing in terms
+        ):
             continue
         if value.startswith(("설명", "정리", "요약", "알려")) or value.endswith(("했어", "했었어", "했었지", "해줘")):
             continue
