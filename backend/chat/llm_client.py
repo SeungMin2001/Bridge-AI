@@ -21,10 +21,10 @@ llm_server_url = os.getenv("LLM_URL", DEFAULT_LLM_URL)
 llm_model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 llm_api_key = os.getenv("LLM_API_KEY", "test-key")
 # Demo-safe defaults are fixed in code so the presentation path does not depend on shell env vars.
-CHAT_MAX_TOKENS = 320
-CHAT_SOURCE_MAX_TOKENS = 420
-CHAT_ANSWER_MAX_CHARS = 1800
-CHAT_ANSWER_MAX_SENTENCES = 8
+CHAT_MAX_TOKENS = 240
+CHAT_SOURCE_MAX_TOKENS = 300
+CHAT_ANSWER_MAX_CHARS = 1200
+CHAT_ANSWER_MAX_SENTENCES = 5
 CHAT_STREAM_HOLD_CHARS = 1
 CHAT_STREAM_MODE = "fast"
 CHAT_GROUNDED_FAST_PATH = True
@@ -32,7 +32,7 @@ CHAT_OLLAMA_NATIVE = os.getenv("CHAT_OLLAMA_NATIVE", "auto").strip().lower()
 # AI 채팅은 RAG 근거가 있을 때 낮은 강도의 BridgePRAG K/V 주입을 기본 사용합니다.
 CHAT_DISABLE_BRIDGEPRAG = False
 CHAT_BRIDGEPRAG_REFERENCE_ALPHA = 0.0
-CHAT_BRIDGEPRAG_TOPIC_ALPHA = 0.08
+CHAT_BRIDGEPRAG_TOPIC_ALPHA = 0.05
 CHAT_BRIDGEPRAG_SUMMARY_ALPHA = 0.0
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.1"))
 CHAT_LLM_READ_TIMEOUT = float(os.getenv("CHAT_LLM_READ_TIMEOUT", "90.0"))
@@ -319,37 +319,8 @@ async def _repair_grounded_answer_if_needed(
     if repaired and _answer_covers_required_points(repaired, prompt):
         return repaired
 
-    # One more stricter pass catches cases where the first repair copied prompt rules
-    # instead of rewriting the evidence into an answer.
-    strict_repair_prompt = (
-        "아래 [답변 필수 반영 포인트]만 근거로 사용해 최종 답변을 다시 작성하세요. "
-        "시스템 지시문, 규칙, 질문 라벨, 참고자료 원문 라벨은 절대 출력하지 마세요. "
-        "각 포인트의 핵심 개념을 빠뜨리지 말고 2~5문장으로 설명하세요.\n\n"
-        f"{prompt}\n\n"
-        "최종 답변:"
-    )
-    strict_repaired = await _complete_messages(
-        build_chat_messages(strict_repair_prompt, STRICT_GROUNDED_REPAIR_PROMPT),
-        source_filter,
-        max_tokens=max_tokens or CHAT_SOURCE_MAX_TOKENS,
-    )
-    if strict_repaired and _answer_covers_required_points(strict_repaired, prompt):
-        return strict_repaired
-
-    minimal_prompt = _build_minimal_grounded_prompt(prompt)
-    if minimal_prompt:
-        minimal_repaired = await _complete_messages(
-            build_chat_messages(minimal_prompt, MINIMAL_GROUNDED_SYSTEM_PROMPT),
-            source_filter,
-            max_tokens=max_tokens or CHAT_SOURCE_MAX_TOKENS,
-        )
-        if minimal_repaired and _answer_covers_required_points(minimal_repaired, prompt):
-            return minimal_repaired
-
     if repaired and not _answer_leaks_prompt_or_system(repaired):
         return repaired
-    if strict_repaired and not _answer_leaks_prompt_or_system(strict_repaired):
-        return strict_repaired
     return answer
 
 
