@@ -1195,7 +1195,7 @@ const handleToolbarTitleCompositionEnd = () => {
 
 .transcript-panel-content .is-citation-highlight-result .voice-message-bubble {
   border-color: transparent;
-  box-shadow: inset 0 -0.34em 0 rgba(234, 179, 8, 0.16);
+  box-shadow: none;
 }
 
 .transcript-panel-content .empty-transcript-animation {

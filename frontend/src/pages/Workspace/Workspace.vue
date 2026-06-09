@@ -61,7 +61,7 @@ const emit = defineEmits([
 ])
 
 const isLeftSidebarCollapsed = ref(false)
-const { showCitePopover, currentCite, citePopoverPos, closeCitePopover, clearHistory } = useChat()
+const { showCitePopover, currentCite, citePopoverPos, closeCitePopover } = useChat()
 const citationSourceRequest = ref(null)
 const recordingSourceRequest = ref(null)
 const materialEvidenceRequest = ref(null)
@@ -315,7 +315,6 @@ watch(() => props.activeFileId, () => {
   pendingStoppedRecordingPlayer.value = null
   closeMiniSourceMenu()
   selectedMiniSourceIds.value = new Set()
-  clearHistory()
   closeCitePopover()
   emit('update:aiInput', '')
 })
@@ -511,7 +510,6 @@ async function openCitationSource(cite) {
     cite,
     node: sourceNode
   }
-  clearHistory()
   emit('update:aiInput', '')
   closeCitePopover()
 }

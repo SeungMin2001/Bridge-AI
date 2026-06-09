@@ -56,6 +56,7 @@ const isResizing = ref(false)
 const selectedTranscriptSource = ref(null)
 const activeCitationHighlight = ref(null)
 const activePlaybackRecording = ref(null)
+const isPlaybackBarCollapsed = ref(false)
 const playbackAudioRef = ref(null)
 const playbackMediaDuration = ref(0)
 const isPlaybackPlaying = ref(false)
@@ -99,6 +100,9 @@ const visibleTranscriptSourceKey = computed(() => {
   const sourceId = activePlaybackRecording.value?.recordingId || selectedTranscriptSource.value?.recordingId || ''
   return sourceId ? `${sourceId}:${transcriptViewResetKey.value}` : ''
 })
+const shouldShowPlaybackBar = computed(() => (
+  !!activePlaybackRecording.value && !isPlaybackBarCollapsed.value
+))
 const sidebarFileTitle = computed(() => props.activeFileName || '파일을 선택하세요')
 const playbackSourceTitle = computed(() => (
   selectedTranscriptSource.value?.title
@@ -409,10 +413,26 @@ const closePlaybackBar = () => {
   clearPlaybackTimer()
   playbackAudioRef.value?.pause()
   activePlaybackRecording.value = null
+  isPlaybackBarCollapsed.value = false
   isPlaybackPlaying.value = false
   isPlaybackStarting.value = false
   playbackProgress.value = 0
   playbackMediaDuration.value = 0
+}
+
+const collapsePlaybackBar = () => {
+  clearPlaybackTimer()
+  playbackAudioRef.value?.pause()
+  isPlaybackPlaying.value = false
+  isPlaybackStarting.value = false
+  isPlaybackBarCollapsed.value = true
+}
+
+const expandPlaybackBar = async () => {
+  if (!activePlaybackRecording.value) return
+  isPlaybackBarCollapsed.value = false
+  await nextTick()
+  playbackAudioRef.value?.load?.()
 }
 
 const setActivePlaybackRecording = (recording = {}, sessionId = '') => {
@@ -421,6 +441,7 @@ const setActivePlaybackRecording = (recording = {}, sessionId = '') => {
     sessionId,
     recordingId: recording?.id || recording?.recordingId || ''
   }
+  isPlaybackBarCollapsed.value = false
   playbackProgress.value = 0
   playbackMediaDuration.value = 0
   isPlaybackPlaying.value = false
@@ -962,9 +983,9 @@ watch(() => props.recordingSourceRequest, (request) => {
         <div
           v-show="embedded || activeTab === 'voice'"
           class="flex flex-col flex-1 min-h-0 sidebar-content-animate"
-          :class="{ 'has-sidebar-audio-player': activePlaybackRecording }"
+          :class="{ 'has-sidebar-audio-player': shouldShowPlaybackBar }"
         >
-          <div v-if="selectedTranscriptSource && !activePlaybackRecording" class="selected-transcript-source">
+          <div v-if="selectedTranscriptSource && !shouldShowPlaybackBar" class="selected-transcript-source">
             <div class="min-w-0">
               <span>{{ selectedTranscriptSource.meta }}</span>
             </div>
@@ -997,7 +1018,7 @@ watch(() => props.recordingSourceRequest, (request) => {
           <Teleport defer to="#workspace-unified-audio-player-host" :disabled="!embedded">
             <transition name="sidebar-audio-player">
               <section
-                v-if="activePlaybackRecording"
+                v-if="shouldShowPlaybackBar"
                 class="sidebar-audio-player"
                 :class="{ 'is-unified-audio-player': embedded }"
                 aria-label="녹음 재생바"
@@ -1019,11 +1040,11 @@ watch(() => props.recordingSourceRequest, (request) => {
                   <button
                     type="button"
                     class="sidebar-audio-close"
-                    title="스크립트로 돌아가기"
-                    aria-label="스크립트로 돌아가기"
-                    @click="handleCloseTranscriptSource"
+                    title="재생바 접기"
+                    aria-label="재생바 접기"
+                    @click="collapsePlaybackBar"
                   >
-                    <span class="material-symbols-outlined">close</span>
+                    <span class="material-symbols-outlined">keyboard_arrow_down</span>
                   </button>
                 </div>
 
@@ -1066,6 +1087,20 @@ watch(() => props.recordingSourceRequest, (request) => {
                 </div>
               </section>
             </transition>
+          </Teleport>
+          <Teleport defer to="#workspace-unified-audio-player-host" :disabled="!embedded">
+            <button
+              v-if="activePlaybackRecording && isPlaybackBarCollapsed"
+              type="button"
+              class="sidebar-audio-expand"
+              :class="{ 'is-unified-audio-player': embedded }"
+              title="재생바 열기"
+              aria-label="재생바 열기"
+              @click="expandPlaybackBar"
+            >
+              <span class="material-symbols-outlined">keyboard_arrow_up</span>
+              <span>재생바</span>
+            </button>
           </Teleport>
         </div>
       </div>
@@ -1567,6 +1602,55 @@ watch(() => props.recordingSourceRequest, (request) => {
 
 .sidebar-audio-close .material-symbols-outlined {
   font-size: 16px;
+}
+
+.sidebar-audio-expand {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: fit-content;
+  min-width: 86px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: #15161a;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(226, 224, 232, 0.92);
+  box-shadow: 0 8px 20px rgba(48, 42, 58, 0.1);
+  font-size: 11px;
+  font-weight: 900;
+  transition: transform 0.18s ease, background-color 0.18s ease;
+}
+
+.sidebar-audio-expand:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.sidebar-audio-expand:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.sidebar-audio-expand .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.sidebar-audio-expand.is-unified-audio-player {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 72;
+  transform: translateX(-50%);
+}
+
+.sidebar-audio-expand.is-unified-audio-player:hover {
+  transform: translateX(-50%) translateY(-1px);
+}
+
+.sidebar-audio-expand.is-unified-audio-player:active {
+  transform: translateX(-50%) scale(0.98);
 }
 
 .sidebar-audio-track-row {

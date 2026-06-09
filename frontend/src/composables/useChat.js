@@ -1,7 +1,53 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
 // 홈/워크스페이스 AI 채팅에서 공유하는 메시지 목록입니다.
-const messages = ref([])
+const CHAT_HISTORY_STORAGE_KEY = 'lecto-ai-chat-history-v1'
+const MAX_STORED_MESSAGES = 80
+
+const canUseLocalStorage = () => (
+  typeof window !== 'undefined'
+  && typeof window.localStorage !== 'undefined'
+)
+
+const normalizeStoredMessage = (message = {}) => ({
+  role: message.role === 'user' ? 'user' : 'ai',
+  text: String(message.text || ''),
+  thinking: String(message.thinking || ''),
+  citations: Array.isArray(message.citations) ? message.citations : [],
+  phase: message.phase || 'done',
+  statusText: message.statusText || ''
+})
+
+const loadStoredMessages = () => {
+  if (!canUseLocalStorage()) return []
+
+  try {
+    const raw = window.localStorage.getItem(CHAT_HISTORY_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.map(normalizeStoredMessage).filter((message) => message.text || message.thinking)
+      : []
+  } catch (error) {
+    console.warn('[chat] stored history restore failed:', error)
+    return []
+  }
+}
+
+const messages = ref(loadStoredMessages())
+
+watch(messages, (nextMessages) => {
+  if (!canUseLocalStorage()) return
+
+  try {
+    const stableMessages = nextMessages
+      .slice(-MAX_STORED_MESSAGES)
+      .map(normalizeStoredMessage)
+    window.localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(stableMessages))
+  } catch (error) {
+    console.warn('[chat] stored history save failed:', error)
+  }
+}, { deep: true })
 
 // ═══ 근거 확인 팝오버 상태 (전역) ═══
 const showCitePopover = ref(false)
@@ -151,6 +197,9 @@ export function useChat() {
   // 현재 세션의 채팅 메시지를 모두 비웁니다.
   const clearHistory = () => {
     messages.value = []
+    if (canUseLocalStorage()) {
+      window.localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY)
+    }
   }
 
   // 팝오버 열기

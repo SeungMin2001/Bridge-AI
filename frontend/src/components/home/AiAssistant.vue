@@ -1,6 +1,7 @@
 <!-- 사용자와 대화하며 질문에 답변하거나 요약 서비스를 제공하는 AI 비서 팝업 컴포넌트입니다. -->
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref } from 'vue'
+import { useChat } from '../../composables/useChat'
 
 defineProps({
   isOpen: Boolean,
@@ -12,20 +13,28 @@ const emit = defineEmits(['update:isOpen'])
 
 const inputText = ref('')
 const isLoading = ref(false)
-const messages = ref([
-  { role: 'ai', text: '안녕하세요! 어떤 것을 도와드릴까요? 강의 노트 요약이나 시험 문제 생성 등을 도와드릴 수 있습니다.', thinking: '', phase: 'done' }
-])
+const { messages, addMessage, updateLastAiMessage } = useChat()
+
+if (!messages.value.length) {
+  addMessage({
+    role: 'ai',
+    text: '안녕하세요! 어떤 것을 도와드릴까요? 강의 노트 요약이나 시험 문제 생성 등을 도와드릴 수 있습니다.',
+    thinking: '',
+    citations: [],
+    phase: 'done'
+  })
+}
 
 async function sendMessage() {
   const question = inputText.value.trim()
   if (!question) return
 
-  messages.value.push({ role: 'user', text: question })
+  addMessage({ role: 'user', text: question })
   inputText.value = ''
   isLoading.value = true
 
   // 로딩 표시용 임시 버블
-  messages.value.push({ role: 'ai', text: '', thinking: '', citations: [], phase: 'thinking' })
+  addMessage({ role: 'ai', text: '', thinking: '', citations: [], phase: 'thinking' })
 
   try {
     const res = await fetch('/chat', {
@@ -34,23 +43,22 @@ async function sendMessage() {
       body: JSON.stringify({ question }),
     })
     const data = await res.json()
-    // 마지막 메시지를 교체 (Vue 반응성 보장)
-    messages.value[messages.value.length - 1] = {
+    updateLastAiMessage({
       role: 'ai',
       thinking: data.thinking || '',
       text: data.answer || '',
       citations: data.citations || [],
-      phase: 'done',
-    }
+      phase: 'done'
+    })
   } catch (e) {
     console.error('[AI Chat] fetch error:', e)
-    messages.value[messages.value.length - 1] = {
+    updateLastAiMessage({
       role: 'ai',
       thinking: '',
       text: '오류가 발생했습니다. 서버 연결을 확인해주세요.',
       citations: [],
-      phase: 'done',
-    }
+      phase: 'done'
+    })
   } finally {
     isLoading.value = false
   }

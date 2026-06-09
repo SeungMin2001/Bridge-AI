@@ -18,7 +18,7 @@ import { useSummaryState } from './useSummaryState'
 export function useAppState() {
   const isRightSidebarVisible = ref(true)
   const scheduleExtractionNotice = ref(null)
-  const { clearHistory, closeCitePopover } = useChat()
+  const { closeCitePopover } = useChat()
   // 녹음 중에는 현재 전사 스냅샷을 8초마다 요약 API로 넘깁니다.
   const LIVE_SUMMARY_REFRESH_MS = Number(import.meta.env.VITE_LIVE_SUMMARY_REFRESH_MS || 20000)
   let liveSummaryTimer = null
@@ -180,7 +180,6 @@ export function useAppState() {
     const isDifferentFile = activeFileId.value !== id
     if (isDifferentFile) {
       transcriptions.value = []
-      clearHistory()
       closeCitePopover()
       handleAiInputUpdate('')
     }
