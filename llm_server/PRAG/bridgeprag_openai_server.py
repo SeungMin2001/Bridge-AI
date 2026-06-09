@@ -364,8 +364,17 @@ def _payload_wants_json(payload: dict[str, Any], messages: list[dict[str, Any]])
     response_format = payload.get("response_format")
     if isinstance(response_format, dict) and "json" in str(response_format.get("type", "")).lower():
         return True
+    # summary/quiz feature는 항상 JSON 응답을 기대합니다.
+    feature = str(payload.get("demo_feature") or payload.get("feature") or "").lower()
+    if feature in {"summary", "quiz"}:
+        return True
     joined = "\n".join(str(item.get("content") or "") for item in messages)
-    return "json" in joined.lower() and ("JSON" in joined or "json" in joined.lower())
+    if "json" in joined.lower() and ("JSON" in joined or "json" in joined.lower()):
+        return True
+    # 프롬프트에 JSON 형식 지시가 포함된 경우도 감지합니다.
+    if '"summary_text"' in joined or "summary_text" in joined:
+        return True
+    return False
 
 
 def _payload_stop_sequences(payload: dict[str, Any]) -> list[str]:
