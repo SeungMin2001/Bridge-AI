@@ -117,6 +117,8 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 - 객관식 오답도 반드시 선택 소스의 개념을 바탕으로 만든 짧은 지식 문장이어야 합니다.
 - "자료에서 확인할 수 없는 별도의 개념", "자료의 설명과 반대" 같은 메타 문장을 보기로 쓰지 마세요.
 - 각 question은 60자 이내, 각 option은 35자 이내, explanation은 90자 이내의 완결된 한 문장으로 작성하세요.
+- explanation(해설)은 반드시 '~입니다.', '~합니다.'와 같은 설명조 평서문으로만 작성해야 하며, 절대로 질문이나 의문문 형태('~하시겠습니까?', '~선택하시겠습니까?', '~무엇인가요?' 등)로 작성해서는 안 됩니다.
+- 퀴즈 질문(question)은 개념을 묻는 구체적인 질문이어야 하며, 학습의 목표나 강의 목표 자체를 묻는 모호한 질문(예: '학습의 목표는 무엇인가요?')은 절대 생성하지 마세요.
 - 객관식 보기는 긴 문장을 쓰지 말고 핵심어/짧은 구로 작성하세요.
 - JSON 문자열 안에 실제 줄바꿈을 넣지 말고, 모든 따옴표와 대괄호를 반드시 닫으세요.
 - MULTIPLE_CHOICE는 options를 반드시 3~4개 작성하고 correct_answer는 options 중 정확히 하나와 완전히 같아야 합니다.
@@ -164,6 +166,8 @@ QUIZ_REPAIR_PROMPT_TEMPLATE = """아래 퀴즈 JSON은 품질 검증에 실패�
 - 객관식은 options 3~4개와 그중 하나와 완전히 같은 correct_answer가 필요합니다.
 - 문항 유형은 MULTIPLE_CHOICE와 OX만 사용하세요.
 - question은 60자 이내, option은 35자 이내, explanation은 90자 이내의 완결된 한 문장으로 쓰세요.
+- explanation(해설)은 반드시 '~입니다.', '~합니다.'와 같은 설명조 평서문으로만 작성해야 하며, 절대로 질문이나 의문문 형태('~하시겠습니까?', '~선택하시겠습니까?', '~무엇인가요?' 등)로 작성해서는 안 됩니다.
+- 퀴즈 질문(question)은 학습의 목표나 강의 목표 자체를 묻는 모호한 질문(예: '학습의 목표는 무엇인가요?')을 절대 생성하지 말고, 구체적인 핵심 개념을 물어보도록 수정하세요.
 - JSON 외 텍스트는 쓰지 마세요."""
 
 QUIZ_SOURCE_SUMMARY_SYSTEM_PROMPT = """당신은 강의자료와 전사문을 퀴즈 생성에 적합한 학습 요약본으로 정리하는 AI입니다.
@@ -489,10 +493,38 @@ def _trim_text(value: str, limit: int = 90) -> str:
 
 
 def _complete_explanation(value: str, limit: int = 120) -> str:
-    """퀴즈 해설은 말줄임표가 아니라 완결된 한 문장으로 표시합니다."""
+    """퀴즈 해설은 말줄임표가 아니라 완결된 한 문장으로 표시합니다. 질문형 문구는 필터링합니다."""
     text = _clean_quiz_fragment(value).rstrip(" .。…")
     if not text:
         return ""
+
+    # 문장별로 쪼갠 뒤 의문문이나 질문조 문장은 제거합니다.
+    sentences = re.split(r'(?<=[.!?。！？])\s+', text)
+    cleaned_sentences = []
+    for s in sentences:
+        s_strip = s.strip()
+        if not s_strip:
+            continue
+        if s_strip.endswith(('?', '？')):
+            continue
+        question_endings = (
+            "시겠습니까", "겠습니까", "인가요", "일까요", "가요", "나요", 
+            "하나요", "인가", "일까", "는가", "던가", "대요", "래요", 
+            "죠", "지요", "합니까", "입니까", "습니까", "의문", "질문",
+            "선택하시겠습니까", "선택하겠습니까", "골라보세요", "확인해보세요"
+        )
+        clean_s = s_strip.rstrip(".。 ")
+        if clean_s.endswith(question_endings):
+            continue
+        if any(q in clean_s for q in ["무엇을", "어느 것", "어떻게 ", "어떤 "]) and clean_s.endswith(("까", "죠", "요", "다")):
+            continue
+        cleaned_sentences.append(s_strip)
+
+    if cleaned_sentences:
+        text = " ".join(cleaned_sentences)
+    else:
+        text = _clean_quiz_fragment(value).rstrip(" .。…")
+
     if len(text) > limit:
         clipped = text[:limit].rstrip()
         sentence_ends = [
@@ -603,6 +635,9 @@ def _is_good_question_text(value: str) -> bool:
         return False
     if len(text) < 8 or len(text) > 100:
         return False
+    # 학습 목표, 학습의 목표, 강의 목표 자체를 묻는 모호한 질문 필터링
+    if any(phrase in text for phrase in ("학습 목표", "학습의 목표", "강의 목표", "학습목표")):
+        return False
     if len(text) > 76 and any(phrase in text for phrase in ("옳은 것은", "알맞은 것은")):
         return False
     if re.search(r"(입니다|합니다|됩니다|있습니다|없습니다|비례합니다)\.\s*이에 대한 설명", text):
@@ -638,6 +673,9 @@ def _is_good_option_text(value: str) -> bool:
     if _looks_like_heading_fragment(text):
         return False
     if len(text) < 8 or len(text) > 64:
+        return False
+    # 보기에 질문이나 의문형 어미가 포함되어선 안 됨
+    if any(q in text for q in ("옳은 것", "알맞은 것", "옳은 것은", "알맞은 것은", "?", "？", "인가요", "무엇인가", "선택하", "알맞은 역할로")):
         return False
     return True
 
@@ -1940,6 +1978,8 @@ def _build_type_specific_messages(
 - 객관식은 특정 개념을 묻고, 정답과 오답 모두 학습 내용이 담긴 짧은 설명으로 쓰세요.
 - "자료에서 확인할 수 없는 별도의 개념이다"처럼 형식만 맞춘 보기는 만들지 마세요.
 - question은 60자 이내, option은 35자 이내, explanation은 90자 이내의 완결된 한 문장으로 쓰세요.
+- explanation(해설)은 반드시 '~입니다.', '~합니다.'와 같은 설명조 평서문으로만 작성해야 하며, 절대로 질문이나 의문문 형태('~하시겠습니까?', '~선택하시겠습니까?', '~무엇인가요?' 등)로 작성해서는 안 됩니다.
+- 퀴즈 질문(question)은 학습의 목표나 강의 목표 자체를 묻는 모호한 질문(예: '학습의 목표는 무엇인가요?')을 절대 생성하지 말고, 학습 내용에 등장하는 구체적인 개념, 정의, 작동 원리에 대해서만 질문하도록 작성하세요.
 - JSON 배열 외 텍스트는 쓰지 마세요.
 
 반드시 아래처럼 JSON 배열만 응답하세요:
@@ -2018,6 +2058,8 @@ def _build_single_question_messages(
     - 객관식 보기에는 "자료에서 확인할 수 없는", "자료의 설명과 반대", "관련이 있다/없다" 같은 메타 문장을 넣지 마세요.
 - 이미 만든 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
 - question은 60자 이내, option은 35자 이내, explanation은 90자 이내의 완결된 한 문장으로 쓰세요.
+- explanation(해설)은 반드시 '~입니다.', '~합니다.'와 같은 설명조 평서문으로만 작성해야 하며, 절대로 질문이나 의문문 형태('~하시겠습니까?', '~선택하시겠습니까?', '~무엇인가요?' 등)로 작성해서는 안 됩니다.
+- 퀴즈 질문(question)은 학습의 목표나 강의 목표 자체를 묻는 모호한 질문(예: '학습의 목표는 무엇인가요?')을 절대 생성하지 말고, 학습 내용에 등장하는 구체적인 개념, 정의, 작동 원리에 대해서만 질문하도록 작성하세요.
 - JSON 객체 1개만 응답하세요. JSON 외 텍스트는 쓰지 마세요.
 
 응답 형식:

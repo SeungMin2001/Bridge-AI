@@ -149,6 +149,36 @@ def check_quiz_quality() -> None:
 
     repaired = quiz_service._complete_explanation("손실 함수는 예측값과 정답의 차이를 나타내는 기준입니...")
     _assert(repaired.endswith("기준입니다."), f"[quiz] explanation repair failed: {repaired}")
+
+    # 추가 검증: 질문형 꼬리말 제거 테스트
+    repaired_with_question = quiz_service._complete_explanation(
+        "손실 함수는 모델의 예측값과 정답 사이의 차이를 나타내는 기준입니다. 이 과정을 설명하는 문장으로 무엇을 선택하시겠습니까?"
+    )
+    _assert(
+        "무엇을 선택하시겠습니까" not in repaired_with_question,
+        f"[quiz] explanation question tail removal failed: {repaired_with_question}"
+    )
+    _assert(
+        repaired_with_question.strip().endswith("기준입니다."),
+        f"[quiz] explanation question tail cleanup failed: {repaired_with_question}"
+    )
+
+    # 추가 검증: 모호한 학습 목표 질문 차단 테스트
+    goal_question_check = quiz_service._is_good_question_text("학습의 목표는 무엇인가요?")
+    _assert(
+        not goal_question_check,
+        "[quiz] learning goal question should be rejected"
+    )
+
+    # 추가 검증: 다른 질문이 보기로 들어간 경우 차단 테스트
+    option_with_question_check = quiz_service._is_good_option_text(
+        "뉴런에 대한 설명으로 옳은 것은? 뉴런은 입력값에 가중치를 곱해 더한 뒤 활성화 함수를 통과시켜 출력을 만듭니다."
+    )
+    _assert(
+        not option_with_question_check,
+        "[quiz] option containing question should be rejected"
+    )
+
     print("[ok] quiz quality")
 
 
