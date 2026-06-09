@@ -2629,6 +2629,8 @@ watch(
   font-size: 12.5px;
   font-weight: 750;
   line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .quiz-play-grade {
@@ -2813,6 +2815,8 @@ watch(
 
 .quiz-explanation p {
   margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .quiz-grade {

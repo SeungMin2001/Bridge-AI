@@ -501,22 +501,38 @@ def _make_rule_based_title(event_type: str, source_text: str) -> str:
         if assignment_topic:
             return f"{assignment_topic} 과제"
         return "과제 제출"
+
+    detail = _extract_schedule_detail_phrase(source_text, event_type)
     if "기말고사" in source_text:
-        return "기말고사"
+        base_title = "기말고사"
+        return f"{base_title} - {detail}" if detail else base_title
     if "중간고사" in source_text:
-        return "중간고사"
+        base_title = "중간고사"
+        return f"{base_title} - {detail}" if detail else base_title
     if "쪽지시험" in source_text:
-        return "쪽지시험"
+        base_title = "쪽지시험"
+        return f"{base_title} - {detail}" if detail else base_title
     if "퀴즈" in source_text:
-        return "퀴즈"
+        base_title = "퀴즈"
+        return f"{base_title} - {detail}" if detail else base_title
     if event_type == "시험":
-        return "시험 일정"
+        base_title = "시험 일정"
+        return f"{base_title} - {detail}" if detail else base_title
+    if "최종 발표" in source_text:
+        base_title = "최종 발표"
+        return f"{base_title} - {detail}" if detail else base_title
+    if "중간 발표" in source_text:
+        base_title = "중간 발표"
+        return f"{base_title} - {detail}" if detail else base_title
     if "프로젝트" in source_text and event_type == "발표":
-        return "프로젝트 발표"
+        base_title = "프로젝트 발표"
+        return f"{base_title} - {detail}" if detail else base_title
     if event_type == "프로젝트":
-        return "프로젝트 일정"
+        base_title = "프로젝트 일정"
+        return f"{base_title} - {detail}" if detail else base_title
     if event_type == "발표":
-        return "발표 일정"
+        base_title = "발표 일정"
+        return f"{base_title} - {detail}" if detail else base_title
     if "보강" in source_text:
         return "보강 일정"
     if "휴강" in source_text:
@@ -574,6 +590,74 @@ def _extract_assignment_topic(source_text: str) -> str:
     return ""
 
 
+def _is_generic_schedule_detail(text: str) -> bool:
+    """일정 제목에 넣기에는 너무 일반적인 표현인지 확인한다."""
+    compact = re.sub(r"\s+", "", text or "")
+    if not compact:
+        return True
+    generic_patterns = (
+        "시험", "고사", "기말고사", "중간고사", "퀴즈", "쪽지시험",
+        "발표", "최종발표", "중간발표", "프로젝트", "일정",
+        "있습니다", "봅니다", "치릅니다", "예정입니다",
+    )
+    return compact in generic_patterns
+
+
+def _compact_schedule_detail(text: str, event_type: str) -> str:
+    """시험 범위나 발표 주제처럼 알림 제목/설명에 넣을 핵심 내용을 정리한다."""
+    cleaned = _strip_schedule_date_phrases(text)
+    cleaned = re.sub(r"^(저희|이번|다음|오늘|여러분|교수님이|교수님께서)\s*", "", cleaned)
+    cleaned = re.sub(r"(범위|범위는|주제|주제는|내용|내용은|준비\s*내용|준비\s*범위)\s*[:：은는]?\s*", "", cleaned)
+
+    if event_type == "시험":
+        cleaned = re.sub(r"(기말고사|중간고사|쪽지시험|시험|고사|퀴즈)\s*(은|는|입니다|이에요|으로|로|을|를|가)?", " ", cleaned)
+    elif event_type == "발표":
+        cleaned = re.sub(r"(최종\s*발표|중간\s*발표|프로젝트\s*발표|발표|세미나|프레젠테이션)\s*(은|는|입니다|이에요|으로|로|을|를|가)?", " ", cleaned)
+    elif event_type == "프로젝트":
+        cleaned = re.sub(r"(프로젝트|팀플|설계)\s*(은|는|입니다|이에요|으로|로|을|를|가)?", " ", cleaned)
+
+    cleaned = re.sub(
+        r"(준비해\s*주세요|준비해주세요|준비하세요|준비해\s*오세요|공부해\s*오세요|"
+        r"확인해\s*주세요|확인해주세요|가져오세요|봅니다|치릅니다|있습니다|예정입니다|입니다|합니다|이에요)$",
+        " ",
+        cleaned,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,，:：-")
+    if _is_generic_schedule_detail(cleaned):
+        return ""
+    return cleaned[:34].rstrip(" .,，")
+
+
+def _extract_schedule_detail_phrase(source_text: str, event_type: str) -> str:
+    """날짜 문장 주변의 시험 범위, 발표 주제, 준비 내용을 제목에 반영한다."""
+    if event_type == "과제":
+        return _extract_assignment_topic(source_text)
+
+    priority_patterns = {
+        "시험": r"범위|단원|챕터|chapter|장|준비|공부|자료|부분|까지",
+        "발표": r"주제|시연|데모|자료|슬라이드|발표\s*내용|준비",
+        "프로젝트": r"주제|구현|설계|시연|데모|요구사항|결과물",
+        "기타": r"장소|강의실|실습|보강|휴강|특강",
+    }
+    pattern = priority_patterns.get(event_type, r"주제|내용|범위|준비")
+
+    sentences = _split_schedule_sentences(source_text)
+    scored: list[tuple[int, str]] = []
+    for sentence in sentences or [source_text]:
+        detail = _compact_schedule_detail(sentence, event_type)
+        if not detail:
+            continue
+        score = 2 if re.search(pattern, sentence, re.IGNORECASE) else 1
+        if SCHEDULE_DATE_HINT_PATTERN.search(sentence):
+            score -= 1
+        scored.append((score, detail))
+
+    if not scored:
+        return ""
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored[0][1]
+
+
 def _needs_assignment_context(sentence: str) -> bool:
     """마감 문장만 있고 과제 내용이 부족한 경우 주변 문장을 같이 사용한다."""
     if not re.search(r"과제|제출|마감|보고서|레포트|리포트", sentence):
@@ -581,20 +665,46 @@ def _needs_assignment_context(sentence: str) -> bool:
     return not _extract_assignment_topic(sentence)
 
 
-def _build_rule_source_text(sentences: list[str], index: int, event_type: str) -> str:
-    """날짜 문장에 과제 내용이 부족하면 앞뒤 문맥을 붙인다."""
-    sentence = sentences[index]
-    if event_type != "과제" or not _needs_assignment_context(sentence):
-        return sentence
+def _is_context_detail_sentence(sentence: str, event_type: str) -> bool:
+    """날짜 문장과 이어지는 범위/주제/준비 문장인지 판단한다."""
+    clean = (sentence or "").strip()
+    if not clean or len(clean) > 180:
+        return False
+    if _is_non_academic(clean, "", ""):
+        return False
+    # 다른 날짜가 들어간 별도 일정은 합치지 않는다.
+    if SCHEDULE_DATE_HINT_PATTERN.search(clean) and any(keyword in clean for keyword in SCHEDULE_EVENT_KEYWORDS):
+        return False
 
+    context_patterns = {
+        "시험": r"범위|단원|챕터|chapter|장|준비|공부|자료|부분|서술형|객관식|오픈북|까지",
+        "과제": r"과제|숙제|보고서|레포트|리포트|제출|작성|주제|내용|분량|양식|파일|업로드",
+        "발표": r"발표|주제|시연|데모|자료|슬라이드|팀|준비|순서|발표자",
+        "프로젝트": r"프로젝트|팀플|기획|구현|설계|주제|결과물|시연|데모",
+        "기타": r"보강|휴강|실습|특강|장소|강의실|자료",
+    }
+    return bool(re.search(context_patterns.get(event_type, r"주제|내용|준비|자료"), clean, re.IGNORECASE))
+
+
+def _build_rule_source_text(sentences: list[str], index: int, event_type: str) -> str:
+    """날짜 문장에 범위/주제/준비 내용이 부족하면 앞뒤 문맥을 붙인다."""
+    sentence = sentences[index]
     context = []
-    if index > 0 and len(sentences[index - 1]) <= 180:
+    if index > 0 and _is_context_detail_sentence(sentences[index - 1], event_type):
         context.append(sentences[index - 1])
     context.append(sentence)
-    if index + 1 < len(sentences) and "과제" in sentences[index + 1] and len(sentences[index + 1]) <= 180:
+
+    should_expand_next = (
+        event_type != "과제"
+        or _needs_assignment_context(sentence)
+        or not _extract_schedule_detail_phrase(sentence, event_type)
+    )
+    if index + 1 < len(sentences) and should_expand_next and _is_context_detail_sentence(sentences[index + 1], event_type):
         context.append(sentences[index + 1])
+
     expanded = " ".join(context)
-    _demo_log(f"문맥 확장: base='{_preview(sentence, 80)}' expanded='{_preview(expanded, 140)}'")
+    if expanded != sentence:
+        _demo_log(f"문맥 확장: base='{_preview(sentence, 80)}' expanded='{_preview(expanded, 140)}'")
     return expanded
 
 

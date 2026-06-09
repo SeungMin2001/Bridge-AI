@@ -116,7 +116,7 @@ QUIZ_USER_PROMPT_TEMPLATE = """아래는 강의 전사문입니다:
 - 객관식 질문은 "강의 내용과 가장 일치하는 설명"처럼 전체 자료를 묻지 말고, 역전파/손실 함수처럼 특정 개념을 직접 물으세요.
 - 객관식 오답도 반드시 선택 소스의 개념을 바탕으로 만든 짧은 지식 문장이어야 합니다.
 - "자료에서 확인할 수 없는 별도의 개념", "자료의 설명과 반대" 같은 메타 문장을 보기로 쓰지 마세요.
-- 각 question은 60자 이내, 각 option은 35자 이내, explanation은 50자 이내 한 문장으로 작성하세요.
+- 각 question은 60자 이내, 각 option은 35자 이내, explanation은 90자 이내의 완결된 한 문장으로 작성하세요.
 - 객관식 보기는 긴 문장을 쓰지 말고 핵심어/짧은 구로 작성하세요.
 - JSON 문자열 안에 실제 줄바꿈을 넣지 말고, 모든 따옴표와 대괄호를 반드시 닫으세요.
 - MULTIPLE_CHOICE는 options를 반드시 3~4개 작성하고 correct_answer는 options 중 정확히 하나와 완전히 같아야 합니다.
@@ -163,7 +163,7 @@ QUIZ_REPAIR_PROMPT_TEMPLATE = """아래 퀴즈 JSON은 품질 검증에 실패�
 - OX는 반드시 참/거짓 평서문이어야 하며 options는 ["O", "X"]입니다.
 - 객관식은 options 3~4개와 그중 하나와 완전히 같은 correct_answer가 필요합니다.
 - 문항 유형은 MULTIPLE_CHOICE와 OX만 사용하세요.
-- question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
+- question은 60자 이내, option은 35자 이내, explanation은 90자 이내의 완결된 한 문장으로 쓰세요.
 - JSON 외 텍스트는 쓰지 마세요."""
 
 QUIZ_SOURCE_SUMMARY_SYSTEM_PROMPT = """당신은 강의자료와 전사문을 퀴즈 생성에 적합한 학습 요약본으로 정리하는 AI입니다.
@@ -486,6 +486,42 @@ def _trim_text(value: str, limit: int = 90) -> str:
     if len(text) <= limit:
         return text
     return text[:limit].rstrip() + "..."
+
+
+def _complete_explanation(value: str, limit: int = 120) -> str:
+    """퀴즈 해설은 말줄임표가 아니라 완결된 한 문장으로 표시합니다."""
+    text = _clean_quiz_fragment(value).rstrip(" .。…")
+    if not text:
+        return ""
+    if len(text) > limit:
+        clipped = text[:limit].rstrip()
+        sentence_ends = [
+            match.end()
+            for match in re.finditer(r"[.!?。！？]", clipped)
+            if match.end() >= 32
+        ]
+        if sentence_ends:
+            clipped = clipped[:sentence_ends[-1]].rstrip(" .。…")
+        else:
+            space_pos = clipped.rfind(" ")
+            if space_pos >= 32:
+                clipped = clipped[:space_pos].rstrip(" .。…")
+        text = clipped
+
+    korean_end_fixes = {
+        "입니": "입니다",
+        "합니": "합니다",
+        "됩니": "됩니다",
+        "습니": "습니다",
+    }
+    for broken, fixed in korean_end_fixes.items():
+        if text.endswith(broken):
+            text = f"{text[:-len(broken)]}{fixed}"
+            break
+
+    if not re.search(r"[.!?。！？]$", text):
+        text = f"{text}."
+    return text
 
 
 def _clip_text(value: str, limit: int = 90) -> str:
@@ -1040,7 +1076,7 @@ def _normalize_llm_mc_direct(
         "correct_answer": correct_answer,
         "user_answer": None,
         "is_correct": None,
-        "explanation": _trim_text(candidate.get("explanation") or answer_text, 70),
+        "explanation": _complete_explanation(candidate.get("explanation") or answer_text),
     }
 
 
@@ -1405,7 +1441,7 @@ def _plain_text_to_candidate(
         "answer": answer,
         "correct_answer": answer,
         "distractors": [],
-        "explanation": _trim_text(source_sentence, 70),
+        "explanation": _complete_explanation(source_sentence),
     }
     return _normalize_single_llm_question(candidate, question_type, transcript_text, type_index)
 
@@ -1493,7 +1529,7 @@ def _numbered_mc_question(
     next_question["question"] = _clip_text(question_text, 70)
     next_question["options"] = numbered_options
     next_question["correct_answer"] = correct_answer
-    next_question["explanation"] = _trim_text(next_question.get("explanation") or answer_text, 70)
+    next_question["explanation"] = _complete_explanation(next_question.get("explanation") or answer_text)
     return next_question
 
 
@@ -1536,7 +1572,7 @@ def _normalize_single_llm_question(
         next_question["options"] = ["O", "X"]
         next_question = _coerce_correct_answer(next_question)
         next_question["question"] = _trim_text(next_question.get("question") or "", 90)
-        next_question["explanation"] = _trim_text(next_question.get("explanation") or "", 70)
+        next_question["explanation"] = _complete_explanation(next_question.get("explanation") or next_question.get("question") or "")
         return next_question
 
     return None
@@ -1636,7 +1672,7 @@ def _build_fallback_question(
             "question": _mc_question_from_source(sentence, correct_phrase, type_index),
             "user_answer": None,
             "is_correct": None,
-            "explanation": _trim_text(sentence, 50),
+            "explanation": _complete_explanation(sentence),
         }
         normalized = _numbered_mc_question(question, correct_phrase, [], transcript_text, type_index)
         if normalized is not None:
@@ -1652,7 +1688,7 @@ def _build_fallback_question(
                     *_make_rule_based_distractors(correct_phrase, limit=4),
                     *_make_contrastive_distractors(correct_phrase, limit=4),
                 ],
-                "explanation": sentence,
+                "explanation": _complete_explanation(sentence),
             },
             transcript_text,
             type_index,
@@ -1672,7 +1708,7 @@ def _build_fallback_question(
                 "correct_answer": "X",
                 "user_answer": None,
                 "is_correct": None,
-                "explanation": _trim_text(sentence, 50),
+                "explanation": _complete_explanation(sentence),
             }
         return {
             "question_index": 0,
@@ -1682,7 +1718,7 @@ def _build_fallback_question(
             "correct_answer": "O",
             "user_answer": None,
             "is_correct": None,
-            "explanation": _trim_text(sentence, 50),
+            "explanation": _complete_explanation(sentence),
         }
 
     raise ValueError(f"지원하지 않는 퀴즈 유형입니다: {question_type}")
@@ -1903,7 +1939,7 @@ def _build_type_specific_messages(
 - 이미 사용한 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
 - 객관식은 특정 개념을 묻고, 정답과 오답 모두 학습 내용이 담긴 짧은 설명으로 쓰세요.
 - "자료에서 확인할 수 없는 별도의 개념이다"처럼 형식만 맞춘 보기는 만들지 마세요.
-- question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
+- question은 60자 이내, option은 35자 이내, explanation은 90자 이내의 완결된 한 문장으로 쓰세요.
 - JSON 배열 외 텍스트는 쓰지 마세요.
 
 반드시 아래처럼 JSON 배열만 응답하세요:
@@ -1981,7 +2017,7 @@ def _build_single_question_messages(
 - 객관식 질문은 특정 개념명을 포함하세요. "강의 내용과 가장 일치하는 설명은?" 같은 포괄 질문은 금지합니다.
     - 객관식 보기에는 "자료에서 확인할 수 없는", "자료의 설명과 반대", "관련이 있다/없다" 같은 메타 문장을 넣지 마세요.
 - 이미 만든 질문과 중복되거나 거의 같은 질문은 만들지 마세요.
-- question은 60자 이내, option은 35자 이내, explanation은 50자 이내로 짧게 쓰세요.
+- question은 60자 이내, option은 35자 이내, explanation은 90자 이내의 완결된 한 문장으로 쓰세요.
 - JSON 객체 1개만 응답하세요. JSON 외 텍스트는 쓰지 마세요.
 
 응답 형식:
