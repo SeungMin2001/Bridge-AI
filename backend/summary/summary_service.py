@@ -323,16 +323,16 @@ def _summary_lacks_source_detail(summary_text: str, source_text: str) -> bool:
     return covered < max(3, min(5, len(concepts) // 2))
 
 
-def _build_extractive_report_summary(source_text: str, *, max_items: int = 12) -> str:
+def _build_extractive_report_summary(source_text: str, *, max_items: int = 20) -> str:
     """LLM 출력이 빈약할 때 원문 핵심 문장 기반으로 풍부한 보고서형 요약을 구성합니다."""
     evidence = _build_evidence_sentences(source_text, limit=max_items)
     if not evidence:
         return str(source_text or "").strip()
 
     overview = evidence[:3]
-    details = evidence[3:10] or evidence[: min(len(evidence), 7)]
-    points = evidence[10:12] or evidence[:3]
-    concepts = _extract_concept_keywords(source_text, limit=8)
+    details = evidence[3:14] or evidence[: min(len(evidence), 8)]
+    points = evidence[14:18] or evidence[:4]
+    concepts = _extract_concept_keywords(source_text, limit=12)
 
     lines = ["## 핵심 요약"]
     for sentence in overview:
@@ -452,14 +452,60 @@ def _parse_summary_json(raw_text: str) -> str:
     return summary_text.strip()
 
 
+def _summary_is_instruction_echo(summary_text: str) -> bool:
+    """요약 텍스트가 프롬프트 지시문을 그대로 복사한 것인지 판별합니다."""
+    text = str(summary_text or "").strip()
+    if not text:
+        return True
+
+    # 프롬프트 지시문에서 자주 복사되는 패턴 (이전 버전 + 현재 버전 모두 포함)
+    echo_patterns = (
+        "보고서형",
+        "서술형으로 작성",
+        "메타 설명은 출력하지",
+        "메타 설명(예:",
+        "구체적인 내용을 작성",
+        "학습자가 바로 복습",
+        "형식만 설명하지",
+        "새로운 사실은 추가하지 않았",
+        "원문에 없는 사실은",
+        "핵심 원문 문장의 구체",
+        "개념 이름, 정의, 관계, 절차",
+        "정리했습니다",
+        "반영했습니다",
+        "작성했습니다",
+        "포함합니다",
+        "작성합니다",
+        "서술할 것",
+        "빠뜨리지 말",
+        "JSON 형식으로",
+        "Markdown 보고서",
+        "전사문/PDF에 실제로",
+        "풍부하게 반영",
+    )
+    hits = sum(1 for pattern in echo_patterns if pattern in text)
+    return hits >= 2
+
+
 def _ensure_structured_summary(summary_text: str, source_text: str = "") -> str:
     """LLM/복구/mock 결과가 한 문단으로만 나오지 않도록 보고서형 Markdown으로 보정합니다."""
     text = str(summary_text or "").strip()
+
+    # LLM이 프롬프트 지시문을 복사한 경우 즉시 추출 요약으로 대체
+    if source_text and _summary_is_instruction_echo(text):
+        _demo_log("요약 품질 보정: LLM 출력이 프롬프트 지시문 복사로 판정, 핵심문장 기반 보고서 재구성")
+        return _build_extractive_report_summary(source_text)
+
     if text and sum(section in text for section in SUMMARY_REQUIRED_SECTIONS) >= 2:
         if source_text and _summary_lacks_source_detail(text, source_text):
             _demo_log("요약 품질 보정: LLM 출력의 원문 반영 부족으로 핵심문장 기반 보고서 재구성")
             return _build_extractive_report_summary(source_text)
         return text
+
+    # 섹션 구조가 없는 LLM 출력: source_text가 있으면 원문 기반 추출 요약 사용
+    if source_text and len(source_text.strip()) >= 50:
+        _demo_log("요약 품질 보정: LLM 출력에 구조 없음, 원문 핵심문장 기반 보고서 구성")
+        return _build_extractive_report_summary(source_text)
 
     sentences = _split_sentences(text) or _split_sentences(source_text)
     if not sentences:
