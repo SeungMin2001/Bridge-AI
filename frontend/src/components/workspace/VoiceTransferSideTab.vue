@@ -3,6 +3,8 @@
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useChat } from '../../composables/useChat'
 import LoadingHourglass from '../ui/LoadingHourglass.vue'
+import ScheduleCreateModal from './ScheduleCreateModal.vue'
+import { createManualSchedule } from '../../api/scheduleApi'
 
 const { selectWord } = useChat()
 
@@ -21,7 +23,8 @@ const props = defineProps({
   showToolbar: { type: Boolean, default: false },
   toolbarTitle: { type: String, default: '스크립트' },
   toolbarTitleEditable: { type: Boolean, default: false },
-  citationHighlight: { type: Object, default: null }
+  citationHighlight: { type: Object, default: null },
+  isRecording: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['addToNote', 'askAi', 'startTranscription', 'seekPlayback', 'rename-toolbar-title'])
@@ -53,6 +56,37 @@ const isUploadedTranscriptionProcessing = computed(() => (
 const isUploadedTranscriptionFailed = computed(() => (
   !hasAnyTranscriptions.value && normalizedTranscriptionStatus.value === 'failed'
 ))
+const isScheduleModalVisible = ref(false)
+const scheduleModalData = ref(null)
+
+const openScheduleModal = (transcription) => {
+  const sourceText = getTranscriptionText(transcription)
+  const startTime = getTranscriptionStartSecond(transcription)
+  const endTime = getTimeRange(transcription)?.end ?? null
+  
+  // Note: we don't have direct access to sessionId and recordingId in transcription object natively,
+  // but we can pass whatever we have, or leave them null if not directly available.
+  // The server might need them, so we should check if they exist.
+  scheduleModalData.value = {
+    sourceText,
+    sourceStartTime: startTime,
+    sourceEndTime: endTime,
+    sessionId: transcription.sessionId || transcription.session_id,
+    recordingId: transcription.recordingId || transcription.recording_id
+  }
+  isScheduleModalVisible.value = true
+}
+
+const handleSaveSchedule = async (payload) => {
+  try {
+    await createManualSchedule(payload)
+    alert('일정이 성공적으로 추가되었습니다.')
+    isScheduleModalVisible.value = false
+  } catch (error) {
+    alert(error.message || '일정 추가에 실패했습니다.')
+  }
+}
+
 const filteredTranscriptions = computed(() => (
   props.transcriptions.filter((item) => (
     String(item.text || '').toLowerCase().includes(transSearch.value.toLowerCase())
@@ -662,15 +696,27 @@ const handleToolbarTitleCompositionEnd = () => {
           }"
           :style="{ animationDelay: `${idx * 0.06}s` }"
         >
-          <button
-            type="button"
-            class="transcription-time text-[11px] font-bold text-[#aeaeb2] px-1.5"
-            :disabled="getTranscriptionStartSecond(t) === null"
-            :aria-label="`${getTranscriptionTime(t)}부터 재생`"
-            @click="emit('seekPlayback', getTranscriptionStartSecond(t))"
-          >
-            {{ getTranscriptionTime(t) }}
-          </button>
+          <div class="flex items-center gap-1 px-1.5">
+            <button
+              type="button"
+              class="transcription-time text-[11px] font-bold text-[#aeaeb2]"
+              :disabled="getTranscriptionStartSecond(t) === null"
+              :aria-label="`${getTranscriptionTime(t)}부터 재생`"
+              @click="emit('seekPlayback', getTranscriptionStartSecond(t))"
+            >
+              {{ getTranscriptionTime(t) }}
+            </button>
+            <button
+              v-if="!isRecording"
+              type="button"
+              class="flex items-center justify-center p-1 rounded-full text-[#aeaeb2] hover:bg-[#F1F5F9] hover:text-[#355CFF] transition-colors"
+              title="일정 추가"
+              aria-label="일정 추가"
+              @click="openScheduleModal(t)"
+            >
+              <span class="material-symbols-outlined text-[13px]">calendar_add_on</span>
+            </button>
+          </div>
           <div class="message-bubble voice-message-bubble px-3.5 py-3 text-[15px] leading-[1.6]" :class="{ 'is-content': variant === 'content', 'is-meeting': shouldShowSpeaker(t) }">
             <template v-if="t.segments && t.segments.length">
               <span
@@ -762,6 +808,13 @@ const handleToolbarTitleCompositionEnd = () => {
       </section>
     </transition>
   </Teleport>
+
+  <ScheduleCreateModal
+    :visible="isScheduleModalVisible"
+    :initial-data="scheduleModalData"
+    @close="isScheduleModalVisible = false"
+    @save="handleSaveSchedule"
+  />
 </template>
 
 <style scoped>

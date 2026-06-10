@@ -1005,6 +1005,7 @@ watch(() => props.recordingSourceRequest, (request) => {
             :transcription-error="visibleTranscriptionError"
             :can-start-transcription="canStartUploadedTranscription"
             :is-transcription-submitting="isTranscriptionRequesting"
+            :is-recording="isRecording"
             :variant="embedded ? 'content' : 'sidebar'"
             :show-toolbar="embedded"
             :toolbar-title="transcriptToolbarTitle"

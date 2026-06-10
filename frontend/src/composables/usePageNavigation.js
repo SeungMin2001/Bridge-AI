@@ -45,11 +45,21 @@ export function usePageNavigation() {
   // 앱 내부 화면 이름을 받아 hash 경로를 변경합니다.
   const navigateTo = (view) => {
     const nextHash = VIEW_TO_HASH[view] || VIEW_TO_HASH.home
+    const shouldReload = ['home', 'workfolder', 'schedule'].includes(view)
+
     if (window.location.hash === nextHash) {
       currentView.value = resolveView(nextHash)
+      if (shouldReload) {
+        window.location.reload()
+      }
       return
     }
     window.location.hash = nextHash
+    if (shouldReload) {
+      setTimeout(() => {
+        window.location.reload()
+      }, 50)
+    }
   }
 
   const currentPath = computed(() => normalizeHash(window.location.hash))
