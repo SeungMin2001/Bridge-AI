@@ -1,4 +1,6 @@
 <script setup>
+import { ref } from 'vue'
+
 defineProps({
   selectedDateKey: { type: String, required: true },
   selectedSchedules: { type: Array, required: true },
@@ -15,6 +17,18 @@ const emit = defineEmits([
   'open-workspace',
   'focus-schedule'
 ])
+
+const expandedItems = ref({})
+
+function toggleExpand(itemId) {
+  expandedItems.value[itemId] = !expandedItems.value[itemId]
+}
+
+function isLongText(text) {
+  if (!text) return false
+  const lines = text.split('\n').length
+  return lines >= 3 || text.length > 120
+}
 </script>
 
 <template>
@@ -47,7 +61,23 @@ const emit = defineEmits([
             {{ item.time }}
           </div>
           <p v-if="item.note">{{ item.note }}</p>
-          <blockquote v-if="item.sourceText">{{ item.sourceText }}</blockquote>
+          
+          <div v-if="item.sourceText" class="schedule-source-container">
+            <blockquote :class="['schedule-source-text', { 'is-clamped': !expandedItems[item.id] && isLongText(item.sourceText) }]">
+              {{ item.sourceText }}
+            </blockquote>
+            <div v-if="isLongText(item.sourceText)" class="schedule-source-toggle-wrapper">
+              <button 
+                type="button" 
+                class="schedule-source-toggle-bar"
+                @click="toggleExpand(item.id)"
+              >
+                <span class="material-symbols-outlined">
+                  {{ expandedItems[item.id] ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}
+                </span>
+              </button>
+            </div>
+          </div>
           <div class="schedule-card-actions">
             <template v-if="item.status === 'pending'">
               <button class="schedule-primary-btn" @click="emit('confirm', item)">확정</button>
@@ -273,6 +303,47 @@ const emit = defineEmits([
   font-weight: 600;
   line-height: 1.5;
   border-left: 3px solid #d4d4d8;
+}
+
+.schedule-source-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.schedule-source-text.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-source-toggle-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.schedule-source-toggle-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.schedule-source-toggle-bar:hover {
+  opacity: 1;
+}
+
+.schedule-source-toggle-bar .material-symbols-outlined {
+  font-size: 20px;
+  color: #71717a;
 }
 
 .schedule-card-actions {
