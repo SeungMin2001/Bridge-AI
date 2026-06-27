@@ -146,6 +146,13 @@ Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전�
 BridgePRAG는 기존 Passage-only 방식과 달리 **Question + Passage**를 함께 인코딩하여 질문에 더 직접적으로 연결된 문맥 정보를 모델 내부 메모리로 주입하는 구조이다.
 이를 통해 여러 문단의 정보를 조합해야 하는 질문에서도 필요한 근거를 더 안정적으로 연결하는 것을 목표로 하였다.
 
+### BridgePRAG 모델 구조
+
+BridgePRAG는 질문과 문단 정보를 함께 입력으로 사용하여 MLP를 통해 K/V Memory를 생성한다. 생성된 K/V 벡터는 Orthogonal Merge 과정을 거쳐 서로 중복되는 정보를 줄이고, 최종적으로 특정 LLM layer에 주입된다.
+이 구조는 검색된 문단을 단순히 프롬프트에 붙이는 방식이 아니라, 질문과 연결된 지식을 모델 내부 attention 흐름에 반영하는 방식이다.
+
+![BridgePRAG 모델 구조](docs/images/bridgeprag-model-architecture.png)
+
 ### 실험 설정
 
 - **데이터셋:** 자체 구축 한국어 Multi-fact QA 데이터셋
