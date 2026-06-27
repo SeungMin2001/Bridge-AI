@@ -13,18 +13,17 @@ Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전�
 
 | 이름 | 담당 업무 | 이메일 |
 | :---: | :--- | :--- |
+| 신승민 | AI 모델 직접 개발, 프로젝트 총괄, 팀 리더 | dolkuji1@naver.com |
+| 문태건 | DB 설계 및 시스템 환경 구성 | mtg5791@gmail.com |
 | 신창영 | 프론트엔드/백엔드 개발, AI 파이프라인 개발, STT/RAG/요약/퀴즈/일정 기능 개발 | toyoaki900@sunmoon.ac.kr |
 
 ---
 
-## 프로젝트 문서 / Notion
+## 프로젝트 문서
 
-더 자세한 설계와 실행 흐름은 아래 문서에서 확인할 수 있습니다.
+프로젝트 발표 자료는 아래 Canva 링크에서 확인할 수 있습니다.
 
-- [프로젝트 실행 흐름 가이드](docs/project_runtime_guide.md)
-- [시스템 모델 문서](docs/system_model.md)
-- [LLM 파이프라인 문서](docs/llm_pipeline.md)
-- Notion 문서: 추가 예정
+- [Bridge AI 프로젝트 발표 자료](https://www.canva.com/design/DAHNwCZAAO0/5nFVbArp7V75iRIMEAXAbw/edit)
 
 ---
 
