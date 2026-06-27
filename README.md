@@ -4,8 +4,8 @@
   <img src="docs/images/bridge-ai-overview.png" alt="Bridge AI 대표 이미지" width="900" />
 </p>
 
-Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전사문과 업로드 자료를 기반으로 **AI 질문응답, 요약, 퀴즈 생성, 일정 추출**을 제공하는 AI 학습 보조 웹 애플리케이션입니다.  
-사용자는 하나의 워크스페이스 안에서 녹음, 자료 업로드, 전사 확인, 근거 기반 AI 채팅, 요약 노트, 퀴즈 풀이, 캘린더 관리를 함께 사용할 수 있습니다.
+Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전사문과 업로드 자료를 기반으로 **AI 질문응답, 요약, 퀴즈 생성, 일정 추출**을 제공하는 AI 학습 보조 웹 애플리케이션이다.
+사용자는 하나의 워크스페이스 안에서 녹음, 자료 업로드, 전사 확인, 근거 기반 AI 채팅, 요약 노트, 퀴즈 풀이, 캘린더 관리를 함께 수행할 수 있다.
 
 ---
 
@@ -21,7 +21,7 @@ Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전�
 
 ## 프로젝트 문서
 
-프로젝트 발표 자료는 아래 Canva 링크에서 확인할 수 있습니다.
+프로젝트 발표 자료는 아래 Canva 링크에서 확인할 수 있다.
 
 - [Bridge AI 프로젝트 발표 자료](https://www.canva.com/design/DAHNwCZAAO0/5nFVbArp7V75iRIMEAXAbw/edit)
 
@@ -141,9 +141,30 @@ Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전�
 
 ---
 
+## BridgePRAG 실험 및 결과
+
+BridgePRAG는 기존 Passage-only 방식과 달리 **Question + Passage**를 함께 인코딩하여 질문에 더 직접적으로 연결된 문맥 정보를 모델 내부 메모리로 주입하는 구조이다.
+이를 통해 여러 문단의 정보를 조합해야 하는 질문에서도 필요한 근거를 더 안정적으로 연결하는 것을 목표로 하였다.
+
+### 실험 설정
+
+- **데이터셋:** 자체 구축 한국어 Multi-fact QA 데이터셋
+- **데이터 규모:** 전체 passage 9,600개
+- **질문 유형:** 질문 1개가 여러 passage의 정보를 함께 요구하는 구조
+- **비교 방식:** BridgePRAG(Question+Passage)와 Passage-only PRAG를 동일 조건에서 비교
+
+### 실험 결과
+
+실험 결과, BridgePRAG는 학습 epoch가 증가할수록 빠르게 정확도가 상승했으며 최종 epoch 기준 약 **84%**의 정확도를 기록하였다.
+반면 Passage-only 방식은 약 **40%** 수준에 머물렀으며, 질문과 문단 정보를 함께 연결하는 방식이 Multi-fact QA에서 더 높은 성능을 보이는 것으로 나타났다.
+
+![BridgePRAG 실험 결과](docs/images/bridgeprag-experiment-result.png)
+
+---
+
 ## 시연 영상
 
-이미지를 클릭하면 Bridge AI 시연 영상을 확인할 수 있습니다.
+이미지를 클릭하면 Bridge AI 시연 영상을 확인할 수 있다.
 
 [![Bridge AI 시연 영상](docs/images/bridge-ai-demo-thumbnail.png)](https://youtu.be/vdB9m4nv1Pg)
 
