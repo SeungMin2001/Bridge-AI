@@ -271,13 +271,9 @@ erDiagram
 
 ## 시연 영상
 
-시연 영상은 추가 예정입니다.
+이미지를 클릭하면 Bridge AI 시연 영상을 확인할 수 있습니다.
 
-<!--
-이미지를 클릭하면 시연 영상을 확인할 수 있도록 아래 형식으로 추가할 수 있습니다.
-
-[![Bridge AI 시연 영상](이미지_URL)](유튜브_URL)
--->
+[![Bridge AI 시연 영상](docs/images/bridge-ai-demo-thumbnail.png)](https://youtu.be/vdB9m4nv1Pg)
 
 ---
 
