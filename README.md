@@ -30,140 +30,13 @@ Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전�
 
 ## 시스템 아키텍처
 
-```mermaid
-flowchart TB
-    USER["사용자"]
-    FRONT["Frontend\nVue 3 + Vite"]
-    BACK["Backend\nFastAPI"]
-    DB["PostgreSQL\npgvector"]
-    STT["STT\nfaster-whisper"]
-    DIAR["화자분리 서버\ndiart / pyannote"]
-    LLM["LLM 서버\nQwen / OpenAI 호환 API"]
-    RAG["RAG 검색\nLlamaIndex + Embedding"]
-    NOTION["Notion API"]
-
-    USER -->|"녹음 / 자료 업로드 / 질문"| FRONT
-    FRONT -->|"REST API / WebSocket / SSE"| BACK
-    BACK -->|"전사 요청"| STT
-    BACK -->|"화자 구간 분석"| DIAR
-    BACK -->|"질문 / 요약 / 퀴즈 생성"| LLM
-    BACK -->|"임베딩 / 검색"| RAG
-    RAG --> DB
-    BACK -->|"전사 / 요약 / 퀴즈 / 일정 저장"| DB
-    BACK -->|"일정 내보내기 / 불러오기"| NOTION
-    DB --> BACK
-    BACK --> FRONT
-```
+![Bridge AI 시스템 아키텍처](docs/images/bridge-ai-system-architecture.png)
 
 ---
 
 ## ERD
 
-```mermaid
-erDiagram
-    USERS ||--o{ COURSES : owns
-    COURSES ||--o{ SESSIONS : contains
-    COURSES ||--o| COURSE_MEMORIES : has
-    SESSIONS ||--o{ TRANSCRIPTS : includes
-    SESSIONS ||--o{ SUMMARIES : has
-    SESSIONS ||--o{ QUIZZES : has
-    SESSIONS ||--o{ SCHEDULES : has
-    TRANSCRIPTS ||--o{ EXPLANATION_CHUNKS : cited_by
-    EXPLANATIONS ||--o{ EXPLANATION_CHUNKS : has
-
-    USERS {
-        uuid user_id PK
-        varchar email
-        varchar name
-        timestamp created_at
-    }
-
-    COURSES {
-        uuid course_id PK
-        uuid user_id
-        uuid parent_course_id
-        varchar title
-        varchar type
-        varchar color
-        varchar icon
-    }
-
-    SESSIONS {
-        uuid session_id PK
-        uuid course_id
-        date session_date
-        varchar title
-        text audio_path
-        jsonb session_pdf
-        jsonb session_voicefile
-        jsonb summary_notes
-    }
-
-    TRANSCRIPTS {
-        uuid transcript_id PK
-        uuid session_id
-        text recording_id
-        int chunk_index
-        real start_time
-        real end_time
-        text speaker_id
-        text chunk_text
-        text corrected_text
-        vector embedding
-    }
-
-    SUMMARIES {
-        uuid summary_id PK
-        uuid session_id
-        text recording_id
-        text speaker_summary
-        text session_summary
-        text course_summary
-    }
-
-    QUIZZES {
-        uuid quiz_id PK
-        uuid session_id
-        jsonb quiz_data
-        int total_questions
-        int correct_count
-    }
-
-    SCHEDULES {
-        uuid schedule_id PK
-        uuid session_id
-        text recording_id
-        varchar title
-        timestamp due_date
-        varchar status
-        boolean calendar_flag
-        text notion_page_id
-    }
-
-    EXPLANATIONS {
-        uuid explanation_id PK
-        uuid request_id
-        text answer_text
-        text source_links
-        varchar model_name
-    }
-
-    EXPLANATION_CHUNKS {
-        uuid explanation_chunk_id PK
-        uuid explanation_id
-        uuid transcript_id
-        real similarity_score
-        text quoted_text
-    }
-
-    COURSE_MEMORIES {
-        uuid memory_id PK
-        uuid course_id
-        bytea merged_k
-        bytea merged_v
-        int passage_count
-    }
-```
+![Bridge AI ERD](docs/images/bridge-ai-erd.png)
 
 ---
 
@@ -271,9 +144,13 @@ erDiagram
 
 ## 시연 영상
 
-이미지를 클릭하면 Bridge AI 시연 영상을 확인할 수 있습니다.
+시연 영상은 추가 예정입니다.
 
-[![Bridge AI 시연 영상](docs/images/bridge-ai-demo-thumbnail.png)](https://youtu.be/vdB9m4nv1Pg)
+<!--
+이미지를 클릭하면 시연 영상을 확인할 수 있도록 아래 형식으로 추가할 수 있습니다.
+
+[![Bridge AI 시연 영상](이미지_URL)](유튜브_URL)
+-->
 
 ---
 
