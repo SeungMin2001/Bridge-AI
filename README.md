@@ -152,90 +152,28 @@ Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전�
 ## 화면 구성
 
 <details>
-<summary><strong>접속 및 홈</strong></summary>
+<summary><strong>웹 화면 구성</strong></summary>
 
 ### Bridge AI 대표 화면
 
-![Bridge AI 대표 이미지](frontend/public/images/banner_illust.png)
+![Bridge AI 대표 화면](docs/images/bridge-ai-web-main.png)
 
-### 홈 대시보드
+### 실시간 전사 및 요약 화면
 
-이미지 추가 예정
+녹음된 강의 내용을 시간대별 전사문으로 확인하고, 선택한 전사/음성 자료를 기반으로 AI 요약을 생성할 수 있습니다. 오른쪽 패널에서는 답변 근거와 출처 구간을 함께 확인할 수 있습니다.
 
-<!-- ![홈 대시보드](이미지_URL) -->
-
-</details>
-
-<details>
-<summary><strong>워크스페이스</strong></summary>
-
-### 실시간 녹음 및 전사 화면
-
-이미지 추가 예정
-
-<!-- ![실시간 녹음 및 전사 화면](이미지_URL) -->
-
-### 자료 미리보기 화면
-
-이미지 추가 예정
-
-<!-- ![자료 미리보기 화면](이미지_URL) -->
-
-### AI 채팅 화면
-
-이미지 추가 예정
-
-<!-- ![AI 채팅 화면](이미지_URL) -->
-
-</details>
-
-<details>
-<summary><strong>요약 및 퀴즈</strong></summary>
-
-### 자동 요약 화면
-
-이미지 추가 예정
-
-<!-- ![자동 요약 화면](이미지_URL) -->
+![Bridge AI 실시간 전사 및 요약 화면](docs/images/bridge-ai-web-summary.png)
 
 ### AI 퀴즈 화면
 
-이미지 추가 예정
+전사 내용을 바탕으로 생성된 퀴즈를 풀고, 정답/오답 결과와 해설을 바로 확인할 수 있습니다. 학습자가 복습 과정에서 핵심 개념을 점검할 수 있도록 구성했습니다.
 
-<!-- ![AI 퀴즈 화면](이미지_URL) -->
-
-</details>
-
-<details>
-<summary><strong>일정 관리</strong></summary>
+![Bridge AI 퀴즈 화면](docs/images/bridge-ai-web-quiz.png)
 
 ### 캘린더 화면
 
-이미지 추가 예정
+전사문에서 추출된 시험, 과제, 발표 일정을 월간 캘린더로 확인할 수 있습니다. 선택한 날짜의 상세 일정과 AI가 찾은 일정 후보를 오른쪽 패널에서 관리할 수 있습니다.
 
-<!-- ![캘린더 화면](이미지_URL) -->
-
-### Notion 일정 동기화
-
-이미지 추가 예정
-
-<!-- ![Notion 일정 동기화 화면](이미지_URL) -->
-
-</details>
-
-<details>
-<summary><strong>AI 히스토리 및 파일 관리</strong></summary>
-
-### AI 히스토리 화면
-
-이미지 추가 예정
-
-<!-- ![AI 히스토리 화면](이미지_URL) -->
-
-### 폴더 / 파일 관리 화면
-
-이미지 추가 예정
-
-<!-- ![폴더 파일 관리 화면](이미지_URL) -->
+![Bridge AI 캘린더 화면](docs/images/bridge-ai-web-calendar.png)
 
 </details>
