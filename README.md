@@ -1,7 +1,7 @@
 # Bridge AI
 
 <p align="center">
-  <img src="frontend/public/images/banner_illust.png" alt="Bridge AI 대표 이미지" width="520" />
+  <img src="docs/images/bridge-ai-overview.png" alt="Bridge AI 대표 이미지" width="900" />
 </p>
 
 Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전사문과 업로드 자료를 기반으로 **AI 질문응답, 요약, 퀴즈 생성, 일정 추출**을 제공하는 AI 학습 보조 웹 애플리케이션입니다.  
@@ -13,7 +13,7 @@ Bridge AI는 강의, 회의, 발표 음성을 실시간으로 전사하고, 전�
 
 | 이름 | 담당 업무 | 이메일 |
 | :---: | :--- | :--- |
-| 신창영 | 프론트엔드/백엔드 개발, AI 파이프라인 개발, STT/RAG/요약/퀴즈/일정 기능 개발 | - |
+| 신창영 | 프론트엔드/백엔드 개발, AI 파이프라인 개발, STT/RAG/요약/퀴즈/일정 기능 개발 | toyoaki900@sunmoon.ac.kr |
 
 ---
 
